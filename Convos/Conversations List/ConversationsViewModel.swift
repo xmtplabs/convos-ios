@@ -97,6 +97,17 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    /// The claimed conversation backing the Compose flow. Created upfront by
+    /// `onStartConvo()` (mode `.newConversation`, which claims a warm-cached
+    /// conversation that already has an invite) so the contacts picker can
+    /// show that conversation's convo code in its empty state, and reused as
+    /// the destination the picker pushes on Skip / Continue. Cleared (and
+    /// torn down if it stayed empty) by `endComposeFlow()`.
+    var composeConversationViewModel: NewConversationViewModel? {
+        didSet {
+            oldValue?.cleanUpIfNeeded()
+        }
+    }
     var agentBuilderViewModel: AgentBuilderViewModel? {
         didSet {
             // Mirrors `newConversationViewModel.didSet`'s cleanup: when
@@ -114,6 +125,11 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    /// Drives the Compose flow sheet: the contacts picker is the root and
+    /// the claimed `composeConversationViewModel` is pushed onto it on Skip /
+    /// Continue. Distinct from `newConversationViewModel` (scanner / join /
+    /// template), so the two never drive overlapping presentations.
+    var presentingComposeFlow: Bool = false
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -389,11 +405,37 @@ final class ConversationsViewModel {
         }
     }
 
+    /// Compose opens the contacts picker first (optional selection), then
+    /// pushes the conversation on Skip / Continue (`ComposeFlowView`). With no
+    /// contacts to pick from, the picker would be pointless -- so we skip it
+    /// and open the new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        // Count the contacts the picker would actually show (excludes agents,
+        // blocked, and unnamed) -- the raw contact count includes those, so
+        // it can't decide whether the picker is worth showing.
+        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
+        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
+        guard !pickable.isEmpty else {
+            newConversationViewModel = NewConversationViewModel(
+                session: session,
+                mode: .newConversation
+            )
+            return
+        }
+        composeConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
         )
+        presentingComposeFlow = true
+    }
+
+    /// Tears down the Compose flow when its sheet is dismissed. Clearing
+    /// `composeConversationViewModel` runs its `didSet` cleanup (which keeps a
+    /// conversation that already has content / members and discards an empty
+    /// claimed draft).
+    func endComposeFlow() {
+        presentingComposeFlow = false
+        composeConversationViewModel = nil
     }
 
     func onJoinConvo() {

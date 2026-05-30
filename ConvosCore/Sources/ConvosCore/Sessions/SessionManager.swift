@@ -540,6 +540,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try DBCreditBalance.deleteAll(db)
             try DBConversationReadReceipt.deleteAll(db)
             try DBPendingPhotoUpload.deleteAll(db)
+            try DBBuilderBundleHiddenMessage.deleteAll(db)
             try DBVoiceMemoTranscript.deleteAll(db)
             try AttachmentLocalState.deleteAll(db)
             try DBPhotoPreferences.deleteAll(db)
@@ -1110,5 +1111,11 @@ public extension SessionManager {
             }
         }
         Log.info("SessionManager: removed \(deletedCount) stale libxmtp file(s) for adopted inboxId after pairing adoption")
+    }
+}
+
+extension SessionManager {
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
     }
 }

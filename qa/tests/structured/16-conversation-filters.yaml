@@ -5,9 +5,20 @@ description: >
   (All, Unread, Exploding, Pending invites), correct filtering, empty states,
   and the Show all button. Filter button id="filter-button", label changes to
   "Filter active" when non-All filter selected.
-tags: [conversations, filters]
+tags: [conversations, filters, blocked]
 depends_on: ["02"]
 estimated_duration_s: 180
+
+blocked: true
+blocked_reason: >
+  The conversations-list filter picker (filter-button - the
+  All/Unread/Exploding/Pending PopUp) is not currently surfaced in the UI.
+  It was removed around the Agent Builder work (#830); the filter logic
+  still exists in ConversationsViewModel (activeFilter / applyFilter) but
+  there is no user control to select a non-All filter. Filters may be
+  re-added in the future - re-enable this test then. Steps below are
+  preserved unchanged. (stuff-filter-button is a separate Stuff-tab
+  control, not this.)
 
 prerequisites:
   app_running: true

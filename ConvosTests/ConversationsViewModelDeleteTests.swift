@@ -335,6 +335,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.agentBuilderSummaryRepository()
     }
 
+    func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        base.builderBundleHiddenMessagesRepository()
+    }
+
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
         base.thinkingSessionRepository()
     }

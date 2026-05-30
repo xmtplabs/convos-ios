@@ -21,6 +21,10 @@ enum CaughtUpMessageKind {
     case ignore
     case readReceipt
     case thinking
+    /// Silent agent-builder bundle manifest. Lists the prepared XMTP ids of a
+    /// builder bundle so every client hides them; stored via
+    /// `storeBuilderBundleManifest`, never rendered as a chat row.
+    case builderBundleManifest
     case reaction
     /// Text, attachments, link previews, group updates, etc. -> the regular
     /// message writer (`IncomingMessageWriter.store` / `persist`).
@@ -35,6 +39,9 @@ enum CaughtUpMessageKind {
         }
         if message.isThinking {
             return .thinking
+        }
+        if message.isBuilderBundleManifest {
+            return .builderBundleManifest
         }
         guard let contentType = try? message.encodedContent.type else {
             return .ignore

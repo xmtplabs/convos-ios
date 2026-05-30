@@ -13,6 +13,7 @@ public final class MessagesListProcessor: Sendable {
         previousReadByMembers: [ConversationMember] = [],
         verifiedAgent: ConversationMember? = nil,
         agentBuilderSummary: AgentBuilderSummary? = nil,
+        hiddenBundleMessageIds: Set<String> = [],
         isInAgentBuilderFlow: Bool = false
     ) -> [MessagesListItemType] {
         let baseItems: [MessagesListItemType] = processMessages(
@@ -25,19 +26,65 @@ public final class MessagesListProcessor: Sendable {
             previousReadByMembers: previousReadByMembers,
             verifiedAgent: verifiedAgent
         )
+        // Hide agent-builder bundle messages flagged by a `BuilderBundleManifest`
+        // (see `DBBuilderBundleHiddenMessage`). Unlike the creator-only
+        // `agentBuilderSummary.bundledMessageIds` filter below, this applies to
+        // every member's client and to messages from any sender, so the brief
+        // is hidden group-wide. It renders no summary card — it only hides.
+        let visibleItems: [MessagesListItemType] = hiddenBundleMessageIds.isEmpty
+            ? baseItems
+            : filterHiddenBundleMessages(from: baseItems, hiddenIds: hiddenBundleMessageIds)
         return applyAgentContactCardAndSummary(
-            to: baseItems,
+            to: visibleItems,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )
     }
 
-    /// Post-process the raw item list to (a) cut messages predating the
-    /// `AgentBuilderSummary.cutoffDate`, (b) attach the contact-card prefix
-    /// to the agent's first messages group (synthesizing an empty group
-    /// when the agent hasn't said anything yet), and (c) prepend the
-    /// summary cell.
+    /// Remove messages whose id is in `hiddenIds` from every group (any
+    /// sender), drop groups left empty, and strip orphaned date separators.
+    private static func filterHiddenBundleMessages(
+        from items: [MessagesListItemType],
+        hiddenIds: Set<String>
+    ) -> [MessagesListItemType] {
+        let filtered: [MessagesListItemType] = items.compactMap { item -> MessagesListItemType? in
+            guard case .messages(let group) = item else { return item }
+            let kept: [AnyMessage] = group.messages.filter { !hiddenIds.contains($0.messageId) }
+            if kept.count == group.messages.count { return item }
+            if kept.isEmpty { return nil }
+            var rebuilt: MessagesGroup = MessagesGroup(
+                id: group.id,
+                sender: group.sender,
+                messages: kept,
+                isLastGroup: group.isLastGroup,
+                isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
+                showsTypingIndicator: group.showsTypingIndicator,
+                allTypingMembers: group.allTypingMembers,
+                readByMembers: group.readByMembers,
+                onlyVisibleToSender: group.onlyVisibleToSender,
+                isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
+                voiceMemoTranscripts: group.voiceMemoTranscripts
+            )
+            rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
+            rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
+            rebuilt.agentContactCard = group.agentContactCard
+            rebuilt.thinkingByMessageId = group.thinkingByMessageId
+            rebuilt.hidesSenderLabel = group.hidesSenderLabel
+            rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
+            rebuilt.thinkingContent = group.thinkingContent
+            rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
+            rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
+            return .messages(rebuilt)
+        }
+        return dropOrphanDateSeparators(in: filtered)
+    }
+
+    /// Post-process the raw item list to (a) hide the user's own builder-bundle
+    /// sends by id (`AgentBuilderSummary.bundledMessageIds`) and suppress the
+    /// legacy "Agent joined" row, (b) attach the contact-card prefix to the
+    /// agent's first messages group (synthesizing an empty group when the agent
+    /// hasn't said anything yet), and (c) prepend the summary cell.
     private static func applyAgentContactCardAndSummary(
         to baseItems: [MessagesListItemType],
         verifiedAgent: ConversationMember?,
@@ -100,13 +147,20 @@ public final class MessagesListProcessor: Sendable {
                         rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
                         rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
                         rebuilt.agentContactCard = group.agentContactCard
+                        rebuilt.thinkingByMessageId = group.thinkingByMessageId
+                        rebuilt.hidesSenderLabel = group.hidesSenderLabel
+                        rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
+                        rebuilt.thinkingContent = group.thinkingContent
+                        rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
+                        rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
                         return [.messages(rebuilt)]
                     } else {
-                        // Agent / other-member groups: filter by the
-                        // group's latest message, no pad. Pre-Make hello
-                        // messages drop wholesale; later replies stay.
-                        let date: Date = group.messages.last?.date ?? group.messages.first?.date ?? .distantPast
-                        return date >= summary.cutoffDate ? [item] : []
+                        // Agent / other-member groups always stay: the backend
+                        // now skips the agent's pre-Make greeting, so there's
+                        // no time-based chatter to cut. (The old
+                        // `sentAt < cutoffDate` filter was removed -- the user's
+                        // own bundle is hidden by id, not by timestamp.)
+                        return [item]
                     }
                 case .update(_, let update, _):
                     // Builder flow: the summary + contact card already

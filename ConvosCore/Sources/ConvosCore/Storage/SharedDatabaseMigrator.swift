@@ -162,6 +162,8 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addAgentBuilderSummaryConnectionsAppliedAt", migrate: Self.addAgentBuilderSummaryConnectionsAppliedAt)
 
+        migrator.registerMigration("addAgentBuilderSummaryExistingConversation", migrate: Self.addAgentBuilderSummaryExistingConversation)
+
         return migrator
     }
 
@@ -248,6 +250,17 @@ extension SharedDatabaseMigrator {
     private static func addAgentBuilderSummaryConnectionsAppliedAt(_ db: Database) throws {
         try db.alter(table: "agentBuilderSummary") { t in
             t.add(column: "connectionsAppliedAt", .datetime)
+        }
+    }
+
+    /// Marks a summary as belonging to a conversation the user was already in
+    /// (the in-chat "New Agent" entry) rather than a fresh home-flow agent
+    /// chat. The chat keeps its invite affordances (QR / "Invite members")
+    /// visible while this summary's card shows, instead of suppressing them
+    /// the way the home flow does. Defaults to false for existing rows.
+    private static func addAgentBuilderSummaryExistingConversation(_ db: Database) throws {
+        try db.alter(table: "agentBuilderSummary") { t in
+            t.add(column: "existingConversation", .boolean).notNull().defaults(to: false)
         }
     }
 
@@ -388,6 +401,27 @@ extension SharedDatabaseMigrator {
                 t.column("nextRefreshAt", .datetime).notNull()
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
+            }
+        }
+
+        // Message ids announced by a `BuilderBundleManifest` as belonging to
+        // an agent-builder bundle, so every client can hide them from the
+        // chat (not just the creator, who has them in `AgentBuilderSummary`).
+        //
+        // Intentionally no foreign key to `conversation`: a manifest can be
+        // processed before its conversation row is stored (the stream routes
+        // supplementals ahead of `conversationWriter.store`, and catch-up can
+        // deliver a manifest before the initial conversation sync lands). A FK
+        // would make those inserts fail and silently drop the hidden ids,
+        // leaving the brief visible. Rows are just a filter set keyed by
+        // (conversationId, messageId); a stray row for an absent conversation
+        // matches nothing and is harmless. Teardown clears the table
+        // explicitly in `SessionManager.deleteAllInboxes` (no cascade).
+        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
+            try db.create(table: "builder_bundle_hidden_message") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.primaryKey(["conversationId", "messageId"])
             }
         }
     }

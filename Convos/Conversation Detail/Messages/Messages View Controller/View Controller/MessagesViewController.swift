@@ -255,9 +255,6 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
-    var onBottomOverscrollChanged: ((CGFloat) -> Void)?
-    var onBottomOverscrollReleased: ((CGFloat) -> Void)?
-    private var lastBottomOverscroll: CGFloat = 0.0
 
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
@@ -672,13 +669,17 @@ extension MessagesViewController {
         dataSource.hidesInviteCard = conversation.hidesInviteCard
 
         // Add invite or conversation info at the beginning if all messages are loaded.
-        // When the Agent Builder summary is present, suppress this whole block -
-        // the summary card already announces the agent via its "You created an
-        // agent" footer, so showing the "+ Invite members" pill on top of it is
-        // redundant. Without a summary, `.hidden` header mode still renders the
-        // `.invite` cell (which surfaces just the "Invite members" affordance - the
-        // QR is gated inside the cell on the same `headerMode`).
-        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil, headerMode != .suppressed {
+        // A home-flow Agent Builder summary suppresses this whole block - the
+        // summary card already announces the agent via its "You created an
+        // agent" footer, so the "+ Invite members" pill on top of it is
+        // redundant. The in-chat "New Agent" flow (`existingConversation`) is
+        // different: it targets a real group, so its invite affordances stay
+        // visible while the card shows. Without a summary, `.hidden` header
+        // mode still renders the `.invite` cell (which surfaces just the
+        // "Invite members" affordance - the QR is gated inside the cell on the
+        // same `headerMode`).
+        let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
+        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else if headerMode == .standard, !hasVerifiedConvosAgent {
@@ -842,8 +843,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
             interruptCurrentUpdateAnimation()
         }
 
-        reportBottomOverscroll(scrollView)
-
         guard !currentControllerActions.options.contains(.loadingInitialMessages),
               !currentControllerActions.options.contains(.loadingPreviousMessages),
               !currentInterfaceActions.options.contains(.scrollingToTop),
@@ -853,30 +852,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         if scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top {
             loadPreviousMessages()
-        }
-    }
-
-    private func reportBottomOverscroll(_ scrollView: UIScrollView) {
-        let bottomInset = scrollView.adjustedContentInset.bottom
-        let topInset = scrollView.adjustedContentInset.top
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight = scrollView.frame.height
-        let minOffset = -topInset
-        let maxOffset = max(minOffset, contentHeight - frameHeight + bottomInset)
-        let bottomOverscroll = max(0, scrollView.contentOffset.y - maxOffset)
-        if bottomOverscroll > 0, scrollView.isDragging {
-            lastBottomOverscroll = bottomOverscroll
-            onBottomOverscrollChanged?(bottomOverscroll)
-        } else {
-            lastBottomOverscroll = 0.0
-            onBottomOverscrollChanged?(0.0)
-        }
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate _: Bool) {
-        if lastBottomOverscroll > 0 {
-            onBottomOverscrollReleased?(lastBottomOverscroll)
-            lastBottomOverscroll = 0.0
         }
     }
 

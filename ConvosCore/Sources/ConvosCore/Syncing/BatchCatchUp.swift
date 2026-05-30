@@ -356,11 +356,12 @@ struct BatchCatchUp {
         switch CaughtUpMessageKind.of(message) {
         case .ignore:
             return .skip
-        // Read receipts, thinking, and reactions all run through the
-        // per-message supplemental handlers (post-commit), never the batched
-        // regular-message transaction. Thinking in particular backs the
-        // thinking-detail view and must not be persisted as a chat row.
-        case .readReceipt, .thinking, .reaction:
+        // Read receipts, thinking, the builder-bundle manifest, and reactions
+        // all run through the per-message supplemental handlers (post-commit),
+        // never the batched regular-message transaction. Thinking backs the
+        // thinking-detail view and the manifest is a hide-control record --
+        // neither is persisted as a chat row.
+        case .readReceipt, .thinking, .builderBundleManifest, .reaction:
             return .supplemental
         case .regular:
             return .regular

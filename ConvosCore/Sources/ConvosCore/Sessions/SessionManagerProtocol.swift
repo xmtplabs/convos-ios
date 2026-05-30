@@ -119,6 +119,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository
     func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol
     func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
+    func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol

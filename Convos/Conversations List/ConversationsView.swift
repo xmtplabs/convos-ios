@@ -17,14 +17,20 @@ struct ConversationsView: View {
     var sidebarBottomAccessory: AnyView?
     /// Fired with the conversation list's current scroll content-offset Y
     /// on every scroll tick, forwarded from `ConversationsViewController`.
-    /// `MainTabView` uses this to flip the agent builder bar between
-    /// expanded and collapsed states.
+    /// `MainTabView` uses this to reveal the top agent builder bar at the
+    /// top of the list and fade it out (revealing a nav-bar button) once
+    /// the user scrolls down.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Extra bottom inset (in points) for the conversation list to clear
-    /// the SwiftUI bottom chrome (builder bar + custom tab bar) rendered
-    /// by `MainTabView` as a `safeAreaInset`. SwiftUI's safe-area chain
-    /// doesn't reliably propagate that inset to the UIKit collection
-    /// view, so we plumb it through explicitly.
+    /// Extra top inset (in points) for the conversation list to clear the
+    /// SwiftUI top chrome (the agent builder bar rendered by `MainTabView`
+    /// as a `safeAreaInset(.top)` under the nav bar). SwiftUI's safe-area
+    /// chain doesn't reliably propagate that inset to the UIKit collection
+    /// view, so we plumb it through explicitly. The list still scrolls
+    /// *under* the bar (so it can blur/fade over the content); this inset
+    /// just sets where the content rests at the top.
+    var topChromeInset: CGFloat = 0
+    /// Bottom counterpart to `topChromeInset`, used when the builder bar
+    /// pins to the bottom edge (iPad, where the tab bar is at the top).
     var bottomChromeInset: CGFloat = 0
     /// Binding into the shell's "present this conversation as a sheet"
     /// slot. Set by the inline agent builder (rendered in the chats
@@ -196,7 +202,14 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        ConversationsViewRepresentable(
+        // The builder bar is rendered as a `safeAreaInset` by `MainTabView`
+        // (reserving its edge) *and* its height is re-applied here as the
+        // collection view's `additionalSafeAreaInsets`. To avoid counting it
+        // twice we ignore the system safe area on the bar's edge: `.top` on
+        // iPhone (bar pins to the top) and additionally `.bottom` on iPad
+        // (bar pins to the bottom, signalled by a non-zero bottom inset).
+        let ignoredSafeAreaEdges: Edge.Set = bottomChromeInset > 0 ? [.top, .bottom] : .top
+        return ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
             selectedConversationId: viewModel.selectedConversationId,
@@ -225,9 +238,10 @@ struct ConversationsView: View {
             onJoinConvo: viewModel.onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all },
             onScrollOffsetChange: onScrollOffsetChange,
+            topChromeInset: topChromeInset,
             bottomChromeInset: bottomChromeInset
         )
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: ignoredSafeAreaEdges)
     }
 
     @ViewBuilder

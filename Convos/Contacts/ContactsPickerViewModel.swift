@@ -13,11 +13,17 @@ import Observation
 /// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
+    /// Compose entry point: the picker is the first step of the Compose
+    /// flow and selecting contacts is optional. The bottom CTA reads
+    /// "Skip" with nothing selected and "Continue" once a contact is
+    /// picked, and is always enabled (Skip is a valid action). Proceeding
+    /// pushes the new-conversation view rather than dismissing.
+    case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
     var isAddToConversation: Bool {
         switch self {
-        case .newConversation:
+        case .newConversation, .compose:
             return false
         case .addToConversation:
             return true
@@ -184,12 +190,19 @@ final class ContactsPickerViewModel {
     }
 
     var canConfirm: Bool {
-        !selected.isEmpty
+        // Compose allows skipping (no selection required); the other modes
+        // need at least one contact picked before the CTA enables.
+        switch mode {
+        case .compose:
+            return true
+        case .newConversation, .addToConversation:
+            return !selected.isEmpty
+        }
     }
 
     var headerTitle: String {
         switch mode {
-        case .newConversation:
+        case .newConversation, .compose:
             return "New conversation"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -204,7 +217,7 @@ final class ContactsPickerViewModel {
     /// the picker is scoped to an existing chat.
     var pillTitle: String {
         switch mode {
-        case .newConversation:
+        case .newConversation, .compose:
             return "New Convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -226,7 +239,10 @@ final class ContactsPickerViewModel {
     }
 
     var confirmButtonTitle: String {
-        "Continue"
+        if case .compose = mode, selected.isEmpty {
+            return "Skip"
+        }
+        return "Continue"
     }
 
     // MARK: - Mutations
@@ -268,6 +284,15 @@ final class ContactsPickerViewModel {
         pruneSelectionToKnownEntities()
         rebuildSections()
         isLoading = false
+    }
+
+    /// Contacts the picker would actually show. Shared with
+    /// `ConversationsViewModel` so Compose can decide whether the picker is
+    /// worth presenting (vs. opening the new-conversation view directly) --
+    /// the raw contact count includes agents / blocked / unnamed entries that
+    /// never appear here.
+    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
+        contacts.filter(isVisibleInPicker)
     }
 
     /// Single source of truth for "is this contact a valid picker row".

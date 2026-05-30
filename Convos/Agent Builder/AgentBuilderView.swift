@@ -44,6 +44,14 @@ struct AgentBuilderView: View {
     /// compositor handle the cross-tree geometry match.
     @Namespace private var transitionNamespace: Namespace.ID
 
+    /// The existing-conversation builder dismisses on Make and lands the user
+    /// back on the chat they triggered it from, rather than morphing to reveal
+    /// the conversation inside the sheet (the home/draft flow's behavior, where
+    /// there is no underlying chat to return to).
+    private var dismissesOnCommit: Bool {
+        viewModel.existingConversationId != nil
+    }
+
     private var indicatorPlaceholder: String? {
         viewModel.hasCommitted ? nil : "New Agent"
     }
@@ -301,6 +309,15 @@ struct AgentBuilderView: View {
                 focusState: focusState,
                 transitionNamespace: transitionNamespace,
                 onMakeTap: {
+                    if dismissesOnCommit {
+                        // Existing-conversation flow: fire the send + join
+                        // (they survive teardown) and dismiss straight back to
+                        // the chat the builder was triggered from. No in-sheet
+                        // morph.
+                        viewModel.commit(focusCoordinator: focusCoordinator)
+                        dismiss()
+                        return
+                    }
                     // Hand focus over to the chat's text field BEFORE
                     // collapsing the composer, so the keyboard stays up
                     // and MessagesBottomBar's expanded state animates in

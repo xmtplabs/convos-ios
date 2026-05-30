@@ -1,8 +1,11 @@
 import SwiftUI
 
 struct AgentsInfoView: View {
-    var isConfirmation: Bool = false
-    var onConfirm: (() -> Void)?
+    /// When set, the primary button reads "Make an agent" and tapping it runs
+    /// this action then dismisses -- used as the first-run intro before the
+    /// agent builder, so the builder opens only if the user opts in. When nil,
+    /// the button is a plain "Awesome" dismiss (the "About agents" info sheet).
+    var onMakeAgent: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -33,13 +36,13 @@ struct AgentsInfoView: View {
                 .padding(.top, DesignConstants.Spacing.step2x)
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
-                if isConfirmation {
-                    let confirmAction = {
-                        onConfirm?()
+                if let onMakeAgent {
+                    let makeAgentAction = {
+                        onMakeAgent()
                         dismiss()
                     }
-                    Button(action: confirmAction) {
-                        Text("Add an instant agent")
+                    Button(action: makeAgentAction) {
+                        Text("Make an agent")
                             .font(.body)
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
@@ -267,12 +270,4 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) { AgentsInfoView().padding(.top, 20) }
-}
-
-#Preview("Confirmation") {
-    @Previewable @State var isPresented: Bool = true
-    VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) {
-            AgentsInfoView(isConfirmation: true, onConfirm: { }).padding(.top, 20)
-        }
 }

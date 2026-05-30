@@ -37,14 +37,19 @@ Pass `$UDID` to every `idb` and `xcrun simctl` command.
 | long press at (x,y) | `$IDB ui tap <x> <y> --duration <s> --udid $UDID` | `mcp__XcodeBuildMCP__long_press({ x, y, duration, simulatorUuid: UDID })` |
 | double-tap | Two parallel idb taps within ~300ms: `$IDB ui tap <x> <y> --udid $UDID & $IDB ui tap <x> <y> --udid $UDID & wait` | `mcp__XcodeBuildMCP__gesture({ preset: "double_tap", x, y, simulatorUuid: UDID })` |
 
-### Bottom-toolbar caveat (`compose-button`, `scan-button`)
+### Toolbar caveat (`compose-button`, `toolbar-add-agent-button`)
 
-These buttons are *not* enumerated by `idb ui describe-all` — they live in a SwiftUI `ToolbarItem(placement: .bottomBar)`. MCP's `snapshot_ui` finds them; idb misses them. Options:
+These buttons live in a SwiftUI `ToolbarItem(placement: .topBarTrailing)`
+(the home-shell rework moved them out of the old `.bottomBar`) and are *not*
+always enumerated by `idb ui describe-all`. MCP's `snapshot_ui` finds them.
+Options:
 - If MCP is available in your context, `mcp__XcodeBuildMCP__tap({ accessibilityId: "compose-button" })` works.
-- Otherwise, tap the known screen region. **Validated coords for iPhone 16 Pro in portrait:**
-  - `compose-button`: `(354, 823)`
-  - `scan-button`: `(292, 823)`
-- Values shift with device size/orientation; coord-tap is fragile. Prefer opening the flow via a known-good deep link (`xcrun simctl openurl`) when possible.
+- `sim_tap_id` / `sim_find_elements` auto-probe the toolbar area by
+  hit-testing when the tree search misses, so id-based taps still work.
+- Coordinate tap is a last resort and fragile: the old `(354, 823)` /
+  `(292, 823)` values were for the removed bottom bar and no longer apply;
+  re-validate against the top-trailing position if you must. Prefer opening
+  a flow via a deep link (`xcrun simctl openurl`) when possible.
 
 ### System dialog buttons
 
@@ -198,7 +203,7 @@ $IDB ui tap $X $Y --udid $UDID
 
 ## Gotchas (validated)
 
-- **Bottom-toolbar buttons invisible to idb.** `compose-button`, `scan-button` etc. are present in SwiftUI's accessibility tree but idb's `describe-all` skips `ToolbarItem(placement: .bottomBar)`. MCP's `snapshot_ui` does find them. When relying on idb, fall back to coordinate tap using known screen regions — or reach the flow via deep link.
+- **Toolbar buttons sometimes invisible to idb.** `compose-button`, `toolbar-add-agent-button` etc. are present in SwiftUI's accessibility tree but idb's `describe-all` can skip `ToolbarItem` entries. MCP's `snapshot_ui` does find them, and `sim_tap_id` auto-probes the toolbar area — or reach the flow via deep link.
 - **`log show --start "<ISO UTC>"` silently returns no rows.** Use the app group `convos.log` file with byte-offset markers. If you must use `log show`, use `--last <duration>` instead.
 - **CLI `explode` may return `[GroupError::Sync]`.** Transient; the conversation is still gone once the error clears on retry. Teardown explodes are marked `optional: true` in most YAMLs for this reason.
 - **`cxdb.sh log-error`'s 6th arg is `is_xmtp`** (1=XMTP, 0=app), despite RULES historically phrasing it as `is_app_error`. The script is authoritative; RULES has been reconciled.

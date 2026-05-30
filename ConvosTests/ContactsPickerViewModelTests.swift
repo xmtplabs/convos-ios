@@ -365,4 +365,49 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSelected(.agentTemplate(templateId: tifoso.templateId)))
         XCTAssertTrue(viewModel.isSelected(.agentTemplate(templateId: tripPlanner.templateId)))
     }
+
+    // MARK: - pickableContacts (Compose skip decision)
+
+    /// `pickableContacts` is the shared filter the Compose flow uses to decide
+    /// whether the picker is worth showing. It must agree with what the picker
+    /// renders -- named humans only, not blocked, not verified agents.
+    func testPickableContactsKeepsNamedHumans() {
+        let alice = Contact.mock(displayName: "Alice")
+        let bob = Contact.mock(displayName: "Bob")
+        let result = ContactsPickerViewModel.pickableContacts([alice, bob])
+        XCTAssertEqual(result.map(\.inboxId).sorted(), [alice.inboxId, bob.inboxId].sorted())
+    }
+
+    func testPickableContactsExcludesBlocked() {
+        let alice = Contact.mock(displayName: "Alice")
+        let blocked = Contact.mock(displayName: "Blocked", isBlocked: true)
+        let result = ContactsPickerViewModel.pickableContacts([alice, blocked])
+        XCTAssertEqual(result.map(\.inboxId), [alice.inboxId])
+    }
+
+    func testPickableContactsExcludesVerifiedAgents() {
+        let alice = Contact.mock(displayName: "Alice")
+        let convosAgent = Contact.mock(displayName: "Convos Assistant", agentVerification: .verified(.convos))
+        let oauthAgent = Contact.mock(displayName: "OAuth Bot", agentVerification: .verified(.userOAuth))
+        let result = ContactsPickerViewModel.pickableContacts([alice, convosAgent, oauthAgent])
+        XCTAssertEqual(result.map(\.inboxId), [alice.inboxId])
+    }
+
+    func testPickableContactsExcludesUnnamed() {
+        let named = Contact.mock(displayName: "Named")
+        let nilName = Contact.mock(displayName: nil)
+        let emptyName = Contact.mock(displayName: "")
+        let result = ContactsPickerViewModel.pickableContacts([named, nilName, emptyName])
+        XCTAssertEqual(result.map(\.inboxId), [named.inboxId])
+    }
+
+    /// All agents / blocked / unnamed collapses to empty -- which is exactly
+    /// what makes Compose skip the picker and open the new-conversation view
+    /// directly (the bug behind the "13 contacts but empty picker" report).
+    func testPickableContactsEmptyWhenNonePickable() {
+        let agent = Contact.mock(displayName: "Agent", agentVerification: .verified(.convos))
+        let blocked = Contact.mock(displayName: "Blocked", isBlocked: true)
+        let unnamed = Contact.mock(displayName: nil)
+        XCTAssertTrue(ContactsPickerViewModel.pickableContacts([agent, blocked, unnamed]).isEmpty)
+    }
 }

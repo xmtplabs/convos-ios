@@ -31,13 +31,10 @@ Navigate back to the conversations list.
 3. Verify the conversation name matches what was set in setup.
 4. Dismiss the new conversation view to return to the conversations list.
 
-### Rejoin via paste in scanner
-
-5. Copy the second invite URL to the simulator's clipboard.
-6. From the conversations list, tap the scan button in the bottom toolbar to open the scanner.
-7. Tap the paste button (accessibility identifier "paste-invite-button").
-8. The app should recognize that the user is already in this conversation and transition from the scanner to showing the conversation view.
-9. Verify the conversation name matches what was set in setup.
+> The "rejoin via paste in scanner" path was removed with the in-app scan
+> view in the #910 home-shell rework (see `04-invite-join-paste.md`). Joining
+> is now via the device camera or a deep-link URL, so only the deep-link
+> rejoin is covered here. Re-add a paste step if the scan button returns.
 
 ## Teardown
 
@@ -47,5 +44,4 @@ Explode the conversation via CLI.
 
 - [ ] Deep link for existing conversation shows the conversation view (not a blank or stuck screen)
 - [ ] Conversation name is visible after deep link rejoin
-- [ ] Paste in scanner for existing conversation dismisses the scanner and shows the conversation view
-- [ ] Conversation name is visible after paste rejoin
+- [ ] Navigating back from the rejoined conversation returns to the list

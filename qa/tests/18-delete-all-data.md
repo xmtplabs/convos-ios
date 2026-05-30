@@ -16,7 +16,7 @@ Ensure at least 2 conversations exist in the conversations list so we can verify
 
 ### Navigate to Delete All Data
 
-1. From the conversations list, tap the settings button (accessibility identifier: `app-settings-button`).
+1. From the conversations list, tap the app-indicator pill (accessibility identifier: `app-indicator-pill`) to open App Settings.
 2. Verify the App Settings view appears.
 3. Scroll down and find the "Delete All Data" button (accessibility identifier: `delete-all-data-button`).
 4. Tap the "Delete All Data" button.

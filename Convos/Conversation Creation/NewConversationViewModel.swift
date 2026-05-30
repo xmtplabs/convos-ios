@@ -59,7 +59,7 @@ enum NewConversationMode {
 
 @MainActor
 @Observable
-class NewConversationViewModel: Identifiable {
+class NewConversationViewModel: Identifiable, Hashable {
     // MARK: - Public
 
     let session: any SessionManagerProtocol
@@ -823,6 +823,19 @@ class NewConversationViewModel: Identifiable {
 /// `ConversationStateMachine` observation, the per-state UI handling, and
 /// the join / create error paths. Split into an extension purely to keep
 /// the type body within SwiftLint's `type_body_length` budget; every
+/// Identity-based `Hashable` so the model can drive a
+/// `navigationDestination(item:)` push (the Compose flow pushes the new
+/// conversation onto the picker's stack). Mirrors `ConversationViewModel`.
+extension NewConversationViewModel {
+    nonisolated static func == (lhs: NewConversationViewModel, rhs: NewConversationViewModel) -> Bool {
+        lhs === rhs
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(self))
+    }
+}
+
 /// member stays file-private and `@MainActor`-isolated (inherited from
 /// the type), so behavior is identical to when these lived inline.
 extension NewConversationViewModel {

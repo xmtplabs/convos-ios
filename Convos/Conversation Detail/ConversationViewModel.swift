@@ -638,7 +638,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
-    var presentingAgentConfirmation: Bool = false
+    /// Drives the "New Agent" context-menu builder sheet, scoped to this
+    /// existing conversation. The builder defers the agent join until the
+    /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
+    /// so we only add the agent once they confirm.
+    var presentingAgentBuilder: AgentBuilderViewModel?
+    /// Drives the first-run agents explainer shown before the builder. Its
+    /// "Make an agent" button sets `pendingAgentBuilderAfterIntro` and dismisses;
+    /// the sheet's onDismiss then opens the builder. Dismissing without the
+    /// button leaves the builder unopened.
+    var presentingAgentsIntro: Bool = false
+    var pendingAgentBuilderAfterIntro: Bool = false
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -671,12 +681,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownAgentConfirmationKey: String = "hasShownAgentConfirmation"
-    private var hasShownAgentConfirmation: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownAgentConfirmationKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAgentConfirmationKey) }
-    }
-
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
     private var hasShownRevealInfoSheet: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
@@ -695,8 +699,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownAgentConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: hasShownAgentsIntroKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
@@ -708,13 +712,50 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // composer should interrupt the user with it on attach.
     }
 
-    func onRequestAgentJoin() {
-        guard !hasShownAgentConfirmation else {
-            requestAgentJoin()
-            return
+    /// A fresh agent builder scoped to this conversation. The "New Agent"
+    /// entries take the user through the same builder flow as the home screen
+    /// but defer the agent join until they tap Make, so the brief they compose
+    /// is what the agent receives. Surfaces nested inside another sheet (the
+    /// Info sheet, Members list) present this from their own `.sheet` so it
+    /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
+    func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
+        AgentBuilderViewModel(session: session, existingConversationId: conversation.id)
+    }
+
+    private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
+
+    /// First-run gate for the "New Agent" agents explainer: returns `true`
+    /// exactly once (the first "New Agent" tap, from any in-chat surface) and
+    /// marks it shown. Callers present `AgentsInfoView` when this is true and
+    /// open the builder only if the user taps its "Make an agent" button.
+    func consumeAgentsIntroGate() -> Bool {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.hasShownAgentsIntroKey) else { return false }
+        defaults.set(true, forKey: Self.hasShownAgentsIntroKey)
+        return true
+    }
+
+    /// Present the agent builder from the top-level `ConversationView` (the
+    /// in-chat "+"/context menu and the new-convo "Invite members" capsule,
+    /// neither of which has another sheet up). On the first-ever tap, show the
+    /// agents explainer first; the builder opens only if the user taps
+    /// "Make an agent" (handled by `presentAgentBuilderAfterIntroIfNeeded()`
+    /// from the intro sheet's onDismiss).
+    func presentAgentBuilder() {
+        guard presentingAgentBuilder == nil, !presentingAgentsIntro else { return }
+        if consumeAgentsIntroGate() {
+            presentingAgentsIntro = true
+        } else {
+            presentingAgentBuilder = makeAgentBuilderViewModel()
         }
-        hasShownAgentConfirmation = true
-        presentingAgentConfirmation = true
+    }
+
+    /// Called from the intro sheet's onDismiss: opens the builder only if the
+    /// user opted in via "Make an agent" (which sets the pending flag).
+    func presentAgentBuilderAfterIntroIfNeeded() {
+        guard pendingAgentBuilderAfterIntro else { return }
+        pendingAgentBuilderAfterIntro = false
+        presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
     var shouldBlurPhotos: Bool {
@@ -808,6 +849,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -902,6 +944,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo2 = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -2134,36 +2177,38 @@ extension ConversationViewModel {
             voiceMemoRecorder.resetState()
         }
 
-        // Send the multi-remote attachment bundle first, then the prompt
-        // text. The backend agent expects this ordering so it can resolve
-        // attachment references before processing the textual prompt.
-        if !bundleItems.isEmpty {
-            do {
-                if let bundleMessageId {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems, clientMessageId: bundleMessageId)
-                } else {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
-                // Restore pending attachments so the user can retry from the
-                // chat composer. The eager-upload state inside the writer may
-                // already be partially consumed; in practice this only fires
-                // on a network-level failure, and the failed-send UI surfaces
-                // individual item retries.
-                pendingMediaAttachments = attachmentsSnapshot
-            }
-        }
-
-        if !text.isEmpty {
-            do {
-                if let textMessageId {
-                    try await writer.send(text: text, clientMessageId: textMessageId)
-                } else {
-                    try await writer.send(text: text)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
+        // Send a `BuilderBundleManifest` first, then the media bundle, then the
+        // prompt text. The manifest lists the bundle's prepared XMTP ids so
+        // every recipient hides the brief before it renders; the agent still
+        // sees attachments before the prompt. `sendBuilderBundle` prepares all
+        // three up front so the manifest can reference real ids and publish
+        // ahead of them. The optimistic ids match the summary's
+        // `bundledMessageIds`, keeping the sender's own copy hidden too.
+        let resolvedBundleClientMessageId: String = bundleMessageId ?? UUID().uuidString
+        let resolvedTextClientMessageId: String = textMessageId ?? UUID().uuidString
+        do {
+            try await writer.sendBuilderBundle(
+                text: text,
+                bundleItems: bundleItems,
+                textClientMessageId: resolvedTextClientMessageId,
+                bundleClientMessageId: resolvedBundleClientMessageId
+            )
+        } catch {
+            Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
+            // Restore pending attachments and the voice memo so the user can
+            // retry from the chat composer. Both were cleared optimistically
+            // above; without restoring the recorder, the recording is lost
+            // with no way to retry. The eager-upload state inside the writer
+            // may already be partially consumed; in practice this only fires
+            // on a network-level failure, and the failed-send UI surfaces
+            // individual item retries.
+            pendingMediaAttachments = attachmentsSnapshot
+            if let voiceMemo {
+                voiceMemoRecorder.restoreRecorded(
+                    url: voiceMemo.url,
+                    duration: voiceMemo.duration,
+                    audioLevels: voiceMemo.levels
+                )
             }
         }
     }

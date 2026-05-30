@@ -85,8 +85,6 @@ struct MessagesView<BottomBarContent: View>: View {
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
     var agentBuilderTransitionNamespace: Namespace.ID?
-    let onBottomOverscrollChanged: (CGFloat) -> Void
-    let onBottomOverscrollReleased: (CGFloat) -> Void
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
@@ -158,8 +156,6 @@ struct MessagesView<BottomBarContent: View>: View {
                 )
             },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
-            onBottomOverscrollChanged: onBottomOverscrollChanged,
-            onBottomOverscrollReleased: onBottomOverscrollReleased,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
             },

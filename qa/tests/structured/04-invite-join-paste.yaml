@@ -4,9 +4,19 @@ description: >
   Verify that a conversation can be joined by pasting the invite URL
   in the scan view. Requires copying the invite URL to the simulator
   pasteboard, then tapping the paste button in the scan view.
-tags: [invites, paste, core]
+tags: [invites, paste, core, blocked]
 depends_on: ["01"]
 estimated_duration_s: 180
+
+blocked: true
+blocked_reason: >
+  The in-app scan view (reached via the old bottom-toolbar scan-button) was
+  removed in the #910 home-shell rework, so there is no longer an in-app
+  paste-invite entry point. Joining is now done via the device camera (QR
+  scan, not automatable on the simulator) or by opening a deep-link invite
+  URL - the URL path is covered by test 03 (sim_open_url). Re-enable this
+  test if the scan button is brought back. Steps below are preserved
+  unchanged for that case.
 
 prerequisites:
   app_running: true

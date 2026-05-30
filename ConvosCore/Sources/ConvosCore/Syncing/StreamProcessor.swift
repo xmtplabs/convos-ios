@@ -295,6 +295,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processBuilderBundleManifest(message, conversationId: conversation.id) {
+                        return
+                    }
+
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -476,22 +480,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             sentAtNs: message.sentAtNs
         )
         return true
-    }
-
-    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
-        guard let contentType = try? message.encodedContent.type else {
-            return false
-        }
-
-        if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdate(message, conversationId: conversationId)
-            return true
-        } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshot(message, conversationId: conversationId)
-            return true
-        }
-
-        return false
     }
 
     private func processProfileUpdate(_ message: DecodedMessage, conversationId: String) async {
@@ -880,6 +868,52 @@ actor StreamProcessor: StreamProcessorProtocol {
                 context: context
             )
         }
+    }
+}
+
+// MARK: - Builder Bundle Manifest
+
+extension StreamProcessor {
+    /// Persist the hidden bundle ids a `BuilderBundleManifest` carries so the
+    /// messages list filters the agent brief out (see
+    /// `BuilderBundleHiddenMessagesRepository`). Returns `true` when the message
+    /// was a manifest (handled), so the caller stops further routing.
+    func processBuilderBundleManifest(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard message.isBuilderBundleManifest else {
+            return false
+        }
+        guard let manifest = try? BuilderBundleManifestCodec().decode(content: message.encodedContent),
+              !manifest.messageIds.isEmpty else {
+            return true
+        }
+        do {
+            try await databaseWriter.write { db in
+                for messageId in manifest.messageIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationId, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
+        }
+        return true
+    }
+
+    /// Routes a profile message (update or snapshot) to its handler. Returns
+    /// `true` when handled, so the caller stops further routing -- profiles are
+    /// applied by the profile handlers, never stored as chat rows.
+    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else {
+            return false
+        }
+        if contentType == ContentTypeProfileUpdate {
+            await processProfileUpdate(message, conversationId: conversationId)
+            return true
+        } else if contentType == ContentTypeProfileSnapshot {
+            await processProfileSnapshot(message, conversationId: conversationId)
+            return true
+        }
+        return false
     }
 }
 

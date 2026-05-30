@@ -108,6 +108,7 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
     public func awaitEagerUpload(trackingKey: String) async throws {}
     public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String { UUID().uuidString }
     public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String { clientMessageId }
+    public func sendBuilderBundle(text: String, bundleItems: [MultiAttachmentBundleItem], textClientMessageId: String, bundleClientMessageId: String) async throws {}
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String { UUID().uuidString }
     public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String { UUID().uuidString }
     public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String { UUID().uuidString }
