@@ -69,8 +69,8 @@ A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by
 | Agent stays "Joining…" | worker/herald down or auth incomplete → `make … status`, ensure auth works. |
 
 ## Fixes to upstream (so this needs no workarounds)
-1. **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` — `sed` double-escaped backslashes break Local `Secrets.swift`. (`ios-config` patches it; commit the one-liner.)
-2. **convos-assistants** `docker-compose.yaml` — MinIO `network_mode: host` doesn't publish ports on macOS; use port mapping (this stack does).
-3. **convos-assistants** — default `R2_PARENT_*` to local MinIO creds when `IS_LOCAL_DEV=true`.
-4. **herald-lite** — detect/degrade when `flock` is missing on macOS.
-5. **convos-ios** (biggest win) — let the **Local** scheme skip Firebase App Check so local dev needs no Firebase token at all.
+- ✅ **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` `sed` bug (double-escaped backslashes that broke Local `Secrets.swift`) — **fixed in this branch**. (`ios-config` still re-patches it idempotently for older checkouts.)
+- **convos-assistants** `docker-compose.yaml` — MinIO `network_mode: host` doesn't publish ports on macOS; use port mapping (this stack does).
+- **convos-assistants** — default `R2_PARENT_*` to local MinIO creds when `IS_LOCAL_DEV=true`.
+- **herald-lite** — detect/degrade when `flock` is missing on macOS.
+- **convos-ios** (biggest win) — let the **Local** scheme skip Firebase App Check so local dev needs no Firebase token at all.

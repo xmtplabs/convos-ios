@@ -103,7 +103,7 @@ HEADER_EOF
         echo "📋 Adding additional secrets from .env file..."
 
         # Process .env file: skip comments, empty lines, and IP-related keys (since we handled them above), then format as Swift
-        sed -n '/^[^#]/p' "${SRCROOT}/.env" | grep '=' | grep -v '^CONVOS_API_BASE_URL' | grep -v '^XMTP_CUSTOM_HOST' | grep -v '^GIT_COMMIT_SHA' | sed 's/^\\([^=]*\\)=\\(.*\\)$/    static let \\1 = "\\2"/' | sed 's/""\\(.*\\)""/"\\1"/' >> "$SECRETS_FILE"
+        sed -n '/^[^#]/p' "${SRCROOT}/.env" | grep '=' | grep -v '^CONVOS_API_BASE_URL' | grep -v '^XMTP_CUSTOM_HOST' | grep -v '^GIT_COMMIT_SHA' | sed 's/^\([^=]*\)=\(.*\)$/    static let \1 = "\2"/' | sed 's/""\(.*\)""/"\1"/' >> "$SECRETS_FILE"
     fi
     
     # Close the enum
