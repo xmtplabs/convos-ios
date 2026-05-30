@@ -41,10 +41,10 @@ struct ConversationMembersListView: View {
                 guard pendingAgentBuilderAfterIntro else { return }
                 pendingAgentBuilderAfterIntro = false
                 presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-            }) {
+            }, content: {
                 AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
                     .padding(.top, 20)
-            }
+            })
     }
 
     private var membersList: some View {

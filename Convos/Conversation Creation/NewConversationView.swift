@@ -14,7 +14,7 @@ struct NewConversationView: View {
     /// Closes the entire Compose flow. Set when the view is pushed onto the
     /// picker's stack; when `nil` (standalone sheet) the close button
     /// dismisses via the environment `dismiss`.
-    var onClose: (() -> Void)? = nil
+    var onClose: (() -> Void)?
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)

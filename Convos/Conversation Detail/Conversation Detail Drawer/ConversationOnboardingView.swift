@@ -170,7 +170,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -186,7 +186,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -202,7 +202,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -218,7 +218,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -234,7 +234,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -250,7 +250,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )

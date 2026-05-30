@@ -395,10 +395,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
             viewModel.presentAgentBuilderAfterIntroIfNeeded()
-        }) {
+        }, content: {
             AgentsInfoView(onMakeAgent: { viewModel.pendingAgentBuilderAfterIntro = true })
                 .padding(.top, 20)
-        }
+        })
         .sheet(isPresented: $viewModel.presentingPaywall) {
             let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: paywallViewModel)

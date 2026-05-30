@@ -482,26 +482,6 @@ actor StreamProcessor: StreamProcessorProtocol {
         return true
     }
 
-    /// Persist the message ids a `BuilderBundleManifest` flags as an
-    /// agent-builder bundle so the chat hides them on every client (see
-    /// `MessagesListProcessor`). Returns true when the message was a manifest
-    /// (handled, never stored as a chat row).
-    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
-        guard let contentType = try? message.encodedContent.type else {
-            return false
-        }
-
-        if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdate(message, conversationId: conversationId)
-            return true
-        } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshot(message, conversationId: conversationId)
-            return true
-        }
-
-        return false
-    }
-
     private func processProfileUpdate(_ message: DecodedMessage, conversationId: String) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else {
             Log.warning("Failed to decode ProfileUpdate from message \(message.id)")
@@ -917,6 +897,23 @@ extension StreamProcessor {
             Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
         }
         return true
+    }
+
+    /// Routes a profile message (update or snapshot) to its handler. Returns
+    /// `true` when handled, so the caller stops further routing -- profiles are
+    /// applied by the profile handlers, never stored as chat rows.
+    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else {
+            return false
+        }
+        if contentType == ContentTypeProfileUpdate {
+            await processProfileUpdate(message, conversationId: conversationId)
+            return true
+        } else if contentType == ContentTypeProfileSnapshot {
+            await processProfileSnapshot(message, conversationId: conversationId)
+            return true
+        }
+        return false
     }
 }
 

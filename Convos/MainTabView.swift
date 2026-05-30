@@ -764,7 +764,7 @@ private struct MainTabSheetsModifier: ViewModifier {
             }
             .sheet(isPresented: $conversationsViewModel.presentingComposeFlow, onDismiss: {
                 conversationsViewModel.endComposeFlow()
-            }) {
+            }, content: {
                 if let composeViewModel = conversationsViewModel.composeConversationViewModel {
                     ComposeFlowView(
                         conversationsViewModel: conversationsViewModel,
@@ -778,6 +778,6 @@ private struct MainTabSheetsModifier: ViewModifier {
                         .zoom(sourceID: "composer-transition-source", in: namespace)
                     )
                 }
-            }
+            })
     }
 }
