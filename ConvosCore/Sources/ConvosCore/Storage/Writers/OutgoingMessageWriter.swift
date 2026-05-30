@@ -937,13 +937,27 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
         }
         let manifestMessageId = try await sender.prepare(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
-        try await sender.publishMessage(messageId: manifestMessageId)
+        do {
+            try await sender.publishMessage(messageId: manifestMessageId)
+        } catch {
+            // The manifest publishes before the bundle and the text, both of
+            // which are already persisted as "sending". A manifest failure
+            // bails out of the whole send, so mark them failed too -- otherwise
+            // they'd be stuck "sending" with no retry affordance.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
+            throw error
+        }
 
         if let prepared {
             do {
                 try await sender.publishMessage(messageId: prepared.messageId)
             } catch {
                 try? await markMessageFailed(messageId: prepared.messageId)
+                // The text was prepared and saved before the bundle published;
+                // mark it failed too so a bundle failure can't strand it
+                // "sending" (the text-publish block below is unreachable here).
+                if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
                 throw error
             }
             try? await markMessagePublished(messageId: prepared.messageId)
