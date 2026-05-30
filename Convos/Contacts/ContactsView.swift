@@ -124,23 +124,8 @@ struct ContactsView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            Image(systemName: "person.2.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 56, height: 56)
-                .foregroundStyle(.colorTextTertiary)
-            Text("No contacts yet")
-                .font(.headline)
-                .foregroundStyle(.colorTextPrimary)
-            Text("People you message in groups will show up here.")
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step6x)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.colorBackgroundRaisedSecondary)
+        ContactsEmptyStateView()
+            .background(.colorBackgroundRaisedSecondary)
     }
 
     // MARK: - Toolbar

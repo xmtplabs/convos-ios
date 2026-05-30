@@ -539,8 +539,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             hasAgent: false,
             isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
-            onBottomOverscrollChanged: { _ in },
-            onBottomOverscrollReleased: { _ in },
             scrollToBottomTrigger: { _ in },
             messageInputFocusTrigger: { _ in }
         )

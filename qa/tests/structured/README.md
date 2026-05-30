@@ -48,10 +48,14 @@ prevents flaky test starts caused by leftover navigation state.
 
 | Screen ID | How the agent verifies it | How the agent navigates to it |
 |-----------|--------------------------|-------------------------------|
-| `conversations_list` | `compose-button` is visible | Tap `BackButton` or `close-new-conversation` repeatedly until `compose-button` appears |
+| `conversations_list` | `compose-button` is visible (the **Chats** tab) | Tap the "Chats" tab; tap `BackButton` / `close-new-conversation` / swipe a sheet down until `compose-button` appears |
 | `conversation_detail` | `message-text-field` is visible and `BackButton` exists | Navigate from `conversations_list`, then tap the target conversation |
-| `settings` | `settings-view` is visible | Tap settings tab or gear icon from `conversations_list` |
-| `profile_editor` | `profile-display-name-field` is visible | Open from settings or conversation toolbar |
+| `settings` | A settings row such as `my-info-row` or `delete-all-data-button` is visible | Tap `app-indicator-pill` from `conversations_list` (no settings tab / gear icon). Dismiss with a swipe-down. |
+| `profile_editor` | `profile-display-name-field` is visible | Open from settings (`my-info-row`) or the conversation toolbar |
+
+> Shell note: the home is a standard `TabView` with **Chats** and **Stuff**
+> tabs (Search was removed). Settings opens from the `app-indicator-pill`,
+> not a tab. See `qa/RULES.md` "Home Shell & Navigation" for the full map.
 
 If `screen` is omitted, the agent checks current state and navigates as
 needed based on the first step's actions (legacy behavior).
@@ -120,7 +124,8 @@ element. See `qa/RULES.md` "No Sleep Calls" for the full rationale.
 | `cli_join_conversation: { invite_url, profile_name }` | `convos conversations join "$url" --profile-name "$name" --env dev` |
 | `cli_create_conversation: { name, profile_name }` | `convos conversations create --name "$name" --profile-name "$pn" --env dev` |
 | `cli_generate_invite: { conversation }` | `convos conversation invite $id --env dev --json` |
-| `cli_process_joins: { conversation, watch }` | `convos conversations process-join-requests --conversation $id [--watch] --env dev` |
+| `cli_inspect_invite: { invite }` | `convos conversations inspect-invite "$invite" --env dev --json` (decodes invite metadata: name, emoji, signatureValid - no identity/join) |
+| `cli_process_joins: { conversation, watch, timeout }` | `convos conversations process-join-requests --conversation $id [--watch] --env dev`. `process-join-requests` has **no** `--timeout` flag; the `timeout` action param means "run `--watch` in the background and stop it after N seconds" (wrap + kill), not a literal flag. |
 | `explode_conversation: { id }` | `convos conversation explode $id --env dev` |
 | `download_test_photo: { url, path }` | `curl -sL "$url" -o "$path"` |
 
@@ -162,6 +167,22 @@ internally, not just that the UI updated. Use alongside `verify` checks for stro
 | `on_system_dialog: "action"` | How to handle system dialogs (notifications, photos, etc.) |
 | `expect_event: "event.name"` | Verify the app emitted this [EVENT] after the step |
 | `expect_events: [...]` | Verify multiple [EVENT]s after the step |
+
+## Blocked Tests
+
+A test whose flow no longer exists in the app (e.g. a UI entry point was
+removed) is marked with two top-level keys instead of being deleted:
+
+```yaml
+blocked: true
+blocked_reason: >
+  Why the flow can't run today, and what to do to re-enable it.
+```
+
+The agent skips a `blocked: true` test (records it as skipped, not failed)
+and leaves its steps intact so it can be revived when the flow returns.
+Example: `04-invite-join-paste.yaml` (the in-app scan/paste entry was
+removed in the #910 home-shell rework).
 
 ## Validated Tests
 

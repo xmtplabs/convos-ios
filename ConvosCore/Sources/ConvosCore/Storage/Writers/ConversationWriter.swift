@@ -26,6 +26,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeThinking.authorityID
             && contentType.typeID == ContentTypeThinking.typeID
     }
+
+    var isBuilderBundleManifest: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
+            && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -400,6 +406,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             }
             if message.isThinking {
                 await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
+                continue
+            }
+            if message.isBuilderBundleManifest {
+                await storeBuilderBundleManifest(message, conversationId: conversation.id)
                 continue
             }
             do {
@@ -868,6 +878,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 await storeThinking(message, conversationId: conversation.id, currentInboxId: myInboxId)
                 continue
             }
+            if message.isBuilderBundleManifest {
+                await storeBuilderBundleManifest(message, conversationId: conversation.id)
+                continue
+            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread,
@@ -895,6 +909,28 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             senderInboxId: message.senderInboxId,
             sentAtNs: message.sentAtNs
         )
+    }
+
+    /// Persist the message ids a `BuilderBundleManifest` flagged as an
+    /// agent-builder bundle, so every client filters them out of the chat
+    /// (see `MessagesListProcessor`). Idempotent on (conversationId,
+    /// messageId).
+    private func storeBuilderBundleManifest(_ message: DecodedMessage, conversationId: String) async {
+        guard let manifest = try? BuilderBundleManifestCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode BuilderBundleManifest from message \(message.id)")
+            return
+        }
+        guard !manifest.messageIds.isEmpty else { return }
+        do {
+            try await databaseWriter.write { db in
+                for messageId in manifest.messageIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationId, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
+        }
     }
 
     private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {

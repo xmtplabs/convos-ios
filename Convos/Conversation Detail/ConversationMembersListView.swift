@@ -5,6 +5,15 @@ struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// "New Agent" builder, presented from here so it stacks on top of the
+    /// Members list (itself inside the Info sheet) rather than racing the
+    /// chat view's own builder sheet.
+    @State private var presentingAgentBuilder: AgentBuilderViewModel?
+    /// First-run agents explainer shown before the builder; its "Make an agent"
+    /// button sets `pendingAgentBuilderAfterIntro` and the sheet's onDismiss
+    /// then opens the builder. Stacks over the Members list like the builder.
+    @State private var presentingAgentsIntro: Bool = false
+    @State private var pendingAgentBuilderAfterIntro: Bool = false
 
     /// Same pattern as `ConversationView`. Substitutes contact-list
     /// display names for members whose per-conversation profile name is
@@ -22,6 +31,20 @@ struct ConversationMembersListView: View {
                 viewModel: viewModel,
                 isPresented: $presentingAddFromContactsPicker
             )
+            .sheet(item: $presentingAgentBuilder) { builderViewModel in
+                AgentBuilderView(
+                    viewModel: builderViewModel,
+                    profileSettingsViewModel: .shared
+                )
+            }
+            .selfSizingSheet(isPresented: $presentingAgentsIntro, onDismiss: {
+                guard pendingAgentBuilderAfterIntro else { return }
+                pendingAgentBuilderAfterIntro = false
+                presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+            }) {
+                AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
+                    .padding(.top, 20)
+            }
     }
 
     private var membersList: some View {
@@ -59,7 +82,11 @@ struct ConversationMembersListView: View {
                         viewModel.copyInviteLink()
                     },
                     onInviteAgent: {
-                        viewModel.requestAgentJoin()
+                        if viewModel.consumeAgentsIntroGate() {
+                            presentingAgentsIntro = true
+                        } else {
+                            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                        }
                     },
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true

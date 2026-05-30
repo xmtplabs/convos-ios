@@ -1,5 +1,12 @@
 # Test: Conversation Filters
 
+> **Blocked - filter UI not currently surfaced.** The conversations-list
+> filter picker (`filter-button`: All / Unread / Exploding / Pending) was
+> removed around the Agent Builder work (#830). The filter logic still
+> exists in `ConversationsViewModel`, but there is no user control to select
+> a non-All filter. Filters may return later - re-enable this test then.
+> See `qa/future/home-shell-qa-migration.md`.
+
 Verify the unread filter in the conversations list — filtering, clearing, empty state, and behavior when new messages arrive while filtered.
 
 ## Prerequisites

@@ -19,6 +19,7 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         public static let bundledMessageIdsJSON: Column = Column(CodingKeys.bundledMessageIdsJSON)
         public static let cloudConnectionIdsJSON: Column = Column(CodingKeys.cloudConnectionIdsJSON)
         public static let connectionsAppliedAt: Column = Column(CodingKeys.connectionsAppliedAt)
+        public static let existingConversation: Column = Column(CodingKeys.existingConversation)
     }
 
     public let conversationId: String
@@ -49,6 +50,12 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
     /// summaries written before the replayer existed, or that haven't yet
     /// reached the replayer.
     public let connectionsAppliedAt: Date?
+    /// `true` for summaries written by the in-chat "New Agent" entry (a
+    /// conversation the user was already in). Defaults to `false` on summaries
+    /// written before this column existed -- i.e. home-flow agent chats, which
+    /// is the correct default. The messages list keeps the invite affordances
+    /// visible when this is `true`.
+    public let existingConversation: Bool
 
     public init(
         conversationId: String,
@@ -59,7 +66,8 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         cutoffDate: Date,
         bundledMessageIdsJSON: String,
         cloudConnectionIdsJSON: String,
-        connectionsAppliedAt: Date? = nil
+        connectionsAppliedAt: Date? = nil,
+        existingConversation: Bool = false
     ) {
         self.conversationId = conversationId
         self.summaryId = summaryId
@@ -70,5 +78,6 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         self.bundledMessageIdsJSON = bundledMessageIdsJSON
         self.cloudConnectionIdsJSON = cloudConnectionIdsJSON
         self.connectionsAppliedAt = connectionsAppliedAt
+        self.existingConversation = existingConversation
     }
 }

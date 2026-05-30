@@ -1,5 +1,14 @@
 # Test: Conversations List Baseline
 
+> **Stale - needs rewrite for the #910 home shell.** This doc captures the
+> pre-rework conversations list and its bottom toolbar (`app-settings-button`,
+> `scan-button`, `filter-button`, the old tab bar). Under #910 the home is a
+> standard TabView (Chats / Stuff, Search removed), settings moved to the
+> `app-indicator-pill`, compose moved to the top trailing toolbar, and the
+> scan button was removed. Treat the toolbar/navigation details below as
+> outdated until this baseline is re-captured. See `qa/RULES.md` "Home Shell
+> & Navigation" and `qa/future/home-shell-qa-migration.md`.
+
 Capture a complete baseline of the Conversations List view capabilities, layout, and interactions. This test documents the current SwiftUI List implementation to verify feature parity after migrating to UICollectionView.
 
 ## Purpose

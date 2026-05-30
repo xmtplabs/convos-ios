@@ -1,0 +1,297 @@
+id: "33"
+name: "Read Receipts (Two Simulators)"
+description: >
+  Verify read receipts are sent when viewing a conversation, received from
+  other members, and rendered as a "Read" label with reader avatars that
+  replaces the "Sent" indicator. Read status shows only on the current user's
+  last sent message and resets to "Sent" for new messages. Disabling the
+  "Read receipts" setting stops sending receipts and suppresses the "Read"
+  state (showing "Sent" instead); re-enabling restores both. Requires TWO
+  simulators - Device A and Device B - plus the CLI as a third member.
+tags: [messaging, read-receipts, multi-device]
+depends_on: ["03"]
+estimated_duration_s: 420
+
+prerequisites:
+  two_simulators: true
+  both_erased: true
+  app_installed_on_both: true
+  cli_initialized: true
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  conversation_id: null
+  invite_url: null
+  conversation_name: "Read Receipt Test"
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: "Both simulators must be erased and freshly booted with the app installed."
+
+  - action: cli_create_conversation
+    args: { name: "Read Receipt Test", profile_name: "CLI Bot" }
+    save:
+      conversation_id: result.conversation_id
+    note: "CLI is the creator/super-admin and the third member of the group."
+
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+
+  - action: open_invite_url
+    args: { url: "$invite_url", device: A }
+    note: "Device A opens the deep link first, then the CLI processes the join."
+
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 60, device: A }
+
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+    note: "Generate a fresh invite for Device B."
+
+  - action: open_invite_url
+    args: { url: "$invite_url", device: B }
+
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 60, device: B }
+    note: >
+      Conversation now has three members: CLI Bot, Device A user, Device B
+      user. Both devices show the conversation detail with the composer.
+
+steps:
+  - id: sent_shows_by_default
+    name: "Device A's new message shows 'Sent' before anyone reads it"
+    device: A
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Hello everyone" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Hello everyone", timeout: 15 }
+      - wait_for_element: { label_contains: "Sent", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Hello everyone" }
+      - element_exists: { label_contains: "Sent" }
+      - element_not_exists: { label_contains: "Read" }
+    criteria: sent_status_default
+    expect_event: "message.sent"
+    note: >
+      Below the last sent message the status row reads "Sent" with a
+      checkmark.circle.fill icon (accessibility label "Message sent").
+
+  - id: read_flips_sent_to_read
+    name: "Opening on Device B flips Device A's 'Sent' to 'Read' with B's avatar"
+    actions:
+      - device_b_wait: { label_contains: "Hello everyone", timeout: 15 }
+      - device_b_send: { text: "Reading now" }
+        note: >
+          Device B already has the conversation open from setup. Sending a
+          reply guarantees a fresh read and a read-receipt send from B. The
+          read receipt is silent (no visible message on A).
+      - device_a_wait: { label_contains: "Read", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Read" }
+      - device_a_has: { id: "read-receipt-avatars" }
+      - device_a_has_not: { label_contains: "Message sent" }
+    criteria: sent_flips_to_read
+    note: >
+      The "Sent" status row is replaced by a tappable "Read" row containing
+      ReadReceiptAvatarsView (id read-receipt-avatars) showing Device B's
+      profile avatar. Accessibility label becomes "Message read by N member(s)".
+
+  - id: read_receipt_from_cli_member
+    name: "CLI read receipt adds a second reader avatar"
+    actions:
+      - cli_send_read_receipt: { conversation: "$conversation_id" }
+        note: "convos conversation send-read-receipt $conversation_id --env dev (silent, no visible message)"
+      - device_a_wait: { id: "read-receipt-avatars", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Read" }
+      - device_a_has: { id: "read-receipt-avatars" }
+    criteria: read_receipt_from_cli
+    note: >
+      The CLI explicitly sends a read receipt, so the avatar list should now
+      include both Device B and the CLI member. With a short list there is no
+      horizontal scroll; the key check is that at least one avatar renders and
+      the "Read" label persists. Confirm via screenshot whether two avatars show.
+
+  - id: new_message_resets_to_sent
+    name: "A new message from Device A resets to 'Sent'"
+    device: A
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Second message" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Second message", timeout: 15 }
+      - wait_for_element: { label_contains: "Sent", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Second message" }
+      - element_exists: { label_contains: "Sent" }
+    criteria: new_message_resets
+    expect_event: "message.sent"
+    note: >
+      Read status moves to the newest sent message. "Second message" shows
+      "Sent" until someone reads it; the prior "Hello everyone" row should no
+      longer carry a status (only the last sent message shows status).
+
+  - id: read_only_on_last_message
+    name: "Read status appears only on the last sent message"
+    actions:
+      - device_b_wait: { label_contains: "Second message", timeout: 15 }
+      - device_b_send: { text: "Saw the second" }
+      - device_a_wait: { label_contains: "Read", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Read" }
+      - device_a_element_count_gte: { pattern: "read-receipt-avatars", min: 1 }
+    criteria: read_only_last_message
+    note: >
+      Only "Second message" (the latest sent message) shows "Read". The older
+      "Hello everyone" message shows neither "Sent" nor "Read". Confirm via the
+      accessibility tree / screenshot that exactly one read-receipt-avatars row
+      is present and that it sits below the last sent message, not the prior one.
+
+  - id: disable_read_receipts
+    name: "Disable the 'Read receipts' setting on Device A"
+    device: A
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "my-info-row", timeout: 15 }
+      - tap: { label: "Customize" }
+      - wait_for_element: { id: "read-receipts-toggle", timeout: 15 }
+      - tap: { id: "read-receipts-toggle" }
+      - swipe: { gesture: "swipe-down to dismiss settings back to the conversation" }
+      - wait_for_element: { id: "message-text-field", timeout: 15 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: read_receipts_disabled
+    note: >
+      App Settings open from the app-indicator-pill (no gear/settings tab).
+      The Customize row is a plain NavigationLink labeled "Customize" (no
+      accessibility id) leading to CustomizeSettingsView. The toggle has id
+      read-receipts-toggle; it is a SwiftUI Toggle on the right edge of the
+      row - if a center tap misses, tap the right edge (x + ~120). Dismiss the
+      settings sheet with a swipe-down gesture (no close button id).
+
+  - id: opted_out_does_not_send
+    name: "With receipts off, Device A reading B's message does not update B"
+    actions:
+      - device_b_send: { text: "Can you see this?" }
+      - device_a_wait: { label_contains: "Can you see this?", timeout: 30 }
+      - device_b_send: { text: "Opt-out probe from B" }
+      - device_b_wait: { label_contains: "Opt-out probe from B", timeout: 15 }
+    verify:
+      - device_b_has_not: { label_contains: "Read" }
+    criteria: opt_out_stops_sending
+    note: >
+      Device A has the conversation open and reads B's messages, but with
+      send-read-receipts off it must not emit a read receipt. B's last sent
+      message ("Opt-out probe from B") should stay "Sent", never flipping to
+      "Read".
+
+  - id: opted_out_hides_read
+    name: "With receipts off, Device A's own message shows 'Sent', not 'Read'"
+    actions:
+      - device_a_send: { text: "Opt-out test" }
+      - device_a_wait: { label_contains: "Sent", timeout: 15 }
+      - device_b_wait: { label_contains: "Opt-out test", timeout: 15 }
+      - device_b_send: { text: "Read your opt-out test" }
+      - device_a_wait: { label_contains: "Read your opt-out test", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Sent" }
+      - device_a_has_not: { label_contains: "Read" }
+    criteria: opt_out_hides_read
+    note: >
+      Disabling the toggle is symmetric: A no longer displays "Read" status for
+      its own messages even though B did read them. "Opt-out test" stays "Sent"
+      with the checkmark icon. (B sends a reply to force a fresh read on B's side.)
+
+  - id: re_enable_read_receipts
+    name: "Re-enable the 'Read receipts' setting on Device A"
+    device: A
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "my-info-row", timeout: 15 }
+      - tap: { label: "Customize" }
+      - wait_for_element: { id: "read-receipts-toggle", timeout: 15 }
+      - tap: { id: "read-receipts-toggle" }
+      - swipe: { gesture: "swipe-down to dismiss settings back to the conversation" }
+      - wait_for_element: { id: "message-text-field", timeout: 15 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: read_receipts_reenabled
+
+  - id: re_enable_restores_read
+    name: "Re-enabling restores both sending and display"
+    actions:
+      - device_a_send: { text: "Back on" }
+      - device_b_wait: { label_contains: "Back on", timeout: 30 }
+      - device_b_send: { text: "Got it again" }
+      - device_a_wait: { label_contains: "Read", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Read" }
+      - device_a_has: { id: "read-receipt-avatars" }
+    criteria: re_enable_restores
+    note: >
+      With the toggle back on, A's last sent message ("Back on") flips to
+      "Read" with B's avatar again, confirming sending and display both resumed.
+
+  - id: read_not_on_non_last_after_burst
+    name: "After a burst of messages, only the last shows 'Read'"
+    actions:
+      - device_a_send: { text: "One" }
+      - device_a_send: { text: "Two" }
+      - device_a_send: { text: "Three" }
+      - device_a_wait: { label_contains: "Three", timeout: 15 }
+      - device_b_wait: { label_contains: "Three", timeout: 30 }
+      - device_b_send: { text: "Saw all three" }
+      - device_a_wait: { label_contains: "Read", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "Read" }
+      - device_a_element_count_gte: { pattern: "read-receipt-avatars", min: 1 }
+    criteria: read_only_last_in_burst
+    note: >
+      "One" and "Two" must show no status; only "Three" (the last sent message)
+      shows "Read". Confirm via the accessibility tree / screenshot that exactly
+      one read-receipt-avatars row is present, below "Three".
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+  - action: cleanup_device_b
+    note: "Shut down and delete the Device B simulator. Do not delete Device A."
+    optional: true
+
+criteria:
+  sent_status_default:
+    description: "A newly sent message shows 'Sent' with a checkmark before anyone reads it"
+  sent_flips_to_read:
+    description: "'Sent' changes to 'Read' with the reader's avatar when another member opens the conversation"
+  read_receipt_from_cli:
+    description: "A reader avatar appears next to 'Read' (Device B, plus CLI when it sends a read receipt)"
+  new_message_resets:
+    description: "A new sent message resets to 'Sent' until read by others"
+  read_only_last_message:
+    description: "Read status appears only on the current user's last sent message"
+  read_receipts_disabled:
+    description: "The 'Read receipts' toggle in App Settings > Customize can be turned off"
+  opt_out_stops_sending:
+    description: "With receipts off, the device does not send read receipts to others"
+  opt_out_hides_read:
+    description: "With receipts off, the device shows 'Sent' instead of 'Read' on its own messages"
+  read_receipts_reenabled:
+    description: "The 'Read receipts' toggle can be turned back on"
+  re_enable_restores:
+    description: "Re-enabling read receipts restores both sending and 'Read' display"
+  read_only_last_in_burst:
+    description: "After several messages, only the last one shows 'Read' status"

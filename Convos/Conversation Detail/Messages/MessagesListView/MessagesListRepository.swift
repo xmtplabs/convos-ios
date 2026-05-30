@@ -40,6 +40,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private let messagesRepository: any MessagesRepositoryProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
+    private let hiddenBundleMessagesRepository: any BuilderBundleHiddenMessagesRepositoryProtocol
     private let conversationId: String
     /// Returns whether the user has granted on-device speech recognition permission.
     /// Used to suppress the synthetic "Tap to transcribe" affordance once the user
@@ -68,6 +69,17 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     var isInAgentBuilderFlow: Bool = false {
         didSet {
             guard oldValue != isInAgentBuilderFlow else { return }
+            reprocessCachedMessages()
+        }
+    }
+    /// Message ids a `BuilderBundleManifest` flagged as agent-builder bundle
+    /// messages (see `BuilderBundleHiddenMessagesRepository`). The processor
+    /// filters these from the list on every client, hiding the agent brief
+    /// group-wide. Seeded synchronously in `fetchInitial()` and kept current
+    /// by the table observation in `startObserving()`.
+    private var hiddenBundleMessageIds: Set<String> = [] {
+        didSet {
+            guard oldValue != hiddenBundleMessageIds else { return }
             reprocessCachedMessages()
         }
     }
@@ -113,11 +125,13 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     init(
         messagesRepository: any MessagesRepositoryProtocol,
         transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol,
+        hiddenBundleMessagesRepository: any BuilderBundleHiddenMessagesRepositoryProtocol,
         conversationId: String,
         speechPermissionProvider: @escaping @MainActor () -> Bool = { false }
     ) {
         self.messagesRepository = messagesRepository
         self.transcriptRepository = transcriptRepository
+        self.hiddenBundleMessagesRepository = hiddenBundleMessagesRepository
         self.conversationId = conversationId
         self.speechPermissionProvider = speechPermissionProvider
     }
@@ -146,6 +160,14 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
                 )
                 self.messagesListSubject.send(reprocessed)
             }
+
+        hiddenBundleMessagesRepository.hiddenMessageIdsPublisher(in: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hiddenIds in
+                // The `didSet` reprocesses and emits when the set changes.
+                self?.hiddenBundleMessageIds = hiddenIds
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public Methods
@@ -158,6 +180,10 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         // the initial fetch by one run loop, causing transcript rows to
         // "animate in" a moment after the conversation opens.
         storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
+        // Seed the hidden-bundle ids synchronously so the first emission already
+        // filters the agent brief, matching the transcript-seeding rationale
+        // above. The publisher subscription in startObserving() keeps it current.
+        hiddenBundleMessageIds = hiddenBundleMessagesRepository.hiddenMessageIdsSync(in: conversationId)
         return processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles)
     }
 
@@ -194,6 +220,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             previousReadByMembers: lastReadByMembers,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
+            hiddenBundleMessageIds: hiddenBundleMessageIds,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )
         lastReadByMembers = Self.extractReadByMembers(from: items)

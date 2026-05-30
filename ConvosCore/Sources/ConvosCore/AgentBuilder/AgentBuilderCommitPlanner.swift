@@ -45,6 +45,7 @@ public enum AgentBuilderCommitPlanner {
         prompt: String,
         attachments: [AgentBuilderSummaryAttachment],
         cloudConnectionIds: [String: String],
+        existingConversation: Bool = false,
         now: Date = Date(),
         generateMessageId: () -> String = { UUID().uuidString }
     ) -> AgentBuilderCommitPlan {
@@ -68,15 +69,17 @@ public enum AgentBuilderCommitPlanner {
             bundledMessageIds.insert(bundleMessageId)
         }
 
-        // `cutoffDate` gates agent-side pre-Make chatter by timestamp (we don't
-        // control the agent's send timing). User-side sends are filtered by id
-        // via `bundledMessageIds`, which doesn't suffer the upload-stretch race.
+        // `cutoffDate` records the Make moment (it anchors the placeholder
+        // display window). It no longer filters messages by time -- the
+        // backend skips the agent's pre-Make greeting, and user-side sends are
+        // hidden by id via `bundledMessageIds` (+ the manifest / local rows).
         let summary = AgentBuilderSummary(
             prompt: trimmedPrompt,
             attachments: attachments,
             cutoffDate: now,
             bundledMessageIds: bundledMessageIds,
-            cloudConnectionIds: cloudConnectionIds
+            cloudConnectionIds: cloudConnectionIds,
+            existingConversation: existingConversation
         )
         return AgentBuilderCommitPlan(
             summary: summary,

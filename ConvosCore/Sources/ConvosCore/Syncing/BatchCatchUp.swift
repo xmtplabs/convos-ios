@@ -354,9 +354,11 @@ struct BatchCatchUp {
         }
         // Thinking messages back the thinking-detail view but must never be
         // persisted as normal chat messages -- the stream path routes them
-        // through `ThinkingSessionWriter` (see `storeThinking`). Treat them
-        // as a supplemental so the batch applies them the same way.
-        if message.isReadReceipt || message.isThinking {
+        // through `ThinkingSessionWriter` (see `storeThinking`). The builder
+        // bundle manifest is a control message recording which ids to hide.
+        // Treat all of these as supplementals so the batch applies them the
+        // same way the stream path does, never as chat rows.
+        if message.isReadReceipt || message.isThinking || message.isBuilderBundleManifest {
             return .supplemental
         }
         guard let contentType = try? message.encodedContent.type else {

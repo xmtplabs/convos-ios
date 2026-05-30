@@ -32,8 +32,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
-    @State private var scrollOverscrollAmount: CGFloat = 0.0
-    @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
@@ -53,10 +51,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// through the messaging service's contacts repository.
     private var contactOverride: @Sendable (String) -> Contact? {
         viewModel.messagingService.contactsRepository().contact(for:)
-    }
-
-    private var showPullToAddAgent: Bool {
-        !viewModel.conversation.hasAgent && !viewModel.isAgentJoinPending
     }
 
     private var messagesView: some View {
@@ -150,7 +144,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onInviteAgent: { viewModel.onRequestAgentJoin() },
+            onInviteAgent: { viewModel.presentAgentBuilder() },
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
@@ -161,18 +155,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             headerMode: isReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
-            onBottomOverscrollChanged: { overscroll in
-                scrollOverscrollAmount = overscroll
-                if overscroll == 0 {
-                    didReleasePastThreshold = false
-                }
-            },
-            onBottomOverscrollReleased: { overscroll in
-                if overscroll >= PullToAddAgentView.activationThreshold,
-                   !viewModel.isAgentJoinPending {
-                    didReleasePastThreshold = true
-                }
-            },
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
@@ -181,19 +163,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
-                    if showPullToAddAgent {
-                        PullToAddAgentView(
-                            overscrollAmount: scrollOverscrollAmount,
-                            didReleasePastThreshold: didReleasePastThreshold,
-                            onTriggered: {
-                                viewModel.onRequestAgentJoin()
-                            }
-                        )
-                        .fixedSize()
-                        .frame(height: 0, alignment: .bottom)
-                        .allowsHitTesting(false)
-                    }
-
                     bottomBarContent()
 
                     Group {
@@ -219,7 +188,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             ConversationOnboardingView(
                                 coordinator: onboardingCoordinator,
                                 focusCoordinator: focusCoordinator,
-                                scrollOverscrollAmount: scrollOverscrollAmount,
                                 onTapSetupProfile: {
                                     onboardingCoordinator.didTapProfilePhoto()
                                     viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
@@ -283,7 +251,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.copyInviteLink()
             },
             onInviteAgent: {
-                viewModel.onRequestAgentJoin()
+                viewModel.presentAgentBuilder()
             },
             onAddFromContacts: handleAddFromContactsTap
         )
@@ -419,12 +387,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .selfSizingSheet(isPresented: $viewModel.presentingAgentConfirmation) {
-            AgentsInfoView(
-                isConfirmation: true,
-                onConfirm: { viewModel.requestAgentJoin() }
+        .sheet(item: $viewModel.presentingAgentBuilder) { builderViewModel in
+            AgentBuilderView(
+                viewModel: builderViewModel,
+                profileSettingsViewModel: profileSettingsViewModel
             )
-            .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
+            viewModel.presentAgentBuilderAfterIntroIfNeeded()
+        }) {
+            AgentsInfoView(onMakeAgent: { viewModel.pendingAgentBuilderAfterIntro = true })
+                .padding(.top, 20)
         }
         .sheet(isPresented: $viewModel.presentingPaywall) {
             let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)

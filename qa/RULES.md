@@ -101,6 +101,59 @@ The CLI is the primary way to simulate "the other side" of a conversation — se
 - **Deep link format:** `https://dev.convos.org/v2?i=<invite-slug>`
 - **Custom URL scheme:** `convos-dev://`
 
+## Home Shell & Navigation
+
+The home shell is a standard SwiftUI `TabView`. Some older QA steps assume
+the previous custom tab bar; use this section as the source of truth when a
+test's `screen` prerequisite or a navigation step doesn't match the screen.
+
+### Tabs
+
+- Two tabs in the system tab bar: **Chats** (`message.fill`) and **Stuff**
+  (`square.grid.2x2.fill`). Select a tab by tapping its label ("Chats" /
+  "Stuff").
+- The **Search** tab was removed. Any step that taps a search tab or
+  `search-tab` is stale - there is no search entry point right now.
+- On iPhone the tab bar is at the bottom; on iPad it is at the top.
+
+### Conversations list (Chats tab)
+
+- Verified by `compose-button` being present.
+- `compose-button` opens the new-conversation flow (`NewConversationView`).
+- The agent builder bar pins to the edge opposite the tab bar
+  (`agent-builder-bar-expanded` / `agent-builder-bar-collapsed`); once it is
+  scrolled away a compact `toolbar-add-agent-button` takes its place.
+
+### App settings
+
+- Opened by tapping the `app-indicator-pill` (the profile / plan pill,
+  top-leading on every tab) - not a settings tab or gear icon.
+- The old identifiers `app-settings-button`, `convos-settings-button`, and
+  `settings-view` no longer exist.
+- Settings sheet (`AppSettingsView`) rows: `my-info-row` (profile),
+  `devices-row` (paired devices), `contacts-row`, `connections-row`,
+  `subscription-row` (plan / credits), `delete-all-data-button`.
+- Dismiss the settings sheet with a swipe-down gesture (interactive dismiss
+  is enabled except mid-deletion). The old `close-app-settings` identifier
+  is gone.
+
+### Joining a conversation
+
+- Two ways in: scanning a QR code with the **device camera**, or opening a
+  **deep-link invite URL**.
+  - Camera QR scanning is not automatable on the simulator (no camera) -
+    treat it as manual / physical-device only.
+  - Deep-link join is the automatable path: `sim_open_url(url: "$invite_url")`.
+    See test 03 for the canonical flow.
+- The old bottom-toolbar `scan-button` / in-app paste-in-scanner entry was
+  removed in the home-shell rework (may return later). `compose-button`
+  opens the *create* flow, not a join/scan screen, so there is no in-app
+  "paste invite URL" entry point right now. `JoinConversationView` /
+  `paste-invite-button` still exist in code but are not reachable from the
+  home screen.
+- `scan-invite-button` (a viewfinder inside an open conversation) is a
+  separate scan-from-within-a-conversation control, not a primary join entry.
+
 ## Simulator Selection
 
 All QA tests must run on the simulator for the current branch. To determine the correct simulator:
@@ -171,8 +224,8 @@ Pass the correct UDID to every simulator tool call. The `udid` parameter on all 
 # Tap on Device A
 sim_tap_id(identifier="compose-button", udid=DEVICE_A_UDID)
 
-# Tap on Device B
-sim_tap_id(identifier="scan-button", udid=DEVICE_B_UDID)
+# Device B joins by opening the invite deep link (no in-app scan view)
+sim_open_url(url="$invite_url", udid=DEVICE_B_UDID)
 
 # Screenshot Device B
 sim_screenshot(udid=DEVICE_B_UDID)
@@ -327,7 +380,7 @@ $CXDB finish-test "$TR" "pass"
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
 - **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
-- **SwiftUI bottom toolbar items are auto-probed.** Buttons inside `.toolbar { ToolbarItem(placement: .bottomBar) }` (e.g., `compose-button`, `scan-button`) have correct accessibility identifiers but `idb ui describe-all` does not enumerate them. The `sim_tap_id`, `sim_find_elements`, and `sim_wait_for_element` tools handle this automatically by probing the bottom toolbar area with hit-testing when the tree search fails. No special workaround is needed — use these tools normally with the element's identifier or label.
+- **SwiftUI toolbar items are auto-probed.** Toolbar buttons (e.g., `compose-button`, `toolbar-add-agent-button`) have correct accessibility identifiers but `idb ui describe-all` does not always enumerate them. The `sim_tap_id`, `sim_find_elements`, and `sim_wait_for_element` tools handle this automatically by probing the toolbar area with hit-testing when the tree search fails. No special workaround is needed — use these tools normally with the element's identifier or label.
 
 ### Verifying Behavior via App Events
 

@@ -50,8 +50,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
-    let onBottomOverscrollChanged: (CGFloat) -> Void
-    let onBottomOverscrollReleased: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
@@ -104,8 +102,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
             self.onPhotoHidden(key)
         }
-        messagesViewController.onBottomOverscrollChanged = onBottomOverscrollChanged
-        messagesViewController.onBottomOverscrollReleased = onBottomOverscrollReleased
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
@@ -192,8 +188,6 @@ let menuPresented = contextMenuState.isPresented
         hasAgent: false,
         isAgentJoinPending: false,
         bottomBarHeight: bottomBarHeight,
-        onBottomOverscrollChanged: { _ in },
-        onBottomOverscrollReleased: { _ in },
         scrollToBottomTrigger: { _ in },
         messageInputFocusTrigger: { _ in }
     )

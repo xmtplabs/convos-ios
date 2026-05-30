@@ -331,6 +331,10 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        ""
+    }
+
     func publish() async throws {
     }
 

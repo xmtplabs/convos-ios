@@ -149,6 +149,18 @@ public final class VoiceMemoRecorder: NSObject {
         state = .idle
     }
 
+    /// Re-seed a previously recorded memo back into the `.recorded` state.
+    /// Used to restore composer state when a send that optimistically cleared
+    /// the recorder (e.g. the agent-builder bundle) fails, so the user can
+    /// retry from the chat composer. The audio file is left on disk by
+    /// `resetState()`, so the original `url` is still valid.
+    public func restoreRecorded(url: URL, duration: TimeInterval, audioLevels: [Float]) {
+        recordingURL = url
+        self.duration = duration
+        self.audioLevels = audioLevels
+        state = .recorded(url, duration)
+    }
+
     public func cancelRecording() {
         levelTimer?.invalidate()
         levelTimer = nil

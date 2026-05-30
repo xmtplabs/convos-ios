@@ -4,7 +4,7 @@ description: >
   Verify that the "Delete All Data" flow in App Settings permanently deletes
   all conversations and returns the app to the onboarding state.
   This test is destructive — run it last.
-  Settings button: id="app-settings-button", label="Convos settings".
+  Open settings by tapping id="app-indicator-pill" (the profile / plan pill).
   Delete button: id="delete-all-data-button", label="Delete all app data" (red).
   Confirmation: "Delete everything?" dialog with hold-to-delete-button and Cancel.
 tags: [settings, destructive, data]
@@ -26,15 +26,16 @@ steps:
   - id: navigate_to_delete
     name: "Navigate to Delete All Data"
     actions:
-      - tap: { id: "app-settings-button" }
+      - tap: { id: "app-indicator-pill" }
       - wait_for_element: { id: "delete-all-data-button", timeout: 10 }
     verify:
       - element_exists: { id: "delete-all-data-button" }
     criteria: delete_button_accessible
     note: >
-      Settings page shows: My info, Customize new convos (Soon), Notifications (Soon),
-      Secured by XMTP, Privacy & Terms, Send feedback, Debug, and "Delete all app data"
-      (red text) at the bottom.
+      Settings (AppSettingsView) opens from the app-indicator-pill and shows
+      rows including My info (my-info-row), Devices, Contacts, Connections,
+      Subscription, plus "Delete all app data" (delete-all-data-button, red
+      text) at the bottom.
 
   - id: cancel_deletion
     name: "Cancel dismisses confirmation without deleting"

@@ -76,7 +76,7 @@ struct DebugViewSection: View {
                 Text("Show Agents Info Sheet")
             }
             .selfSizingSheet(isPresented: $showingAgentsInfoSheet) {
-                AgentsInfoView(isConfirmation: true, onConfirm: {})
+                AgentsInfoView()
                     .padding(.top, 20)
             }
 
