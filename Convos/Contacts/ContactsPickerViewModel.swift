@@ -216,18 +216,21 @@ final class ContactsPickerViewModel {
         allContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
     }
 
+    /// Single source of truth for "is this contact a valid picker row".
+    /// A contact is pickable when it shows in the Contacts browse list
+    /// (`isVisibleInContactsList`: template-backed agents and named humans)
+    /// and the user hasn't blocked it. Blocked contacts stay in the browse
+    /// list so they can be unblocked, but they are never a valid picker
+    /// target. Template-backed agents are selectable in every mode, since
+    /// starting (or adding to) a conversation spawns a fresh instance.
+    static func isPickable(_ contact: Contact) -> Bool {
+        !contact.isBlocked && contact.isVisibleInContactsList
+    }
+
     /// Contacts selectable in the picker, used by `ConversationsViewModel` to
-    /// size its compose entry point. Mirrors `isVisibleInPicker` (template-
-    /// backed agents plus named, unblocked humans).
+    /// size its compose entry point.
     static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
-        contacts.filter { contact in
-            guard !contact.isBlocked else { return false }
-            if contact.agentVerification != nil {
-                return contact.agentTemplateId != nil
-            }
-            guard let name = contact.displayName, !name.isEmpty else { return false }
-            return true
-        }
+        contacts.filter(isPickable)
     }
 
     // MARK: - Section building
@@ -240,34 +243,14 @@ final class ContactsPickerViewModel {
         // blocked / a verified agent / unnamed would otherwise stay in
         // `selectedInboxIds`, counting toward `selectionCount` and passing
         // `canConfirm` with no UI for the user to remove it.
-        let visibleInboxIds = Set(allContacts.filter(isVisibleInPicker).map(\.inboxId))
+        let visibleInboxIds = Set(allContacts.filter(Self.isPickable).map(\.inboxId))
         selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
         rebuildSections()
         isLoading = false
     }
 
-    /// Single source of truth for "is this contact a valid picker row".
-    /// Hidden from the picker:
-    ///  - blocked contacts (the user explicitly opted out of contacting them)
-    ///  - template-less agents (legacy verified assistants); template-backed
-    ///    agents are selectable in both modes - starting a new conversation
-    ///    spawns a fresh instance, and adding to an existing conversation
-    ///    spawns one into that conversation
-    ///  - humans whose displayName is missing/empty (would render as
-    ///    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
-    ///    useful picker target -- there's nothing to distinguish one
-    ///    "Somebody" from another)
-    private func isVisibleInPicker(_ contact: Contact) -> Bool {
-        guard !contact.isBlocked else { return false }
-        if contact.agentVerification != nil {
-            return contact.agentTemplateId != nil
-        }
-        guard let name = contact.displayName, !name.isEmpty else { return false }
-        return true
-    }
-
     private func rebuildSections() {
-        let visible = allContacts.filter(isVisibleInPicker)
+        let visible = allContacts.filter(Self.isPickable)
         let filtered = filterByQuery(visible)
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,

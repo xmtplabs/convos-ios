@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Module overview
 //
 // `ContactsPickerView` is the canonical multi-select contact picker.
-// It is invoked from three entry points, parameterized by `ContactsPickerMode`:
+// It is invoked from four entry points, parameterized by `ContactsPickerMode`:
 //
 //   1. Compose toolbar on the contacts list (`ContactsView` toolbar `+`),
 //      `mode: .newConversation`. Confirm builds a
@@ -22,6 +22,12 @@ import SwiftUI
 //      .addToConversation(...)` with the conversation's existing members
 //      passed as `alreadyInChatInboxIds`. Confirm calls
 //      `ConversationViewModel.addMembersFromContacts(_:)`.
+//   4. Primary compose flow from the home shell (`MainTabView` ->
+//      `ComposeFlowView`, driven by
+//      `ConversationsViewModel.presentingComposeFlow`), `mode: .compose`
+//      with `embedsNavigationStack: false` so the picker is the root of the
+//      compose sheet's own `NavigationStack` and pushes the drafted
+//      conversation on confirm instead of presenting another sheet.
 //
 // Mirrors `ContactDetailMode`'s "one component, two-or-more entry points"
 // pattern. The view itself is presentation-only; callers own the side

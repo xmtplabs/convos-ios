@@ -89,7 +89,6 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
 
     func contactsRepository() -> any ContactsRepositoryProtocol
     func contactsWriter() -> any ContactsWriterProtocol
-    func agentTemplateCacheWriter() -> any AgentTemplateCacheWriterProtocol
     func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String

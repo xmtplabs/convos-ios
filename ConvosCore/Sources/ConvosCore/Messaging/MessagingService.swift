@@ -236,10 +236,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         ContactsWriter(databaseWriter: databaseWriter)
     }
 
-    func agentTemplateCacheWriter() -> any AgentTemplateCacheWriterProtocol {
-        AgentTemplateCacheWriter(databaseWriter: databaseWriter)
-    }
-
     func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
         ContactSyncCoordinator(
             databaseWriter: databaseWriter,

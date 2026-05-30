@@ -151,10 +151,6 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockContactsWriter()
     }
 
-    public func agentTemplateCacheWriter() -> any AgentTemplateCacheWriterProtocol {
-        MockAgentTemplateCacheWriter()
-    }
-
     public func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
         MockContactSyncCoordinator()
     }
