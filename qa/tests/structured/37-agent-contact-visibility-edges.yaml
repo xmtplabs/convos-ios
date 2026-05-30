@@ -1,0 +1,199 @@
+id: "37"
+name: "Agent Contact Visibility Edges"
+description: >
+  Non-destructive edge and negative cases of the agents-as-contacts refactor: a
+  verified assistant served WITHOUT a templateId stays hidden from the Contacts
+  browse list and the picker (even after the local user messages it); a metadata-
+  less name-only profile update does not drop a template-backed agent from contacts
+  (sticky templateId coalesce); the add-to-conversation picker shows agents (not
+  hidden) and inline-disables a member already in the chat; and adding a second
+  agent to a conversation that already has one is blocked by the !hasAgent guard.
+  Guards Contact+BrowseVisibility.isVisibleInContactsList,
+  DBContact.replacingProfileFields sticky coalesce, ContactsPickerViewModel
+  isPickable / already-in-chat handling, and AddFromContactsPickerModifier.
+tags: [agents, contacts, picker, edge-cases, local-stack]
+depends_on: ["36"]
+estimated_duration_s: 420
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  local_stack_running: true
+  agent_jwks_pinned: true
+  scheme: "Convos (Local)"
+  bundle_id: org.convos.ios-local
+  screen: conversations_list
+
+# Runs in the SAME app session as test 36 (the app resets to an empty inbox on
+# relaunch, so do not relaunch between 36 and 37). Reuses the Fitness Trainer
+# (templateId debug-fitness-trainer) contact + conversation from 36 and the
+# shared-template agents. The runbook also provisions a templateId-less
+# "Mystery Bot" and a plain human "Alex" who joins the Fitness Trainer convo.
+state:
+  mystery_bot_invite_url: null
+
+setup:
+  - action: note
+    args:
+      text: >
+        Provisioned by the runbook: "Mystery Bot" - a verified agent served with
+        NO templateId (only emoji pushed) to exercise the hidden-legacy-assistant
+        path (invite in mystery_bot_invite_url); and a plain human "Alex" (no agent
+        attestation) who joins the Fitness Trainer conversation so it has a non-
+        agent member to show as already-in-chat. Agent-served conversations are
+        named after the agent (convos agent serve --name), so the Fitness Trainer's
+        conversation is titled "Fitness Trainer".
+
+steps:
+  - id: join_mystery_bot
+    name: "Join the conversation hosting the templateId-less Mystery Bot"
+    actions:
+      - open_invite_url: { url: "$mystery_bot_invite_url" }
+      - wait_for_element: { id: "conversation-toolbar-button", timeout: 30 }
+      - tap: { id: "message-text-field" }
+      - type_in_field: { id: "message-text-field", text: "hi mystery bot" }
+      - tap: { id: "send-message-button" }
+      - wait: { seconds: 3 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "conversation-toolbar-button", label_contains: "Mystery Bot" }
+    criteria: joined_mystery_bot_conversation
+    note: >
+      Mystery Bot is verified (the pinned JWKS validates its attestation) but its
+      profile carries no templateId. The local send creates its DBContact (with
+      agentVerification set, templateId nil); it must still NOT surface in the
+      browse list.
+
+  - id: legacy_agent_hidden_in_contacts
+    name: "Verified assistant without templateId is absent from the browse list"
+    actions:
+      - tap: { id: "close-new-conversation" }
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Fitness Trainer", timeout: 15 }
+      - find_elements: { pattern: "Mystery Bot" }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { label_contains: "Mystery Bot" }
+      - element_exists: { label_contains: "Fitness Trainer" }
+    criteria: legacy_agent_hidden
+    note: >
+      isVisibleInContactsList returns false when agentVerification != nil &&
+      agentTemplateId == nil. Mystery Bot stays in DBContact (chat-side resolves
+      it) but never renders in the browse list. The template-backed Fitness Trainer
+      is the visible control.
+
+  - id: name_only_update_keeps_template
+    name: "A name-only profile update does not drop the template-backed agent"
+    actions:
+      - note: >
+          From the Fitness Trainer agent shell, push a name-only update through the
+          serve FIFO with NO metadata:
+          {"type":"update-profile","name":"Fit Coach"}
+          so the snapshot's agentTemplateId/emoji/publishedURL are all nil.
+      - wait_for_element: { label_contains: "Fit Coach", timeout: 25 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Fit Coach" }
+      - element_exists: { label_contains: "Agent" }
+    criteria: sticky_template_survives_name_only_update
+    note: >
+      DBContact.replacingProfileFields coalesces (snapshot.agentTemplateId ??
+      agentTemplateId), so the templateId survives a metadata-less update. The
+      display name updates to "Fit Coach" but the row stays visible with its Agent
+      pill, proving the agent was not dropped from the canonical dedup pipeline.
+
+  - id: open_add_picker_in_agent_convo
+    name: "Open the add-from-contacts picker inside the Fitness Trainer conversation"
+    actions:
+      - navigate_back: {}
+      - navigate_back: {}
+      - tap: { label_contains: "Fitness Trainer" }
+      - wait_for_element: { id: "add-to-conversation-button", timeout: 10 }
+      - tap: { id: "add-to-conversation-button" }
+      - wait_for_element: { id: "context-menu-add-from-contacts", timeout: 10 }
+      - tap: { id: "context-menu-add-from-contacts" }
+      - wait_for_element: { id: "contacts-picker-confirm", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "contacts-picker-confirm" }
+    criteria: add_picker_opens
+    note: >
+      add-to-conversation-button opens AddToConversationMenu; the
+      context-menu-add-from-contacts row presents ContactsPickerView in
+      add-to-conversation mode (AddFromContactsPickerModifier), seeded with the
+      conversation's existing members as alreadyInChatInboxIds.
+
+  - id: agent_pickable_in_add_mode
+    name: "Agents are shown (not hidden) in add-to-conversation mode"
+    actions:
+      - find_elements: { pattern: "contacts-picker-row-" }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Trip Planner" }
+    criteria: agent_pickable_in_add_mode
+    note: >
+      ContactsPickerViewModel.isPickable returns true for agents across all modes
+      (!isBlocked && isVisibleInContactsList). A template-backed agent row (the
+      shared-template Trip Planner / Road Tripper) must be present and selectable.
+
+  - id: already_in_chat_disabled
+    name: "A member already in the conversation is inline-disabled in the picker"
+    actions:
+      - find_elements: { pattern: "Alex" }
+      - tap: { label_contains: "Alex" }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { id: "contacts-picker-selected-pills" }
+    criteria: already_in_chat_disabled
+    note: >
+      Alex is already a member of the Fitness Trainer conversation, so the picker
+      row shows the "in chat" badge and is .disabled (ContactsPickerRow).
+      toggleSelection guards !alreadyInChatInboxIds.contains(inboxId), so tapping
+      the row must not add a selected pill (the contacts-picker-selected-pills bar
+      stays absent / empty).
+
+  - id: hasagent_guard_blocks_second_agent
+    name: "Selecting a second agent in a convo that already has one is a no-op"
+    actions:
+      - tap: { label_contains: "Trip Planner" }
+      - wait_for_element: { id: "contacts-picker-confirm", timeout: 5 }
+      - tap: { id: "contacts-picker-confirm" }
+      - wait_for_element: { id: "conversation-toolbar-button", timeout: 15 }
+      - wait: { seconds: 3 }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { label_contains: "Trip Planner joined" }
+    criteria: hasagent_guard_blocks_second_agent
+    note: >
+      AddFromContactsPickerModifier.handleConfirm gates requestAgentJoin on
+      !viewModel.conversation.hasAgent. The Fitness Trainer conversation already has
+      an agent, so selecting Trip Planner and confirming must NOT spawn a second
+      agent (no "Trip Planner joined" / agent member.added). Human members in the
+      selection would still be added normally.
+
+teardown:
+  - action: navigate_back
+    optional: true
+  - action: note
+    args:
+      text: >
+        Leave the conversations and agents running for test 37b (block/consent),
+        which reuses the shared-template agent.
+
+criteria:
+  joined_mystery_bot_conversation:
+    description: "The app joins the Mystery Bot conversation and the local user sends a message (creating its hidden contact)"
+  legacy_agent_hidden:
+    description: "The verified assistant without a templateId does NOT appear in the Contacts browse list (while the template-backed agent does)"
+  sticky_template_survives_name_only_update:
+    description: "After a metadata-less name-only update, the template-backed agent remains a visible contact (with Agent pill) under its new display name"
+  add_picker_opens:
+    description: "The add-from-contacts picker opens inside the agent conversation with a confirm button"
+  agent_pickable_in_add_mode:
+    description: "A template-backed agent row is present and selectable in the add-to-conversation picker"
+  already_in_chat_disabled:
+    description: "A contact already a member of the conversation is shown but cannot be re-selected (no selected pill added on tap)"
+  hasagent_guard_blocks_second_agent:
+    description: "Confirming the picker with a second agent selected in a convo that already has an agent does NOT spawn the second agent"
