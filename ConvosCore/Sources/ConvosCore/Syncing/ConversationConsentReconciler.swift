@@ -12,11 +12,17 @@ import XMTPiOS
 /// Conversations whose creator is not a contact are left untouched: an
 /// unsolicited stranger stays `.unknown` (hidden) and a conversation the
 /// local user joined stays `.allowed` (flipped at arrival by
-/// `StreamProcessor`). One reconciler therefore covers every
-/// contact-state visibility transition - promotion when a stranger
-/// becomes a contact, demotion on block, restoration on unblock - so
-/// `block` / `unblock` stay pure contact-row writes and this reconciler
-/// reacts to them via GRDB observation.
+/// `StreamProcessor`). The reconciler covers two contact-state visibility
+/// transitions: promotion when a stranger becomes a contact
+/// (`.unknown` -> `.allowed`) and demotion on block (`.allowed` -> `.denied`),
+/// so `block` stays a pure contact-row write and this reconciler reacts to it
+/// via GRDB observation.
+///
+/// Only `.unknown` is promoted - never `.denied`. A `.denied` conversation
+/// from a non-blocked contact is one the user explicitly deleted, so it is
+/// left hidden (resurrecting it would undo the delete). As a consequence,
+/// unblocking a contact does not auto-restore conversations that were hidden
+/// while they were blocked.
 ///
 /// Consent is flipped at the XMTP layer (so it survives re-sync, which
 /// rewrites the DB `consent` column from XMTP) and mirrored into the DB
@@ -92,17 +98,22 @@ final class ConversationConsentReconciler: @unchecked Sendable {
     /// stranger conversations have no matching contact row and are
     /// ignored. Once a target is flipped its consent matches and it
     /// drops out of this result, so the observation converges.
+    ///
+    /// Promotion fires only for `.unknown` (a stranger that just became a
+    /// contact), never for `.denied` - a `.denied` conversation from a
+    /// non-blocked contact is one the user deleted, and must stay hidden.
     static func fetchMismatchedTargets(db: Database) throws -> [Target] {
         let allowed: String = Consent.allowed.rawValue
         let denied: String = Consent.denied.rawValue
+        let unknown: String = Consent.unknown.rawValue
         let rows = try Row.fetchAll(db, sql: """
             SELECT conversation.id AS id,
                    CASE WHEN contact.blockedAt IS NULL THEN ? ELSE ? END AS target
             FROM conversation
             JOIN contact ON contact.inboxId = conversation.creatorId
-            WHERE (contact.blockedAt IS NULL AND conversation.consent <> ?)
+            WHERE (contact.blockedAt IS NULL AND conversation.consent = ?)
                OR (contact.blockedAt IS NOT NULL AND conversation.consent <> ?)
-            """, arguments: [allowed, denied, allowed, denied])
+            """, arguments: [allowed, denied, unknown, denied])
         return rows.compactMap { row -> Target? in
             guard let id: String = row["id"],
                   let rawConsent: String = row["target"],

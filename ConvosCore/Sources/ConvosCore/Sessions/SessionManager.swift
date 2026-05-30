@@ -228,35 +228,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    /// Hard-deletes any conversation still pending consent (`.unknown`)
-    /// once it is older than the retention TTL. A conversation the user
-    /// created, joined, or whose creator became a contact has had its
-    /// consent promoted to `.allowed` (and a blocked creator's to
-    /// `.denied`), so anything still `.unknown` past the window is an
-    /// unsolicited stranger the user never engaged with.
-    private static func deleteStaleStrangerConversations(
-        databaseWriter: any DatabaseWriter,
-        reason: String
-    ) async {
-        let cutoff: Date = Date().addingTimeInterval(-staleStrangerTTL)
-        do {
-            let deleted: Int = try await databaseWriter.write { db in
-                let sql: SQL = """
-                    DELETE FROM conversation
-                    WHERE createdAt < \(cutoff)
-                      AND consent = \(Consent.unknown.rawValue)
-                    """
-                try db.execute(literal: sql)
-                return db.changesCount
-            }
-            if deleted > 0 {
-                Log.info("StaleStrangerGC: deleted \(deleted) stranger conversation(s) (reason=\(reason))")
-            }
-        } catch {
-            Log.error("StaleStrangerGC sweep (reason=\(reason)) failed: \(error.localizedDescription)")
-        }
-    }
-
     /// 7-day hold for stranger conversations before hard delete.
     private static let staleStrangerTTL: TimeInterval = 7 * 24 * 60 * 60
     /// Hourly cadence for the foreground GC loop.
@@ -570,6 +541,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try ConversationLocalState.deleteAll(db)
             try DBInvite.deleteAll(db)
             try DBConversationContactsSync.deleteAll(db)
+            try DBAgentTemplate.deleteAll(db)
             try DBMessage.deleteAll(db)
             try DBMemberProfile.deleteAll(db)
             try DBConversationMember.deleteAll(db)
@@ -926,6 +898,56 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
             }
         }
+    }
+}
+
+// MARK: - Stale-stranger GC
+
+extension SessionManager {
+    private static func deleteStaleStrangerConversations(
+        databaseWriter: any DatabaseWriter,
+        reason: String
+    ) async {
+        let cutoff: Date = Date().addingTimeInterval(-staleStrangerTTL)
+        do {
+            let deleted: Int = try await databaseWriter.write { db in
+                try deleteStaleStrangerConversations(db: db, cutoff: cutoff)
+            }
+            if deleted > 0 {
+                Log.info("StaleStrangerGC: deleted \(deleted) stranger conversation(s) (reason=\(reason))")
+            }
+        } catch {
+            Log.error("StaleStrangerGC sweep (reason=\(reason)) failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Hard-deletes empty stranger conversations (consent `.unknown` with no
+    /// local messages) created before `cutoff`. A conversation the user
+    /// created, joined, or whose creator became a contact has had its consent
+    /// promoted (`.allowed`) or demoted (`.denied`), so anything still
+    /// `.unknown` past the window is an unsolicited stranger the user never
+    /// engaged with.
+    ///
+    /// The `NOT EXISTS messages` guard means a stranger conversation that
+    /// actually received content is never deleted here - only truly empty
+    /// shells are reclaimed. `createdAt` is the XMTP network timestamp, so a
+    /// freshly-synced but network-old empty shell is eligible immediately;
+    /// gating the grace window on a local-arrival timestamp instead is a
+    /// follow-up (the column was dropped with the quarantine machinery).
+    ///
+    /// Returns the number of rows deleted. `internal` + db/cutoff-injectable
+    /// so it can be unit-tested without a clock seam.
+    static func deleteStaleStrangerConversations(db: Database, cutoff: Date) throws -> Int {
+        let sql: SQL = """
+            DELETE FROM conversation
+            WHERE createdAt < \(cutoff)
+              AND consent = \(Consent.unknown.rawValue)
+              AND NOT EXISTS (
+                  SELECT 1 FROM message WHERE message.conversationId = conversation.id
+              )
+            """
+        try db.execute(literal: sql)
+        return db.changesCount
     }
 }
 

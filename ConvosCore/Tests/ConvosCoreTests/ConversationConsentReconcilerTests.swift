@@ -4,19 +4,21 @@ import GRDB
 import Testing
 
 /// Coverage for `ConversationConsentReconciler.fetchMismatchedTargets` -
-/// the query that drives every contact-state visibility transition
-/// (promotion, demotion, restoration) by comparing a conversation's
-/// stored consent against its creator's contact-block state.
+/// the query that drives the contact-state visibility transitions
+/// (promotion of `.unknown`, demotion on block) by comparing a
+/// conversation's stored consent against its creator's contact-block state.
 @Suite("ConversationConsentReconciler Tests", .serialized)
 struct ConversationConsentReconcilerTests {
     private static let selfInboxId: String = "inbox-self"
 
-    @Test("Non-blocked contact with non-allowed consent is promoted to .allowed")
-    func testPromotesUnknownAndDeniedFromNonBlockedContact() throws {
+    @Test("Non-blocked contact: .unknown is promoted, .denied (user-deleted) is left alone")
+    func testPromotesUnknownButNotDeniedFromNonBlockedContact() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         try dbManager.dbWriter.write { db in
             try Self.seedContact(db: db, inboxId: "contact-a", blockedAt: nil)
             try Self.seedConversation(db: db, id: "convo-unknown", creatorId: "contact-a", consent: .unknown)
+            // The user deleted this one (delete sets .denied); the creator is
+            // a non-blocked contact. The reconciler must NOT resurrect it.
             try Self.seedConversation(db: db, id: "convo-denied", creatorId: "contact-a", consent: .denied)
         }
 
@@ -24,9 +26,7 @@ struct ConversationConsentReconcilerTests {
             try ConversationConsentReconciler.fetchMismatchedTargets(db: db)
         }
 
-        #expect(targets.contains(.init(conversationId: "convo-unknown", consent: .allowed)))
-        #expect(targets.contains(.init(conversationId: "convo-denied", consent: .allowed)))
-        #expect(targets.count == 2)
+        #expect(targets == [.init(conversationId: "convo-unknown", consent: .allowed)])
     }
 
     @Test("Blocked contact with non-denied consent is demoted to .denied")

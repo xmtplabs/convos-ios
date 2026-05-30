@@ -154,11 +154,16 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
     /// surface consumes the same canonical shape from a single observation.
     private static func canonicalContacts(_ db: Database) throws -> [Contact] {
         let templates = try templateMap(db)
+        // Deterministic fetch order so the representative chosen per template
+        // (the first encountered by `dedupingAgentsByTemplate`) is stable
+        // across observations - earliest-added, then inboxId as a tiebreak.
         // Dedup before sorting so the canonical (merged) display name is what
         // drives alphabetical order. Case-insensitive sort done in Swift to
         // keep behavior identical across SQLite collations; nil names defer to
         // the "Somebody" fallback in resolvedDisplayName.
-        return try DBContact.fetchAll(db)
+        return try DBContact
+            .order(DBContact.Columns.addedAt, DBContact.Columns.inboxId)
+            .fetchAll(db)
             .map(Contact.init(dbContact:))
             .dedupingAgentsByTemplate(using: templates)
             .sorted { lhs, rhs in

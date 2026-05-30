@@ -301,4 +301,67 @@ struct ContactsRepositoryTests {
         // No cache row yet, so the representative keeps its instance name.
         #expect(agents.first?.displayName == "First Instance")
     }
+
+    @Test("Dedup representative is the earliest-added instance, and a block on any instance blocks the canonical row")
+    func testDedupDeterministicRepresentativeAndBlockOR() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            // Earliest-added instance is NOT blocked.
+            try DBContact(
+                inboxId: "agent-early",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "Early",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-x"
+            ).save(db)
+            // A later instance IS blocked.
+            try DBContact(
+                inboxId: "agent-late",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Late",
+                blockedAt: Date(),
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-x"
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let agents = try repo.fetchAll().filter { $0.agentTemplateId == "tmpl-x" }
+
+        #expect(agents.count == 1)
+        // Deterministic representative = earliest-added instance.
+        #expect(agents.first?.inboxId == "agent-early")
+        // A block on any instance blocks the collapsed canonical row, so
+        // dedup can't hide a block.
+        #expect(agents.first?.isBlocked == true)
+    }
+
+    @Test("A metadata-less profile update does not clear the contact's sticky agent-template identity")
+    func testStickyAgentTemplateIdentitySurvivesMetadataLessUpdate() {
+        let agent = DBContact(
+            inboxId: "agent-1",
+            addedAt: Date(timeIntervalSince1970: 1),
+            addedViaConversationId: nil,
+            displayName: "Old Name",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-keep",
+            agentTemplatePublishedURL: "https://convos.org/a/x",
+            agentTemplateEmoji: "🤖"
+        )
+        // The name-only ProfileUpdate `convos agent serve` publishes at startup
+        // carries no metadata, so every template field is nil.
+        let nameOnly = ContactProfileSnapshot(displayName: "New Name")
+        let updated = agent.replacingProfileFields(with: nameOnly, at: Date(timeIntervalSince1970: 100))
+
+        #expect(updated.displayName == "New Name")
+        // Sticky template identity survives the metadata-less overwrite.
+        #expect(updated.agentTemplateId == "tmpl-keep")
+        #expect(updated.agentTemplatePublishedURL == "https://convos.org/a/x")
+        #expect(updated.agentTemplateEmoji == "🤖")
+        // agentVerification is wholesale-replaced (not sticky).
+        #expect(updated.agentVerification == nil)
+    }
 }

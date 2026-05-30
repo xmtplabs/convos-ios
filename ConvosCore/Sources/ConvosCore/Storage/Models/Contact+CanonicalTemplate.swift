@@ -13,7 +13,7 @@ extension Contact {
     /// yet - the avatar pipeline expects per-conversation encrypted material,
     /// so rendering a plain template image URL is a follow-up. Until then the
     /// canonical emoji is the stable visual.
-    func mergingCanonicalTemplate(_ info: AgentTemplateInfo) -> Contact {
+    func mergingCanonicalTemplate(_ info: AgentTemplateInfo, isBlocked: Bool) -> Contact {
         Contact(
             inboxId: inboxId,
             displayName: info.agentName ?? displayName,
@@ -32,6 +32,28 @@ extension Contact {
             agentAttestation: agentAttestation
         )
     }
+
+    /// Copy with `isBlocked` overridden. Used by the dedup so a collapsed
+    /// agent row reflects a block on any of its running instances.
+    func withBlocked(_ blocked: Bool) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: blocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId,
+            agentAttestation: agentAttestation
+        )
+    }
 }
 
 extension Array where Element == Contact {
@@ -42,6 +64,14 @@ extension Array where Element == Contact {
     /// is still cold for a template, its representative shows instance data
     /// until the canonical identity arrives.
     func dedupingAgentsByTemplate(using templates: [String: AgentTemplateInfo]) -> [Contact] {
+        // A block on ANY instance of a template blocks the canonical row, so
+        // collapsing instances can never hide a block the user made.
+        var blockedTemplateIds: Set<String> = []
+        for contact in self where contact.isBlocked {
+            if let templateId = contact.agentTemplateId {
+                blockedTemplateIds.insert(templateId)
+            }
+        }
         var result: [Contact] = []
         var seenTemplateIds: Set<String> = []
         for contact in self {
@@ -50,10 +80,11 @@ extension Array where Element == Contact {
                 continue
             }
             guard seenTemplateIds.insert(templateId).inserted else { continue }
+            let blocked = blockedTemplateIds.contains(templateId)
             if let info = templates[templateId] {
-                result.append(contact.mergingCanonicalTemplate(info))
+                result.append(contact.mergingCanonicalTemplate(info, isBlocked: blocked))
             } else {
-                result.append(contact)
+                result.append(contact.withBlocked(blocked))
             }
         }
         return result

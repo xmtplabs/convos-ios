@@ -109,6 +109,14 @@ extension DBContact {
     /// `timestamp`. Identity columns (`inboxId`, `addedAt`,
     /// `addedViaConversationId`) and `blockedAt` are preserved. Used by
     /// `ContactsWriter.replacingProfile(of:with:)`.
+    ///
+    /// The agent-template *identity* columns (templateId / publishedURL /
+    /// emoji) are sticky-coalesced: a metadata-less `ProfileUpdate` (e.g. the
+    /// name-only update `convos agent serve` publishes at startup) carries
+    /// `nil` for these, and must not clear a templateId the contact was
+    /// already mirrored with - otherwise the agent silently drops out of the
+    /// canonical dedup + cache pipeline. `agentVerification` is intentionally
+    /// not sticky (it is wholesale-replaced like the other profile fields).
     func replacingProfileFields(
         with snapshot: ContactProfileSnapshot,
         at timestamp: Date
@@ -125,9 +133,9 @@ extension DBContact {
             profileUpdatedAt: timestamp,
             blockedAt: blockedAt,
             agentVerification: snapshot.agentVerification,
-            agentTemplateId: snapshot.agentTemplateId,
-            agentTemplatePublishedURL: snapshot.agentTemplatePublishedURL,
-            agentTemplateEmoji: snapshot.agentTemplateEmoji
+            agentTemplateId: snapshot.agentTemplateId ?? agentTemplateId,
+            agentTemplatePublishedURL: snapshot.agentTemplatePublishedURL ?? agentTemplatePublishedURL,
+            agentTemplateEmoji: snapshot.agentTemplateEmoji ?? agentTemplateEmoji
         )
     }
 
