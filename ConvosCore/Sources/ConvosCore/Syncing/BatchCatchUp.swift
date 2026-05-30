@@ -263,16 +263,20 @@ struct BatchCatchUp {
                 if messageResult.wasRemovedFromConversation, !messageResult.messageAlreadyExists {
                     removals.append(entry.conversation.dbConversation)
                 }
-                if messageResult.contentType.marksConversationAsUnread,
-                   preparedMessage.source.senderInboxId != inboxId {
+                // Shared unread predicate: skips our own messages and the
+                // conversation the user is currently viewing, identically to
+                // the stream paths.
+                if marksConversationUnread(
+                    contentType: messageResult.contentType,
+                    senderInboxId: preparedMessage.source.senderInboxId,
+                    currentInboxId: inboxId,
+                    conversationId: entry.conversation.dbConversation.id,
+                    activeConversationId: activeConversationId
+                ) {
                     entryMarksUnread = true
                 }
             }
-            // Skip the conversation the user is currently viewing, so a
-            // foreground catch-up back into the open conversation doesn't
-            // mark it unread. Mirrors the stream path's gate in
-            // `StreamProcessor` (`conversation.id != activeConversationId`).
-            if entryMarksUnread, entry.conversation.dbConversation.id != activeConversationId {
+            if entryMarksUnread {
                 unreadIds.append(entry.conversation.dbConversation.id)
             }
         }
@@ -349,25 +353,19 @@ struct BatchCatchUp {
     }
 
     private static func classify(_ message: XMTPiOS.DecodedMessage) -> MessageClassification {
-        if message.isProfileMessage || message.isTypingIndicator {
+        switch CaughtUpMessageKind.of(message) {
+        case .ignore:
             return .skip
-        }
-        // Thinking messages back the thinking-detail view but must never be
-        // persisted as normal chat messages -- the stream path routes them
-        // through `ThinkingSessionWriter` (see `storeThinking`). The builder
-        // bundle manifest is a control message recording which ids to hide.
-        // Treat all of these as supplementals so the batch applies them the
-        // same way the stream path does, never as chat rows.
-        if message.isReadReceipt || message.isThinking || message.isBuilderBundleManifest {
+        // Read receipts, thinking, the builder-bundle manifest, and reactions
+        // all run through the per-message supplemental handlers (post-commit),
+        // never the batched regular-message transaction. Thinking backs the
+        // thinking-detail view and the manifest is a hide-control record --
+        // neither is persisted as a chat row.
+        case .readReceipt, .thinking, .builderBundleManifest, .reaction:
             return .supplemental
+        case .regular:
+            return .regular
         }
-        guard let contentType = try? message.encodedContent.type else {
-            return .skip
-        }
-        if contentType == ContentTypeReaction || contentType == ContentTypeReactionV2 {
-            return .supplemental
-        }
-        return .regular
     }
 
     /// `MAX(dateNs)` for the conversation, or `0` when the local DB has no messages

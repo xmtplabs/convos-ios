@@ -16,6 +16,11 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
+    /// Namespace owned by `MessagesView` and threaded down via the cell
+    /// config; pairs the HTML bubble with the matched-geometry zoom on
+    /// the post-tap `AttachmentPreviewSheet`. nil outside the main
+    /// messages list path (reply parents, etc.).
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
     let onToggleReaction: (String, String) -> Void
@@ -269,14 +274,18 @@ struct MessagesGroupItemView: View {
         } else if attachment.isHTMLFile {
             let htmlTapAction: () -> Void = { onOpenFile?(attachment, message) }
             let avatarTap: () -> Void = { onTapAvatar(message) }
-            let reactionsTap: () -> Void = { onTapReactions?(message) }
+            let isOutgoing: Bool = message.sender.isCurrentUser
+            // The HTML tile has its own chrome (no `MessageContainer`), so it
+            // doesn't inherit the outgoing right-alignment other bubbles get.
+            // Align the gestured tile to the sender's side; the frame only
+            // positions it, so the tap target stays on the 160pt tile.
+            // Reactions render underneath via `reactionRow`, not on the tile.
             HTMLAttachmentBubble(
                 attachment: attachment,
                 profile: message.sender.profile,
-                reactions: message.reactions,
                 agentVerification: message.sender.agentVerification,
                 onTapAvatar: avatarTap,
-                onTapReactions: reactionsTap
+                transitionNamespace: htmlAttachmentTransitionNamespace
             )
             .messageGesture(
                 message: message,
@@ -286,6 +295,8 @@ struct MessagesGroupItemView: View {
                 onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
+            .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0)
         } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment, message) }
             FileAttachmentBubble(

@@ -126,6 +126,7 @@ struct ConversationMembersListView: View {
     private func memberContactDetailDestination(for member: ConversationMember) -> some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
+        let agentTemplateContactsRepository = messagingService.agentTemplateContactsRepository()
         let contactsWriter = messagingService.contactsWriter()
         let resolvedContact = Contact.resolved(
             member: member,
@@ -144,6 +145,7 @@ struct ConversationMembersListView: View {
             ),
             contactsWriter: contactsWriter,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             session: viewModel.session,
             showsCloseButton: false,
             onRemove: onRemove
@@ -178,12 +180,7 @@ private struct MemberRow: View {
             Spacer()
 
             if let roleLabel = member.roleLabel {
-                Text(roleLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+                RoleLabelPill(label: roleLabel)
             }
 
             Image(systemName: "chevron.right")

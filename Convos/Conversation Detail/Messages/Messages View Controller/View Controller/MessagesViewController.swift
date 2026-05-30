@@ -42,6 +42,7 @@ final class MessagesViewController: UIViewController {
         /// prepends an `.agentBuilderSummary` cell.
         let agentBuilderSummary: AgentBuilderSummary?
         let agentBuilderTransitionNamespace: Namespace.ID?
+        let htmlAttachmentTransitionNamespace: Namespace.ID?
 
         init(
             conversation: Conversation,
@@ -50,7 +51,8 @@ final class MessagesViewController: UIViewController {
             hasLoadedAllMessages: Bool,
             headerMode: MessagesHeaderMode = .standard,
             agentBuilderSummary: AgentBuilderSummary? = nil,
-            agentBuilderTransitionNamespace: Namespace.ID? = nil
+            agentBuilderTransitionNamespace: Namespace.ID? = nil,
+            htmlAttachmentTransitionNamespace: Namespace.ID? = nil
         ) {
             self.conversation = conversation
             self.messages = messages
@@ -59,6 +61,7 @@ final class MessagesViewController: UIViewController {
             self.headerMode = headerMode
             self.agentBuilderSummary = agentBuilderSummary
             self.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace
+            self.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace
         }
     }
 
@@ -135,6 +138,7 @@ final class MessagesViewController: UIViewController {
             headerMode = state.headerMode
             agentBuilderSummary = state.agentBuilderSummary
             agentBuilderTransitionNamespace = state.agentBuilderTransitionNamespace
+            htmlAttachmentTransitionNamespace = state.htmlAttachmentTransitionNamespace
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -288,6 +292,15 @@ final class MessagesViewController: UIViewController {
     var agentBuilderTransitionNamespace: Namespace.ID? {
         didSet { dataSource.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace }
     }
+    var htmlAttachmentTransitionNamespace: Namespace.ID? {
+        didSet { dataSource.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace }
+    }
+    /// Called with the loaded HTML file URL when the user taps an HTML
+    /// bubble. SwiftUI subscribes (via `MessagesViewRepresentable`) so it
+    /// can drive the post-tap `AttachmentPreviewSheet` presentation with
+    /// a matched-geometry zoom transition. When `nil`, falls back to the
+    /// in-class UIKit `presentAttachmentPreview` path.
+    var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
 
     var hasAgent: Bool = false {
         didSet { dataSource.hasAgent = hasAgent }
@@ -1017,12 +1030,21 @@ extension MessagesViewController {
             do {
                 let fileURL = try await loadFileForPreview(attachment)
                 await MainActor.run {
-                    presentAttachmentPreview(
-                        attachment: attachment,
-                        fileURL: fileURL,
-                        sender: message.sender,
-                        sentAt: message.date
-                    )
+                    if attachment.isHTMLFile, let onPresentHTMLAttachmentPreview {
+                        onPresentHTMLAttachmentPreview(
+                            attachment,
+                            fileURL,
+                            message.sender,
+                            message.date
+                        )
+                    } else {
+                        presentAttachmentPreview(
+                            attachment: attachment,
+                            fileURL: fileURL,
+                            sender: message.sender,
+                            sentAt: message.date
+                        )
+                    }
                 }
             } catch {
                 Log.error("Failed to open file attachment: \(error)")

@@ -30,6 +30,7 @@ public protocol ContactSyncCoordinatorProtocol: Sendable {
 final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
+    private let notificationCenter: NotificationCenter
 
     /// Closure that returns the local user's `inboxId`. Called within the
     /// sync transaction so the lookup hits the same snapshot as the member
@@ -41,10 +42,12 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
     init(
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
+        notificationCenter: NotificationCenter = .default,
         selfInboxIdProvider: @escaping @Sendable (Database) throws -> String? = ContactSyncCoordinator.defaultSelfInboxIdProvider
     ) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
+        self.notificationCenter = notificationCenter
         self.selfInboxIdProvider = selfInboxIdProvider
     }
 
@@ -69,14 +72,14 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
     }
 
     private func sync(conversationId: String, force: Bool) async throws {
-        try await databaseWriter.write { [selfInboxIdProvider] db in
+        let insertedInboxIds: [String] = try await databaseWriter.write { [selfInboxIdProvider] db in
             // Without the local inbox singleton we cannot identify "self" and
             // therefore cannot exclude the local user from the upsert loop.
             // No-op rather than risk adding self as a contact. The next hook
             // (after the singleton is written) retries.
             guard let selfInboxId = try selfInboxIdProvider(db) else {
                 Log.debug("Skipping contacts sync for \(conversationId): inbox singleton not written yet")
-                return
+                return []
             }
 
             // Two short-circuits:
@@ -87,9 +90,9 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             //   - member-added hook on a never-synced conversation: skip,
             //     so we honor the action-gated rule and don't pull
             //     strangers from a group the local user has not acted in.
-            //     Exception: if the local user is the *creator* of the
+            //     Exception: if the local user is the creator of the
             //     conversation, creating the group is itself the explicit
-            //     action — no need to wait for a first message.
+            //     action - no need to wait for a first message.
             let alreadySynced = try DBConversationContactsSync
                 .filter(DBConversationContactsSync.Columns.conversationId == conversationId)
                 .fetchCount(db) > 0
@@ -104,13 +107,13 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 }()
                 guard selfIsCreator else {
                     Log.debug("Skipping forced contacts sync for never-synced conversation \(conversationId) (local user is not the creator)")
-                    return
+                    return []
                 }
                 Log.debug("Forced contacts sync proceeding for never-synced conversation \(conversationId) (local user is the creator)")
             }
 
             if alreadySynced && force == false {
-                return
+                return []
             }
 
             let members = try DBConversationMember
@@ -125,6 +128,7 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             )
 
             var upsertedCount: Int = 0
+            var insertedIds: [String] = []
             for member in members {
                 if member.inboxId == selfInboxId {
                     continue
@@ -143,13 +147,22 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     // AgentVerification.
                     agentVerification: profile?.memberKind?.agentVerification
                 )
-                try ContactsWriter.upsertContactInTransaction(
+                let didInsert = try ContactsWriter.upsertContactInTransaction(
                     db: db,
                     inboxId: member.inboxId,
                     addedViaConversationId: conversationId,
                     profile: snapshot
                 )
+                if didInsert {
+                    insertedIds.append(member.inboxId)
+                }
                 upsertedCount += 1
+
+                try Self.upsertAgentTemplateContactIfNeeded(
+                    db: db,
+                    profile: profile,
+                    conversationId: conversationId
+                )
             }
 
             // Only mark the conversation synced if we actually upserted at
@@ -159,10 +172,10 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             // empty roster we leave the marker absent so the next outbound
             // message retries the sync once the peer rows have streamed in.
             // Tradeoff: a legitimate one-person group (only self) will retry
-            // on every send. Acceptable — it's a few indexed reads.
+            // on every send. Acceptable - it's a few indexed reads.
             guard upsertedCount > 0 else {
                 Log.debug("Contacts sync for \(conversationId) saw no non-self members; skipping marker so next message retries")
-                return
+                return []
             }
 
             let marker = DBConversationContactsSync(
@@ -172,6 +185,55 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             try marker.save(db)
 
             Log.debug("Synced \(upsertedCount) contacts for conversation \(conversationId) (force=\(force))")
+            return insertedIds
         }
+
+        // Post after the transaction commits so the `QuarantineSweeper`
+        // observer in `SessionManager` runs against committed contact rows.
+        // A single notification per batch coalesces the whole group sync
+        // into one sweep, no debounce timer required.
+        ContactsWriter.postContactsWereAdded(
+            inboxIds: insertedInboxIds,
+            notificationCenter: notificationCenter
+        )
+    }
+
+    /// A member that published a `templateId` in its per-conversation
+    /// profile metadata is a template-backed agent.
+    /// Captures the *template* as a contact (keyed by `templateId`),
+    /// alongside the inboxId-keyed `DBContact` upsert the caller does for
+    /// every member. The same template encountered in another conversation
+    /// - a different agent instance, a different `inboxId` - resolves to
+    /// this same row, so a user ends up with one contact per template
+    /// rather than one per instance.
+    ///
+    /// The snapshot is untimestamped, so it seeds a new row on first
+    /// encounter and no-ops on re-encounter - the same seed-only behavior
+    /// the coordinator uses for `DBContact`. Refreshing a template
+    /// contact's fields as fresher instance profiles arrive is a follow-up
+    /// (the parallel of `ContactsWriter.mirrorMemberProfileToContactInTransaction`).
+    private static func upsertAgentTemplateContactIfNeeded(
+        db: Database,
+        profile: DBMemberProfile?,
+        conversationId: String
+    ) throws {
+        guard profile?.isAgentTemplate == true,
+              let templateId = profile?.agentTemplateId else {
+            return
+        }
+        try AgentTemplateContactsWriter.upsertInTransaction(
+            db: db,
+            templateId: templateId,
+            addedViaConversationId: conversationId,
+            profile: AgentTemplateContactSnapshot(
+                displayName: profile?.name,
+                emoji: profile?.agentTemplateEmoji,
+                descriptionText: profile?.agentTemplateDescription,
+                publishedURL: profile?.agentTemplatePublishedURL,
+                avatarURL: profile?.avatar,
+                agentVerification: profile?.memberKind?.agentVerification,
+                profileUpdatedAt: nil
+            )
+        )
     }
 }

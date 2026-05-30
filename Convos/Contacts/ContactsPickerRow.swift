@@ -3,6 +3,8 @@ import SwiftUI
 
 /// Picker row showing avatar, name, and either a multi-select indicator or
 /// an "in chat" badge for members already in the destination conversation.
+/// Renders both human contacts and agent-template contacts; the kind
+/// discriminator on `Row` decides the avatar and the trailing badge.
 struct ContactsPickerRow: View {
     let row: ContactsPickerViewModel.Row
     let isSelected: Bool
@@ -12,12 +14,20 @@ struct ContactsPickerRow: View {
         let opacity: Double = row.isAlreadyInChat ? 0.45 : 1.0
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
-                ContactAvatarView(contact: row.contact)
+                avatar
                     .frame(width: 56.0, height: 56.0)
 
-                ContactsPickerRowText(contact: row.contact, subtitle: row.subtitle)
+                ContactsPickerRowText(
+                    displayName: row.resolvedDisplayName,
+                    subtitle: row.subtitle
+                )
 
                 Spacer(minLength: 0.0)
+
+                if case .agentTemplate = row.kind {
+                    RoleLabelPill(label: "Agent")
+                        .padding(.trailing, DesignConstants.Spacing.step2x)
+                }
 
                 ContactsPickerRowAccessory(
                     isAlreadyInChat: row.isAlreadyInChat,
@@ -30,19 +40,29 @@ struct ContactsPickerRow: View {
         .buttonStyle(.plain)
         .opacity(opacity)
         .disabled(row.isAlreadyInChat)
-        .accessibilityIdentifier("contacts-picker-row-\(row.contact.inboxId)")
+        .accessibilityIdentifier("contacts-picker-row-\(row.id)")
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        switch row.kind {
+        case .human(let contact):
+            ContactAvatarView(contact: contact)
+        case .agentTemplate(let agent):
+            AgentTemplateAvatarView(agentTemplateContact: agent, emojiPointSize: 28.0)
+        }
     }
 }
 
 // MARK: - Row text
 
 private struct ContactsPickerRowText: View {
-    let contact: Contact
+    let displayName: String
     let subtitle: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-            Text(contact.resolvedDisplayName)
+            Text(displayName)
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
                 .lineLimit(1)
@@ -108,25 +128,66 @@ private struct ContactsPickerRowAccessory: View {
         displayName: "Convo Agent",
         agentVerification: .verified(.convos)
     )
-    return VStack(alignment: .leading, spacing: 12.0) {
+    let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
+    VStack(alignment: .leading, spacing: 12.0) {
         ContactsPickerRow(
-            row: .init(id: alice.inboxId, contact: alice, isAlreadyInChat: false, subtitle: "Bike Trip 2026"),
+            row: .init(
+                id: "human:\(alice.inboxId)",
+                kind: .human(alice),
+                isAlreadyInChat: false,
+                subtitle: "Bike Trip 2026"
+            ),
             isSelected: false,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: bob.inboxId, contact: bob, isAlreadyInChat: false, subtitle: "DM"),
+            row: .init(
+                id: "human:\(bob.inboxId)",
+                kind: .human(bob),
+                isAlreadyInChat: false,
+                subtitle: "DM"
+            ),
             isSelected: true,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: carol.inboxId, contact: carol, isAlreadyInChat: true, subtitle: "Game Night"),
+            row: .init(
+                id: "human:\(carol.inboxId)",
+                kind: .human(carol),
+                isAlreadyInChat: true,
+                subtitle: "Game Night"
+            ),
             isSelected: false,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: agent.inboxId, contact: agent, isAlreadyInChat: false, subtitle: "Convos Agent"),
+            row: .init(
+                id: "human:\(agent.inboxId)",
+                kind: .human(agent),
+                isAlreadyInChat: false,
+                subtitle: "Convos Agent"
+            ),
             isSelected: false,
+            onTap: {}
+        )
+        ContactsPickerRow(
+            row: .init(
+                id: "agent:\(tifoso.templateId)",
+                kind: .agentTemplate(tifoso),
+                isAlreadyInChat: false,
+                subtitle: "Pro cycling expert"
+            ),
+            isSelected: false,
+            onTap: {}
+        )
+        ContactsPickerRow(
+            row: .init(
+                id: "agent:\(tifoso.templateId)",
+                kind: .agentTemplate(tifoso),
+                isAlreadyInChat: false,
+                subtitle: "Pro cycling expert"
+            ),
+            isSelected: true,
             onTap: {}
         )
     }

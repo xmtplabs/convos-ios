@@ -5,7 +5,18 @@ import GRDB
 ///
 /// - Promotes a quarantined conversation to the main feed when its sender
 ///   has since become a contact (and is not blocked) by setting
-///   `quarantineReleasedAt = now`.
+///   `quarantineReleasedAt = now` AND bumping `consent` to `.allowed`
+///   (mirrors the side-effect parity that `StreamProcessor.decideInboundConversation`
+///   applies on the `.deliver` path: the main feed query is scoped to
+///   `consent IN (.allowed)`, so promotion has to flip the column or the
+///   row stays hidden). Before applying the DB write, the sweeper also
+///   asks the injected `consentBumper` closure to bump XMTP-side consent
+///   for the conversation; if that throws (client not ready, conversation
+///   missing from local XMTP cache, network error), the per-row promotion
+///   is skipped and retried on the next sweep so we never end up with a
+///   row that's visible in the feed but whose XMTP consent is still
+///   `.unknown` (which would cause `StreamProcessor.shouldProcessConversation`
+///   to silently drop future inbound messages).
 /// - Deletes a quarantined conversation whose hold window has expired
 ///   (default 7 days, configurable via `Constant.ttl`). Deletion cascades
 ///   to messages and member rows via existing foreign-key onDelete rules.
@@ -21,17 +32,26 @@ final class QuarantineSweeper: QuarantineSweeperProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let contactsRepository: any ContactsRepositoryProtocol
+    private let consentBumper: @Sendable (String) async throws -> Void
     private let now: @Sendable () -> Date
 
+    /// - Parameter consentBumper: Bumps XMTP-side consent to `.allowed` for
+    ///   the given conversationId. Production wiring in
+    ///   `SessionManager.scheduleQuarantineSweeper` routes through the
+    ///   messaging service's `XMTPClientProvider.update(consent:for:)`.
+    ///   Throw to skip this row's promotion on the current sweep; the row
+    ///   stays quarantined and the next sweep retries.
     init(
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         contactsRepository: any ContactsRepositoryProtocol,
+        consentBumper: @escaping @Sendable (String) async throws -> Void,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.contactsRepository = contactsRepository
+        self.consentBumper = consentBumper
         self.now = now
     }
 
@@ -51,7 +71,19 @@ final class QuarantineSweeper: QuarantineSweeperProtocol, @unchecked Sendable {
             let isBlocked = (try? contactsRepository.isBlocked(inboxId: snapshot.creatorId)) ?? false
 
             if isContact && !isBlocked {
-                promotionIds.append(snapshot.conversationId)
+                // Bump XMTP consent before committing the DB promotion so a
+                // failure here defers the promotion to the next sweep cycle
+                // rather than leaving the row visible in the feed with
+                // `.unknown` XMTP consent (which silently gates future
+                // inbound messages in `shouldProcessConversation`).
+                do {
+                    try await consentBumper(snapshot.conversationId)
+                    promotionIds.append(snapshot.conversationId)
+                } catch {
+                    Log.warning(
+                        "QuarantineSweeper: XMTP consent bump failed for \(snapshot.conversationId), deferring promotion: \(error.localizedDescription)"
+                    )
+                }
             } else if currentTime.timeIntervalSince(snapshot.quarantinedAt) > Constant.ttl {
                 deletionIds.append(snapshot.conversationId)
             }
@@ -69,10 +101,12 @@ final class QuarantineSweeper: QuarantineSweeperProtocol, @unchecked Sendable {
         try await databaseWriter.write { db in
             for id in promotionsToApply {
                 guard let existing = try DBConversation.fetchOne(db, key: id) else { continue }
-                let updated = existing.with(
-                    quarantinedAt: existing.quarantinedAt,
-                    quarantineReleasedAt: appliedAt
-                )
+                let updated = existing
+                    .with(
+                        quarantinedAt: existing.quarantinedAt,
+                        quarantineReleasedAt: appliedAt
+                    )
+                    .with(consent: .allowed)
                 try updated.save(db)
             }
             for id in deletionsToApply {

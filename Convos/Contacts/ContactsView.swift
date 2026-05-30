@@ -8,6 +8,8 @@ struct ContactsView: View {
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
+    private let agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
+    private let agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
     private let profileSettingsViewModel: ProfileSettingsViewModel
 
@@ -15,11 +17,18 @@ struct ContactsView: View {
         contactsRepository: any ContactsRepositoryProtocol,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
-        profileSettingsViewModel: ProfileSettingsViewModel = .shared
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
+        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol = MockAgentTemplateContactsRepository(),
+        agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol = MockAgentTemplateContactsWriter()
     ) {
-        _viewModel = State(initialValue: ContactsViewModel(contactsRepository: contactsRepository))
+        _viewModel = State(initialValue: ContactsViewModel(
+            contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository
+        ))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
+        self.agentTemplateContactsRepository = agentTemplateContactsRepository
+        self.agentTemplateContactsWriter = agentTemplateContactsWriter
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
     }
@@ -106,21 +115,43 @@ struct ContactsView: View {
                 )
             },
             rowContent: { (row: ContactsViewModel.Row) in
-                NavigationLink {
-                    ContactDetailView(
-                        contact: row.contact,
-                        contactsWriter: contactsWriter,
-                        contactsRepository: contactsRepository,
-                        session: session,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        showsCloseButton: false
-                    )
-                } label: {
-                    ContactRowView(contact: row.contact, subtitle: row.subtitle)
-                }
+                rowDestination(for: row)
             },
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
+    }
+
+    /// Renders one browse row. A human row pushes `ContactDetailView`; an
+    /// agent-template row pushes the sibling `AgentTemplateContactCardView`.
+    @ViewBuilder
+    private func rowDestination(for row: ContactsViewModel.Row) -> some View {
+        switch row.kind {
+        case .human(let contact):
+            NavigationLink {
+                ContactDetailView(
+                    contact: contact,
+                    contactsWriter: contactsWriter,
+                    contactsRepository: contactsRepository,
+                    agentTemplateContactsRepository: agentTemplateContactsRepository,
+                    session: session,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    showsCloseButton: false
+                )
+            } label: {
+                ContactRowView(contact: contact, subtitle: row.subtitle)
+            }
+        case .agentTemplate(let agent):
+            NavigationLink {
+                AgentTemplateContactCardView(
+                    agentTemplateContact: agent,
+                    agentTemplateContactsWriter: agentTemplateContactsWriter,
+                    session: session,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+            } label: {
+                AgentTemplateContactRowView(agentTemplateContact: agent)
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -150,6 +181,7 @@ struct ContactsView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             onConfirm: handlePickerConfirm
         )
     }
@@ -163,16 +195,17 @@ struct ContactsView: View {
     /// Spins up a `NewConversationViewModel` locally and presents it as a
     /// sheet from this view, so the new conversation appears in place of
     /// the picker while the App Settings sheet stack stays alive
-    /// underneath. Dismissing the new-convo sheet lands the user back on
-    /// the contacts list, not at the root conversations list. Mirrors the
-    /// invite-cell-tap pattern (`presentingNewConversationForInvite` on
-    /// `ConversationViewModel`) where the sheet is owned by the same view
-    /// that hosted the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    /// underneath.
+    private func handlePickerConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
+        guard !selection.isEmpty, let session else { return }
+        let inboxIds: [String] = selection.compactMap(\.inboxId)
+        let templateIds: [String] = selection.compactMap(\.templateId)
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: inboxIds,
+                initialAgentTemplateIds: templateIds
+            )
         )
     }
 }
@@ -185,6 +218,9 @@ struct ContactsView: View {
 
 #Preview("Empty") {
     NavigationStack {
-        ContactsView(contactsRepository: MockContactsRepository(contacts: []))
+        ContactsView(
+            contactsRepository: MockContactsRepository(contacts: []),
+            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [])
+        )
     }
 }

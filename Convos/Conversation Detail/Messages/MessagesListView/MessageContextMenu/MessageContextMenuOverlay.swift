@@ -619,7 +619,6 @@ struct MessageContextMenuOverlay: View {
             HTMLAttachmentBubble(
                 attachment: attachment,
                 profile: profile,
-                reactions: [],
                 agentVerification: message?.sender.agentVerification ?? .unverified,
                 cornerRadiusOverride: radius
             )

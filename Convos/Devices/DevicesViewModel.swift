@@ -77,17 +77,14 @@ final class DevicesViewModel {
         if !didStartObserving {
             didStartObserving = true
             observers.add(for: .pairingDidCompleteSuccessfully) { [weak self] notification in
-                let userInfo = notification.userInfo
-                // The initiator's post carries an explicit `isInitiator`
-                // flag (plus the joiner's device name). The joiner's post
-                // has neither. Only the initiator broadcasts the
-                // profile-snapshot fan-out -- the joiner is the one
-                // *receiving* the snapshots, it shouldn't re-send them.
-                let displayName = (userInfo?["joinerDeviceName"] as? String) ?? "New device"
-                let isInitiatorSide = (userInfo?["isInitiator"] as? Bool) ?? false
+                // Default to `.joiner` if the payload is somehow absent: the
+                // joiner side does no broadcast, which is the safe fallback.
+                // Only the initiator broadcasts the profile-snapshot fan-out
+                // (the joiner is the one *receiving* the snapshots).
+                let role = notification.pairingCompletion?.role ?? .joiner
                 Task { @MainActor in
                     guard let self else { return }
-                    self.insertOptimisticDevice(named: displayName)
+                    self.insertOptimisticDevice(named: role.optimisticDeviceName)
                     // Capture the installation baseline BEFORE the refresh
                     // waits for the joiner -- otherwise the joiner folds
                     // into the baseline and the broadcaster's diff finds
@@ -97,9 +94,9 @@ final class DevicesViewModel {
                     // empty set (which would diff true on the initiator's
                     // own installation and broadcast before the joiner
                     // appears).
-                    let baseline = isInitiatorSide ? await self.currentInstallationIds() : nil
+                    let baseline = role.isInitiator ? await self.currentInstallationIds() : nil
                     await self.refreshUntilRealInstallationAppears()
-                    if isInitiatorSide, let baseline {
+                    if role.isInitiator, let baseline {
                         await self.broadcastProfileSnapshotsAfterPair(baseline: baseline)
                     }
                 }
@@ -176,7 +173,7 @@ final class DevicesViewModel {
     /// a few seconds. Poll until a real non-self installation shows or
     /// we hit the cap.
     private func refreshUntilRealInstallationAppears() async {
-        let schedule: [TimeInterval] = [0, 2, 5, 10, 20]
+        let schedule = PairingInstallationPoll.schedule
         for (index, delay) in schedule.enumerated() {
             if delay > 0 {
                 try? await Task.sleep(for: .seconds(delay))

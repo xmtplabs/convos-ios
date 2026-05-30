@@ -40,6 +40,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
     var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
+    var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -135,6 +137,7 @@ let menuPresented = contextMenuState.isPresented
         if wasMenuPresented, !menuPresented {
             messagesViewController.applyDeferredBottomInset()
         }
+        messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
@@ -142,7 +145,8 @@ let menuPresented = contextMenuState.isPresented
             hasLoadedAllMessages: hasLoadedAllMessages,
             headerMode: headerMode,
             agentBuilderSummary: agentBuilderSummary,
-            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace
         )
     }
 }

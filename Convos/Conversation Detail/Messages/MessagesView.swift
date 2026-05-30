@@ -99,6 +99,13 @@ struct MessagesView<BottomBarContent: View>: View {
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: (() -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
+    /// Drives the SwiftUI sheet presentation of `AttachmentPreviewSheet`
+    /// for HTML attachments. Non-HTML previews still go through the
+    /// UIKit path in `MessagesViewController.presentAttachmentPreview`.
+    @State private var htmlAttachmentPreview: HTMLAttachmentPreviewItem?
+    /// Shared namespace between the `HTMLAttachmentBubble` source and
+    /// the sheet's `.navigationTransition(.zoom(...))` destination.
+    @Namespace private var htmlAttachmentTransitionNamespace: Namespace.ID
 
     var body: some View {
         MessagesViewRepresentable(
@@ -139,6 +146,15 @@ struct MessagesView<BottomBarContent: View>: View {
             headerMode: headerMode,
             agentBuilderSummary: agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
+            onPresentHTMLAttachmentPreview: { attachment, fileURL, sender, sentAt in
+                htmlAttachmentPreview = HTMLAttachmentPreviewItem(
+                    attachment: attachment,
+                    fileURL: fileURL,
+                    sender: sender,
+                    sentAt: sentAt
+                )
+            },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
@@ -230,5 +246,28 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoHidden: onPhotoHidden
             )
         }
+        .sheet(item: $htmlAttachmentPreview) { item in
+            AttachmentPreviewSheet(
+                attachment: item.attachment,
+                fileURL: item.fileURL,
+                sender: item.sender,
+                sentAt: item.sentAt,
+                profileSheetContent: profileSheetForMember
+            )
+            .navigationTransition(.zoom(sourceID: item.attachment.key, in: htmlAttachmentTransitionNamespace))
+        }
     }
+}
+
+/// Identifiable payload carried into the SwiftUI `.sheet(item:)` that
+/// presents an HTML attachment. Wraps the fields the UIKit
+/// `MessagesViewController.openFileAttachment` already loads - the
+/// representable bridges the call into SwiftUI state when an HTML
+/// attachment is tapped, so the matched-geometry zoom transition can fire.
+struct HTMLAttachmentPreviewItem: Identifiable, Equatable {
+    let id: UUID = UUID()
+    let attachment: HydratedAttachment
+    let fileURL: URL
+    let sender: ConversationMember
+    let sentAt: Date
 }

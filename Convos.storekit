@@ -84,7 +84,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.convos.subs.builder.annual",
+          "productID" : "app.convos.subs.annual",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Plus Annual",
           "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
@@ -105,7 +105,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.convos.subs.builder.monthly",
+          "productID" : "app.convos.subs.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Plus Monthly",
           "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",

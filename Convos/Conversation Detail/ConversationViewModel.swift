@@ -31,6 +31,17 @@ struct PendingFileAttachment: Identifiable, Equatable {
         self.fileSize = fileSize
     }
 
+    /// Mirrors `HydratedAttachment.isHTMLFile` so the composer's staged-file
+    /// preview can match the in-chat HTML tile (square thumbnail) instead of
+    /// the generic filename + type chip.
+    var isHTMLFile: Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if ext == "html" || ext == "htm" {
+            return true
+        }
+        return mimeType.lowercased() == "text/html"
+    }
+
     static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
         lhs.id == rhs.id
     }
@@ -508,15 +519,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// when the agent actually joins). Used by
     /// `ConversationViewModel+ThinkingIndicators` to route agent
     /// thinking sessions under the contact card instead of the inline
-    /// footer, and forwarded to the messages-list repo so the processor
-    /// can suppress the legacy "Agent joined" update row for the
-    /// duration of the builder UX. Independent of whether the conversation
-    /// was created via the builder — the same flow will run when adding
-    /// an agent to an existing conversation.
-    var isInAgentBuilderFlow: Bool = false {
-        didSet {
-            messagesListRepository.isInAgentBuilderFlow = isInAgentBuilderFlow
-        }
+    /// footer, and read by the messages-list processor so it can suppress
+    /// the legacy "Agent joined" update row for the duration of the builder
+    /// UX. Independent of whether the conversation was created via the
+    /// builder — the same flow will run when adding an agent to an existing
+    /// conversation.
+    ///
+    /// Backed by `messagesListRepository` (its single owner, which feeds the
+    /// processor) rather than a mirrored stored copy, so there's one value to
+    /// keep in sync across the placeholder-to-real VM swap instead of two.
+    var isInAgentBuilderFlow: Bool {
+        get { messagesListRepository.isInAgentBuilderFlow }
+        set { messagesListRepository.isInAgentBuilderFlow = newValue }
     }
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
@@ -2718,6 +2732,12 @@ extension ConversationViewModel {
     /// is a bare join (the backend provisions its default agent); a
     /// non-nil id provisions a fresh instance of that template. The
     /// caller-facing `agents/join` body no longer accepts `instructions`.
+    ///
+    /// Single-flight: a new call cancels any prior in-flight join request
+    /// (retry-from-error semantics for the chat-header "+" menu). For
+    /// multi-template fan-out (picker confirms N templates at once) use
+    /// `requestAgentJoins(templateIds:)` instead -- it spawns a TaskGroup
+    /// so N calls run in parallel without cancelling each other.
     func requestAgentJoin(templateId: String?) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
@@ -2728,51 +2748,21 @@ extension ConversationViewModel {
         let conversationId = conversation.id
         let requestId = UUID().uuidString
         let taskId = requestId
-        agentJoinTask = Task { [weak self, session] in
-            await Self.broadcastAgentJoinRequest(
-                status: .pending, requestId: requestId,
-                conversationId: conversationId, session: session
+        let session = self.session
+        agentJoinTask = Task { [weak self] in
+            let success = await Self.performAgentJoinCall(
+                templateId: templateId,
+                slug: slug,
+                conversationId: conversationId,
+                requestId: requestId,
+                forceErrorCode: forceErrorCode,
+                session: session
             )
-
-            do {
-                _ = try await session.requestAgentJoin(
-                    slug: slug,
-                    templateId: templateId,
-                    options: nil,
-                    forceErrorCode: forceErrorCode
-                )
-            } catch is CancellationError {
-                await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
-                return
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
-                return
-            } catch let error as APIError {
-                Log.error("requestAgentJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
-                let status: AgentJoinStatus
-                if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
-                await Self.broadcastAgentJoinRequest(
-                    status: status, requestId: requestId,
-                    conversationId: conversationId, session: session
-                )
-                await MainActor.run {
-                    self?.clearAgentJoinTask(id: taskId)
-                    self?.onAgentJoinError()
-                }
-                return
-            } catch {
-                Log.error("requestAgentJoin: agents/join unknown error: \(error.localizedDescription)")
-                await Self.broadcastAgentJoinRequest(
-                    status: .failed, requestId: requestId,
-                    conversationId: conversationId, session: session
-                )
-                await MainActor.run {
-                    self?.clearAgentJoinTask(id: taskId)
-                    self?.onAgentJoinError()
-                }
-                return
+            await MainActor.run {
+                guard let self else { return }
+                if !success { self.onAgentJoinError() }
+                self.clearAgentJoinTask(id: taskId)
             }
-            await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
         }
         agentJoinTaskId = taskId
     }
@@ -2781,6 +2771,113 @@ extension ConversationViewModel {
     /// affordances. Kept so their call sites don't change.
     func requestAgentJoin() {
         requestAgentJoin(templateId: nil)
+    }
+
+    /// Sequential batched variant of `requestAgentJoin(templateId:)`. Used
+    /// by the new-conversation flow when the picker confirmed multiple
+    /// agent templates at once. Awaits each call to completion before
+    /// firing the next, with a short inter-call delay so the previous
+    /// broadcast's libxmtp activity fully settles before the next API
+    /// call starts. Does not touch `agentJoinTask` / `agentJoinTaskId`
+    /// (those remain dedicated to the single-flight retry path).
+    ///
+    /// Band-aid for an unresolved issue where parallel `agents/join`
+    /// dispatch results in 2 of 3 URLSession data tasks being cancelled
+    /// (`URLError.cancelled`) — see "concurrent agents/join cancellation"
+    /// investigation notes. Manual one-at-a-time clicks work fine, so
+    /// serialization mirrors what the user can do by hand. Slow but
+    /// reliable: ~10 seconds per agent. Remove and restore TaskGroup
+    /// fan-out once the underlying cancellation is root-caused (likely
+    /// libxmtp + URLSession shared-connection-pool interaction or a
+    /// transient `SessionStateError.clientIdInboxInconsistency` in the
+    /// session state machine under concurrent waiters).
+    func requestAgentJoins(templateIds: [String]) {
+        guard !templateIds.isEmpty else { return }
+        let slug = invite.urlSlug
+        guard !slug.isEmpty else { return }
+        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
+
+        let forceErrorCode = agentJoinForceErrorCode
+        let conversationId = conversation.id
+        let session = self.session
+        Task { [weak self] in
+            var anyFailed = false
+            for (index, templateId) in templateIds.enumerated() {
+                if index > 0 {
+                    // Brief gap between calls so the previous broadcast's
+                    // libxmtp message-send fully settles before the next
+                    // call's broadcast / API races against it.
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                let requestId = UUID().uuidString
+                let success = await Self.performAgentJoinCall(
+                    templateId: templateId,
+                    slug: slug,
+                    conversationId: conversationId,
+                    requestId: requestId,
+                    forceErrorCode: forceErrorCode,
+                    session: session
+                )
+                if !success { anyFailed = true }
+            }
+            if anyFailed {
+                await MainActor.run { self?.onAgentJoinError() }
+            }
+        }
+    }
+
+    /// Performs a single `agents/join` call: broadcasts `.pending` before,
+    /// broadcasts the appropriate failure status (`.failed` or
+    /// `.noAgentsAvailable`) on error. Returns `true` on success or
+    /// cooperative cancellation, `false` only on an actual error response
+    /// from the backend. Static + parameterized so both the single-flight
+    /// and batched callers can share the same body without holding `self`.
+    private static func performAgentJoinCall(
+        templateId: String?,
+        slug: String,
+        conversationId: String,
+        requestId: String,
+        forceErrorCode: Int?,
+        session: any SessionManagerProtocol
+    ) async -> Bool {
+        Log.info("performAgentJoinCall starting templateId=\(templateId ?? "nil") requestId=\(requestId)")
+        await Self.broadcastAgentJoinRequest(
+            status: .pending, requestId: requestId,
+            conversationId: conversationId, session: session
+        )
+        Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
+        do {
+            _ = try await session.requestAgentJoin(
+                slug: slug,
+                templateId: templateId,
+                options: nil,
+                forceErrorCode: forceErrorCode
+            )
+            Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch is CancellationError {
+            Log.warning("performAgentJoinCall cancelled (CancellationError) templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            Log.warning("performAgentJoinCall cancelled (URLError.cancelled) templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch let error as APIError {
+            Log.error("requestAgentJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
+            let status: AgentJoinStatus
+            if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
+            await Self.broadcastAgentJoinRequest(
+                status: status, requestId: requestId,
+                conversationId: conversationId, session: session
+            )
+            return false
+        } catch {
+            Log.error("requestAgentJoin: agents/join unknown error: \(error.localizedDescription)")
+            await Self.broadcastAgentJoinRequest(
+                status: .failed, requestId: requestId,
+                conversationId: conversationId, session: session
+            )
+            return false
+        }
     }
 
     private static func broadcastAgentJoinRequest(

@@ -56,12 +56,20 @@ struct ComposeFlowView: View {
     }
 
     /// Skip (empty selection) opens the claimed conversation as-is; Continue
-    /// adds the picked contacts to it first. The push happens immediately
-    /// either way -- the members land in the open conversation a moment later.
-    private func handleProceed(with inboxIds: Set<String>) {
-        if !inboxIds.isEmpty, let conversationViewModel = composeConversationViewModel.conversationViewModel {
-            Task {
-                try? await conversationViewModel.addMembersFromContacts(Array(inboxIds))
+    /// adds the picked humans as members and requests the picked agent
+    /// templates to join. The push happens immediately either way -- the
+    /// members / agents land in the open conversation a moment later.
+    private func handleProceed(with selection: Set<ContactsPickerViewModel.Selection>) {
+        let inboxIds: [String] = selection.compactMap(\.inboxId)
+        let templateIds: [String] = selection.compactMap(\.templateId)
+        if let conversationViewModel = composeConversationViewModel.conversationViewModel {
+            if !inboxIds.isEmpty {
+                Task {
+                    try? await conversationViewModel.addMembersFromContacts(inboxIds)
+                }
+            }
+            if !templateIds.isEmpty {
+                conversationViewModel.requestAgentJoins(templateIds: templateIds)
             }
         }
         pushedConversation = composeConversationViewModel

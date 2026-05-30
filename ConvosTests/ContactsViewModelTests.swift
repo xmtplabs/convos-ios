@@ -8,6 +8,26 @@ import XCTest
 /// The picker view model has its own suite in `ContactsPickerViewModelTests`.
 @MainActor
 final class ContactsViewModelTests: XCTestCase {
+    /// Human `inboxId`s across every section, in render order.
+    private func humanInboxIds(_ viewModel: ContactsViewModel) -> [String] {
+        viewModel.sections.flatMap { section in
+            section.rows.compactMap { row -> String? in
+                guard case .human(let contact) = row.kind else { return nil }
+                return contact.inboxId
+            }
+        }
+    }
+
+    /// Agent-template `templateId`s across every section, in render order.
+    private func agentTemplateIds(_ viewModel: ContactsViewModel) -> [String] {
+        viewModel.sections.flatMap { section in
+            section.rows.compactMap { row -> String? in
+                guard case .agentTemplate(let agent) = row.kind else { return nil }
+                return agent.templateId
+            }
+        }
+    }
+
     // MARK: - Verified-agent filter
 
     /// Verified-agent contacts stay in `DBContact` so chat-side surfaces
@@ -34,18 +54,17 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         // Alice and the unverified agent pass through; both verified agents
         // are filtered out. Unverified agents intentionally remain visible
         // because they're not yet attested.
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
+        XCTAssertEqual(humanInboxIds(viewModel).sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
     /// `ContactsView` body and the compose button's enabled flag. It must
-    /// reflect the human-visible count, not the raw count - otherwise a
-    /// user whose contacts are all agents would see an empty list with a
-    /// non-empty count (no empty-state CTA, enabled compose button).
+    /// reflect the visible count, not the raw `DBContact` count - otherwise
+    /// a user whose only `DBContact` rows are verified agents would see an
+    /// empty list with a non-empty count.
     func testContactCountReflectsVisibleContactsNotRawCount() {
         let assistant = Contact.mock(
             displayName: "Convos Assistant",
@@ -56,7 +75,7 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         XCTAssertEqual(viewModel.contactCount, 0,
-                       "Agent-only contacts should not count toward the visible total")
+                       "Verified-agent DBContact rows should not count toward the visible total")
         XCTAssertTrue(viewModel.sections.isEmpty)
     }
 
@@ -71,8 +90,7 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         viewModel.searchQuery = "ALI"
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds, [alice.inboxId])
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
     }
 
     func testSearchAndVerifiedAgentFilterComposeCorrectly() {
@@ -89,7 +107,24 @@ final class ContactsViewModelTests: XCTestCase {
         // Searching "alice" must not surface the verified Alice Assistant -
         // the agent filter precedes the search filter in the pipeline.
         viewModel.searchQuery = "alice"
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds, [alice.inboxId])
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
+    }
+
+    // MARK: - Agent-template merging
+
+    /// Agent-template contacts surface in the same alphabetical sections as
+    /// humans, distinguished by the `Row.kind` discriminator. Regression
+    /// guard for the 2.3 capture-and-browse path.
+    func testAgentTemplateContactsAppearAlongsideHumans() {
+        let alice = Contact.mock(displayName: "Alice")
+        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
+        let viewModel = ContactsViewModel(
+            contactsRepository: MockContactsRepository(contacts: [alice]),
+            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso])
+        )
+
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
+        XCTAssertEqual(agentTemplateIds(viewModel), [tifoso.templateId])
+        XCTAssertEqual(viewModel.contactCount, 2)
     }
 }

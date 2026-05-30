@@ -29,6 +29,14 @@ protocol StreamProcessorProtocol: Actor {
 
     func reconcilePushSubscriptions(params: SyncClientParams, context: String) async
 
+    /// Drops every cached push-topic-set hash. Intended for the explicit
+    /// "Delete all data" / sign-out path where the caller wants to force the
+    /// next reconcile to hit the wire instead of debouncing. Day-to-day
+    /// identity rotation is already handled by partitioning the cache key
+    /// on inboxId / clientId, so callers should NOT invoke this on every
+    /// resume / foreground.
+    func clearPushSubscriptionCache() async
+
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
 }
@@ -96,7 +104,13 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.databaseReader = databaseReader
         self.pushTopicSubscriptionManager = PushTopicSubscriptionManager(
             identityStore: identityStore,
-            deviceRegistrationManager: deviceRegistrationManager
+            deviceRegistrationManager: deviceRegistrationManager,
+            cache: PushTopicSubscriptionCache(),
+            // Closure captures the configured singleton so cache keys partition
+            // by the live APNS token. Token rotation forces a miss; the new
+            // `.convosPushTokenDidChange` listener (D14) then drives a fresh
+            // reconcile through the wire.
+            pushTokenProvider: { PushNotificationRegistrar.token }
         )
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
@@ -318,10 +332,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    // Mark unread if needed
-                    if result.contentType.marksConversationAsUnread,
-                       conversation.id != activeConversationId,
-                       message.senderInboxId != params.client.inboxId {
+                    // Mark unread if needed (shared predicate with the
+                    // catch-up paths so the gate can't drift).
+                    if marksConversationUnread(
+                        contentType: result.contentType,
+                        senderInboxId: message.senderInboxId,
+                        currentInboxId: params.client.inboxId,
+                        conversationId: conversation.id,
+                        activeConversationId: activeConversationId
+                    ) {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
 
@@ -846,6 +865,8 @@ actor StreamProcessor: StreamProcessorProtocol {
     func reconcilePushSubscriptions(params: SyncClientParams, context: String) async {
         await pushTopicSubscriptionManager.reconcilePushTopics(params: params, context: context)
     }
+
+    func clearPushSubscriptionCache() async { await pushTopicSubscriptionManager.clearCache() }
 
     private func handleJoinRequestOutcome(
         _ outcome: InviteJoinRequestOutcome,

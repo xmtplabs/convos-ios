@@ -73,7 +73,7 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
     }
 
     public var isFullBleed: Bool {
-        mediaType.isFullBleed || isHTMLFile
+        mediaType.isFullBleed
     }
 
     public var mediaType: MediaType {

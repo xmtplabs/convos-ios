@@ -59,7 +59,7 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
 
     public init(messagingService: any PostPairBroadcastMessaging) {
         self.messagingService = messagingService
-        self.pollSchedule = Constant.pollSchedule
+        self.pollSchedule = PairingInstallationPoll.schedule
     }
 
     /// Test seam: inject a faster poll schedule so unit tests don't sleep
@@ -87,11 +87,11 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
         return true
     }
 
-    /// Polls libxmtp's installation list on the same schedule
-    /// `DevicesViewModel` uses for its optimistic-row reconciliation.
-    /// Returns true the first time we see an installation id that
-    /// wasn't in the baseline set; false if the entire schedule
-    /// elapses with no new installation.
+    /// Polls libxmtp's installation list on `PairingInstallationPoll.schedule`
+    /// (the same cadence `DevicesViewModel` uses for its optimistic-row
+    /// reconciliation). Returns true the first time we see an installation id
+    /// that wasn't in the baseline set; false if the entire schedule elapses
+    /// with no new installation.
     private func waitForInstallationAdded(beyond baseline: Set<String>) async -> Bool {
         for delay in pollSchedule {
             if delay > 0 {
@@ -115,13 +115,5 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
             Log.warning("PostPairProfileSnapshotBroadcaster: installationsSnapshot failed: \(error.localizedDescription)")
             return nil
         }
-    }
-
-    private enum Constant {
-        /// Matches `DevicesViewModel.refreshUntilRealInstallationAppears`:
-        /// cumulative ~37s, roughly exponential. Long enough to catch
-        /// the joiner's key-package publish, short enough that we don't
-        /// hang on a never-completes pair.
-        static let pollSchedule: [TimeInterval] = [0, 2, 5, 10, 20]
     }
 }

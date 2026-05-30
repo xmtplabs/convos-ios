@@ -1,31 +1,37 @@
 import Foundation
 
 public enum SubscriptionProductIDs {
-    public static let plusMonthly: String = "app.convos.subs.builder.monthly"
-    public static let plusAnnual: String = "app.convos.subs.builder.annual"
+    /// Bundle ID is the literal key StoreKit uses to look up products in
+    /// App Store Connect. The prod ASC app owns the `plus.*` product IDs
+    /// (registered to `org.convos.ios`); every other bundle (Dev preview,
+    /// Local, App Clip, PR) talks to the Dev ASC app, which owns the
+    /// unprefixed `subs.monthly` / `subs.annual` IDs.
+    ///
+    /// We read the bundle ID directly rather than routing through
+    /// `AppEnvironment.isProduction` because the bundle ID is the literal
+    /// thing StoreKit checks; routing through ConfigManager + config.json
+    /// + AppEnvironment adds three layers of indirection where a build
+    /// misconfiguration could put the env in an inconsistent state.
+    private static let isProductionBundle: Bool =
+        Bundle.main.bundleIdentifier == "org.convos.ios"
 
-    public static let all: Set<String> = [
-        plusMonthly,
-        plusAnnual,
-    ]
+    public static let plusMonthly: String = isProductionBundle
+        ? "app.convos.subs.plus.monthly"
+        : "app.convos.subs.monthly"
 
-    /// Legacy product ID from the pre-Plus era. Never returned by
-    /// `availableProducts()` (removed from `all`) but still recognized so
-    /// any existing entitlement migrates cleanly to Plus instead of being
-    /// silently dropped. Same intent as `SubscriptionTier.init(from:)`
-    /// mapping the backend "pro" string to `.plus`.
-    private static let legacyProMonthly: String = "app.convos.subs.pro.monthly"
+    public static let plusAnnual: String = isProductionBundle
+        ? "app.convos.subs.plus.annual"
+        : "app.convos.subs.annual"
+
+    public static let all: Set<String> = [plusMonthly, plusAnnual]
 
     public static func tier(for productID: String) -> SubscriptionTier? {
-        switch productID {
-        case plusMonthly, plusAnnual, legacyProMonthly: return .plus
-        default: return nil
-        }
+        all.contains(productID) ? .plus : nil
     }
 
     public static func period(for productID: String) -> SubscriptionPeriod? {
         switch productID {
-        case plusMonthly, legacyProMonthly: return .monthly
+        case plusMonthly: return .monthly
         case plusAnnual: return .annual
         default: return nil
         }

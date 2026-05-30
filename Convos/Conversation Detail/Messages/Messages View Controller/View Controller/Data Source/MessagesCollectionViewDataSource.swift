@@ -43,6 +43,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var isAgentJoinPending: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
@@ -162,6 +163,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             headerMode: headerMode,
             hidesInviteCard: hidesInviteCard,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
                 self?.memberContactOverride?(inboxId)
             }
