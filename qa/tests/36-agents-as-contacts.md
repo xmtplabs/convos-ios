@@ -65,10 +65,15 @@ make -C dev/local-stack ios-config IOS="$(pwd)"
 #     If `op` (1Password) isn't installed, ios-config leaves FIREBASE_APP_CHECK_DEBUG_TOKEN
 #     empty -> Firebase exchangeDebugToken returns 403 -> the inbox never reaches
 #     clientAuthorized -> the app shows an EMPTY home/contacts list (see "Status").
-#     Fix: install `op` (so ios-config pulls the shared Local token), OR launch once,
-#     grab the token the app prints ([AppCheckCore] App Check debug token: '<uuid>'),
-#     register it in the Firebase console for org.convos.ios-local (project convos-otr),
-#     pin it in ./.env, and rebuild. This is exactly what /firebase-token automates.
+#     Fix (any one): (a) `op read "op://Engineering/Convos iOS Local AppCheck/credential"`
+#     and pin it as FIREBASE_APP_CHECK_DEBUG_TOKEN in ./.env; (b) reuse the already-
+#     registered token from the stack-owning checkout (grep FIREBASE_APP_CHECK_DEBUG_TOKEN
+#     in <workspace>/convos-ios/.env); or (c) launch once, grab the token the app prints
+#     ([AppCheckCore] App Check debug token: '<uuid>'), register it in the Firebase console
+#     for org.convos.ios-local (project convos-otr), and pin it. Then REBUILD (the build
+#     phase bakes .env into Secrets) + relaunch. /firebase-token automates (c).
+#     Verify: Logs/convos.log shows no 403 on firebaseappcheck...exchangeDebugToken and
+#     reaches clientAuthorized; the conversation list loads instead of staying empty.
 
 # 2. Provision the verified, template-backed agents (mints/pins AGENT_DEBUG_JWKS,
 #    starts `convos agent serve` for each, pushes templateId/emoji, prints invites).
