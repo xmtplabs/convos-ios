@@ -1,8 +1,10 @@
 # 37 - Agent Contact Visibility Edges
 
 Non-destructive edge/negative cases of the agents-as-contacts refactor. Runs after
-test 36 **in the same app session** (the Local app resets to an empty inbox on
-relaunch). See `36-agents-as-contacts.md` for the runbook and provisioning.
+test 36, reusing the contacts/conversations it established. See
+`36-agents-as-contacts.md` for the runbook, provisioning, and the Firebase App
+Check prerequisite (without a valid Local App Check debug token the app never
+authorizes and the lists show empty).
 
 ## What this guards
 

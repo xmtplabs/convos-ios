@@ -24,11 +24,12 @@ prerequisites:
   bundle_id: org.convos.ios-local
   screen: conversations_list
 
-# Runs in the SAME app session as test 36 (the app resets to an empty inbox on
-# relaunch, so do not relaunch between 36 and 37). Reuses the Fitness Trainer
-# (templateId debug-fitness-trainer) contact + conversation from 36 and the
-# shared-template agents. The runbook also provisions a templateId-less
-# "Mystery Bot" and a plain human "Alex" who joins the Fitness Trainer convo.
+# Runs after test 36, reusing the Fitness Trainer (templateId
+# debug-fitness-trainer) contact + conversation and the shared-template agents.
+# Requires a valid Local Firebase App Check debug token (see the runbook) - without
+# it the app never reaches clientAuthorized and the lists show empty. The runbook
+# also provisions a templateId-less "Mystery Bot" and a plain human "Alex" who
+# joins the Fitness Trainer convo.
 state:
   mystery_bot_invite_url: null
 

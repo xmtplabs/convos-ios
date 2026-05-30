@@ -35,9 +35,16 @@ cases.
   (it goes through the shared `FeatureInfoSheet` + `convosButtonStyle` `AnyView`
   wrapper, which doesn't surface the identifier to idb). Match the sheet by its
   unique title "One agent, many convos" and tap the "Got it" label.
-- **The Local app resets to an empty inbox on relaunch.** Run the whole 36/37/37b
-  sequence in a single app session and join agents fresh via `open_invite_url` -
-  do NOT relaunch mid-sequence expecting joined agents/contacts to persist.
+- **The app must pass Firebase App Check or it never authorizes** (and shows an
+  empty home/contacts list). If the Local `.env` has no valid
+  `FIREBASE_APP_CHECK_DEBUG_TOKEN`, Firebase's `exchangeDebugToken` returns 403,
+  the inbox is stuck in `authenticatingBackend` (never `clientAuthorized`), and the
+  conversation list stays empty on every launch. The XMTP/MLS layer (dev network)
+  still works, so agents join and contacts can be created, but the session is
+  unreliable. **Prerequisite:** register + pin a Local Firebase App Check debug
+  token before running (`/firebase-token`, or install `op` so `ios-config` pulls
+  the shared token). Verify auth in `Logs/convos.log` (app-group container): no
+  `Failed state transition authenticatingBackend -> clientAuthorized` lines.
 - `publishAgentTemplate` may 404 on the local stack (no published URL); the
   publish-and-share step accepts either the share sheet or a publish-error alert.
 
@@ -53,6 +60,15 @@ cd <this convos-ios checkout>
 #    config.local.json xmtpNetwork -> dev). Confirm the stack is healthy first.
 make -C dev/local-stack status            # backend/herald/worker/minio should be 200
 make -C dev/local-stack ios-config IOS="$(pwd)"
+
+# 1b. CRITICAL: ensure a valid Local Firebase App Check debug token is in ./.env.
+#     If `op` (1Password) isn't installed, ios-config leaves FIREBASE_APP_CHECK_DEBUG_TOKEN
+#     empty -> Firebase exchangeDebugToken returns 403 -> the inbox never reaches
+#     clientAuthorized -> the app shows an EMPTY home/contacts list (see "Status").
+#     Fix: install `op` (so ios-config pulls the shared Local token), OR launch once,
+#     grab the token the app prints ([AppCheckCore] App Check debug token: '<uuid>'),
+#     register it in the Firebase console for org.convos.ios-local (project convos-otr),
+#     pin it in ./.env, and rebuild. This is exactly what /firebase-token automates.
 
 # 2. Provision the verified, template-backed agents (mints/pins AGENT_DEBUG_JWKS,
 #    starts `convos agent serve` for each, pushes templateId/emoji, prints invites).
@@ -74,8 +90,10 @@ APP=$(find .derivedData/Build/Products -path '*Local-iphonesimulator*' -name 'Co
 xcrun simctl install "$SIM" "$APP" && xcrun simctl launch "$SIM" org.convos.ios-local
 
 # 4. Run the sequence. Substitute the captured invite URLs into the test state
-#    (the runner opens them via `open_invite_url`). Run 36 -> 37 -> 37b IN ONE
-#    SESSION (no relaunch):
+#    (the runner opens them via `open_invite_url`). Run 36 -> 37 -> 37b in order
+#    (37/37b reuse the contacts/conversations 36 establishes). Confirm the app
+#    authorized first: tail Logs/convos.log (app-group container) and check there are
+#    no "authenticatingBackend -> clientAuthorized" failures.
 /qa 36 37 37b
 #    (or drive the structured YAMLs directly; for test 37's name-only update use:
 #     qa/scripts/provision-agents-as-contacts.sh rename-fitness)

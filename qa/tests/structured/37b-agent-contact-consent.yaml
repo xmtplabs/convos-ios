@@ -28,12 +28,13 @@ setup:
   - action: note
     args:
       text: >
-        Runs in the same app session as 36/37 (no relaunch). Reuses the shared-
-        template agent (Trip Planner / Road Tripper, templateId qa-shared-template)
-        and its conversation from test 36. Destructive (block / unblock / consent
-        flips), so it runs last in the Agents-as-Contacts sequence. Agent-served
-        conversations are named after the agent, so the conversation to watch
-        appear/disappear from the feed is titled "Trip Planner".
+        Runs after 36/37, reusing the shared-template agent (Trip Planner / Road
+        Tripper, templateId qa-shared-template) and its conversation from test 36.
+        Requires a valid Local Firebase App Check debug token (see the runbook).
+        Destructive (block / unblock / consent flips), so it runs last in the
+        Agents-as-Contacts sequence. Agent-served conversations are named after the
+        agent, so the conversation to watch appear/disappear from the feed is titled
+        "Trip Planner".
 
 steps:
   - id: confirm_agent_conversation_in_feed
