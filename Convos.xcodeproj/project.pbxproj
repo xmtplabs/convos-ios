@@ -2048,10 +2048,10 @@
 			baseConfigurationReferenceRelativePath = Config/Prod.xcconfig;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotificationService/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
@@ -2065,7 +2065,7 @@
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
+				PROVISIONING_PROFILE_SPECIFIER = "match AppStore org.convos.ios.ConvosNSE";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -2136,7 +2136,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "$(ASSETCATALOG_COMPILER_APPICON_NAME)";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Convos/Convos.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -2160,6 +2161,7 @@
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "match AppStore org.convos.ios";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
