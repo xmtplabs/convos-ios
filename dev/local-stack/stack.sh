@@ -48,7 +48,7 @@ load_env() {
 # stack.env is already sourced+exported, so compose reads the vars from the environment.
 dc() { docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"; }
 
-wait_http() { local url="$1" t="${2:-60}" i=0; while (( i < t )); do local c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || true)"; [[ -n "$c" && "$c" != "000" ]] && return 0; sleep 1; ((i++)); done; return 1; }
+wait_http() { local url="$1" t="${2:-60}" i=0; while (( i < t )); do local c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || true)"; [[ "$c" =~ ^2[0-9][0-9]$ ]] && return 0; sleep 1; ((i++)); done; return 1; }
 
 start_svc() { local name="$1" dir="$2"; shift 2; if svc_running "$name"; then ok "$name already running"; return 0; fi; [[ -d "$dir" ]] || die "$name dir missing: $dir"; log "starting $name ${c_dim}($dir)${c_rst}"; ( cd "$dir" && nohup bash -lc "$*" >"$RUN_DIR/$name.log" 2>&1 & echo $! >"$RUN_DIR/$name.pid" ); }
 svc_running() { local n="$1"; [[ -f "$RUN_DIR/$n.pid" ]] && kill -0 "$(cat "$RUN_DIR/$n.pid")" 2>/dev/null; }
@@ -182,7 +182,7 @@ cmd_down() {
 # ============================ status / logs ============================
 cmd_status() {
   load_env; log "service health"
-  chk() { local n="$1" u="$2" c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$u" 2>/dev/null || echo 000)"; [[ "$c" != 000 ]] && ok "$(printf '%-8s %s' "$n" "$u") -> $c" || warn "$(printf '%-8s %s' "$n" "$u") -> down"; }
+  chk() { local n="$1" u="$2" c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$u" 2>/dev/null || echo 000)"; [[ "$c" =~ ^2[0-9][0-9]$ ]] && ok "$(printf '%-8s %s' "$n" "$u") -> $c" || warn "$(printf '%-8s %s' "$n" "$u") -> ${c/000/down}"; }
   chk backend "http://localhost:${BACKEND_PORT}/healthcheck"
   chk herald  "http://localhost:${HERALD_PORT}/livez"
   chk worker  "http://localhost:${WORKER_PORT}/openapi.json"
@@ -199,10 +199,8 @@ cmd_ios_config() {
   load_env; local ios="${1:-$REPO_ROOT}"
   [[ -f "$ios/Convos/Config/config.local.json" ]] || die "not a convos-ios checkout: $ios"
   log "configuring Local thin client: $ios"
-  sed -i '' 's/"xmtpNetwork": "local"/"xmtpNetwork": "dev"/' "$ios/Convos/Config/config.local.json" 2>/dev/null || true
-  ok "config.local.json xmtpNetwork -> dev"
-  local bp="$ios/Scripts/build-phases/copy-env-config-main-app.sh"
-  if [[ -f "$bp" ]] && grep -q 'static let \\\\1' "$bp"; then sed -i '' '106 s/\\\\/\\/g' "$bp" && ok "patched build-phase sed bug"; else ok "build-phase fix already applied/upstreamed"; fi
+  if grep -q '"xmtpNetwork": "dev"' "$ios/Convos/Config/config.local.json"; then ok "config.local.json xmtpNetwork already 'dev'"
+  else sed -i '' 's/"xmtpNetwork": "local"/"xmtpNetwork": "dev"/' "$ios/Convos/Config/config.local.json" 2>/dev/null && ok "config.local.json xmtpNetwork -> dev"; fi
   local fb=""; { have op && [[ -n "${OP_FIREBASE_LOCAL_TOKEN_REF:-}" ]] && fb="$(op read "$OP_FIREBASE_LOCAL_TOKEN_REF" 2>/dev/null||true)"; } || true
   [[ -z "$fb" ]] && warn "no Firebase Local token from 1Password — set FIREBASE_APP_CHECK_DEBUG_TOKEN in $ios/.env (shared Local token)"
   rm -f "$ios/.env"   # break any Dev-shared symlink; the Local scheme uses a standalone .env

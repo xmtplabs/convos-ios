@@ -66,10 +66,11 @@ A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by
 | iOS auth never completes; Firebase **403 "App attestation failed"** | Shared Local debug token missing → re-run `ios-config`; confirm `.env` has `FIREBASE_APP_CHECK_DEBUG_TOKEN`. |
 | Backend `500` on `/auth/*` after Docker restarted | `make … up` re-brings Postgres + re-disables App Check. |
 | `herald` won't start: `spawn flock ENOENT` | `brew install flock`. |
+| `bootstrap` warns it can't read secrets (`op` not found / not signed in) | `brew install 1password-cli`, then `op signin` — re-run `bootstrap`. |
 | Agent stays "Joining…" | worker/herald down or auth incomplete → `make … status`, ensure auth works. |
 
 ## Fixes to upstream (so this needs no workarounds)
-- ✅ **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` `sed` bug (double-escaped backslashes that broke Local `Secrets.swift`) — **fixed in this branch**. (`ios-config` still re-patches it idempotently for older checkouts.)
+- ✅ **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` `sed` bug (double-escaped backslashes that broke Local `Secrets.swift`) — **fixed in this branch** (committed in-repo; `ios-config` no longer needs to patch it).
 - **convos-assistants** `docker-compose.yaml` — MinIO `network_mode: host` doesn't publish ports on macOS; use port mapping (this stack does).
 - **convos-assistants** — default `R2_PARENT_*` to local MinIO creds when `IS_LOCAL_DEV=true`.
 - **herald-lite** — detect/degrade when `flock` is missing on macOS.
