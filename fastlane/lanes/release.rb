@@ -38,7 +38,12 @@ platform :ios do
       export_options: {
         provisioningProfiles: {
           PROD_BUNDLE_ID     => "match AppStore #{PROD_BUNDLE_ID}",
-          PROD_NSE_BUNDLE_ID => "match AppStore #{PROD_NSE_BUNDLE_ID}",
+          # NSE AppStore profile carries a numeric suffix on the portal (a
+          # name collision when match first created it), so pin the exact
+          # profile name. Drop the suffix here + in the target's
+          # PROVISIONING_PROFILE_SPECIFIER if the profile is ever regenerated
+          # clean. See PR that introduced this.
+          PROD_NSE_BUNDLE_ID => "match AppStore #{PROD_NSE_BUNDLE_ID} 1777583017",
         },
       },
     )
