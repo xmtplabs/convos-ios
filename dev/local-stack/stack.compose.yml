@@ -1,0 +1,44 @@
+# Shared local infra for the convos stack: Postgres (backend DB) + MinIO (assistants R2 stand-in).
+# Deliberately minimal — we do NOT use the repos' own compose files:
+#   - convos-backend/dev/compose.yml also runs a local xmtp node + notification server
+#     (this stack uses the hosted DEV xmtp network, so they aren't needed).
+#   - convos-assistants/docker-compose.yaml runs herald as a prebuilt image with
+#     network_mode: host (doesn't publish ports on Docker Desktop/macOS) — we run herald
+#     from source and port-map MinIO here.
+# Vars come from the workspace stack.env (exported by stack.sh). Project name: convos-stack.
+services:
+  convos_db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: convos
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - convos_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_USER:-convos}"
+      MINIO_ROOT_PASSWORD: "${MINIO_PASSWORD:-assistants}"
+      MINIO_DEFAULT_BUCKETS: "${MINIO_BUCKET:-assistants-private-dev}"
+    volumes:
+      - convos_miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  convos_pgdata:
+  convos_miniodata:

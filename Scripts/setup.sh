@@ -222,8 +222,14 @@ fi
 
 if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
     REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
-    PARENT_DIR="$(dirname "${REPO_ROOT}")"
-    PARENT_ENV="${PARENT_DIR}/.env"
+    # Shared convos-ios DEV .env location: prefer the local-stack workspace
+    # (CONVOS_REPOS_DIR env, or the .convos-stack pointer at the repo root) ->
+    # <workspace>/convos-ios.env. Fall back to the legacy parent (<dirname repo>/.env)
+    # when no workspace is configured. One token, shared across all checkouts/worktrees.
+    _ws=""
+    if [ -n "${CONVOS_REPOS_DIR:-}" ]; then _ws="${CONVOS_REPOS_DIR}"
+    elif [ -f "${REPO_ROOT}/.convos-stack" ]; then _ws="$(tr -d '\n' < "${REPO_ROOT}/.convos-stack")"; fi
+    if [ -n "${_ws}" ] && [ -d "${_ws}" ]; then PARENT_ENV="${_ws}/convos-ios.env"; else PARENT_ENV="$(dirname "${REPO_ROOT}")/.env"; fi
     LOCAL_ENV="${REPO_ROOT}/.env"
     FIREBASE_CONSOLE_URL="https://console.firebase.google.com/u/1/project/convos-otr/appcheck/apps"
 
@@ -284,13 +290,13 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
 
         SYMLINK_NOTE=""
         if [ ! -e "${LOCAL_ENV}" ] && [ ! -L "${LOCAL_ENV}" ]; then
-            ln -s ../.env "${LOCAL_ENV}"
-            SYMLINK_NOTE="✓ Linked .env → ../.env at ${LOCAL_ENV}"
+            ln -s "${PARENT_ENV}" "${LOCAL_ENV}"
+            SYMLINK_NOTE="✓ Linked .env → ${PARENT_ENV} at ${LOCAL_ENV}"
         elif [ -L "${LOCAL_ENV}" ]; then
             link_target="$(readlink "${LOCAL_ENV}")"
             SYMLINK_NOTE="✓ .env → ${link_target} symlink already in place at ${LOCAL_ENV}"
         elif [ -f "${LOCAL_ENV}" ]; then
-            SYMLINK_NOTE=$'⚠️  '"${LOCAL_ENV}"$' is a regular file, not a symlink.\n   To share one token across worktrees:\n     cat .env >> ../.env && rm .env && ln -s ../.env .env'
+            SYMLINK_NOTE="⚠️  ${LOCAL_ENV} is a regular file, not a symlink. To share one token: cat .env >> ${PARENT_ENV} && rm .env && ln -s ${PARENT_ENV} .env"
         fi
 
         print_firebase_report "${NEW_TOKEN}" "${PARENT_ENV}" "${SYMLINK_NOTE}"

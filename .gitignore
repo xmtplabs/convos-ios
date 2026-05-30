@@ -14,6 +14,7 @@
 ## Claude Code local settings
 .claude/settings.local.json
 .convos-task
+.convos-stack
 
 ## User settings
 xcuserdata/
