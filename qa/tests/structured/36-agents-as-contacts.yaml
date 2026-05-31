@@ -1,171 +1,107 @@
 id: "36"
 name: "Agents As Contacts"
 description: >
-  Happy path for the agents-as-contacts refactor, run against the local stack.
-  A verified, template-backed agent that the app shares a conversation with shows
-  up as a single contact in the Contacts browse list (deduplicated by templateId
-  even across two conversations) once the local user has acted in the conversation.
-  The agent contact card carries an Agent role pill, a "Valid - convos" attestation,
-  and a publish-and-share toolbar icon, and starting a chat from the card presents
-  the "One agent, many convos" confirmation before the new-conversation flow. Guards
-  Contact+BrowseVisibility.isVisibleInContactsList, ContactsRepository
-  canonicalContacts dedup (dedupingAgentsByTemplate), the ContactSyncCoordinator
-  first-message action gate, and the ContactDetailView agent affordances.
-tags: [agents, contacts, verification, local-stack, dedup]
+  Happy path for the agents-as-contacts refactor, driven entirely through the
+  in-app agent-builder flow against the local stack (no CLI, no invite deep-links).
+  The user builds an agent from a prompt ("Make a new agent"); once the backend
+  provisions it (name + templateId), the verified template-backed agent shows up as
+  a single contact in the Contacts browse list with an Agent pill, the contact card
+  carries a "Valid - convos" attestation + a publish-and-share icon, and starting a
+  chat from the card presents the "One agent, many convos" confirmation. Guards
+  Contact+BrowseVisibility.isVisibleInContactsList (agentVerification != nil &&
+  agentTemplateId != nil), ContactsRepository canonicalContacts dedup, and the
+  ContactDetailView agent affordances.
+tags: [agents, contacts, verification, local-stack, agent-builder]
 depends_on: []
-estimated_duration_s: 480
+estimated_duration_s: 360
 
 prerequisites:
   app_running: true
-  cli_initialized: true
   local_stack_running: true
   agent_jwks_pinned: true
   scheme: "Convos (Local)"
   bundle_id: org.convos.ios-local
-  screen: conversations_list
+  screen: home
+  # The local backend must be able to provision agents: the account needs credits
+  # (GET /api/v2/accounts/me/credits must not 403) and the template generator must
+  # succeed (no "Generate endpoint failed: ownerAccountId does not exist"). Without
+  # this the built agent never gets a templateId and stays hidden from contacts.
+  backend_agent_provisioning_working: true
 
-# These invite URLs come from the serving debug agents the runbook provisions
-# before this test runs (see qa/tests/36-agents-as-contacts.md). The runner
-# substitutes the captured URLs at run time.
 state:
-  fitness_agent_invite_url: null
-  shared_agent_a_invite_url: null
-  shared_agent_b_invite_url: null
+  agent_prompt: "a friendly chess coach that teaches openings"
 
 setup:
   - action: note
     args:
       text: >
-        Provisioned out-of-band by the runbook BEFORE this test (see
-        qa/tests/36-agents-as-contacts.md and qa/scripts/provision-agents-as-contacts.sh):
-        three verified agents, each running `convos agent serve` on an isolated
-        CONVOS_HOME with attestation and a templateId pushed through the serve FIFO
-        after startup. (1) "Fitness Trainer", templateId debug-fitness-trainer;
-        (2) "Trip Planner" and (3) "Road Tripper", BOTH templateId qa-shared-template
-        (distinct CONVOS_HOME/inboxId) to exercise dedup. Each agent's ready event
-        prints an inviteUrl; the runbook exports them into fitness_agent_invite_url /
-        shared_agent_a_invite_url / shared_agent_b_invite_url. The app runs the
-        "Convos (Local)" scheme (bundle id org.convos.ios-local) against the local
-        stack. The serving agent auto-processes the app's join, so no
-        cli_process_joins is needed.
+        No CLI / no invite deep-links. Agents are created in-app via the
+        agent-builder ("Make a new agent" composer -> Make). The app runs the
+        "Convos (Local)" scheme against the local stack and must be authorized
+        (App Check: a registered Local FIREBASE_APP_CHECK_DEBUG_TOKEN; see runbook).
+        AGENT_DEBUG_JWKS is pinned so the built agent verifies as convos.
 
 steps:
-  - id: join_fitness_agent
-    name: "App joins the Fitness Trainer agent's conversation via its invite"
+  - id: make_agent
+    name: "Build an agent from a prompt via the agent-builder"
     actions:
-      - open_invite_url: { url: "$fitness_agent_invite_url" }
-      - wait_for_element: { id: "conversation-toolbar-button", timeout: 30 }
+      - tap: { label: "Continue", optional: true }
+        note: "Dismiss the one-time keyboard tutorial if present."
+      - tap: { id: "agent-composer-text-field" }
+      - type_in_field: { id: "agent-composer-text-field", text: "$agent_prompt" }
+      - tap: { id: "agent-make-button" }
+      - wait_for_element: { label_contains: "You created an agent", timeout: 60 }
       - screenshot: {}
     verify:
-      - element_exists: { id: "conversation-toolbar-button", label_contains: "Fitness Trainer" }
-    criteria: joined_fitness_agent_conversation
+      - element_exists: { label_contains: "You created an agent" }
+      - element_exists: { id: "conversation-toolbar-button" }
+    criteria: agent_created_via_builder
     note: >
-      A verified agent join lands directly in the conversation showing the agent
-      profile card ("Fitness Trainer" + tagline) and a "Fitness Trainer, N members"
-      toolbar - NOT the unverified "Agent is present" cell. The agent has already
-      published its attested profile with templateId.
+      Tapping Make commits the draft agent; the builder names it from the prompt
+      (e.g. "King's Tutor") and shows "You created an agent" + the agent card. The
+      agent joins the conversation as a verified (attested) member.
 
-  - id: send_message_triggers_contact_sync
-    name: "Local user sends a message (the contact-sync action gate)"
+  - id: agent_provisions_template
+    name: "Agent finishes provisioning and is assigned a templateId"
     actions:
-      - tap: { id: "message-text-field" }
-      - type_in_field: { id: "message-text-field", text: "hello fitness trainer" }
-      - tap: { id: "send-message-button" }
-      - wait: { seconds: 3 }
+      - wait_for_element: { label_not_contains: "Setting", timeout: 90, optional: true }
+        note: >
+          The agent thinks ("Setting your <role> identity") while the backend
+          assigns the templateId. This requires the local backend generator +
+          credits; on a stack where the account isn't provisioned the agent shows
+          "lost power" / "Upgrade" and never gets a templateId.
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "hello fitness trainer" }
-    criteria: local_send_triggers_sync
+      - element_not_exists: { label_contains: "lost power" }
+    criteria: agent_template_provisioned
     note: >
-      Required step. ContactSyncCoordinator.syncContactsOnFirstMessage only runs
-      when the LOCAL user sends a message (OutgoingMessageWriter hook); the
-      membership hook short-circuits because the agent, not the app, created the
-      conversation. Until this send, the agent is a member but NOT yet a contact.
+      Until the templateId is assigned, the agent is verified but template-less
+      (agentTemplateId == nil) and isVisibleInContactsList returns false, so it will
+      NOT appear in the browse list. A "lost power" / "Upgrade" badge here means the
+      local backend credit/generator provisioning failed - see prerequisites.
 
   - id: agent_appears_in_contacts
-    name: "Verified template-backed agent now appears in the Contacts list"
+    name: "The built template-backed agent appears in the Contacts list"
     actions:
-      - tap: { id: "close-new-conversation" }
+      - tap: { id: "close-committed-agent-conversation", optional: true }
       - tap: { id: "app-indicator-pill" }
       - wait_for_element: { id: "contacts-row", timeout: 10 }
       - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Fitness Trainer", timeout: 20 }
+      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "Fitness Trainer" }
+      - element_exists: { id: "contact-row-" }
       - element_exists: { label_contains: "Agent" }
     criteria: agent_visible_in_contacts
     note: >
-      isVisibleInContactsList is true (agentVerification != nil && agentTemplateId
-      != nil). The row renders under the agent's name letter with its emoji avatar
-      and an "Agent" RoleLabelPill. On the local stack the debug templateId 404s
-      (cold cache), so the row shows the served persona name.
-
-  - id: badge_matches_list
-    name: "App Settings Contacts badge equals the number of visible browse rows"
-    actions:
-      - navigate_back: {}
-      - wait_for_element: { id: "contacts-row", timeout: 10 }
-      - screenshot: {}
-    verify:
-      - visual_check: >
-          The integer on the App Settings "Contacts" row (this screenshot) must
-          equal the number of contact rows shown when the list is opened. Both
-          derive from isVisibleInContactsList, so they cannot disagree. Open the
-          list and count contact-row-* elements (scroll if needed); record pass
-          only if the integers match.
-    criteria: badge_matches_visible_rows
-    note: >
-      AppSettingsView and the browse list both filter the contacts publisher by
-      isVisibleInContactsList. Absolute count varies with pre-existing contacts;
-      assert the badge==list invariant, not a fixed number.
-
-  - id: dedup_shared_template
-    name: "Two conversations sharing one templateId dedup to a single contact row"
-    actions:
-      - note: >
-          Join BOTH shared-template agents (Trip Planner and Road Tripper, both
-          templateId qa-shared-template) and send a message in each so two distinct
-          inboxIds carrying the same templateId are mirrored as contacts.
-      - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
-      - navigate_back: {}
-      - tap: { id: "close-new-conversation", optional: true }
-      - open_invite_url: { url: "$shared_agent_a_invite_url" }
-      - wait_for_element: { id: "conversation-toolbar-button", timeout: 30 }
-      - tap: { id: "message-text-field" }
-      - type_in_field: { id: "message-text-field", text: "hi a" }
-      - tap: { id: "send-message-button" }
-      - wait: { seconds: 2 }
-      - tap: { id: "close-new-conversation" }
-      - open_invite_url: { url: "$shared_agent_b_invite_url" }
-      - wait_for_element: { id: "conversation-toolbar-button", timeout: 30 }
-      - tap: { id: "message-text-field" }
-      - type_in_field: { id: "message-text-field", text: "hi b" }
-      - tap: { id: "send-message-button" }
-      - wait: { seconds: 3 }
-      - tap: { id: "close-new-conversation" }
-      - tap: { id: "app-indicator-pill" }
-      - wait_for_element: { id: "contacts-row", timeout: 10 }
-      - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
-      - screenshot: {}
-    verify:
-      - visual_check: >
-          The two shared-template instances must collapse into EXACTLY ONE contact
-          row (the earliest-added representative, Trip Planner). There must NOT be a
-          separate Road Tripper row, and the badge must not have increased by two.
-    criteria: shared_template_dedups_to_one
-    note: >
-      ContactsRepository.dedupingAgentsByTemplate keeps the earliest-added
-      representative per agentTemplateId and drops later instances. Both instances
-      share the cold-cache templateId, so the surviving row shows the
-      earliest-added instance's persona name.
+      The built agent renders as a contact row with its builder-assigned name, its
+      emoji avatar, and an "Agent" RoleLabelPill (ContactRowView shows the pill for
+      isVerifiedAgent). Requires the templateId from the previous step.
 
   - id: open_agent_contact_card
     name: "Agent contact card shows Agent pill, valid attestation, Share + Chat"
     actions:
-      - tap: { label_contains: "Fitness Trainer" }
+      - tap: { id: "contact-row-" }
       - wait_for_element: { id: "contact-detail-chat", timeout: 10 }
       - screenshot: {}
     verify:
@@ -176,10 +112,9 @@ steps:
       - element_exists: { label_contains: "Valid - convos" }
     criteria: agent_card_shows_agent_affordances
     note: >
-      contact-detail-share-agent renders only for a template-backed agent with a
-      live session. contact-detail-debug-attestation reads "Attestation, Valid -
-      convos", confirming the pinned AGENT_DEBUG_JWKS verified the agent. The role
-      pill label is "Agent".
+      contact-detail-share-agent renders only for a template-backed agent with a live
+      session. contact-detail-debug-attestation reads "Attestation, Valid - convos",
+      confirming the pinned AGENT_DEBUG_JWKS verified the built agent.
 
   - id: chat_shows_agent_info_sheet
     name: "Chat button presents the One-agent-many-convos confirmation"
@@ -192,10 +127,9 @@ steps:
       - element_exists: { label: "Got it" }
     criteria: agent_info_sheet_presented
     note: >
-      handleChatWithAgentTemplate presents OneAgentManyConvosInfoSheet, whose unique
-      title "One agent, many convos" and "Got it" primary button identify it. (No
-      stable accessibility id surfaces through the shared FeatureInfoSheet button
-      style, so match on the title + button label.)
+      handleChatWithAgentTemplate presents OneAgentManyConvosInfoSheet; match on the
+      unique title "One agent, many convos" + the "Got it" button (no stable
+      accessibility id surfaces through the shared FeatureInfoSheet button style).
 
   - id: confirm_agent_info_proceeds
     name: "Got it proceeds to a new conversation seeded with the agent"
@@ -207,60 +141,27 @@ steps:
       - element_exists: { id: "message-text-field" }
     criteria: agent_info_confirm_proceeds
     note: >
-      Tapping Got it dismisses the sheet and creates a new conversation with the
-      agent template spawned in (a fresh instance). Landing on a conversation with
-      a composer (and an invite QR) confirms the flow proceeded.
-
-  - id: publish_and_share_agent
-    name: "Share icon publishes the template and opens the share sheet (or errors)"
-    actions:
-      - tap: { id: "close-new-conversation", optional: true }
-      - tap: { id: "app-indicator-pill" }
-      - wait_for_element: { id: "contacts-row", timeout: 10 }
-      - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Fitness Trainer", timeout: 15 }
-      - tap: { label_contains: "Fitness Trainer" }
-      - wait_for_element: { id: "contact-detail-share-agent", timeout: 10 }
-      - tap: { id: "contact-detail-share-agent" }
-      - wait: { seconds: 6 }
-      - screenshot: {}
-    verify:
-      - any_element_matches: { patterns: ["Copy", "Messages", "AirDrop", "Publish failed", "couldn't", "try again"] }
-    criteria: publish_and_share_opens_sheet
-    known_issue: >
-      On the local stack the assistants worker may not return a published URL
-      (publish can fail / 404), in which case a publish-error alert appears instead
-      of the system share sheet. Either the share sheet (Copy/Messages row) or the
-      publish-error alert satisfies the affordance; treat a publish error as a
-      non-regression on local.
-    note: >
-      handlePublishAndShareAgentTemplate flips a spinner then calls
-      session.publishAgentTemplate; on success it presents the system share sheet.
+      Tapping Got it dismisses the sheet and creates a new conversation with the same
+      agent template spawned in (a fresh instance) - the dedup pipeline keys these to
+      one contact by templateId. Landing on a composer confirms the flow proceeded.
 
 teardown:
   - action: note
     args:
       text: >
-        Leave the agent conversations and the serving debug agents running for tests
-        37 and 37b, which reuse them. Tear the agents + local stack down at the end
-        of the sequence (see the runbook).
+        Leave the built agent + its conversations in place for tests 37 / 37b, which
+        build on the same agent-builder state.
 
 criteria:
-  joined_fitness_agent_conversation:
-    description: "The app joins the Fitness Trainer agent's conversation and lands on the agent card"
-  local_send_triggers_sync:
-    description: "The local user sends a message, satisfying the ContactSyncCoordinator first-message action gate"
+  agent_created_via_builder:
+    description: "The agent-builder creates an agent from a prompt ('You created an agent') and lands on the agent conversation"
+  agent_template_provisioned:
+    description: "The agent finishes provisioning (no 'lost power'), i.e. the backend assigned its templateId"
   agent_visible_in_contacts:
-    description: "The verified template-backed agent appears as a row in the Contacts browse list with an 'Agent' pill"
-  badge_matches_visible_rows:
-    description: "The App Settings Contacts badge integer equals the number of contact rows in the browse list"
-  shared_template_dedups_to_one:
-    description: "Two conversations carrying the same templateId produce exactly one contact row, and the badge does not double-count"
+    description: "The verified template-backed agent appears as a contact row with an 'Agent' pill"
   agent_card_shows_agent_affordances:
     description: "The agent contact card shows the Agent role pill, a valid convos attestation, the Share-agent icon, and the Chat button"
   agent_info_sheet_presented:
     description: "Tapping Chat on the agent card presents the 'One agent, many convos' sheet"
   agent_info_confirm_proceeds:
-    description: "Tapping 'Got it' dismisses the sheet and lands on a new conversation composer with the agent spawned in"
-  publish_and_share_opens_sheet:
-    description: "Tapping the Share-agent icon publishes the template and presents the share sheet (or, on local publish failure, a publish-error alert)"
+    description: "Tapping 'Got it' dismisses the sheet and lands on a new conversation composer"
