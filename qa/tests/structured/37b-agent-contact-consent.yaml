@@ -1,18 +1,20 @@
 id: "37b"
-name: "Agent Contact Consent And Block"
+name: "Agent Contact Block And Unblock"
 description: >
-  Destructive follow-up validating the consent-driven feed visibility this PR
-  introduced, using the in-app agent-builder agent (no CLI, no invites). Blocking a
-  template-backed agent contact demotes its conversation consent to .denied and
-  hides it from the feed; unblocking does NOT promote .denied back to .allowed, so
-  the conversation stays hidden - the same invariant that keeps a user-deleted
-  conversation from being resurrected. Guards
-  ConversationConsentReconciler.fetchMismatchedTargets. The reconciler logic is also
-  covered directly by ConversationConsentReconcilerTests; this confirms the
-  end-to-end UI wiring.
-tags: [agents, contacts, consent, block, destructive, local-stack, agent-builder]
+  Block/unblock for an agent contact built via the in-app agent-builder. Blocking
+  writes the block (card shows a Blocked badge + Unblock affordance), removes the
+  agent from the add-to-conversation picker (isPickable: !isBlocked) while KEEPING it
+  in the browse list so it can be unblocked; unblocking restores it. Note the consent
+  reconciler's feed demotion is *creator-based* by design - blocking demotes the
+  blocked party's OWN/created conversations, and the block dialog states "existing
+  shared groups are unaffected" - so blocking an agent you built (a member of a
+  conversation YOU created) does NOT hide that conversation. The consent demotion +
+  blocker-1 (unblock never resurrects .denied) is validated where it applies: the
+  ConvosCore unit suite (ConversationConsentReconcilerTests) and the two-simulator
+  test 40b (block the conversation creator).
+tags: [agents, contacts, block, local-stack, agent-builder]
 depends_on: ["37"]
-estimated_duration_s: 300
+estimated_duration_s: 240
 
 prerequisites:
   app_running: true
@@ -28,25 +30,11 @@ setup:
     args:
       text: >
         Reuses an agent-builder agent from test 36/37 (e.g. "King's Tutor") that is a
-        visible contact. Destructive (block/unblock/consent), so it runs last in the
-        Agents-as-Contacts sequence. The agent's conversation is named after the
-        agent, so that title is what appears/disappears from the home feed.
+        visible contact. Blocking is driven from its contact card.
 
 steps:
-  - id: confirm_agent_conversation_in_feed
-    name: "The agent's conversation is visible in the home feed"
-    actions:
-      - find_elements: { pattern: "conversation-list-item-" }
-      - screenshot: {}
-    verify:
-      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
-    criteria: agent_conversation_visible_before_block
-    note: >
-      Baseline: the agent's conversation (consent .allowed) shows in the home
-      conversation list before the block.
-
-  - id: block_agent_demotes_consent
-    name: "Block the agent from its contact card; the card flips to Unblock"
+  - id: block_agent_writes_and_flips
+    name: "Block the agent from its card; the card shows Blocked + Unblock"
     actions:
       - tap: { id: "app-indicator-pill" }
       - wait_for_element: { id: "contacts-row", timeout: 10 }
@@ -61,47 +49,31 @@ steps:
       - screenshot: {}
     verify:
       - element_exists: { id: "contact-detail-unblock" }
+      - element_exists: { label_contains: "Blocked" }
     criteria: block_writes_and_flips_to_unblock
     note: >
-      Block writes blockedAt to the canonical DBContact row. The confirmation action
-      is labeled "Block"; afterwards the card shows the Unblock affordance. The
-      ConversationConsentReconciler then demotes the agent conversation to .denied.
+      Block writes blockedAt to the canonical DBContact row. The confirmation action is
+      labeled "Block" ("They won't be able to start new conversations with you. Existing
+      shared groups are unaffected."); the card then shows a "Blocked" badge and the
+      Unblock affordance. Existing conversations are intentionally NOT hidden.
 
-  - id: blocked_conversation_hidden_in_feed
-    name: "The blocked agent's conversation disappears from the chat list"
+  - id: blocked_agent_stays_in_browse
+    name: "The blocked agent remains in the Contacts browse list"
     actions:
-      - tap: { id: "BackButton", optional: true }
-      - tap: { id: "BackButton", optional: true }
-      - wait: { seconds: 3 }
-      - find_elements: { pattern: "conversation-list-item-" }
-      - screenshot: {}
-    verify:
-      - visual_check: >
-          The agent's conversation (named after the agent) is no longer in the home
-          conversation list - it was demoted to .denied and feed visibility is keyed
-          on consent. Allow a few seconds for the reconciler to run.
-    criteria: blocked_conversation_hidden
-    note: >
-      fetchMismatchedTargets matches (contact.blockedAt IS NOT NULL AND
-      conversation.consent <> .denied) and demotes to .denied.
-
-  - id: blocked_agent_still_in_browse
-    name: "The blocked agent stays in the browse list with an Unblock affordance"
-    actions:
-      - tap: { id: "app-indicator-pill" }
-      - wait_for_element: { id: "contacts-row", timeout: 10 }
-      - tap: { id: "contacts-row" }
+      - tap: { id: "BackButton" }
       - wait_for_element: { id: "contact-row-", timeout: 10 }
+      - find_elements: { pattern: "contact-row-" }
       - screenshot: {}
     verify:
-      - element_exists: { id: "contact-row-" }
+      - element_count_gte: { pattern: "contact-row-", min: 1 }
     criteria: blocked_agent_in_browse
     note: >
-      ContactsRepository returns blocked rows so the browse list can offer an unblock
-      affordance (the picker filters them out via isPickable: !isBlocked).
+      ContactsRepository returns blocked rows so the browse list can offer the unblock
+      affordance. (The agent is filtered out of the add-to-conversation picker by
+      isPickable: !isBlocked - covered in test 37's picker steps.)
 
-  - id: unblock_does_not_resurrect
-    name: "Unblocking does not promote .denied back to .allowed"
+  - id: unblock_restores
+    name: "Unblock restores the agent (card flips back to Block)"
     actions:
       - tap: { id: "contact-row-" }
       - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
@@ -109,39 +81,32 @@ steps:
       - wait_for_element: { label: "Unblock", timeout: 10 }
       - tap: { label: "Unblock" }
       - wait_for_element: { id: "contact-detail-block", timeout: 10 }
-      - tap: { id: "BackButton", optional: true }
-      - tap: { id: "BackButton", optional: true }
-      - wait: { seconds: 3 }
-      - find_elements: { pattern: "conversation-list-item-" }
       - screenshot: {}
     verify:
-      - visual_check: >
-          The agent's conversation is STILL absent from the home feed after unblock.
-          fetchMismatchedTargets only promotes .unknown -> .allowed, never .denied, so
-          the demoted conversation stays hidden even though the contact is unblocked.
-    criteria: denied_not_resurrected_on_unblock
+      - element_exists: { id: "contact-detail-block" }
+    criteria: unblock_restores_contact
     note: >
-      This is the blocker-1 regression - the same code path that prevents a
-      user-deleted conversation (delete writes .denied) from being resurrected by the
-      non-blocked-contact promotion rule. Authoritative coverage:
-      ConversationConsentReconcilerTests.testPromotesUnknownButNotDeniedFromNonBlockedContact.
+      Unblock ("You'll start receiving new conversation invitations from this contact
+      again.") clears blockedAt; the card flips back to Block and the agent becomes
+      pickable again.
 
 teardown:
   - action: note
     args:
       text: >
-        Run before test 18 (delete-all-data). The stale-stranger GC time-based
-        branches are not UI-exercisable in one session and are covered by
-        StaleStrangerGCTests in the ConvosCore suite.
+        Run before test 18 (delete-all-data).
 
 criteria:
-  agent_conversation_visible_before_block:
-    description: "Baseline: the agent's conversation is visible in the home feed before blocking"
   block_writes_and_flips_to_unblock:
-    description: "Confirming Block on the agent card writes the block and the card shows the Unblock affordance"
-  blocked_conversation_hidden:
-    description: "After blocking, the agent's conversation is demoted to .denied and disappears from the chat list"
+    description: "Confirming Block writes the block; the card shows a Blocked badge and the Unblock affordance"
   blocked_agent_in_browse:
     description: "The blocked agent still appears in the Contacts browse list (so it can be unblocked)"
-  denied_not_resurrected_on_unblock:
-    description: "Unblocking does NOT promote the .denied conversation back to .allowed; it stays hidden from the feed"
+  unblock_restores_contact:
+    description: "Unblock clears the block; the card flips back to Block"
+
+# Consent feed-demotion (creator-based) is validated elsewhere:
+#  - ConversationConsentReconcilerTests.testDemotesAllowedFromBlockedContact /
+#    testPromotesUnknownButNotDeniedFromNonBlockedContact (unit).
+#  - Test 40b (two simulators): Device B blocks Device A (the conversation CREATOR);
+#    B's conversation with A demotes to .denied and leaves the feed, and unblocking
+#    does NOT resurrect it (the blocker-1 fix).

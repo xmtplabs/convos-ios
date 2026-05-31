@@ -140,9 +140,12 @@ steps:
       bidirectional and that a human member is a visible, pill-less contact.
 
 teardown:
-  - action: erase_simulators
-    args: { udids: ["$device_a_udid", "$device_b_udid"] }
-    note: "Clear XMTP + local state from both devices."
+  - action: note
+    args:
+      text: >
+        Leave both devices + the A<->B conversation in place for test 40b
+        (block-the-creator consent demotion), which reuses this state. 40b erases
+        both simulators when the sequence finishes.
 
 criteria:
   device_a_creates_and_names:
