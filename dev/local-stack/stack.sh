@@ -61,6 +61,12 @@ disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR
 # *:PORT). Empty when offline (no default route).
 host_ip() { local ifc; ifc="$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')"; [[ -n "$ifc" ]] && ipconfig getifaddr "$ifc" 2>/dev/null || true; }
 
+# Write KEY=VALUE into a dotenv file WITHOUT sed replacement-string
+# interpretation — values like API keys can contain &, |, \ which corrupt a
+# `sed s|..|..|` replacement. Drops any existing KEY line, appends the new one
+# (callers pre-check the file exists).
+set_env_kv() { local file="$1" k="$2" v="$3" tmp; tmp="$(mktemp)"; grep -v "^${k}=" "$file" 2>/dev/null >"$tmp" || true; printf '%s=%s\n' "$k" "$v" >>"$tmp"; mv "$tmp" "$file"; }
+
 # Point the worker's CONVOS_API_BASE_URL at THIS backend via the host LAN IP.
 # The in-chat agent-builder calls convos-backend directly from its container;
 # .dev.vars ships the hosted dev backend by default, so the builder would
@@ -72,8 +78,7 @@ sync_backend_url() {
   want="http://${ip}:${BACKEND_PORT}/api"
   cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)"
   [[ "$cur" == "$want" ]] && { ok "worker CONVOS_API_BASE_URL = ${want} (current)"; return; }
-  if grep -q '^CONVOS_API_BASE_URL=' "$dv"; then sed -i '' "s|^CONVOS_API_BASE_URL=.*|CONVOS_API_BASE_URL=${want}|" "$dv"
-  else printf 'CONVOS_API_BASE_URL=%s\n' "$want" >>"$dv"; fi
+  set_env_kv "$dv" CONVOS_API_BASE_URL "$want"
   ok "worker CONVOS_API_BASE_URL -> ${want}"
 }
 
@@ -82,11 +87,12 @@ sync_backend_url() {
 # Keep them equal or those calls 401 once the worker points at the local backend.
 align_agent_key() {
   local dv="${WORKER_DIR}/.dev.vars" be="${BACKEND_DIR}/.env" key
+  [[ -f "$be" ]] || { warn "backend/.env missing — can't align AGENT_ASSETS_API_KEY"; return; }
   key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2-)"
-  [[ -f "$be" && -n "$key" && ${#key} -ge 32 ]] || { warn "can't align AGENT_ASSETS_API_KEY (need .dev.vars CONVOS_API_KEY + backend/.env)"; return; }
+  [[ -n "$key" ]] || { warn ".dev.vars CONVOS_API_KEY missing — can't align AGENT_ASSETS_API_KEY"; return; }
+  [[ ${#key} -ge 32 ]] || { warn ".dev.vars CONVOS_API_KEY too short (${#key} < 32) — can't align"; return; }
   [[ "$(grep -E '^AGENT_ASSETS_API_KEY=' "$be" | cut -d= -f2-)" == "$key" ]] && { ok "backend AGENT_ASSETS_API_KEY aligned (current)"; return; }
-  if grep -q '^AGENT_ASSETS_API_KEY=' "$be"; then sed -i '' "s|^AGENT_ASSETS_API_KEY=.*|AGENT_ASSETS_API_KEY=${key}|" "$be"
-  else printf 'AGENT_ASSETS_API_KEY=%s\n' "$key" >>"$be"; fi
+  set_env_kv "$be" AGENT_ASSETS_API_KEY "$key"
   ok "backend AGENT_ASSETS_API_KEY <- worker CONVOS_API_KEY"
 }
 
@@ -98,14 +104,17 @@ seed_credits() {
   local key floor=1000000 grant=100000000 accts n=0 a bal
   key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2-)"
   [[ -n "$key" ]] || { warn "no CONVOS_API_KEY; can't seed credits"; return; }
-  accts="$(docker exec "${COMPOSE_PROJECT}-convos_db-1" psql -U postgres -d postgres -tAc 'SELECT id FROM "Account";' 2>/dev/null | tr -d ' ')"
+  accts="$(dc exec -T convos_db psql -U postgres -d postgres -tAc 'SELECT id FROM "Account";' 2>/dev/null | tr -d ' ')"
   [[ -z "$accts" ]] && { ok "no accounts yet — sign in via the app, then: make seed-credits"; return; }
   for a in $accts; do
     [[ -z "$a" ]] && continue
-    bal="$(curl -s --max-time 6 -H "X-Agent-API-Key: $key" "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits" 2>/dev/null | grep -oE '"balance":"[0-9]+"' | grep -oE '[0-9]+')"
+    # tolerate balance as JSON string ("balance":"123") or number ("balance":123)
+    bal="$(curl -s --max-time 6 -H "X-Agent-API-Key: $key" "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits" 2>/dev/null | grep -oE '"balance":"?[0-9]+"?' | grep -oE '[0-9]+' || true)"
     { [[ -n "$bal" ]] && (( bal >= floor )); } 2>/dev/null && continue
+    # stable per-account idempotency key: the backend dedupes replays, so this
+    # can never over-grant even if a run repeats before the balance updates.
     curl -s -o /dev/null -X POST "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits/grants" \
-      -H "X-Agent-API-Key: $key" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+      -H "X-Agent-API-Key: $key" -H 'Content-Type: application/json' -H "Idempotency-Key: seed-${a}" \
       -d "{\"grantKind\":\"manual\",\"creditsDelta\":${grant},\"reason\":\"local dev seed\"}" --max-time 8 && n=$((n+1))
   done
   ok "seeded credits for ${n} account(s)"
