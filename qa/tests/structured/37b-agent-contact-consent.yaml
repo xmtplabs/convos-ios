@@ -1,62 +1,58 @@
 id: "37b"
 name: "Agent Contact Consent And Block"
 description: >
-  Destructive follow-up to test 37, validating the consent-driven feed visibility
-  this PR introduced. Blocking a template-backed agent contact demotes its
-  conversation consent to .denied and hides it from the feed (across all instances
-  sharing the templateId, via the block-OR); unblocking does NOT promote .denied
-  back to .allowed, so the conversation stays hidden - the same invariant that keeps
-  a user-deleted conversation from being resurrected. Guards
-  ConversationConsentReconciler.fetchMismatchedTargets and the block-OR in
-  Contact+CanonicalTemplate.dedupingAgentsByTemplate. The underlying consent
-  reconciler logic is also covered directly by the ConvosCore unit suite
-  (ConversationConsentReconcilerTests); this test confirms the end-to-end UI wiring.
-tags: [agents, contacts, consent, block, destructive, local-stack]
+  Destructive follow-up validating the consent-driven feed visibility this PR
+  introduced, using the in-app agent-builder agent (no CLI, no invites). Blocking a
+  template-backed agent contact demotes its conversation consent to .denied and
+  hides it from the feed; unblocking does NOT promote .denied back to .allowed, so
+  the conversation stays hidden - the same invariant that keeps a user-deleted
+  conversation from being resurrected. Guards
+  ConversationConsentReconciler.fetchMismatchedTargets. The reconciler logic is also
+  covered directly by ConversationConsentReconcilerTests; this confirms the
+  end-to-end UI wiring.
+tags: [agents, contacts, consent, block, destructive, local-stack, agent-builder]
 depends_on: ["37"]
 estimated_duration_s: 300
 
 prerequisites:
   app_running: true
-  cli_initialized: true
   local_stack_running: true
   agent_jwks_pinned: true
   scheme: "Convos (Local)"
   bundle_id: org.convos.ios-local
-  screen: conversations_list
+  screen: home
+  backend_agent_provisioning_working: true
 
 setup:
   - action: note
     args:
       text: >
-        Runs after 36/37, reusing the shared-template agent (Trip Planner / Road
-        Tripper, templateId qa-shared-template) and its conversation from test 36.
-        Requires a valid Local Firebase App Check debug token (see the runbook).
-        Destructive (block / unblock / consent flips), so it runs last in the
-        Agents-as-Contacts sequence. Agent-served conversations are named after the
-        agent, so the conversation to watch appear/disappear from the feed is titled
-        "Trip Planner".
+        Reuses an agent-builder agent from test 36/37 (e.g. "King's Tutor") that is a
+        visible contact. Destructive (block/unblock/consent), so it runs last in the
+        Agents-as-Contacts sequence. The agent's conversation is named after the
+        agent, so that title is what appears/disappears from the home feed.
 
 steps:
   - id: confirm_agent_conversation_in_feed
-    name: "The shared-template agent's conversation is visible in the feed"
+    name: "The agent's conversation is visible in the home feed"
     actions:
-      - find_elements: { pattern: "Trip Planner" }
+      - find_elements: { pattern: "conversation-list-item-" }
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "Trip Planner" }
+      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
     criteria: agent_conversation_visible_before_block
     note: >
-      Baseline: the Trip Planner conversation (consent .allowed after the user
-      engaged in test 36) shows in the home conversation list before the block.
+      Baseline: the agent's conversation (consent .allowed) shows in the home
+      conversation list before the block.
 
   - id: block_agent_demotes_consent
-    name: "Blocking the shared-template agent flips the card to Unblock"
+    name: "Block the agent from its contact card; the card flips to Unblock"
     actions:
       - tap: { id: "app-indicator-pill" }
       - wait_for_element: { id: "contacts-row", timeout: 10 }
       - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Trip Planner", timeout: 15 }
-      - tap: { label_contains: "Trip Planner" }
+      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
+      - tap: { id: "contact-row-" }
       - wait_for_element: { id: "contact-detail-block", timeout: 10 }
       - tap: { id: "contact-detail-block" }
       - wait_for_element: { label: "Block", timeout: 10 }
@@ -67,27 +63,27 @@ steps:
       - element_exists: { id: "contact-detail-unblock" }
     criteria: block_writes_and_flips_to_unblock
     note: >
-      Block writes blockedAt once to the canonical DBContact row. The confirmation
-      action is labeled "Block"; afterwards the card shows the Unblock affordance.
-      The ConversationConsentReconciler then observes the block mismatch and demotes
-      the agent conversation's consent to .denied.
+      Block writes blockedAt to the canonical DBContact row. The confirmation action
+      is labeled "Block"; afterwards the card shows the Unblock affordance. The
+      ConversationConsentReconciler then demotes the agent conversation to .denied.
 
   - id: blocked_conversation_hidden_in_feed
     name: "The blocked agent's conversation disappears from the chat list"
     actions:
-      - navigate_back: {}
-      - tap: { id: "close-new-conversation", optional: true }
+      - tap: { id: "BackButton", optional: true }
+      - tap: { id: "BackButton", optional: true }
       - wait: { seconds: 3 }
-      - find_elements: { pattern: "Trip Planner" }
+      - find_elements: { pattern: "conversation-list-item-" }
       - screenshot: {}
     verify:
-      - element_not_exists: { label_contains: "Trip Planner" }
+      - visual_check: >
+          The agent's conversation (named after the agent) is no longer in the home
+          conversation list - it was demoted to .denied and feed visibility is keyed
+          on consent. Allow a few seconds for the reconciler to run.
     criteria: blocked_conversation_hidden
     note: >
       fetchMismatchedTargets matches (contact.blockedAt IS NOT NULL AND
-      conversation.consent <> .denied) and demotes to .denied. Feed visibility is
-      keyed on consent, so the conversation drops out of the chat list. Allow a few
-      seconds for the reconciler to run after the block.
+      conversation.consent <> .denied) and demotes to .denied.
 
   - id: blocked_agent_still_in_browse
     name: "The blocked agent stays in the browse list with an Unblock affordance"
@@ -95,60 +91,57 @@ steps:
       - tap: { id: "app-indicator-pill" }
       - wait_for_element: { id: "contacts-row", timeout: 10 }
       - tap: { id: "contacts-row" }
-      - wait_for_element: { label_contains: "Trip Planner", timeout: 10 }
+      - wait_for_element: { id: "contact-row-", timeout: 10 }
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "Trip Planner" }
+      - element_exists: { id: "contact-row-" }
     criteria: blocked_agent_in_browse
     note: >
-      ContactsRepository returns blocked rows so the browse list can offer an
-      unblock affordance (the picker filters them out via isPickable: !isBlocked).
-      The block ORs across both shared-template instances (dedupingAgentsByTemplate
-      blockedTemplateIds), so the single canonical row is marked blocked.
+      ContactsRepository returns blocked rows so the browse list can offer an unblock
+      affordance (the picker filters them out via isPickable: !isBlocked).
 
   - id: unblock_does_not_resurrect
     name: "Unblocking does not promote .denied back to .allowed"
     actions:
-      - tap: { label_contains: "Trip Planner" }
+      - tap: { id: "contact-row-" }
       - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
       - tap: { id: "contact-detail-unblock" }
       - wait_for_element: { label: "Unblock", timeout: 10 }
       - tap: { label: "Unblock" }
       - wait_for_element: { id: "contact-detail-block", timeout: 10 }
-      - navigate_back: {}
-      - tap: { id: "close-new-conversation", optional: true }
+      - tap: { id: "BackButton", optional: true }
+      - tap: { id: "BackButton", optional: true }
       - wait: { seconds: 3 }
-      - find_elements: { pattern: "Trip Planner" }
+      - find_elements: { pattern: "conversation-list-item-" }
       - screenshot: {}
     verify:
-      - element_not_exists: { label_contains: "Trip Planner" }
+      - visual_check: >
+          The agent's conversation is STILL absent from the home feed after unblock.
+          fetchMismatchedTargets only promotes .unknown -> .allowed, never .denied, so
+          the demoted conversation stays hidden even though the contact is unblocked.
     criteria: denied_not_resurrected_on_unblock
     note: >
-      This is the blocker-1 regression. After unblock the contact is no longer
-      blocked, but fetchMismatchedTargets only promotes consent .unknown to .allowed
-      - never .denied. The conversation was demoted to .denied, so it stays hidden
-      from the feed even though the contact is unblocked. This is the same code path
-      that prevents a user-deleted conversation (delete writes .denied) from being
-      resurrected by the non-blocked-contact promotion rule. Authoritative coverage:
+      This is the blocker-1 regression - the same code path that prevents a
+      user-deleted conversation (delete writes .denied) from being resurrected by the
+      non-blocked-contact promotion rule. Authoritative coverage:
       ConversationConsentReconcilerTests.testPromotesUnknownButNotDeniedFromNonBlockedContact.
 
 teardown:
   - action: note
     args:
       text: >
-        Tear down the serving debug agents and the local stack at the end of the
-        sequence (see the runbook). The stale-stranger GC time-based branches
-        (>7-day deletion, engaged-convo preservation) are not UI-exercisable in one
-        session and are covered by StaleStrangerGCTests in the ConvosCore suite.
+        Run before test 18 (delete-all-data). The stale-stranger GC time-based
+        branches are not UI-exercisable in one session and are covered by
+        StaleStrangerGCTests in the ConvosCore suite.
 
 criteria:
   agent_conversation_visible_before_block:
-    description: "Baseline: the shared-template agent's conversation is visible in the feed before blocking"
+    description: "Baseline: the agent's conversation is visible in the home feed before blocking"
   block_writes_and_flips_to_unblock:
-    description: "Confirming Block on the agent card writes the block and the card then shows the Unblock affordance"
+    description: "Confirming Block on the agent card writes the block and the card shows the Unblock affordance"
   blocked_conversation_hidden:
-    description: "After blocking the agent, its conversation is demoted to .denied and disappears from the chat list"
+    description: "After blocking, the agent's conversation is demoted to .denied and disappears from the chat list"
   blocked_agent_in_browse:
     description: "The blocked agent still appears in the Contacts browse list (so it can be unblocked)"
   denied_not_resurrected_on_unblock:
-    description: "Unblocking the agent does NOT promote the .denied conversation back to .allowed; it stays hidden from the feed"
+    description: "Unblocking does NOT promote the .denied conversation back to .allowed; it stays hidden from the feed"

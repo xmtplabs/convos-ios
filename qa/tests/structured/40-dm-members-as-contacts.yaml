@@ -1,0 +1,159 @@
+id: "40"
+name: "DM Members As Contacts (Two Simulators)"
+description: >
+  Verify the agents-as-contacts refactor's HUMAN path: a non-agent member the local
+  user shares a conversation with shows up as a contact (named, no Agent pill) once
+  the user has acted in the conversation. Requires TWO simulators - Device A and
+  Device B, two real people DMing. Each sets a per-conversation profile name, they
+  exchange messages, and each then appears in the OTHER's Contacts as a person.
+  Guards Contact+BrowseVisibility.isVisibleInContactsList for the human branch
+  (named, non-agent => visible; NO Agent pill) and the ContactSyncCoordinator
+  first-message action gate for both directions.
+tags: [contacts, dm, members, multi-device, local-stack]
+depends_on: ["01"]
+estimated_duration_s: 300
+
+prerequisites:
+  two_simulators: true
+  both_erased: true
+  app_installed_on_both: true
+  local_stack_running: true
+  # Both devices run "Convos (Local)" against the local stack and must be authorized
+  # (registered Local FIREBASE_APP_CHECK_DEBUG_TOKEN baked + GACAppCheckDebugToken set
+  # on each sim; see qa/tests/36-agents-as-contacts.md runbook). Humans need no agent
+  # provisioning, so the agent-templates/credits backend gap does NOT affect this test.
+  app_authorized_on_both: true
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  invite_url: null
+  device_a_name: "Alice"
+  device_b_name: "Bob"
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: "Both simulators erased + freshly booted with the Local app installed + authorized."
+
+steps:
+  - id: device_a_create_and_name
+    name: "Device A creates a conversation and sets its profile name"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - tap: { id: "setup-profile-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "$device_a_name", clear_first: true }
+      - press_return: { id: "quick-edit-display-name-field" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 10 }
+    verify:
+      - element_exists: { id: "invite-qr-code" }
+    criteria: device_a_creates_and_names
+    note: >
+      A human contact is only visible when it has a displayName
+      (isVisibleInContactsList). Device A names itself "Alice" so Device B will see a
+      named contact (not the hidden "Somebody" default).
+
+  - id: extract_invite_url
+    name: "Extract invite URL from Device A"
+    device: A
+    actions:
+      - sim_log_events: { event_filter: "invite.url_displayed" }
+    verify:
+      - event_exists: { name: "invite.url_displayed" }
+    criteria: invite_url_extractable
+    save:
+      invite_url: "from invite.url_displayed event"
+
+  - id: device_b_join_and_name
+    name: "Device B joins via the invite and sets its profile name"
+    device: B
+    actions:
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+      - wait_for_element: { label_contains: "2 members", timeout: 15 }
+      - tap: { id: "setup-profile-button", optional: true }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "$device_b_name", clear_first: true }
+      - press_return: { id: "quick-edit-display-name-field" }
+    verify:
+      - element_exists: { label_contains: "2 members" }
+    criteria: device_b_joins_and_names
+    note: >
+      Device A auto-processes the join request. Device B names itself "Bob" so
+      Device A will see a named, non-agent contact.
+
+  - id: exchange_messages
+    name: "Two-way messaging (satisfies the contact-sync gate on both devices)"
+    actions:
+      - device_a_send: { text: "Hi Bob, it's Alice" }
+      - device_b_wait: { label_contains: "Hi Bob, it's Alice", timeout: 20 }
+      - device_b_send: { text: "Hey Alice!" }
+      - device_a_wait: { label_contains: "Hey Alice!", timeout: 20 }
+    verify:
+      - device_a_has: { label_contains: "Hey Alice!" }
+      - device_b_has: { label_contains: "Hi Bob, it's Alice" }
+    criteria: two_way_messaging
+    note: >
+      ContactSyncCoordinator.syncContactsOnFirstMessage runs when the LOCAL user
+      sends. Both devices send, so both mirror the other member as a contact.
+
+  - id: device_a_sees_bob_as_contact
+    name: "Device A: Bob appears as a non-agent contact"
+    device: A
+    actions:
+      - navigate_to_conversations_list: {}
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Bob", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Bob" }
+      - element_not_exists: { label_contains: "Agent" }
+    criteria: device_a_sees_human_contact
+    note: >
+      "Bob" renders as a contact row (human branch of isVisibleInContactsList: named,
+      non-agent). There is NO "Agent" pill - RoleLabelPill only shows for verified
+      agents. The badge counts this human like any visible contact.
+
+  - id: device_b_sees_alice_as_contact
+    name: "Device B: Alice appears as a non-agent contact"
+    device: B
+    actions:
+      - navigate_to_conversations_list: {}
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Alice", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Alice" }
+      - element_not_exists: { label_contains: "Agent" }
+    criteria: device_b_sees_human_contact
+    note: >
+      Mirror of the previous step from Device B's side. Confirms the mirroring is
+      bidirectional and that a human member is a visible, pill-less contact.
+
+teardown:
+  - action: erase_simulators
+    args: { udids: ["$device_a_udid", "$device_b_udid"] }
+    note: "Clear XMTP + local state from both devices."
+
+criteria:
+  device_a_creates_and_names:
+    description: "Device A creates a conversation and sets its per-conversation profile name (Alice)"
+  invite_url_extractable:
+    description: "Device A's invite URL is captured from the invite.url_displayed event"
+  device_b_joins_and_names:
+    description: "Device B joins via the invite (2 members) and sets its profile name (Bob)"
+  two_way_messaging:
+    description: "Both devices send + receive, satisfying the first-message contact-sync gate in both directions"
+  device_a_sees_human_contact:
+    description: "Device A's Contacts shows Bob as a non-agent contact (named, no Agent pill)"
+  device_b_sees_human_contact:
+    description: "Device B's Contacts shows Alice as a non-agent contact (named, no Agent pill)"
