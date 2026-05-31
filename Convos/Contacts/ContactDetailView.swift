@@ -516,7 +516,10 @@ struct ContactDetailView: View {
                 resolvedAgentShareURL = url
                 presentingAgentShareSheet = true
             } catch {
-                publishErrorMessage = error.localizedDescription
+                // Surface the friendly DisplayError copy (e.g. APIError's
+                // "The requested resource was not found.") rather than the raw
+                // bridged NSError ("...ConvosCore.APIError error 6.").
+                publishErrorMessage = (error as? DisplayError)?.description ?? error.localizedDescription
                 presentingPublishError = true
             }
         }
