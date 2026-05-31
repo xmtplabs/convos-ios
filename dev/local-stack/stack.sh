@@ -55,6 +55,62 @@ svc_running() { local n="$1"; [[ -f "$RUN_DIR/$n.pid" ]] && kill -0 "$(cat "$RUN
 stop_svc() { local name="$1" pat="${2:-}"; [[ -f "$RUN_DIR/$name.pid" ]] && kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true; [[ -n "$pat" ]] && pkill -f "$pat" 2>/dev/null || true; rm -f "$RUN_DIR/$name.pid"; }
 disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR}/.env" 2>/dev/null | cut -d= -f2-)"; [[ -z "$tok" ]] && { warn "no DEV_API_TOKEN; can't disable App Check"; return; }; curl -s -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"enabled":false}' "http://localhost:${BACKEND_PORT}/api/v2/dev/app-attest" >/dev/null 2>&1 && ok "App Check disabled" || warn "couldn't disable App Check"; }
 
+# Host IP reachable from BOTH the worker (a host process) and the Hermes
+# container. `localhost` only works from the host, `host.docker.internal`
+# only from the container; the host's LAN IP works from both (backend binds
+# *:PORT). Empty when offline (no default route).
+host_ip() { local ifc; ifc="$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')"; [[ -n "$ifc" ]] && ipconfig getifaddr "$ifc" 2>/dev/null || true; }
+
+# Point the worker's CONVOS_API_BASE_URL at THIS backend via the host LAN IP.
+# The in-chat agent-builder calls convos-backend directly from its container;
+# .dev.vars ships the hosted dev backend by default, so the builder would
+# assert the local account against a backend that's never seen it
+# ("Asserted ownerAccountId does not exist"). Idempotent / self-healing on IP change.
+sync_backend_url() {
+  local dv="${WORKER_DIR}/.dev.vars" ip want cur; [[ -f "$dv" ]] || return 0
+  ip="$(host_ip)"; [[ -z "$ip" ]] && { warn "no host IP (offline?) — leaving CONVOS_API_BASE_URL as-is"; return; }
+  want="http://${ip}:${BACKEND_PORT}/api"
+  cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)"
+  [[ "$cur" == "$want" ]] && { ok "worker CONVOS_API_BASE_URL = ${want} (current)"; return; }
+  if grep -q '^CONVOS_API_BASE_URL=' "$dv"; then sed -i '' "s|^CONVOS_API_BASE_URL=.*|CONVOS_API_BASE_URL=${want}|" "$dv"
+  else printf 'CONVOS_API_BASE_URL=%s\n' "$want" >>"$dv"; fi
+  ok "worker CONVOS_API_BASE_URL -> ${want}"
+}
+
+# The backend authenticates agent-key calls (generate, credits) against
+# AGENT_ASSETS_API_KEY; the worker/container present .dev.vars' CONVOS_API_KEY.
+# Keep them equal or those calls 401 once the worker points at the local backend.
+align_agent_key() {
+  local dv="${WORKER_DIR}/.dev.vars" be="${BACKEND_DIR}/.env" key
+  key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2-)"
+  [[ -f "$be" && -n "$key" && ${#key} -ge 32 ]] || { warn "can't align AGENT_ASSETS_API_KEY (need .dev.vars CONVOS_API_KEY + backend/.env)"; return; }
+  [[ "$(grep -E '^AGENT_ASSETS_API_KEY=' "$be" | cut -d= -f2-)" == "$key" ]] && { ok "backend AGENT_ASSETS_API_KEY aligned (current)"; return; }
+  if grep -q '^AGENT_ASSETS_API_KEY=' "$be"; then sed -i '' "s|^AGENT_ASSETS_API_KEY=.*|AGENT_ASSETS_API_KEY=${key}|" "$be"
+  else printf 'AGENT_ASSETS_API_KEY=%s\n' "$key" >>"$be"; fi
+  ok "backend AGENT_ASSETS_API_KEY <- worker CONVOS_API_KEY"
+}
+
+# Grant local-dev credits to any account below a floor (else the builder shows
+# "lost power"). Accounts are created on first iOS sign-in (after `up`), so this
+# is a no-op until then — re-run via `make up` or `make seed-credits` after
+# signing in. Idempotent: skips accounts already funded.
+seed_credits() {
+  local key floor=1000000 grant=100000000 accts n=0 a bal
+  key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2-)"
+  [[ -n "$key" ]] || { warn "no CONVOS_API_KEY; can't seed credits"; return; }
+  accts="$(docker exec "${COMPOSE_PROJECT}-convos_db-1" psql -U postgres -d postgres -tAc 'SELECT id FROM "Account";' 2>/dev/null | tr -d ' ')"
+  [[ -z "$accts" ]] && { ok "no accounts yet — sign in via the app, then: make seed-credits"; return; }
+  for a in $accts; do
+    [[ -z "$a" ]] && continue
+    bal="$(curl -s --max-time 6 -H "X-Agent-API-Key: $key" "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits" 2>/dev/null | grep -oE '"balance":"[0-9]+"' | grep -oE '[0-9]+')"
+    { [[ -n "$bal" ]] && (( bal >= floor )); } 2>/dev/null && continue
+    curl -s -o /dev/null -X POST "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits/grants" \
+      -H "X-Agent-API-Key: $key" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+      -d "{\"grantKind\":\"manual\",\"creditsDelta\":${grant},\"reason\":\"local dev seed\"}" --max-time 8 && n=$((n+1))
+  done
+  ok "seeded credits for ${n} account(s)"
+}
+
 # ============================ init (clone wizard) ============================
 cmd_init() {
   local default_ws; default_ws="$(dirname "$REPO_ROOT")/convos-stack"   # sibling of the convos-ios checkout
@@ -99,6 +155,19 @@ cmd_doctor() {
       warn "Docker has ${ncpu} CPUs — cap to ${DOCKER_MAX_CPUS:-6} (Docker Desktop > Settings > Resources) so the Hermes build can't starve the host"
     else ok "Docker running, ${ncpu} CPUs"; fi
   else die "Docker not running"; fi
+  # Agent-builder reachability: the worker's backend URL must track the host
+  # IP (it's reachable from both the worker and the Hermes container). doctor
+  # runs without load_env, so derive the path/port with the same defaults.
+  if [[ -n "$WORKSPACE" ]]; then
+    local dv="${WORKSPACE}/convos-assistants/workers/assistant/.dev.vars" ip cur
+    ip="$(host_ip)"
+    if [[ -f "$dv" && -n "$ip" ]]; then
+      cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)"
+      [[ "$cur" == "http://${ip}:${BACKEND_PORT:-4000}/api" ]] \
+        && ok "worker backend URL matches host IP ($ip)" \
+        || warn "worker CONVOS_API_BASE_URL='${cur:-<unset>}' != host http://${ip}:${BACKEND_PORT:-4000}/api — run 'make up' to re-sync (else the agent-builder calls the wrong backend)"
+    fi
+  fi
 }
 
 # ============================ bootstrap ============================
@@ -108,6 +177,8 @@ cmd_bootstrap() {
   have flock || brew install flock || warn "brew install flock failed"
   have uv    || brew install uv    || warn "brew install uv failed"
   bootstrap_backend; bootstrap_herald; bootstrap_assistants; bootstrap_cli
+  sync_backend_url   # worker -> this backend (host LAN IP), reachable from the Hermes container
+  align_agent_key    # backend AGENT_ASSETS_API_KEY == worker CONVOS_API_KEY
   ok "bootstrap complete — now: make up   (then in a convos-ios checkout: /run local)"
 }
 bootstrap_backend() {
@@ -153,11 +224,14 @@ bootstrap_cli() { log "convos-cli: deps + build"; pushd "$CLI_DIR" >/dev/null; p
 # ============================ up / down ============================
 cmd_up() {
   load_env; local tier="${1:-full}"; docker info >/dev/null 2>&1 || die "Docker not running"
+  sync_backend_url   # self-heal worker -> backend URL to the current host IP (before the worker starts)
+  align_agent_key    # keep backend AGENT_ASSETS_API_KEY == worker CONVOS_API_KEY
   log "infra ($([[ $tier == full ]] && echo 'Postgres + MinIO' || echo 'Postgres'))"
   if [[ "$tier" == full ]]; then dc up -d --wait || dc up -d; else dc up -d convos_db --wait || dc up -d convos_db; fi
   start_svc backend "$BACKEND_DIR" "pnpm dev"
   wait_http "http://localhost:${BACKEND_PORT}/healthcheck" 60 && ok "backend up" || warn "backend not healthy (make logs SVC=backend)"
   disable_app_check
+  seed_credits   # fund any unfunded accounts so the agent-builder isn't credit-gated ("lost power")
   if [[ "$tier" == full ]]; then
     start_svc herald "$HERALD_DIR" "pnpm start"
     wait_http "http://localhost:${HERALD_PORT}/livez" 30 && ok "herald up" || warn "herald not healthy (make logs SVC=herald)"
@@ -220,8 +294,9 @@ case "${1:-}" in
   logs)         cmd_logs "${2:-}";;
   hermes-build) cmd_hermes_build;;
   ios-config)   cmd_ios_config "${2:-}";;
+  seed-credits) load_env; seed_credits;;
   doctor)       cmd_doctor;;
   clean)        cmd_clean;;
   nuke)         cmd_nuke;;
-  *) die "usage: stack.sh <init|bootstrap|up [full|core]|down|status|logs [svc]|hermes-build|ios-config [path]|doctor|clean|nuke>";;
+  *) die "usage: stack.sh <init|bootstrap|up [full|core]|down|status|logs [svc]|hermes-build|ios-config [path]|seed-credits|doctor|clean|nuke>";;
 esac

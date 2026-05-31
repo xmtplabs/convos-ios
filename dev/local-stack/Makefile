@@ -11,7 +11,7 @@ export CONVOS_REPOS_DIR
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init bootstrap up up-core down restart status logs hermes-build ios-config doctor clean nuke
+.PHONY: help init bootstrap up up-core down restart status logs hermes-build ios-config seed-credits doctor clean nuke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -45,6 +45,9 @@ hermes-build: ## Pre-build the Hermes container image (capped)
 
 ios-config: ## Configure a convos-ios checkout as a Local thin client (IOS=/path; default: this repo)
 	@$(STACK) ios-config "$(IOS)"
+
+seed-credits: ## Grant local-dev credits to any unfunded account (run after first sign-in)
+	@$(STACK) seed-credits
 
 doctor: ## Check prereqs + Docker CPU cap (no changes)
 	@$(STACK) doctor

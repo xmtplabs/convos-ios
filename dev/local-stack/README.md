@@ -42,6 +42,7 @@ or `make -C dev/local-stack ios-config IOS=$(pwd)` then build the **Convos (Loca
 | `make -C dev/local-stack status` | health of every service + Docker cap + load |
 | `make -C dev/local-stack logs SVC=worker` | tail a host service's log |
 | `make -C dev/local-stack down` | stop everything (keeps Postgres/MinIO data) |
+| `make -C dev/local-stack seed-credits` | grant local-dev credits to any unfunded account (run after first sign-in) |
 | `/run local` | (Claude) bring stack up + build/launch Local on the branch sim |
 | `/local-stack [up\|down\|status\|logs]` | (Claude) manage the shared stack |
 
@@ -52,6 +53,9 @@ The stack is **shared** — don't start a second one per worktree (ports collide
 - Backend JWT / nonce / notification / `DEV_API_TOKEN` secrets are **generated locally**.
 - **Firebase App Check**: one **shared Local debug token** (Firebase project `convos-otr`, app `org.convos.ios-local`) lives in 1Password; `ios-config` bakes it into each Local checkout's `.env`.
 - Set the `op://` refs (`OP_DEV_VARS_REF`, `OP_FIREBASE_LOCAL_TOKEN_REF`) in `<workspace>/stack.env` once for the team.
+
+### Agent-builder provisioning (auto)
+The in-chat agent-builder ("Make an agent") calls convos-backend directly from its Hermes container. `bootstrap` + `up` provision this automatically: they point the worker's **`CONVOS_API_BASE_URL`** at *this* backend via the host's LAN IP (reachable from both the worker process and the container — `localhost`/`host.docker.internal` each only work from one side), and align the backend's **`AGENT_ASSETS_API_KEY`** with the worker's `CONVOS_API_KEY` (or the builder's calls 401). The one manual step: accounts are created on first iOS sign-in, so **after signing in run `make … seed-credits`** to fund the account (else the builder shows "lost power"). `make … up` also seeds on each run.
 
 ### Shared iOS `.env` (Dev vs Local)
 The workspace also holds **`<workspace>/convos-ios.env`** — the shared **Dev** env (Firebase Dev App Check token, `GATEWAY_URL`, `AGENT_DEBUG_JWKS`). `make init` creates it; **`/firebase-token`**, **`/setup`**, and **`convos-task`** symlink each Dev checkout's `.env → <workspace>/convos-ios.env` (one token, every worktree shares it). They fall back to the legacy `<parent>/.env` when no workspace is configured.
@@ -68,6 +72,8 @@ A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by
 | `herald` won't start: `spawn flock ENOENT` | `brew install flock`. |
 | `bootstrap` warns it can't read secrets (`op` not found / not signed in) | `brew install 1password-cli`, then `op signin` — re-run `bootstrap`. |
 | Agent stays "Joining…" | worker/herald down or auth incomplete → `make … status`, ensure auth works. |
+| Agent-builder: **"Asserted ownerAccountId does not exist"** | worker's `CONVOS_API_BASE_URL` points at the wrong backend (default is the hosted dev one, or the host IP drifted) → `make … up` re-syncs it to this backend; `make … doctor` flags drift. |
+| Agent-builder: **"lost power" / Upgrade** | the account has no local credits → after signing in, `make … seed-credits`. |
 
 ## Fixes to upstream (so this needs no workarounds)
 - ✅ **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` `sed` bug (double-escaped backslashes that broke Local `Secrets.swift`) — **fixed in this branch** (committed in-repo; `ios-config` no longer needs to patch it).
