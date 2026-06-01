@@ -62,6 +62,7 @@ public struct ConnectionEventSummary: Hashable, Codable, Sendable {
 public enum MessageContent: Hashable, Codable, Sendable {
     case text(String),
          invite(MessageInvite),
+         agentShare(MessageAgentShare),
          emoji(String), // all emoji, not a reaction
          attachment(HydratedAttachment),
          attachments([HydratedAttachment]),

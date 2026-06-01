@@ -99,8 +99,8 @@ final class AgentTemplateCacheCoordinator: @unchecked Sendable {
             inflight.withLock { active in active.remove(templateId) }
         }
         do {
-            let response = try await apiClient.fetchAgentTemplate(templateId: templateId)
-            try await cacheWriter.upsert(response, fetchedAt: Date())
+            let template = try await apiClient.getAgentTemplate(idOrUrlSlug: templateId)
+            try await cacheWriter.upsert(template, fetchedAt: Date())
         } catch {
             Log.warning("AgentTemplateCacheCoordinator: fetch failed for \(templateId): \(error.localizedDescription)")
         }

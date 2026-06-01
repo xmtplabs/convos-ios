@@ -33,7 +33,7 @@ Skip this whole step for Dev/Prod schemes. The orchestration is committed in thi
 1. `LS="$(git rev-parse --show-toplevel)/dev/local-stack"`.
 2. **First-run:** `make -C "$LS" status` (30s). If it errors *"no workspace configured — run: make init"*, the machine isn't set up: run `make -C "$LS" init` (defaults the workspace to a sibling of this repo and clones the service repos; ~600000ms timeout), then **pause** and tell the user to set the `OP_*` 1Password refs in `<workspace>/stack.env` and run `make -C "$LS" bootstrap` once.
 3. **Bring it up if needed:** if `status` shows backend/worker down, run `make -C "$LS" up` with a **1200000ms (20 min)** timeout (first run builds the Hermes image — capped; later runs are fast). Relay any Docker-cap warning from `make -C "$LS" doctor`.
-4. **Configure this checkout as a thin client:** `make -C "$LS" ios-config IOS="$(pwd)"` — sets `config.local.json` `xmtpNetwork→dev` and writes `./.env` (localhost backend + shared Firebase Local token).
+4. **Configure this checkout as a thin client:** `make -C "$LS" ios-config IOS="$(pwd)"` — sets `config.local.json` `xmtpNetwork→dev` and writes `./.env` (shared Firebase Local token; `CONVOS_API_BASE_URL` left empty so Local auto-detects the Mac LAN IP and a Dev build on the same checkout isn't redirected to localhost).
 
 ### Step 1: Resolve the simulator
 

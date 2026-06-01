@@ -7,6 +7,8 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var sections: [MessagesCollectionSection] { get set }
     func prepare(with collectionView: UICollectionView)
     var onTapInvite: ((MessageInvite) -> Void)? { get set }
+    var agentShareResolver: any AgentShareResolving { get set }
+    var onTapAgentShare: ((MessageAgentShare) -> Void)? { get set }
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }

@@ -5,7 +5,7 @@ public protocol AgentTemplateCacheWriterProtocol: Sendable {
     /// Upserts the cached canonical identity for a template (most-recent
     /// fetch wins). Called by `AgentTemplateCacheCoordinator` after a
     /// successful `GET /api/v2/agent-templates/{id}`.
-    func upsert(_ response: ConvosAPI.AgentTemplateResponse, fetchedAt: Date) async throws
+    func upsert(_ template: ConvosAPI.AgentTemplate, fetchedAt: Date) async throws
 }
 
 final class AgentTemplateCacheWriter: AgentTemplateCacheWriterProtocol {
@@ -15,13 +15,13 @@ final class AgentTemplateCacheWriter: AgentTemplateCacheWriterProtocol {
         self.databaseWriter = databaseWriter
     }
 
-    func upsert(_ response: ConvosAPI.AgentTemplateResponse, fetchedAt: Date) async throws {
+    func upsert(_ template: ConvosAPI.AgentTemplate, fetchedAt: Date) async throws {
         let row = DBAgentTemplate(
-            templateId: response.id,
-            agentName: response.agentName,
-            emoji: response.emoji,
-            avatarURL: response.avatarUrl,
-            publishedURL: response.publishedUrl,
+            templateId: template.id,
+            agentName: template.agentName,
+            emoji: template.emoji,
+            avatarURL: template.avatarUrl,
+            publishedURL: template.publishedUrl,
             fetchedAt: fetchedAt
         )
         try await databaseWriter.write { db in

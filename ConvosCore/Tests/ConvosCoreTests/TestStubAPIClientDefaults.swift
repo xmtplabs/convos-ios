@@ -56,18 +56,61 @@ extension ConvosAPIClientProtocol {
         )
     }
 
-    /// Default for the agent-template fetch backing the contacts-list
-    /// canonical-identity cache. Stubs that don't exercise template fetching
-    /// inherit this; tests that do should override it on their fixture.
-    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse {
-        ConvosAPI.AgentTemplateResponse(
-            id: templateId,
-            agentName: nil,
-            emoji: nil,
-            avatarUrl: nil,
-            description: nil,
-            publishedUrl: nil,
-            status: nil
+    /// Default for the public agent-template detail fetch used by the
+    /// agent-share card/chip resolver. Tests that exercise it specifically
+    /// should override on their fixture.
+    func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+        ConvosAPI.AgentTemplate(
+            id: UUID().uuidString,
+            status: "published",
+            publishedUrl: "https://agents.example.com/a/\(idOrUrlSlug)",
+            slug: idOrUrlSlug,
+            agentName: "Test Agent",
+            description: "A test agent template.",
+            emoji: "🤖",
+            avatarUrl: nil
         )
+    }
+}
+
+/// Open, fully-conforming `ConvosAPIClientProtocol` base for test fixtures that
+/// only care about one or two methods. Every requirement throws / returns a
+/// trivial value; subclasses override just what they exercise. Spares each new
+/// stub from re-declaring the whole (large) protocol surface.
+class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
+    func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
+        URLRequest(url: URL(string: "https://example.com/\(path)") ?? URL(string: "https://example.com")!)
+    }
+    func registerDevice(deviceId: String, pushToken: String?) async throws {}
+    func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "" }
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String { "" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        throw CancellationError()
+    }
+    func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
+    func uploadAttachmentAndExecute(data: Data, filename: String, afterUpload: @escaping (String) async throws -> Void) async throws -> String { "" }
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("", "")
+    }
+    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
+    func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
+    func unregisterInstallation(clientId: String) async throws {}
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
+    }
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
+        throw CancellationError()
+    }
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
+        throw CancellationError()
+    }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
+    func revokeCloudConnection(connectionId: String) async throws {}
+
+    /// Declared on the base (not just the protocol-extension default) so
+    /// subclasses can `override` it.
+    func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+        ConvosAPI.AgentTemplate(id: UUID().uuidString, status: "published", publishedUrl: nil)
     }
 }

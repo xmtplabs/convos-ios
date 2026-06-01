@@ -18,6 +18,12 @@ struct MessagesInputView: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    /// Set when a pasted agent-share link is staged as a composer chip. Name /
+    /// emoji are nil until the resolver returns (chip shows its placeholder).
+    var pendingAgentShareName: String?
+    var pendingAgentShareEmoji: String?
+    var pendingAgentShareSummary: String?
+    var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForProfileSetup: Bool
@@ -28,6 +34,7 @@ struct MessagesInputView: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    var onClearAgentShare: (() -> Void)?
     var onClearLinkPreview: (() -> Void)?
     var onClearMediaAttachment: ((UUID) -> Void)?
 
@@ -60,6 +67,7 @@ struct MessagesInputView: View {
     private var hasAttachments: Bool {
         !pendingMediaAttachments.isEmpty
             || pendingInviteURL != nil
+            || isShowingAgentShareChip
             || composerLinkPreview != nil
     }
 
@@ -156,6 +164,14 @@ struct MessagesInputView: View {
                 }
                 if let pendingInviteURL {
                     inviteAttachmentPreview(url: pendingInviteURL)
+                }
+                if isShowingAgentShareChip {
+                    AgentContactCardChip(
+                        displayName: pendingAgentShareName ?? "Agent",
+                        emoji: pendingAgentShareEmoji,
+                        summary: pendingAgentShareSummary,
+                        onRemove: { onClearAgentShare?() }
+                    )
                 }
                 if let composerLinkPreview {
                     linkPreviewAttachment(preview: composerLinkPreview)

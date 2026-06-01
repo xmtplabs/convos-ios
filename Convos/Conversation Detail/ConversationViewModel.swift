@@ -16,6 +16,14 @@ struct PendingInvite {
     var explodeDuration: ExplodeDuration?
 }
 
+/// A pasted agent-share link staged as a composer chip. `share` is the parsed
+/// link (sent verbatim on send); `resolved` is the agent's public profile once
+/// the resolver returns (nil while resolving -> chip shows its placeholder).
+struct PendingAgentShare {
+    let share: MessageAgentShare
+    var resolved: AgentShareInfo?
+}
+
 struct PendingFileAttachment: Identifiable, Equatable {
     let id: UUID
     let url: URL
@@ -594,10 +602,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var pendingInviteConvoName: String = ""
     var pendingInviteImage: UIImage?
 
+    /// A pasted agent-share link staged as a composer chip. Display-only: the
+    /// agent's name / emoji come from the resolver, not the sender, so unlike
+    /// `pendingInvite` there are no editable fields. The URL is sent verbatim
+    /// on send (and auto-classifies as an agent-share message).
+    var pendingAgentShare: PendingAgentShare?
+
     var sendButtonEnabled: Bool {
         !messageText.isEmpty
             || !pendingMediaAttachments.isEmpty
             || pendingInvite != nil
+            || pendingAgentShare != nil
             || pastedLinkPreview != nil
     }
 
@@ -628,6 +643,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
+        didSet { oldValue?.cleanUpIfNeeded() }
+    }
+    /// Drives the new-conversation flow opened by tapping a shared agent's
+    /// contact card. Mirrors `presentingNewConversationForInvite`.
+    var presentingNewConversationForAgentShare: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
     var presentingConversationForked: Bool = false
@@ -2242,9 +2262,10 @@ extension ConversationViewModel {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
+        let hasAgentShare = pendingAgentShare != nil
         let hasLinkPreview = pastedLinkPreview != nil
 
-        guard hasText || hasMedia || hasInvite || hasLinkPreview else { return }
+        guard hasText || hasMedia || hasInvite || hasAgentShare || hasLinkPreview else { return }
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
@@ -2254,6 +2275,7 @@ extension ConversationViewModel {
         let sideConvoLinkedId = pendingInvite?.linkedConversationId
         let sideConvoExplodeDuration = pendingInvite?.explodeDuration
         let sideConvoImage = pendingInviteImage
+        let prevAgentShareURL = pendingAgentShare?.share.url
         let prevLinkURL = pastedLinkPreview?.url
 
         stopTyping()
@@ -2265,6 +2287,7 @@ extension ConversationViewModel {
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
+        pendingAgentShare = nil
         pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
@@ -2299,6 +2322,7 @@ extension ConversationViewModel {
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
                     inviteURL: finalInviteURL,
+                    agentShareURL: prevAgentShareURL,
                     linkURL: prevLinkURL,
                     photoTrackingKey: nil,
                     replyTarget: trailingReplyTarget,
@@ -2512,6 +2536,7 @@ extension ConversationViewModel {
     private func sendTextAndLinksIfNeeded(
         text: String?,
         inviteURL: String?,
+        agentShareURL: String? = nil,
         linkURL: String?,
         photoTrackingKey: String?,
         replyTarget: AnyMessage?,
@@ -2527,8 +2552,18 @@ extension ConversationViewModel {
             }
         }
 
-        if let linkURL {
+        if let agentShareURL {
+            // The URL auto-classifies as an agent-share message on save, so
+            // this is a plain send -- no dedicated writer entry point needed.
             if replyTarget != nil && !hasAttachment && text == nil && inviteURL == nil, let replyTarget {
+                try await messageWriter.sendReply(text: agentShareURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
+            } else {
+                try await messageWriter.send(text: agentShareURL, afterPhoto: photoTrackingKey)
+            }
+        }
+
+        if let linkURL {
+            if replyTarget != nil && !hasAttachment && text == nil && inviteURL == nil && agentShareURL == nil, let replyTarget {
                 try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
             } else {
                 try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
@@ -2645,6 +2680,54 @@ extension ConversationViewModel {
             mode: .joinInvite(code: invite.inviteSlug)
         )
     }
+
+    /// Resolves a shared agent's link to its public profile for the message
+    /// card. Vended by the session so the real API-backed resolver swaps in
+    /// transparently once it lands.
+    var agentShareResolver: any AgentShareResolving {
+        session.agentShareResolver()
+    }
+
+    /// Tapping a shared agent's contact card opens a new conversation seeded
+    /// with that agent template (the same flow the `convos://template/<id>`
+    /// deep link uses). The custom-scheme form carries the template id
+    /// directly; a web-slug share is resolved to its id via the API resolver
+    /// first.
+    func onTapAgentShare(_ agentShare: MessageAgentShare) {
+        if isValidTemplateId(agentShare.identifier) {
+            openAgentTemplate(templateId: agentShare.identifier)
+            return
+        }
+        let resolver = agentShareResolver
+        let identifier = agentShare.identifier
+        Task { [weak self] in
+            let info = await resolver.resolve(identifier: identifier)
+            await MainActor.run {
+                guard let self, let templateId = info?.templateId else { return }
+                self.openAgentTemplate(templateId: templateId)
+            }
+        }
+    }
+
+    private func openAgentTemplate(templateId: String) {
+        presentingNewConversationForAgentShare = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: templateId)
+        )
+    }
+
+    private func isValidTemplateId(_ value: String) -> Bool {
+        guard let pattern = ConversationViewModel.uuidPattern else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return pattern.firstMatch(in: value, options: [], range: range) != nil
+    }
+
+    private static let uuidPattern: NSRegularExpression? = {
+        try? NSRegularExpression(
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            options: [.caseInsensitive]
+        )
+    }()
 
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         isEditingDisplayName = false
@@ -3376,6 +3459,33 @@ extension ConversationViewModel {
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
+    }
+
+    /// Detects a pasted agent-share link, lifts it out of the text into a
+    /// composer chip, and kicks off an async resolve to populate the chip's
+    /// name / emoji. Mirrors `checkForInviteURL`; runs from the same
+    /// `messageText` onChange.
+    func checkForAgentShareURL() {
+        guard pendingAgentShare == nil,
+              let share = MessageAgentShare.from(text: messageText) else {
+            return
+        }
+        convosButtonTask?.cancel()
+        convosButtonCancellable?.cancel()
+        pendingAgentShare = PendingAgentShare(share: share, resolved: nil)
+        messageText = ""
+        let resolver = agentShareResolver
+        Task { [weak self] in
+            let info = await resolver.resolve(identifier: share.identifier)
+            await MainActor.run {
+                guard let self, self.pendingAgentShare?.share == share else { return }
+                self.pendingAgentShare?.resolved = info
+            }
+        }
+    }
+
+    func clearPendingAgentShare() {
+        pendingAgentShare = nil
     }
 
     func clearPendingInvite() {

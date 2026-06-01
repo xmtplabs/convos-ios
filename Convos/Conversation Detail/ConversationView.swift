@@ -80,6 +80,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.updateLinkedConversationName(name)
                 focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
+            pendingAgentShareName: viewModel.pendingAgentShare?.resolved?.displayName,
+            pendingAgentShareEmoji: viewModel.pendingAgentShare?.resolved?.emoji,
+            pendingAgentShareSummary: viewModel.pendingAgentShare?.resolved?.descriptionText,
+            isShowingAgentShareChip: viewModel.pendingAgentShare != nil,
+            onClearAgentShare: viewModel.clearPendingAgentShare,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -103,6 +108,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onClearMediaAttachment: viewModel.removeMediaAttachment(id:),
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
+            onTapAgentShare: viewModel.onTapAgentShare(_:),
+            agentShareResolver: viewModel.agentShareResolver,
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
@@ -303,6 +310,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
     }
 
+    /// Shared content for the invite- and agent-share-driven new-conversation
+    /// sheets. Extracted so neither `.sheet(item:)` closure inflates `body`'s
+    /// type-check past the 300ms budget.
+    @ViewBuilder
+    private func newConversationSheet(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel
+        )
+        .background(.colorBackgroundSurfaceless)
+    }
+
     private var pagerDotsInset: CGFloat {
         isKeyboardVisible ? 0.0 : 24.0
     }
@@ -330,6 +349,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
+            viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
         }
         .animation(.easeOut, value: viewModel.explodeState)
@@ -378,11 +398,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isPresented: $presentingAddFromContactsPicker
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
+            newConversationSheet(viewModel)
+        }
+        .sheet(item: $viewModel.presentingNewConversationForAgentShare) { viewModel in
+            newConversationSheet(viewModel)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()

@@ -47,6 +47,12 @@ platform :ios do
       output_directory: OUTPUT_DIR,
       output_name: "Convos-Prod-TestFlight.ipa",
       clean: true,
+      # gym's xcodeproj-based profile auto-detection can't resolve bundle IDs
+      # defined via .xcconfig variables ($(CONVOS_BUNDLE_ID) etc.), so it maps
+      # them to an empty "" key and merges that into the export options. Xcode
+      # 26's exportArchive rejects the resulting plist ("isn't in the correct
+      # format"). We supply the full mapping explicitly below, so skip detection.
+      skip_profile_detection: true,
       export_options: {
         provisioningProfiles: {
           PROD_BUNDLE_ID     => app_profile,

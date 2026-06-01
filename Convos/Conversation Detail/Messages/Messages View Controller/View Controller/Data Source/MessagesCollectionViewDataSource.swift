@@ -17,6 +17,8 @@ final class MessagesCollectionViewDataSource: NSObject {
     var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
@@ -89,6 +91,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
+            },
+            agentShareResolver: agentShareResolver,
+            onTapAgentShare: { [weak self] agentShare in
+                self?.onTapAgentShare?(agentShare)
             },
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)

@@ -30,6 +30,11 @@ struct MessagesGroupItemView: View {
     var parentAudioTranscriptText: String?
     var omitTrailingPadding: Bool = false
 
+    /// Tap handler for an agent-share card, delivered via the environment from
+    /// the cell (like `agentShareResolver`) rather than threaded through the
+    /// messages-view hierarchy. Opens the shared agent's template flow.
+    @Environment(\.onTapAgentShare) private var onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
+
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
@@ -114,6 +119,8 @@ struct MessagesGroupItemView: View {
             emojiBubble(text: text)
         case .invite(let invite):
             inviteBubble(invite: invite)
+        case .agentShare(let agentShare):
+            agentShareBubble(agentShare: agentShare)
         case .linkPreview(let preview):
             linkPreviewBubble(preview: preview)
         case .attachment(let attachment):
@@ -194,6 +201,39 @@ struct MessagesGroupItemView: View {
         )
         .id("message-invite-\(message.messageId)")
         .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func agentShareBubble(agentShare: MessageAgentShare) -> some View {
+        let isOutgoing = message.sender.isCurrentUser
+        // The card sizes to its content but is capped at the same max width as
+        // text bubbles via a low-priority 50pt spacer (mirrors the in-convo
+        // `MessagesGroupView.contactCardRow`). The spacer sits opposite the
+        // sender so the card hugs the leading edge for incoming and the
+        // trailing edge for outgoing.
+        HStack(alignment: .bottom, spacing: 0.0) {
+            if isOutgoing {
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
+            }
+            AgentShareBubble(agentShare: agentShare)
+                .messageGesture(
+                    message: message,
+                    bubbleStyle: bubbleType,
+                    onSingleTap: { onTapAgentShare(agentShare) },
+                    onReply: onReply,
+                    onToggleReaction: onToggleReaction
+                )
+                .id("agent-share-\(message.messageId)")
+                .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+            if !isOutgoing {
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
+            }
+        }
         .padding(.trailing, trailingPadding)
     }
 

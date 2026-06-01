@@ -95,9 +95,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the backend hands back a non-null `publishedUrl`. The share flow on
     /// builder-created templates calls this lazily on first tap.
     func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate
-    /// Fetches the canonical published identity of an agent template by id.
-    /// Public endpoint - published templates resolve for any caller.
-    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse
+
+    /// Public detail fetch for a published agent template, keyed by its
+    /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
+    /// agent-share card/chip resolver. Unauthenticated: the backend serves
+    /// published templates to anonymous callers.
+    func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -825,8 +828,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse {
-        let request = try authenticatedRequest(for: "v2/agent-templates/\(templateId)", method: "GET")
+    func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+        // Public, unauthenticated GET -- the detail endpoint serves published
+        // templates to anonymous callers. `request(for:)` builds a bare GET
+        // (no auth header) and `performRequest` maps 404 -> APIError.notFound.
+        let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
+        let request = try request(for: "v2/agent-templates/\(encoded)")
         return try await performRequest(request)
     }
 

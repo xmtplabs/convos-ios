@@ -122,6 +122,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
 
+    /// Resolves a pasted/received agent-share link to the shared template's
+    /// public profile (name / emoji / description) for rendering its contact
+    /// card. A default returns `MockAgentShareResolver`; the real
+    /// `ConvosAPIClient`-backed resolver is wired in `SessionManager` once the
+    /// iOS client method for the backend's template-resolve endpoint lands.
+    func agentShareResolver() -> any AgentShareResolving
+
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
         for consent: [Consent],
@@ -200,6 +207,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 }
 
 extension SessionManagerProtocol {
+    /// Default agent-share resolver. Returns the mock until the API-backed
+    /// resolver is wired into `SessionManager`, so every conformer (including
+    /// test mocks) gets a working resolver without bespoke wiring.
+    public func agentShareResolver() -> any AgentShareResolving {
+        MockAgentShareResolver()
+    }
+
     public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
     }

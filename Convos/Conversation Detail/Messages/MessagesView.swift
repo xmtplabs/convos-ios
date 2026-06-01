@@ -33,6 +33,11 @@ struct MessagesView<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingAgentShareName: String?
+    var pendingAgentShareEmoji: String?
+    var pendingAgentShareSummary: String?
+    var isShowingAgentShareChip: Bool = false
+    var onClearAgentShare: (() -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -48,6 +53,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onClearMediaAttachment: (UUID) -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -119,6 +126,8 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapAvatar: onTapAvatar,
             onLoadPreviousMessages: onLoadPreviousMessages,
             onTapInvite: onTapInvite,
+            onTapAgentShare: onTapAgentShare,
+            agentShareResolver: agentShareResolver,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,
@@ -185,6 +194,11 @@ struct MessagesView<BottomBarContent: View>: View {
                     pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                     onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                     onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                    pendingAgentShareName: pendingAgentShareName,
+                    pendingAgentShareEmoji: pendingAgentShareEmoji,
+                    pendingAgentShareSummary: pendingAgentShareSummary,
+                    isShowingAgentShareChip: isShowingAgentShareChip,
+                    onClearAgentShare: onClearAgentShare,
                     sendButtonEnabled: sendButtonEnabled,
                     profileImage: $profileImage,
                     isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -245,6 +259,11 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoHidden: onPhotoHidden
             )
+            // The overlay renders in a separate tree from the message cells,
+            // so it doesn't inherit the cell's resolver injection. Provide it
+            // here so an agent-share card preview resolves real data, not the
+            // env-default mock.
+            .environment(\.agentShareResolver, agentShareResolver)
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(
