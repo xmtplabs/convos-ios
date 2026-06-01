@@ -61,21 +61,20 @@ platform :ios do
       },
     )
 
+    # Internal-only distribution. All prod TestFlight groups (Convos iOS Team,
+    # Convos Team, Friends and Family, XMTP Labs Team) are internal, and Apple
+    # makes a build available to internal testers automatically once it finishes
+    # processing - you cannot (and need not) explicitly attach a build to an
+    # internal group. pilot's groups: option is for external distribution, so
+    # passing internal groups makes it call add_beta_groups and Apple rejects it
+    # ("Cannot add internal group to a build"). skip_submission uploads, waits
+    # for processing, and sets the changelog, but returns before the distribute
+    # step, so no group assignment or beta-review submission is attempted.
     upload_to_testflight(
       ipa: File.join(OUTPUT_DIR, "Convos-Prod-TestFlight.ipa"),
       app_identifier: PROD_BUNDLE_ID,
-      groups: ["Convos iOS Team", "Convos Team", "Friends and Family", "XMTP Labs Team"],
       changelog: testflight_release_notes,
-      distribute_external: false,
-      # All four groups are internal testers, which never go through Apple Beta
-      # App Review. pilot's submit_beta_review defaults to true and fires
-      # whenever groups: is set (independent of distribute_external), so without
-      # this it calls post_beta_app_review_submission and fails with "Another
-      # build in the same train is already in beta review". Internal groups are
-      # still attached to the build regardless of this flag.
-      submit_beta_review: false,
-      skip_waiting_for_build_processing: false,
-      notify_external_testers: false,
+      skip_submission: true,
     )
   end
 
