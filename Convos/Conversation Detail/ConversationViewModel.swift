@@ -2824,14 +2824,15 @@ extension ConversationViewModel {
         session.inviteMembershipResolver()
     }
 
-    /// Tapping a shared agent's contact card opens a new conversation seeded
-    /// with that agent template (the same flow the `convos://template/<id>`
-    /// deep link uses). The custom-scheme form carries the template id
-    /// directly; a web-slug share is resolved to its id via the API resolver
-    /// first.
+    /// Tapping a shared agent's contact card opens that agent's contact
+    /// detail when an agent running the same template is already a member of
+    /// this conversation; otherwise it opens a new conversation seeded with
+    /// the template (the same flow the `convos://template/<id>` deep link
+    /// uses). The custom-scheme form carries the template id directly; a
+    /// web-slug share is resolved to its id via the API resolver first.
     func onTapAgentShare(_ agentShare: MessageAgentShare) {
         if isValidTemplateId(agentShare.identifier) {
-            openAgentTemplate(templateId: agentShare.identifier)
+            presentAgentMemberOrTemplate(templateId: agentShare.identifier)
             return
         }
         let resolver = agentShareResolver
@@ -2842,9 +2843,24 @@ extension ConversationViewModel {
                 guard let self, let templateId = info?.templateId else { return }
                 // The web-slug resolve already returned the agent's profile;
                 // pass it through so the new conversation paints it optimistically.
-                self.openAgentTemplate(templateId: templateId, optimisticIdentity: info)
+                self.presentAgentMemberOrTemplate(templateId: templateId, optimisticIdentity: info)
             }
         }
+    }
+
+    /// Routes a tapped agent template to the in-conversation member's contact
+    /// detail when present, falling back to the spawn-a-new-conversation
+    /// template flow otherwise. The post-builder contact card reaches the same
+    /// member detail directly via `onTapAvatar` (it already has the member).
+    private func presentAgentMemberOrTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
+        let member: ConversationMember? = conversation.members.first { member in
+            member.isAgent && member.profile.agentTemplateId == templateId
+        }
+        if let member {
+            presentingProfileForMember = member
+            return
+        }
+        openAgentTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
     }
 
     private func openAgentTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
