@@ -259,6 +259,11 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoHidden: onPhotoHidden
             )
+            // The overlay renders in a separate tree from the message cells,
+            // so it doesn't inherit the cell's resolver injection. Provide it
+            // here so an agent-share card preview resolves real data, not the
+            // env-default mock.
+            .environment(\.agentShareResolver, agentShareResolver)
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(
