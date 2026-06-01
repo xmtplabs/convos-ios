@@ -30,6 +30,11 @@ struct MessagesGroupItemView: View {
     var parentAudioTranscriptText: String?
     var omitTrailingPadding: Bool = false
 
+    /// Tap handler for an agent-share card, delivered via the environment from
+    /// the cell (like `agentShareResolver`) rather than threaded through the
+    /// messages-view hierarchy. Opens the shared agent's template flow.
+    @Environment(\.onTapAgentShare) private var onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
+
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
@@ -217,6 +222,7 @@ struct MessagesGroupItemView: View {
                 .messageGesture(
                     message: message,
                     bubbleStyle: bubbleType,
+                    onSingleTap: { onTapAgentShare(agentShare) },
                     onReply: onReply,
                     onToggleReaction: onToggleReaction
                 )

@@ -4,31 +4,28 @@ import SwiftUI
 /// Renders a received/sent agent-share message as a contact card. The message
 /// body carries only the share link; the agent's name / emoji / description
 /// are resolved on appear via the `AgentShareResolving` injected through the
-/// environment (mocked today, API-backed later). While resolving, the card's
-/// own pulsing "Learning more about my job" placeholder stands in. Tapping the
-/// card opens the shared agent's template flow.
+/// environment (matching how `messageContextMenuState` is delivered to cells).
+/// While resolving, the card's own pulsing "Learning more about my job"
+/// placeholder stands in.
 ///
-/// The resolver and tap handler are injected via the environment rather than
-/// threaded through the (deep) messages-view hierarchy, matching how
-/// `messageContextMenuState` is delivered to cells.
+/// This view is display-only: the tap that opens the shared agent's template
+/// flow is owned by the enclosing `messageGesture` (`onSingleTap`), so the
+/// same gesture pipeline as other message bubbles handles it -- and the
+/// context-menu preview, which renders this view without that gesture, stays
+/// correctly non-interactive.
 struct AgentShareBubble: View {
     let agentShare: MessageAgentShare
 
     @Environment(\.agentShareResolver) private var resolver: any AgentShareResolving
-    @Environment(\.onTapAgentShare) private var onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
 
     @State private var resolved: AgentShareInfo?
     @State private var didResolve: Bool = false
 
     var body: some View {
-        let action = { onTapAgentShare(agentShare) }
-        Button(action: action) {
-            AgentContactCardView(
-                profile: cardProfile,
-                agentDescription: resolved?.descriptionText
-            )
-        }
-        .buttonStyle(.plain)
+        AgentContactCardView(
+            profile: cardProfile,
+            agentDescription: resolved?.descriptionText
+        )
         .task(id: agentShare.identifier) {
             guard !didResolve else { return }
             let info = await resolver.resolve(identifier: agentShare.identifier)
