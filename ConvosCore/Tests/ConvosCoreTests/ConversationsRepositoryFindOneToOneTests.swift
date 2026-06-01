@@ -24,8 +24,6 @@ struct ConversationsRepositoryFindOneToOneTests {
         consent: Consent = .allowed,
         isUnused: Bool = false,
         expiresAt: Date? = nil,
-        quarantinedAt: Date? = nil,
-        quarantineReleasedAt: Date? = nil,
         inviteTag: String? = nil
     ) throws -> String {
         try seedInbox(db: db)
@@ -53,9 +51,7 @@ struct ConversationsRepositoryFindOneToOneTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: isUnused,
-            hasHadVerifiedAgent: false,
-            quarantinedAt: quarantinedAt,
-            quarantineReleasedAt: quarantineReleasedAt
+            hasHadVerifiedAgent: false
         ).insert(db)
 
         try ConversationLocalState(
@@ -227,19 +223,85 @@ struct ConversationsRepositoryFindOneToOneTests {
         #expect(match?.id == "convo-pending")
     }
 
-    @Test("isUnused, expired, and quarantined-without-release rows are excluded")
+    @Test("isUnused and expired rows are excluded")
     func testHiddenRowsAreExcluded() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let now = Date()
         try dbManager.dbWriter.write { db in
             try Self.seedOneToOne(db: db, id: "convo-unused", createdAt: now, isUnused: true)
             try Self.seedOneToOne(db: db, id: "convo-expired", createdAt: now, expiresAt: Date(timeIntervalSince1970: 1))
-            try Self.seedOneToOne(db: db, id: "convo-quarantined", createdAt: now, quarantinedAt: now)
         }
 
         let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
         let match = try repo.findOneToOne(with: Self.otherInboxId, excluding: nil)
 
         #expect(match == nil)
+    }
+
+    @Test("Unsolicited stranger 1:1 stays hidden until its consent is promoted")
+    func testStrangerConversationHiddenUntilConsentPromoted() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedOneToOneCreatedByOther(db: db, id: "convo-from-stranger", createdAt: Date(), consent: .unknown)
+        }
+
+        // Unsolicited stranger: consent stays `.unknown`, outside the
+        // [.allowed] feed scope, so it's hidden.
+        let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
+        #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil) == nil)
+
+        // Promotion (ConversationConsentReconciler flips consent to .allowed
+        // once the creator becomes a contact) brings it into the feed.
+        try dbManager.dbWriter.write { db in
+            try DBConversation
+                .filter(DBConversation.Columns.id == "convo-from-stranger")
+                .updateAll(db, DBConversation.Columns.consent.set(to: Consent.allowed))
+        }
+        #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil)?.id == "convo-from-stranger")
+    }
+
+    private static func seedOneToOneCreatedByOther(
+        db: Database,
+        id: String,
+        createdAt: Date,
+        consent: Consent = .unknown
+    ) throws {
+        try seedInbox(db: db)
+        try DBMember(inboxId: otherInboxId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: "client-\(id)",
+            inviteTag: "tag-\(id)",
+            creatorId: otherInboxId,
+            kind: .group,
+            consent: consent,
+            createdAt: createdAt,
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false
+        ).insert(db)
+        try ConversationLocalState(
+            conversationId: id,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: createdAt,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false
+        ).insert(db)
+        try addMember(db: db, conversationId: id, inboxId: currentInboxId, role: .member)
+        try addMember(db: db, conversationId: id, inboxId: otherInboxId, role: .superAdmin)
     }
 }

@@ -1,14 +1,13 @@
+import ConvosCore
 import SwiftUI
 
-/// Compact role/label capsule used in member rows, contact cards, picker
-/// rows, and any other surface that needs to tag content with a short
-/// secondary-color label ("Agent", "Creator", "Admin", "You", etc.).
-///
-/// Callers that need an accessibility identifier apply it as a downstream
-/// modifier (e.g. `RoleLabelPill(label: "You").accessibilityIdentifier(...)`)
-/// rather than baking it into the type.
+/// Small capsule pill rendering a short role label - "Agent",
+/// "Verified by ...", "Creator", "Admin", or "You". Shared by the
+/// conversation members list, the contacts list row, and the contact
+/// card so every surface that tags an identity uses one styling.
 struct RoleLabelPill: View {
     let label: String
+    var accessibilityIdentifier: String?
 
     var body: some View {
         Text(label)
@@ -17,14 +16,15 @@ struct RoleLabelPill: View {
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .padding(.vertical, DesignConstants.Spacing.stepX)
             .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+            .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }
 
-#Preview("Common labels") {
-    VStack(spacing: DesignConstants.Spacing.step3x) {
+#Preview {
+    VStack(spacing: DesignConstants.Spacing.step2x) {
         RoleLabelPill(label: "Agent")
+        RoleLabelPill(label: "Verified by Calendar")
         RoleLabelPill(label: "Creator")
-        RoleLabelPill(label: "Admin")
         RoleLabelPill(label: "You")
     }
     .padding()

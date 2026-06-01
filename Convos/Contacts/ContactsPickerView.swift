@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Module overview
 //
 // `ContactsPickerView` is the canonical multi-select contact picker.
-// It is invoked from three entry points, parameterized by `ContactsPickerMode`:
+// It is invoked from four entry points, parameterized by `ContactsPickerMode`:
 //
 //   1. Compose toolbar on the contacts list (`ContactsView` toolbar `+`),
 //      `mode: .newConversation`. Confirm builds a
@@ -22,6 +22,12 @@ import SwiftUI
 //      .addToConversation(...)` with the conversation's existing members
 //      passed as `alreadyInChatInboxIds`. Confirm calls
 //      `ConversationViewModel.addMembersFromContacts(_:)`.
+//   4. Primary compose flow from the home shell (`MainTabView` ->
+//      `ComposeFlowView`, driven by
+//      `ConversationsViewModel.presentingComposeFlow`), `mode: .compose`
+//      with `embedsNavigationStack: false` so the picker is the root of the
+//      compose sheet's own `NavigationStack` and pushes the drafted
+//      conversation on confirm instead of presenting another sheet.
 //
 // Mirrors `ContactDetailMode`'s "one component, two-or-more entry points"
 // pattern. The view itself is presentation-only; callers own the side
@@ -31,12 +37,16 @@ import SwiftUI
 /// entry-point mapping and the role each mode plays.
 struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
+    @State private var presentingAgentInfo: Bool = false
+    /// Set by the "One agent, many convos" sheet's "Got it" button so the
+    /// sheet's `onDismiss` knows to proceed with creation (vs a cancel).
+    @State private var agentInfoConfirmed: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// Confirm callback receives the full heterogeneous selection. Call
-    /// sites split into humans (`.inboxId`) and agent templates
-    /// (`.templateId`) and route each to their dispatch path.
-    let onConfirm: (_ selection: Set<ContactsPickerViewModel.Selection>) -> Void
+    /// `memberInboxIds` are the selected humans; `agentTemplateId` is the
+    /// template of the single selected agent, if any (the picker allows at
+    /// most one, and only in new-conversation mode).
+    let onConfirm: (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
     /// Optional source conversation that informs the indicator pill's
     /// emoji avatar. For the new-convo flow callers can pass the current
     /// draft so the picker reflects whatever emoji the convo will inherit;
@@ -44,27 +54,23 @@ struct ContactsPickerView: View {
     /// conversation. Nil shows a stable default avatar.
     let pillConversation: Conversation?
     /// When `true` (the default) the picker wraps its content in its own
-    /// `NavigationStack`, suitable for being presented standalone as a
-    /// sheet. The Compose flow sets this to `false` so the picker is the
-    /// root of the host's stack and can push the new-conversation view onto
-    /// it instead of dismissing.
+    /// `NavigationStack`, suitable for being presented standalone as a sheet.
+    /// The compose flow passes `false` so the picker is the root of the host
+    /// navigation stack and pushes the new conversation instead.
     let embedsNavigationStack: Bool
 
     init(
         mode: ContactsPickerMode,
         contactsRepository: any ContactsRepositoryProtocol,
-        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
-            = MockAgentTemplateContactsRepository(contacts: []),
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = [],
         pillConversation: Conversation? = nil,
         embedsNavigationStack: Bool = true,
-        onConfirm: @escaping (_ selection: Set<ContactsPickerViewModel.Selection>) -> Void
+        onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
             mode: mode,
             contactsRepository: contactsRepository,
-            agentTemplateContactsRepository: agentTemplateContactsRepository,
             alreadyInChatInboxIds: alreadyInChatInboxIds,
             preselectedInboxIds: preselectedInboxIds
         ))
@@ -74,18 +80,35 @@ struct ContactsPickerView: View {
     }
 
     var body: some View {
+        pickerBody
+            .selfSizingSheet(
+                isPresented: $presentingAgentInfo,
+                onDismiss: handleAgentInfoDismiss,
+                content: { OneAgentManyConvosInfoSheet(onConfirm: { agentInfoConfirmed = true }) }
+            )
+    }
+
+    @ViewBuilder
+    private var pickerBody: some View {
         if embedsNavigationStack {
-            NavigationStack { pickerContent }
+            NavigationStack { stackContent }
         } else {
-            pickerContent
+            stackContent
         }
     }
 
-    private var pickerContent: some View {
+    @ViewBuilder
+    private var stackContent: some View {
         content
             .background(.colorBackgroundRaisedSecondary)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+    }
+
+    private func handleAgentInfoDismiss() {
+        guard agentInfoConfirmed else { return }
+        agentInfoConfirmed = false
+        performConfirm()
     }
 
     /// The list takes the full sheet and scrolls behind the toolbar
@@ -108,10 +131,8 @@ struct ContactsPickerView: View {
                     accessibilityIdentifier: "contacts-picker-search-field"
                 )
                 ContactsPickerSelectedPills(
-                    humans: viewModel.selectedContacts,
-                    agentTemplates: viewModel.selectedAgentContacts,
-                    onRemoveHuman: handleRemoveHuman,
-                    onRemoveAgentTemplate: handleRemoveAgentTemplate
+                    contacts: viewModel.selectedContacts,
+                    onRemove: handleRemove
                 )
             }
         }
@@ -140,30 +161,41 @@ struct ContactsPickerView: View {
 
     // MARK: - Actions
 
-    private func handleToggle(_ selection: ContactsPickerViewModel.Selection) {
-        viewModel.toggleSelection(selection)
+    private func handleToggle(_ inboxId: String) {
+        viewModel.toggleSelection(for: inboxId)
     }
 
-    private func handleRemoveHuman(_ inboxId: String) {
-        viewModel.deselect(.human(inboxId: inboxId))
-    }
-
-    private func handleRemoveAgentTemplate(_ templateId: String) {
-        viewModel.deselect(.agentTemplate(templateId: templateId))
+    private func handleRemove(_ inboxId: String) {
+        viewModel.deselect(inboxId: inboxId)
     }
 
     private func handleConfirm() {
-        let selection = viewModel.selected
-        if case .compose = viewModel.mode {
-            // Compose: Skip/Continue proceeds even with no selection, and the
-            // host pushes the new-conversation view onto the stack, so the
-            // picker stays put as the root rather than dismissing itself.
-            onConfirm(selection)
-            return
+        guard viewModel.canConfirm else { return }
+        // Starting a conversation that includes an agent shows the
+        // "One agent, many convos" sheet as a confirmation step first; its
+        // "Got it" button proceeds via `performConfirm`. Human-only
+        // selections create the conversation immediately.
+        if viewModel.selectedAgentTemplateId != nil {
+            presentingAgentInfo = true
+        } else {
+            performConfirm()
         }
-        guard !selection.isEmpty else { return }
-        onConfirm(selection)
-        dismiss()
+    }
+
+    private func performConfirm() {
+        // Split the selection: the agent (if any) is spawned by template,
+        // not added as a member, so it's excluded from the member ids.
+        let agentTemplateId = viewModel.selectedAgentTemplateId
+        var memberIds = viewModel.selectedInboxIds
+        if let agentInboxId = viewModel.selectedAgentInboxId {
+            memberIds.remove(agentInboxId)
+        }
+        onConfirm(memberIds, agentTemplateId)
+        // Compose hosts the picker in its own navigation stack and pushes
+        // the new conversation, so it must not dismiss here.
+        if !viewModel.mode.isCompose {
+            dismiss()
+        }
     }
 
     private func handleCancel() {
@@ -253,7 +285,7 @@ private struct ContactsPickerIndicatorPill: View {
 
 private struct ContactsPickerList: View {
     @Bindable var viewModel: ContactsPickerViewModel
-    let onToggle: (ContactsPickerViewModel.Selection) -> Void
+    let onToggle: (String) -> Void
 
     var body: some View {
         if viewModel.sections.isEmpty {
@@ -270,7 +302,8 @@ private struct ContactsPickerList: View {
                 rowContent: { (row: ContactsPickerViewModel.Row) in
                     ContactsPickerRow(
                         row: row,
-                        isSelected: viewModel.isSelected(row.selection),
+                        isSelected: viewModel.isSelected(inboxId: row.id),
+                        isAgentSelectionBlocked: viewModel.isAgentSelectionBlocked(for: row.id),
                         onTap: rowTapAction(for: row)
                     )
                 },
@@ -280,15 +313,26 @@ private struct ContactsPickerList: View {
     }
 
     private var emptyState: some View {
-        ContactsEmptyStateView()
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "person.crop.circle.badge.questionmark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 48.0, height: 48.0)
+                .foregroundStyle(.colorTextTertiary)
+            Text("No contacts to show")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(DesignConstants.Spacing.step6x)
     }
 
     private func rowTapAction(for row: ContactsPickerViewModel.Row) -> () -> Void {
-        let selection = row.selection
+        let inboxId = row.id
         let isAlreadyInChat = row.isAlreadyInChat
         return {
             guard !isAlreadyInChat else { return }
-            onToggle(selection)
+            onToggle(inboxId)
         }
     }
 }
@@ -326,7 +370,7 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(),
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -335,7 +379,7 @@ private struct ContactsPickerConfirmButton: View {
         mode: .addToConversation(conversationId: "convo-1", conversationTitle: "The Dev Convosation"),
         contactsRepository: MockContactsRepository(),
         alreadyInChatInboxIds: [MockContactsRepository.defaultMockContacts[0].inboxId],
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -343,7 +387,7 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: []),
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -363,23 +407,6 @@ private struct ContactsPickerConfirmButton: View {
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: contacts),
         preselectedInboxIds: preselected,
-        onConfirm: { _ in }
-    )
-}
-
-#Preview("Humans + agents") {
-    let humans: [Contact] = [
-        .mock(displayName: "Alice"),
-        .mock(displayName: "Bob"),
-    ]
-    let agents: [AgentTemplateContact] = [
-        .mock(displayName: "Tifoso", emoji: "🚴", descriptionText: "Pro cycling expert"),
-        .mock(displayName: "Trip Planner", emoji: "🗺️", descriptionText: "Plans your next adventure"),
-    ]
-    return ContactsPickerView(
-        mode: .newConversation,
-        contactsRepository: MockContactsRepository(contacts: humans),
-        agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: agents),
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }

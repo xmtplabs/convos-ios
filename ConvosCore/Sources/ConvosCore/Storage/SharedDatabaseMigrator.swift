@@ -156,13 +156,50 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
 
         migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
-        Self.registerAgentTemplateContactMigrations(on: &migrator)
 
         migrator.registerMigration("addAgentBuilderSummaryCloudConnectionIds", migrate: Self.addAgentBuilderSummaryCloudConnectionIds)
 
         migrator.registerMigration("addAgentBuilderSummaryConnectionsAppliedAt", migrate: Self.addAgentBuilderSummaryConnectionsAppliedAt)
 
         migrator.registerMigration("addAgentBuilderSummaryExistingConversation", migrate: Self.addAgentBuilderSummaryExistingConversation)
+
+        migrator.registerMigration("dropConversationQuarantineFields", migrate: Self.dropConversationQuarantineFields)
+
+        migrator.registerMigration("addContactAgentTemplateFields", migrate: Self.addContactAgentTemplateFields)
+
+        migrator.registerMigration("createAgentTemplateCache", migrate: Self.createAgentTemplateCache)
+
+        // Append new migrations below this line; never insert one earlier in the
+        // list. In DEBUG builds `eraseDatabaseOnSchemaChange` replays a temporary
+        // database up to the last-applied migration and erases the real database
+        // when the schemas differ. A migration registered ahead of an
+        // already-applied one makes that replay diverge from an upgraded install
+        // and wipes its data - and DEBUG covers the Dev and PR TestFlight configs,
+        // not just local builds. Appending keeps the replay equal to the on-disk
+        // schema, so an upgrade migrates in place.
+        Self.registerAgentTemplateContactMigrations(on: &migrator)
+
+        // Filter set of agent-builder bundle message ids hidden from every
+        // client's chat. Intentionally no foreign key to `conversation`: a
+        // manifest can be processed before its conversation row is stored (the
+        // stream routes supplementals ahead of `conversationWriter.store`, and
+        // catch-up can deliver a manifest before the initial conversation sync
+        // lands); a FK would make those inserts fail and silently drop the hidden
+        // ids, leaving the brief visible. A stray row for an absent conversation
+        // matches nothing and is harmless. Teardown clears the table explicitly
+        // in `SessionManager.deleteAllInboxes` (no cascade).
+        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
+            try db.create(table: "builder_bundle_hidden_message") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.primaryKey(["conversationId", "messageId"])
+            }
+        }
+
+        migrator.registerMigration(
+            "backfillContactAgentTemplateFieldsFromMemberProfiles",
+            migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
+        )
 
         return migrator
     }
@@ -261,6 +298,93 @@ extension SharedDatabaseMigrator {
     private static func addAgentBuilderSummaryExistingConversation(_ db: Database) throws {
         try db.alter(table: "agentBuilderSummary") { t in
             t.add(column: "existingConversation", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    private static func dropConversationQuarantineFields(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.drop(column: "quarantinedAt")
+            t.drop(column: "quarantineReleasedAt")
+        }
+    }
+
+    /// Template identity for template-backed agent contacts, mirrored from
+    /// the per-conversation member profile so it survives leaving the
+    /// conversation. The partial index keeps a future "group contacts by
+    /// template" query index-backed without a schema change - only agent
+    /// rows carry a non-null templateId.
+    private static func addContactAgentTemplateFields(_ db: Database) throws {
+        try db.alter(table: "contact") { t in
+            t.add(column: "agentTemplateId", .text)
+            t.add(column: "agentTemplatePublishedURL", .text)
+            t.add(column: "agentTemplateEmoji", .text)
+        }
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS contact_on_agentTemplateId
+            ON contact(agentTemplateId)
+            WHERE agentTemplateId IS NOT NULL
+            """)
+    }
+
+    /// Backfill the agent-template columns added by `addContactAgentTemplateFields`
+    /// for contacts that predate them. A template-backed agent's `templateId` (and
+    /// `publishedUrl` / `emoji`) is already on disk in its per-conversation
+    /// `memberProfile.metadata`; without this, an existing agent contact keeps a
+    /// null `agentTemplateId` and `Contact.isVisibleInContactsList` hides it until a
+    /// fresh `ProfileUpdate` re-mirrors the value - which never fires at launch for
+    /// an agent that is not actively messaging, so the contact would stay hidden
+    /// indefinitely. Decodes the raw metadata JSON with `ProfileMetadata` (the
+    /// canonical wire type) rather than a record type, so the migration stays
+    /// reproducible if `memberProfile`'s columns change later. An inbox can have
+    /// several `memberProfile` rows; the `agentTemplateId IS NULL` guard makes the
+    /// first one carrying a templateId win and the rest no-ops.
+    static func backfillContactAgentTemplateFieldsFromMemberProfiles(_ db: Database) throws {
+        let decoder = JSONDecoder()
+        let rows = try Row.fetchCursor(db, sql: "SELECT inboxId, metadata FROM memberProfile WHERE metadata IS NOT NULL")
+        while let row = try rows.next() {
+            guard let json: String = row["metadata"],
+                  let metadata = try? decoder.decode(ProfileMetadata.self, from: Data(json.utf8)),
+                  let templateId = trimmedMetadataValue(metadata, "templateId") else {
+                continue
+            }
+            let inboxId: String = row["inboxId"]
+            try db.execute(
+                sql: """
+                    UPDATE contact
+                    SET agentTemplateId = ?, agentTemplatePublishedURL = ?, agentTemplateEmoji = ?
+                    WHERE inboxId = ? AND agentTemplateId IS NULL
+                    """,
+                arguments: [
+                    templateId,
+                    trimmedMetadataValue(metadata, "publishedUrl"),
+                    trimmedMetadataValue(metadata, "emoji"),
+                    inboxId,
+                ]
+            )
+        }
+    }
+
+    /// Reads a metadata string value, coercing empty / whitespace-only to nil.
+    /// Mirrors `DBMemberProfile.trimmedMetadata` so a backfilled templateId never
+    /// lands as "" (which would collapse unrelated agents in the dedup pipeline).
+    private static func trimmedMetadataValue(_ metadata: ProfileMetadata, _ key: String) -> String? {
+        metadata[key]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// Read-through cache of canonical agent-template identity (name, emoji,
+    /// avatar), keyed by templateId. Lets the contacts list collapse a
+    /// template's running instances into one stable row.
+    private static func createAgentTemplateCache(_ db: Database) throws {
+        try db.create(table: "agentTemplate") { t in
+            t.column("templateId", .text).notNull().primaryKey()
+            t.column("agentName", .text)
+            t.column("emoji", .text)
+            t.column("avatarURL", .text)
+            t.column("publishedURL", .text)
+            t.column("fetchedAt", .datetime).notNull()
         }
     }
 
@@ -401,27 +525,6 @@ extension SharedDatabaseMigrator {
                 t.column("nextRefreshAt", .datetime).notNull()
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
-            }
-        }
-
-        // Message ids announced by a `BuilderBundleManifest` as belonging to
-        // an agent-builder bundle, so every client can hide them from the
-        // chat (not just the creator, who has them in `AgentBuilderSummary`).
-        //
-        // Intentionally no foreign key to `conversation`: a manifest can be
-        // processed before its conversation row is stored (the stream routes
-        // supplementals ahead of `conversationWriter.store`, and catch-up can
-        // deliver a manifest before the initial conversation sync lands). A FK
-        // would make those inserts fail and silently drop the hidden ids,
-        // leaving the brief visible. Rows are just a filter set keyed by
-        // (conversationId, messageId); a stray row for an absent conversation
-        // matches nothing and is harmless. Teardown clears the table
-        // explicitly in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
             }
         }
     }

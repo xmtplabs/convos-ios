@@ -7,10 +7,17 @@ public protocol ContactsRepositoryProtocol: Sendable {
     /// name (case-insensitive). Includes blocked contacts so the browse list
     /// can render them with an unblock affordance. Callers that need an
     /// unblocked-only list (e.g. the picker) filter in the view layer.
+    ///
+    /// Agent contacts are collapsed to one row per `agentTemplateId`, carrying
+    /// the canonical template identity (name + emoji) from the
+    /// `DBAgentTemplate` cache. The list, picker, and contacts badge all read
+    /// this single canonical shape, so they can never disagree on what a
+    /// template-backed agent is called or how many contacts there are.
     var contactsPublisher: AnyPublisher<[Contact], Never> { get }
 
     /// Synchronous fetch of the alphabetical contact list. Includes blocked
-    /// contacts; see `contactsPublisher` for the rationale.
+    /// contacts and applies the same per-template agent collapsing as
+    /// `contactsPublisher`.
     func fetchAll() throws -> [Contact]
 
     /// Indexed point read; returns true if the inboxId is present in the
@@ -83,7 +90,7 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         self.databaseReader = databaseReader
         self.contactsPublisher = ValueObservation
             .tracking { db in
-                try ContactsRepository.fetchAllContacts(db)
+                try ContactsRepository.canonicalContacts(db)
             }
             .publisher(in: databaseReader)
             .replaceError(with: [])
@@ -92,7 +99,7 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
 
     func fetchAll() throws -> [Contact] {
         try databaseReader.read { db in
-            try ContactsRepository.fetchAllContacts(db)
+            try ContactsRepository.canonicalContacts(db)
         }
     }
 
@@ -141,17 +148,39 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         }
     }
 
-    private static func fetchAllContacts(_ db: Database) throws -> [Contact] {
-        let rows = try DBContact.fetchAll(db)
-        // Case-insensitive sort done in Swift to keep behavior identical
-        // across SQLite collations (idx_contact_displayName supports first
-        // paint; the in-memory sort handles nil names by deferring to the
-        // "Somebody" fallback in resolvedDisplayName).
-        return rows
+    /// Fetches contacts, collapses agent instances to one canonical row per
+    /// `agentTemplateId` using the `DBAgentTemplate` cache, then sorts. The
+    /// cache join happens here (not in the view layer) so every browse
+    /// surface consumes the same canonical shape from a single observation.
+    private static func canonicalContacts(_ db: Database) throws -> [Contact] {
+        let templates = try templateMap(db)
+        // Deterministic fetch order so the representative chosen per template
+        // (the first encountered by `dedupingAgentsByTemplate`) is stable
+        // across observations - earliest-added, then inboxId as a tiebreak.
+        // Dedup before sorting so the canonical (merged) display name is what
+        // drives alphabetical order. Case-insensitive sort done in Swift to
+        // keep behavior identical across SQLite collations; nil names defer to
+        // the "Somebody" fallback in resolvedDisplayName.
+        return try DBContact
+            .order(DBContact.Columns.addedAt, DBContact.Columns.inboxId)
+            .fetchAll(db)
             .map(Contact.init(dbContact:))
+            .dedupingAgentsByTemplate(using: templates)
             .sorted { lhs, rhs in
                 lhs.resolvedDisplayName
                     .localizedCaseInsensitiveCompare(rhs.resolvedDisplayName) == .orderedAscending
             }
+    }
+
+    private static func templateMap(_ db: Database) throws -> [String: AgentTemplateInfo] {
+        try DBAgentTemplate.fetchAll(db).reduce(into: [:]) { map, row in
+            map[row.templateId] = AgentTemplateInfo(
+                templateId: row.templateId,
+                agentName: row.agentName,
+                emoji: row.emoji,
+                avatarURL: row.avatarURL,
+                publishedURL: row.publishedURL
+            )
+        }
     }
 }

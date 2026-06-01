@@ -498,7 +498,6 @@ struct MemberContactDetailSheetContent: View {
     var body: some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
-        let agentTemplateContactsRepository = messagingService.agentTemplateContactsRepository()
         let contactsWriter = messagingService.contactsWriter()
         let resolvedContact = Contact.resolved(
             member: member,
@@ -521,7 +520,6 @@ struct MemberContactDetailSheetContent: View {
                 ),
                 contactsWriter: contactsWriter,
                 contactsRepository: contactsRepository,
-                agentTemplateContactsRepository: agentTemplateContactsRepository,
                 session: viewModel.session,
                 profileSettingsViewModel: profileSettingsViewModel,
                 onRemove: onRemove

@@ -29,25 +29,23 @@ public struct Contact: Hashable, Identifiable, Sendable {
     public let agentVerification: AgentVerification?
     /// The backend `AgentTemplate.id` a template-backed agent was
     /// provisioned from. `nil` for human contacts and for agents that do
-    /// not carry a template. Not persisted on `DBContact`; it is overlaid
-    /// onto the contact at resolution time from the per-conversation
-    /// member profile metadata (see `Contact.resolved(member:...)`), which
-    /// is the freshest source. Drives the contact card's Chat action.
+    /// not carry a template. Persisted on `DBContact` (mirrored from the
+    /// per-conversation member profile metadata) so it survives leaving
+    /// every conversation with a running instance; `Contact.resolved(member:...)`
+    /// overlays the freshest value when a live member profile is on hand.
+    /// Drives the contact card's Chat action.
     public let agentTemplateId: String?
     /// The shareable web URL for a template-backed agent (the backend's
     /// `publishedUrl`). `nil` for human contacts and for agents that do
-    /// not carry a template. Not persisted on `DBContact`; it is overlaid
-    /// onto the contact at resolution time from the per-conversation
-    /// member profile metadata (see `Contact.resolved(member:...)`), which
-    /// is the freshest source. Drives the contact card's Share button.
+    /// not carry a template. Persisted on `DBContact` alongside
+    /// `agentTemplateId`; overlaid live by `Contact.resolved(member:...)`
+    /// when available. Drives the contact card's Share button.
     public let agentTemplatePublishedURL: String?
-    /// Emoji glyph the member set on their per-conversation profile.
-    /// Not persisted on `DBContact`; overlaid onto the contact at
-    /// resolution time from the per-conversation member profile metadata
-    /// (see `Contact.resolved(member:...)`) so avatars rendered from a
-    /// resolved `Contact` (e.g. the in-chat contact detail sheet) carry
-    /// the same emoji avatar that `MessageAvatarView` shows in the
-    /// messages list.
+    /// Emoji glyph for the contact's avatar fallback. For template-backed
+    /// agents this is persisted on `DBContact` (the template emoji) so the
+    /// browse row renders it without a live member profile;
+    /// `Contact.resolved(member:...)` overlays the freshest per-conversation
+    /// emoji when available, matching `MessageAvatarView` in the messages list.
     public let profileEmoji: String?
     /// The agent runtime's `instanceId` for a specific provisioned agent.
     /// Not persisted on `DBContact`; overlaid at resolution time from the
@@ -153,7 +151,10 @@ extension Contact {
             addedAt: dbContact.addedAt,
             addedViaConversationId: dbContact.addedViaConversationId,
             isBlocked: dbContact.blockedAt != nil,
-            agentVerification: dbContact.agentVerification
+            agentVerification: dbContact.agentVerification,
+            agentTemplateId: dbContact.agentTemplateId,
+            agentTemplatePublishedURL: dbContact.agentTemplatePublishedURL,
+            profileEmoji: dbContact.agentTemplateEmoji
         )
     }
 }
@@ -193,9 +194,9 @@ extension Contact {
     }
 
     /// Returns a copy with `agentTemplateId` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest template id
-    /// from the per-conversation member profile onto a stored contact,
-    /// which has no template column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest template id
+    /// from a live per-conversation member profile over the value
+    /// persisted on the stored contact.
     public func with(agentTemplateId: String?) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -216,9 +217,9 @@ extension Contact {
     }
 
     /// Returns a copy with `agentTemplatePublishedURL` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest template
-    /// `publishedUrl` from the per-conversation member profile onto a
-    /// stored contact, which has no template column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest template
+    /// `publishedUrl` from a live per-conversation member profile over
+    /// the value persisted on the stored contact.
     public func with(agentTemplatePublishedURL: String?) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -266,9 +267,9 @@ extension Contact {
     }
 
     /// Returns a copy with `profileEmoji` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest emoji glyph
-    /// from the per-conversation member profile metadata onto a stored
-    /// contact, which has no emoji column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest emoji glyph
+    /// from a live per-conversation member profile over the value
+    /// persisted on the stored contact.
     public func with(profileEmoji: String?) -> Contact {
         Contact(
             inboxId: inboxId,

@@ -68,30 +68,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     UpdateCellContent(update: update, config: config)
 
                 case .messages(let group):
-                    MessagesGroupView(
-                        group: group,
-                        conversationId: config.conversationId,
-                        shouldBlurPhotos: config.shouldBlurPhotos,
-                        onTapAvatar: config.onTapAvatar,
-                        onTapSender: config.onTapSender,
-                        onTapInvite: config.onTapInvite,
-                        onTapReactions: config.onTapReactions,
-                        onTapReadReceipts: config.onTapReadReceipts,
-                        onTapThinkingIndicator: config.onTapThinkingIndicator,
-                        onReaction: config.onReaction,
-                        onToggleReaction: config.onToggleReaction,
-                        onReply: config.onReply,
-                        onPhotoRevealed: config.onPhotoRevealed,
-                        onPhotoHidden: config.onPhotoHidden,
-                        onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
-                        onOpenFile: config.onOpenFile,
-                        onRetryMessage: config.onRetryMessage,
-                        onDeleteMessage: config.onDeleteMessage,
-                        onRetryTranscript: config.onRetryTranscript,
-                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
-                        htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
-                        creditsDepleted: config.creditsDepleted
-                    )
+                    MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
                 case .invite(let invite):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -169,6 +146,37 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
+    }
+
+    /// Extracted from the `setup(item:config:)` switch so the many-argument
+    /// `MessagesGroupView` construction doesn't push that switch over the
+    /// type-check-time limit.
+    @ViewBuilder
+    private static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
+        MessagesGroupView(
+            group: group,
+            conversationId: config.conversationId,
+            shouldBlurPhotos: config.shouldBlurPhotos,
+            onTapAvatar: config.onTapAvatar,
+            onTapSender: config.onTapSender,
+            onTapInvite: config.onTapInvite,
+            onTapReactions: config.onTapReactions,
+            onTapReadReceipts: config.onTapReadReceipts,
+            onTapThinkingIndicator: config.onTapThinkingIndicator,
+            onReaction: config.onReaction,
+            onToggleReaction: config.onToggleReaction,
+            onReply: config.onReply,
+            onPhotoRevealed: config.onPhotoRevealed,
+            onPhotoHidden: config.onPhotoHidden,
+            onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
+            onOpenFile: config.onOpenFile,
+            onRetryMessage: config.onRetryMessage,
+            onDeleteMessage: config.onDeleteMessage,
+            onRetryTranscript: config.onRetryTranscript,
+            allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
+            htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
+            creditsDepleted: config.creditsDepleted
+        )
     }
 
     @ViewBuilder

@@ -1,0 +1,112 @@
+id: "37b"
+name: "Agent Contact Block And Unblock"
+description: >
+  Block/unblock for an agent contact built via the in-app agent-builder. Blocking
+  writes the block (card shows a Blocked badge + Unblock affordance), removes the
+  agent from the add-to-conversation picker (isPickable: !isBlocked) while KEEPING it
+  in the browse list so it can be unblocked; unblocking restores it. Note the consent
+  reconciler's feed demotion is *creator-based* by design - blocking demotes the
+  blocked party's OWN/created conversations, and the block dialog states "existing
+  shared groups are unaffected" - so blocking an agent you built (a member of a
+  conversation YOU created) does NOT hide that conversation. The consent demotion +
+  blocker-1 (unblock never resurrects .denied) is validated where it applies: the
+  ConvosCore unit suite (ConversationConsentReconcilerTests) and the two-simulator
+  test 40b (block the conversation creator).
+tags: [agents, contacts, block, local-stack, agent-builder]
+depends_on: ["37"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  local_stack_running: true
+  agent_jwks_pinned: true
+  scheme: "Convos (Local)"
+  bundle_id: org.convos.ios-local
+  screen: home
+  backend_agent_provisioning_working: true
+
+setup:
+  - action: note
+    args:
+      text: >
+        Reuses an agent-builder agent from test 36/37 (e.g. "King's Tutor") that is a
+        visible contact. Blocking is driven from its contact card.
+
+steps:
+  - id: block_agent_writes_and_flips
+    name: "Block the agent from its card; the card shows Blocked + Unblock"
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
+      - tap: { id: "contact-row-" }
+      - wait_for_element: { id: "contact-detail-block", timeout: 10 }
+      - tap: { id: "contact-detail-block" }
+      - wait_for_element: { label: "Block", timeout: 10 }
+      - tap: { label: "Block" }
+      - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "contact-detail-unblock" }
+      - element_exists: { label_contains: "Blocked" }
+    criteria: block_writes_and_flips_to_unblock
+    note: >
+      Block writes blockedAt to the canonical DBContact row. The confirmation action is
+      labeled "Block" ("They won't be able to start new conversations with you. Existing
+      shared groups are unaffected."); the card then shows a "Blocked" badge and the
+      Unblock affordance. Existing conversations are intentionally NOT hidden.
+
+  - id: blocked_agent_stays_in_browse
+    name: "The blocked agent remains in the Contacts browse list"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait_for_element: { id: "contact-row-", timeout: 10 }
+      - find_elements: { pattern: "contact-row-" }
+      - screenshot: {}
+    verify:
+      - element_count_gte: { pattern: "contact-row-", min: 1 }
+    criteria: blocked_agent_in_browse
+    note: >
+      ContactsRepository returns blocked rows so the browse list can offer the unblock
+      affordance. (The agent is filtered out of the add-to-conversation picker by
+      isPickable: !isBlocked - covered in test 37's picker steps.)
+
+  - id: unblock_restores
+    name: "Unblock restores the agent (card flips back to Block)"
+    actions:
+      - tap: { id: "contact-row-" }
+      - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
+      - tap: { id: "contact-detail-unblock" }
+      - wait_for_element: { label: "Unblock", timeout: 10 }
+      - tap: { label: "Unblock" }
+      - wait_for_element: { id: "contact-detail-block", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "contact-detail-block" }
+    criteria: unblock_restores_contact
+    note: >
+      Unblock ("You'll start receiving new conversation invitations from this contact
+      again.") clears blockedAt; the card flips back to Block and the agent becomes
+      pickable again.
+
+teardown:
+  - action: note
+    args:
+      text: >
+        Run before test 18 (delete-all-data).
+
+criteria:
+  block_writes_and_flips_to_unblock:
+    description: "Confirming Block writes the block; the card shows a Blocked badge and the Unblock affordance"
+  blocked_agent_in_browse:
+    description: "The blocked agent still appears in the Contacts browse list (so it can be unblocked)"
+  unblock_restores_contact:
+    description: "Unblock clears the block; the card flips back to Block"
+
+# Consent feed-demotion (creator-based) is validated elsewhere:
+#  - ConversationConsentReconcilerTests.testDemotesAllowedFromBlockedContact /
+#    testPromotesUnknownButNotDeniedFromNonBlockedContact (unit).
+#  - Test 40b (two simulators): Device B blocks Device A (the conversation CREATOR);
+#    B's conversation with A demotes to .denied and leaves the feed, and unblocking
+#    does NOT resurrect it (the blocker-1 fix).

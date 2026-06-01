@@ -63,37 +63,27 @@ private struct AddFromContactsPickerModifier: ViewModifier {
                 conversationTitle: viewModel.conversation.name
             ),
             contactsRepository: viewModel.messagingService.contactsRepository(),
-            agentTemplateContactsRepository: viewModel.messagingService.agentTemplateContactsRepository(),
             alreadyInChatInboxIds: alreadyInChat,
             onConfirm: handleConfirm
         )
     }
 
-    /// Splits the mixed selection into humans and agent templates. Humans
-    /// go through the existing `addMembersFromContacts` flow. Templates go
-    /// through `requestAgentJoins(templateIds:)` -- the batched (serialized)
-    /// variant -- which reuses the existing conversation's invite slug to
-    /// spawn a fresh instance per templateId (no new backend endpoint, see
-    /// Phase 2 PRD add-to-existing question 1).
-    ///
-    /// Important: do NOT loop `requestAgentJoin(templateId:)` here. That
-    /// method is single-flight (each call cancels the prior task), so a
-    /// for-loop ends up running only the LAST templateId to completion --
-    /// every prior call gets `URLError.cancelled` mid-dispatch and silently
-    /// dropped.
-    private func handleConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
-        let humanInboxIds: [String] = selection.compactMap(\.inboxId)
-        let templateIds: [String] = selection.compactMap(\.templateId)
-        guard !humanInboxIds.isEmpty || !templateIds.isEmpty else { return }
-
-        if !templateIds.isEmpty {
-            viewModel.requestAgentJoins(templateIds: templateIds)
+    private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateId: String?) {
+        // Selecting an agent spawns a fresh instance of its template into
+        // this conversation (the picker already showed the "one agent, many
+        // convos" confirmation). Humans are added as members; both can be
+        // present in a single confirm. At most one agent per conversation -
+        // skip the spawn if this conversation already has one (the canonical
+        // agent row can collapse a different instance than the one in chat,
+        // so the picker's already-in-chat filter doesn't catch this).
+        if let agentTemplateId, !viewModel.conversation.hasAgent {
+            viewModel.requestAgentJoin(templateId: agentTemplateId)
         }
-
-        guard !humanInboxIds.isEmpty else { return }
+        let ids = Array(inboxIds)
+        guard !ids.isEmpty else { return }
         Task {
             do {
-                try await viewModel.addMembersFromContacts(humanInboxIds)
+                try await viewModel.addMembersFromContacts(ids)
             } catch {
                 Log.error("Add from contacts failed: \(error.localizedDescription)")
                 errorMessage = "We couldn't add those contacts. Please try again."

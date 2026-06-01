@@ -1,0 +1,240 @@
+id: "41"
+name: "Upgrade Preservation: dev -> agents-as-contacts branch"
+description: >
+  The data-preservation counterpart to test 13. Verify that upgrading an EXISTING
+  install from the dev build to this branch (the agents-as-contacts +
+  consent-driven feed-visibility refactor) preserves all user data: conversations,
+  messages, contacts (human + agent), consent/feed state, and blocked state. This
+  branch adds six additive GRDB migrations plus one in-place ALTER TABLE DROP COLUMN
+  (dropConversationQuarantineFields) and does NOT bump LegacyDataWipe.currentGeneration
+  ("convos-v2" on both dev and HEAD), so a real (non-DEBUG) upgrade migrates the
+  on-disk convos-single-inbox.sqlite in place and keeps the data. This test installs
+  dev, populates the branch's data surface, installs this branch over the top WITHOUT
+  erasing, and asserts nothing is lost.
+tags: [migration, database, upgrade, data-preservation, multi-build, special, expected-partial]
+depends_on: ["01"]
+estimated_duration_s: 720
+
+prerequisites:
+  app_running: false
+  requires_separate_simulator: true
+  local_stack_running: true
+  # Runs on the standard Local (DEBUG) build. The migration list is append-only
+  # (every new migration is registered after dev's last one), so GRDB's DEBUG
+  # eraseDatabaseOnSchemaChange does NOT fire on this upgrade and the DB is migrated
+  # in place. The no_wipe_fired step is the guard for that invariant - see build_config.
+
+build_config:
+  configuration: any
+  note: >
+    This test passes on ANY configuration, including the DEBUG Local/Dev builds.
+    Background: SharedDatabaseMigrator.createMigrator sets
+    `migrator.eraseDatabaseOnSchemaChange = true` under `#if DEBUG`, and the Dev and
+    PR TestFlight configs are DEBUG (only Prod is not). GRDB's hasSchemaChanges replays
+    a temp DB up to the last-applied migration and erases the real DB if the schemas
+    differ - so a migration registered BEFORE dev's last migration would wipe an
+    upgraded install on DEBUG (incl. Dev/PR TestFlight). This branch's migrations are
+    therefore APPENDED after dev's last migration
+    (addAgentBuilderSummaryConnectionsAppliedAt); the temp-replay then equals the
+    on-disk dev schema and no erase happens. If a future change inserts a migration
+    mid-list, the no_wipe_fired step below will fail on a DEBUG build - that is the
+    point of running it on Local.
+
+state:
+  migration_udid: null
+  worktree_path: "/tmp/convos-upgrade-dev"
+
+setup:
+  - action: create_migration_simulator
+    note: >
+      Clone a base iPhone simulator named "<current-sim>-upgrade", boot it, record
+      the UDID. This test runs ONLY on that isolated simulator and never touches the
+      primary one. Same isolation contract as test 13.
+
+steps:
+  - id: build_dev
+    name: "dev build installs on the upgrade simulator"
+    actions:
+      - create_worktree: { path: "/tmp/convos-upgrade-dev", branch: "dev" }
+      - xcodebuild:
+          project: "/tmp/convos-upgrade-dev/Convos.xcodeproj"
+          scheme: "Convos (Local)"
+          destination: "$migration_udid"
+      - install_app: { udid: "$migration_udid" }
+      - launch_app: { udid: "$migration_udid" }
+    verify:
+      - no_crash_on_launch: true
+    criteria: dev_builds
+    note: >
+      Standard Local build of the dev worktree. Authorize the app (registered Local App
+      Check token in GACAppCheckDebugToken) exactly as in the 36 / 40 runbooks so the
+      inbox reaches clientAuthorized.
+
+  - id: populate_on_dev
+    name: "Populate this branch's data surface on the dev build"
+    device: migration
+    actions:
+      - note: >
+          Seed data that exercises everything the refactor touches, so the upgrade has
+          something to preserve. On the dev build:
+          (a) Create a conversation in-app (compose-button -> contacts-picker-confirm
+              "Skip" -> invite screen) and set a profile name -> an allowed, visible
+              feed conversation; send yourself a couple of messages via the CLI so
+              message history exists.
+          (b) Make an agent via the agent-builder (compose -> "Make an agent" -> type a
+              prompt -> Make), wait for it to provision a templateId -> an agent contact
+              (agentVerification + agentTemplateId set) plus its conversation with the
+              starter messages. Mirror test 36.
+          (c) Block that agent contact (contact card -> Block) so contact.blockedAt is
+              set -> exercises blocked-state survival.
+      - screenshot: { udid: "$migration_udid" }
+      - find_elements: { pattern: "conversation-list-item-", udid: "$migration_udid" }
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
+    criteria: data_populated
+    save:
+      pre_upgrade_conversation_count: "count of conversation-list-item- on the dev build"
+      pre_upgrade_agent_name: "the agent contact's display name (e.g. King's Tutor)"
+
+  - id: install_branch_over_dev
+    name: "This branch installs over the dev build WITHOUT erasing"
+    actions:
+      - terminate_app: { udid: "$migration_udid" }
+      - xcodebuild:
+          project: "Convos.xcodeproj"
+          scheme: "Convos (Local)"
+          destination: "$migration_udid"
+      - install_app: { udid: "$migration_udid" }
+      - launch_app: { udid: "$migration_udid" }
+      - wait_for_launch_stabilized: { udid: "$migration_udid", timeout: 30 }
+    verify:
+      - no_crash_on_launch: true
+    criteria: branch_installs_over_dev
+    note: >
+      simctl install of the same bundle id (org.convos.ios-local) preserves the app
+      container, so convos-single-inbox.sqlite from the dev install is migrated in
+      place. Do NOT erase or uninstall between the two installs.
+
+  - id: no_wipe_fired
+    name: "No data wipe on the upgrade launch (append-only invariant gate)"
+    actions:
+      - inspect_logs: { since_launch: true, pattern: "LegacyDataWipe" }
+      - find_elements: { pattern: "conversation-list-item-", udid: "$migration_udid" }
+    verify:
+      - log_not_contains: "LegacyDataWipe: detected legacy data"
+      - log_not_contains: "LegacyDataWipe: removed"
+      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
+    criteria: no_wipe
+    note: >
+      Two ways the DB could be wiped on upgrade, both of which must NOT happen here:
+      (1) LegacyDataWipe - currentGeneration is unchanged ("convos-v2") so it early-returns;
+      (2) GRDB eraseDatabaseOnSchemaChange on DEBUG builds - avoided because every new
+      migration is appended after dev's last migration, so the schema-change check sees
+      no divergence. If the feed is empty here on a Local (DEBUG) build, a migration was
+      inserted mid-list and the append-only invariant (see SharedDatabaseMigrator
+      createMigrator) was broken - that is the regression this step guards.
+
+  - id: conversations_preserved
+    name: "Conversations and message history survive the upgrade"
+    device: migration
+    actions:
+      - navigate_to_conversations_list: { udid: "$migration_udid" }
+      - find_elements: { pattern: "conversation-list-item-", udid: "$migration_udid" }
+      - screenshot: { udid: "$migration_udid" }
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
+      - visual_check: >
+          The conversations created on the dev build are still in the feed (same count
+          as pre_upgrade_conversation_count for the allowed ones), and opening one shows
+          its prior messages intact. Feed visibility is now keyed on conversation
+          consent; an allowed conversation stays visible.
+    criteria: conversations_survive
+
+  - id: human_contact_preserved
+    name: "A named human contact is still a visible, pill-less contact"
+    device: migration
+    actions:
+      - tap: { id: "app-indicator-pill", udid: "$migration_udid" }
+      - wait_for_element: { id: "contacts-row", timeout: 10, udid: "$migration_udid" }
+      - tap: { id: "contacts-row", udid: "$migration_udid" }
+      - screenshot: { udid: "$migration_udid" }
+    verify:
+      - visual_check: >
+          Any human contact that existed on dev (named) still appears in Contacts with
+          no Agent pill. Named humans are unaffected by the migration (displayName-based
+          visibility is unchanged).
+    criteria: human_contact_survives
+    optional: true
+    note: >
+      Optional because seeding a human contact needs a second device (see tests 40/40b).
+      If only the agent contact was seeded, skip this and rely on agent_contact_resyncs.
+
+  - id: agent_contact_resyncs
+    name: "An agent contact reappears with its Agent pill after a re-sync (transient-hide window)"
+    device: migration
+    actions:
+      - note: >
+          KNOWN transient: right after upgrade the agent contact may be HIDDEN from the
+          Contacts list. The migration adds contact.agentTemplateId as NULL with no
+          backfill, and isVisibleInContactsList hides an agent whose agentTemplateId is
+          nil ("agents whose template metadata hasn't mirrored yet"). The row and its
+          agentVerification survive in the DB - it is not data loss. Drive a re-mirror:
+          open the agent's conversation (or send it a message) and let streaming /
+          catch-up run, which re-writes agentTemplateId from the member profile and the
+          AgentTemplateCacheCoordinator fetches the canonical identity.
+      - navigate_to_conversations_list: { udid: "$migration_udid" }
+      - tap: { label_contains: "$pre_upgrade_agent_name", udid: "$migration_udid" }
+      - wait_for_element: { id: "message-text-field", timeout: 20, udid: "$migration_udid" }
+      - navigate_to_conversations_list: { udid: "$migration_udid" }
+      - tap: { id: "app-indicator-pill", udid: "$migration_udid" }
+      - wait_for_element: { id: "contacts-row", timeout: 10, udid: "$migration_udid" }
+      - tap: { id: "contacts-row", udid: "$migration_udid" }
+      - wait_for_element: { label_contains: "$pre_upgrade_agent_name", timeout: 20, udid: "$migration_udid" }
+      - screenshot: { udid: "$migration_udid" }
+    verify:
+      - element_exists: { label_contains: "$pre_upgrade_agent_name" }
+      - element_exists: { label_contains: "Agent" }
+    criteria: agent_contact_survives
+    known_issue: >
+      The agent contact is transiently hidden immediately after upgrade until a
+      profile/membership event re-mirrors agentTemplateId. Assert presence AFTER driving
+      the re-sync, not on the first frame.
+
+  - id: blocked_state_preserved
+    name: "A contact blocked on dev is still blocked after upgrade"
+    device: migration
+    actions:
+      - tap: { label_contains: "$pre_upgrade_agent_name", udid: "$migration_udid" }
+      - wait_for_element: { id: "contact-detail-unblock", timeout: 10, udid: "$migration_udid" }
+      - screenshot: { udid: "$migration_udid" }
+    verify:
+      - element_exists: { id: "contact-detail-unblock" }
+    criteria: blocked_state_survives
+    note: >
+      contact.blockedAt is preserved across the migration (the column predates this
+      branch and replacingProfileFields keeps it). The card shows Blocked / Unblock,
+      proving the block survived the upgrade.
+
+teardown:
+  - action: delete_simulator
+    args: { udid: "$migration_udid" }
+  - action: remove_worktree
+    args: { path: "/tmp/convos-upgrade-dev" }
+
+criteria:
+  dev_builds:
+    description: "The dev build (non-DEBUG) installs and launches on the upgrade simulator"
+  data_populated:
+    description: "Conversations, an agent contact, and a blocked contact exist on the dev build"
+  branch_installs_over_dev:
+    description: "This branch installs over the dev build without erasing and launches cleanly"
+  no_wipe:
+    description: "No LegacyDataWipe / GRDB erase fired - the upgrade migrated in place (valid-config gate)"
+  conversations_survive:
+    description: "Conversations and their message history are still present after the upgrade"
+  human_contact_survives:
+    description: "A named human contact remains visible with no Agent pill (optional - needs a 2nd device)"
+  agent_contact_survives:
+    description: "An agent contact reappears with its Agent pill after a re-sync (template metadata re-mirrors)"
+  blocked_state_survives:
+    description: "A contact blocked on dev is still blocked after the upgrade (blockedAt preserved)"

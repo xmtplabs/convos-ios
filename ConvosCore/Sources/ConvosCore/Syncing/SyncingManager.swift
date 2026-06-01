@@ -117,6 +117,16 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
+    /// Reconciles conversation consent against contact-block state (the
+    /// source of truth for feed visibility). Reconstructed per session
+    /// start because it captures the live XMTP client.
+    private var consentReconciler: ConversationConsentReconciler?
+
+    /// Populates the agent-template read-through cache for template-backed
+    /// agent contacts. Reconstructed per start because it captures the
+    /// live API client.
+    private var agentTemplateCacheCoordinator: AgentTemplateCacheCoordinator?
+
     private var activeConversationId: String?
 
     // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
@@ -182,6 +192,8 @@ actor SyncingManager: SyncingManagerProtocol {
 
     deinit {
         // Clean up tasks
+        consentReconciler?.stop()
+        agentTemplateCacheCoordinator?.stop()
         syncTask?.cancel()
         notificationTask?.cancel()
         messageStreamTask?.cancel()
@@ -420,6 +432,9 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        restartConsentReconciler(client: client)
+        restartAgentTemplateCacheCoordinator(apiClient: apiClient)
+
         // Wait for streams to enter their async iteration loops before proceeding.
         // This ensures streams are actually subscribed to the XMTP network before
         // we signal isSyncReady, preventing race conditions where messages sent
@@ -455,6 +470,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
         if pauseOnComplete {
+            // Mirror handlePause: tear down the session-scoped observers (consent
+            // reconciler + agent-template cache coordinator) before pausing, so
+            // they don't keep observing while the inbox is paused.
+            stopSessionScopedObservers()
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
 
@@ -636,6 +655,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
         Log.info("Pausing sync...")
 
+        stopSessionScopedObservers()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
@@ -676,6 +696,9 @@ actor SyncingManager: SyncingManagerProtocol {
             guard let self else { return }
             await self.runConversationStream(params: params)
         }
+
+        restartConsentReconciler(client: params.client)
+        restartAgentTemplateCacheCoordinator(apiClient: params.apiClient)
 
         // Wait for streams to subscribe before transitioning to ready
         Log.debug("Waiting for streams to subscribe after resume...")
@@ -761,6 +784,7 @@ actor SyncingManager: SyncingManagerProtocol {
     }
 
     private func cancelAndAwaitTasks() async {
+        stopSessionScopedObservers()
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
@@ -931,10 +955,12 @@ actor SyncingManager: SyncingManagerProtocol {
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
         await streamProcessor.setTypingIndicatorHandler(handler)
     }
+}
 
+extension SyncingManager {
     // MARK: - Notification Observers
 
-    private func setupNotificationObservers() {
+    fileprivate func setupNotificationObservers() {
         let activeConversationObserver = NotificationCenter.default.addObserver(
             forName: .activeConversationChanged,
             object: nil,
@@ -947,6 +973,42 @@ actor SyncingManager: SyncingManagerProtocol {
         }
         notificationObservers.append(activeConversationObserver)
         installPushTokenObserver()
+    }
+
+    /// Stop and clear the session-scoped observers (consent reconciler and
+    /// agent-template cache coordinator) on pause / teardown.
+    fileprivate func stopSessionScopedObservers() {
+        consentReconciler?.stop()
+        consentReconciler = nil
+        agentTemplateCacheCoordinator?.stop()
+        agentTemplateCacheCoordinator = nil
+    }
+
+    /// (Re)start the consent reconciler with the live client. Safe to call
+    /// on every start / resume - the previous instance is stopped first.
+    fileprivate func restartConsentReconciler(client: AnyClientProvider) {
+        consentReconciler?.stop()
+        let reconciler = ConversationConsentReconciler(
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            client: client
+        )
+        reconciler.start()
+        consentReconciler = reconciler
+    }
+
+    /// (Re)start the agent-template cache coordinator with the live API
+    /// client. Safe to call on every start / resume - the previous instance
+    /// is stopped first.
+    fileprivate func restartAgentTemplateCacheCoordinator(apiClient: any ConvosAPIClientProtocol) {
+        agentTemplateCacheCoordinator?.stop()
+        let coordinator = AgentTemplateCacheCoordinator(
+            databaseReader: databaseReader,
+            apiClient: apiClient,
+            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
+        )
+        coordinator.start()
+        agentTemplateCacheCoordinator = coordinator
     }
 }
 

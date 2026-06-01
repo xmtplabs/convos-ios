@@ -82,17 +82,7 @@ struct AppSettingsView: View {
             .toolbar { topToolbar }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
-            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contacts in
-                // Mirror `ContactsViewModel.isVisibleInList` so this badge
-                // matches the count shown on the Contacts list: verified
-                // agents stay in `DBContact` for chat-side resolution but
-                // are excluded from the human browser, and unnamed
-                // contacts ("Somebody") are hidden too.
-                visibleHumansCount = contacts.filter(ContactsViewModel.isVisibleInList).count
-            }
-            .onReceive(session.messagingService().agentTemplateContactsRepository().agentTemplateContactsPublisher) { agentTemplates in
-                agentTemplatesCount = agentTemplates.count
-            }
+            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contactsCount = $0.filter(\.isVisibleInContactsList).count }
         }
     }
 
@@ -136,15 +126,7 @@ struct AppSettingsView: View {
         }
     }
 
-    @State private var visibleHumansCount: Int = 0
-    @State private var agentTemplatesCount: Int = 0
-
-    /// Number rendered on the "Contacts" row in App Settings. Matches
-    /// `ContactsViewModel.contactCount` exactly so the badge and the
-    /// destination list never disagree.
-    private var contactsCount: Int {
-        visibleHumansCount + agentTemplatesCount
-    }
+    @State private var contactsCount: Int = 0
 
     @ViewBuilder
     private var devicesSection: some View {
@@ -195,9 +177,7 @@ struct AppSettingsView: View {
             contactsRepository: messagingService.contactsRepository(),
             contactsWriter: messagingService.contactsWriter(),
             session: session,
-            profileSettingsViewModel: profileSettingsViewModel,
-            agentTemplateContactsRepository: messagingService.agentTemplateContactsRepository(),
-            agentTemplateContactsWriter: messagingService.agentTemplateContactsWriter()
+            profileSettingsViewModel: profileSettingsViewModel
         )
     }
 

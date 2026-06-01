@@ -259,13 +259,13 @@ extension DBMemberProfile {
     /// `metadata`. nil for human members and for legacy agents that do
     /// not carry a template.
     var agentTemplateId: String? {
-        metadata?[Constant.templateIdKey]?.stringValue
+        trimmedMetadata(Constant.templateIdKey)
     }
 
     /// The shareable web URL for this agent's template (the backend's
     /// `publishedUrl`). Drives the contact card's Share button.
     var agentTemplatePublishedURL: String? {
-        metadata?[Constant.publishedURLKey]?.stringValue
+        trimmedMetadata(Constant.publishedURLKey)
     }
 
     /// The agent runtime's `instanceId` for this provisioned agent.
@@ -276,7 +276,19 @@ extension DBMemberProfile {
 
     /// The agent template's emoji, when published.
     var agentTemplateEmoji: String? {
-        metadata?[Constant.emojiKey]?.stringValue
+        trimmedMetadata(Constant.emojiKey)
+    }
+
+    /// Reads a metadata string value, coercing empty / whitespace-only to
+    /// nil. The agent runtime can briefly write an empty `templateId` before
+    /// its template lookup resolves; persisting `""` would collapse unrelated
+    /// agents in the dedup pipeline and fire a fetch on an empty id. Mirrors
+    /// `Profile.agentTemplateId`'s coercion so the two accessors agree.
+    private func trimmedMetadata(_ key: String) -> String? {
+        metadata?[key]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 
     /// The agent template's description, when published.

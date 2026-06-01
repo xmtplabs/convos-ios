@@ -1,0 +1,157 @@
+id: "37"
+name: "Agent Contact Visibility Edges"
+description: >
+  Picker/visibility edge cases of the agents-as-contacts refactor, driven through
+  the in-app agent-builder (no CLI, no invites). Builds a second agent so the
+  add-to-conversation picker has an agent to offer, then verifies: agents are
+  selectable in the picker (isPickable true across modes), a member already in the
+  conversation is inline-disabled, and adding a second agent to a conversation that
+  already has one is blocked by the !hasAgent guard. Guards
+  ContactsPickerViewModel.isPickable / already-in-chat handling and
+  AddFromContactsPickerModifier.handleConfirm. Two visibility invariants that can't
+  be reproduced cleanly through the builder UI (a verified agent with no templateId
+  staying hidden; a metadata-less name-only update keeping the sticky templateId)
+  are covered by the ConvosCore unit suite and noted below.
+tags: [agents, contacts, picker, edge-cases, local-stack, agent-builder]
+depends_on: ["36"]
+estimated_duration_s: 420
+
+prerequisites:
+  app_running: true
+  local_stack_running: true
+  agent_jwks_pinned: true
+  scheme: "Convos (Local)"
+  bundle_id: org.convos.ios-local
+  screen: home
+  backend_agent_provisioning_working: true
+
+state:
+  second_agent_prompt: "a meticulous travel planner for city trips"
+
+setup:
+  - action: note
+    args:
+      text: >
+        Reuses test 36's agent (e.g. "King's Tutor") and its conversation. This test
+        builds a SECOND agent via the agent-builder so the add-to-conversation picker
+        has a template-backed agent contact to offer. No CLI / no invites.
+
+steps:
+  - id: build_second_agent
+    name: "Build a second agent via the agent-builder"
+    actions:
+      - tap: { label: "Continue", optional: true }
+      - tap: { id: "agent-composer-text-field" }
+      - type_in_field: { id: "agent-composer-text-field", text: "$second_agent_prompt" }
+      - tap: { id: "agent-make-button" }
+      - wait_for_element: { label_contains: "You created an agent", timeout: 60 }
+      - wait_for_element: { label_not_contains: "Setting", timeout: 90, optional: true }
+      - tap: { id: "close-committed-agent-conversation", optional: true }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { label_contains: "lost power" }
+    criteria: second_agent_built
+    note: >
+      A second template-backed agent so the picker has an agent to select that is
+      NOT already in the first agent's conversation. Requires backend provisioning
+      (templateId) like test 36.
+
+  - id: open_first_agent_conversation
+    name: "Open the first agent's conversation and the add-from-contacts picker"
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Contacts", timeout: 10 }
+      - tap: { id: "contact-row-" }
+      - wait_for_element: { id: "contact-detail-chat", timeout: 10 }
+      - tap: { id: "contact-detail-chat" }
+      - tap: { label: "Got it", optional: true }
+      - wait_for_element: { id: "add-to-conversation-button", timeout: 20 }
+      - tap: { id: "add-to-conversation-button" }
+      - wait_for_element: { id: "context-menu-add-from-contacts", timeout: 10 }
+      - tap: { id: "context-menu-add-from-contacts" }
+      - wait_for_element: { id: "contacts-picker-confirm", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "contacts-picker-confirm" }
+    criteria: add_picker_opens
+    note: >
+      Opening Chat on the first agent's card (confirming the One-agent sheet) lands
+      in its conversation; add-to-conversation-button -> context-menu-add-from-contacts
+      presents ContactsPickerView in add-to-conversation mode, seeded with the
+      conversation's members as alreadyInChatInboxIds.
+
+  - id: agent_pickable_in_add_mode
+    name: "Agents are shown (not hidden) in add-to-conversation mode"
+    actions:
+      - find_elements: { pattern: "contacts-picker-row-" }
+      - screenshot: {}
+    verify:
+      - element_count_gte: { pattern: "contacts-picker-row-", min: 1 }
+      - element_exists: { label_contains: "Agent" }
+    criteria: agent_pickable_in_add_mode
+    note: >
+      ContactsPickerViewModel.isPickable returns true for agents across all modes
+      (!isBlocked && isVisibleInContactsList). The second agent appears as a
+      selectable picker row with an Agent pill.
+
+  - id: already_in_chat_disabled
+    name: "The agent already in the conversation is inline-disabled in the picker"
+    actions:
+      - find_elements: { pattern: "in chat" }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "in chat" }
+    criteria: already_in_chat_disabled
+    note: >
+      The first agent is a member of this conversation, so its picker row shows the
+      "in chat" badge and is .disabled (ContactsPickerRow). toggleSelection guards
+      !alreadyInChatInboxIds.contains(inboxId), so tapping it adds no selected pill.
+
+  - id: hasagent_guard_blocks_second_agent
+    name: "Selecting the second agent in a convo that already has one is a no-op"
+    actions:
+      - tap: { label_contains: "Travel" }
+      - wait_for_element: { id: "contacts-picker-confirm", timeout: 5 }
+      - tap: { id: "contacts-picker-confirm" }
+      - wait_for_element: { id: "conversation-toolbar-button", timeout: 15 }
+      - wait: { seconds: 3 }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { label_contains: "joined" }
+    criteria: hasagent_guard_blocks_second_agent
+    note: >
+      AddFromContactsPickerModifier.handleConfirm gates requestAgentJoin on
+      !viewModel.conversation.hasAgent. The conversation already has the first agent,
+      so confirming with the second agent selected must NOT spawn it (no agent
+      "joined" system message). Human members in a selection would still be added.
+
+teardown:
+  - action: note
+    args:
+      text: >
+        Leave the agents + conversations for test 37b (block/consent), which reuses
+        them.
+
+criteria:
+  second_agent_built:
+    description: "A second template-backed agent is built via the agent-builder (no 'lost power')"
+  add_picker_opens:
+    description: "The add-from-contacts picker opens inside the first agent's conversation"
+  agent_pickable_in_add_mode:
+    description: "A template-backed agent row is present and selectable in the add-to-conversation picker"
+  already_in_chat_disabled:
+    description: "The agent already in the conversation shows an 'in chat' badge and is not re-selectable"
+  hasagent_guard_blocks_second_agent:
+    description: "Confirming the picker with a second agent selected in a convo that already has one does NOT spawn the second agent"
+
+# Unit-covered invariants (not cleanly reproducible via the agent-builder UI):
+#  - A verified agent with NO templateId stays hidden from the browse list:
+#    Contact+BrowseVisibility.isVisibleInContactsList returns false when
+#    agentVerification != nil && agentTemplateId == nil. The agent-builder always
+#    assigns a templateId once provisioned, so this is exercised in the unit suite
+#    (and transiently visible pre-provision).
+#  - A metadata-less name-only ProfileUpdate keeps the sticky templateId:
+#    DBContact.replacingProfileFields coalesces (snapshot.agentTemplateId ??
+#    agentTemplateId). Covered by ContactsRepository/ContactsWriter unit tests.

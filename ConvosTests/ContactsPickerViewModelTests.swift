@@ -15,22 +15,6 @@ final class ContactsPickerViewModelTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Helpers
-
-    private func humanRowIds(_ viewModel: ContactsPickerViewModel) -> [String] {
-        viewModel.sections.flatMap { $0.rows }.compactMap { row in
-            if case .human(let contact) = row.kind { return contact.inboxId }
-            return nil
-        }
-    }
-
-    private func agentRowIds(_ viewModel: ContactsPickerViewModel) -> [String] {
-        viewModel.sections.flatMap { $0.rows }.compactMap { row in
-            if case .agentTemplate(let agent) = row.kind { return agent.templateId }
-            return nil
-        }
-    }
-
     // MARK: - Sectioning + sort
 
     func testAlphabeticalSectionsExcludeBlockedContactsByDefault() {
@@ -44,39 +28,97 @@ final class ContactsPickerViewModelTests: XCTestCase {
             contactsRepository: repo
         )
 
-        XCTAssertEqual(humanRowIds(viewModel).sorted(), [alice.inboxId, carl.inboxId].sorted())
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, carl.inboxId].sorted())
     }
 
-    /// Verified-agent contacts (Convos / OAuth-attested assistants) live in
-    /// `DBContact` so chat-side surfaces can resolve them, but the picker
-    /// browses humans only. Regression guard: if the predicate ever stops
-    /// filtering them, agents would surface in every "Start a convo" /
-    /// "Add to convo" flow.
-    func testSectionsExcludeVerifiedAgents() {
+    /// New-conversation mode surfaces humans and template-backed agents
+    /// (you can spawn a fresh instance into the new convo). Template-less
+    /// agents - legacy verified assistants and unverified agents - stay
+    /// hidden.
+    func testNewConversationShowsTemplateBackedAgentsOnly() {
         let alice = Contact.mock(displayName: "Alice")
-        let assistant = Contact.mock(
-            displayName: "Convos Assistant",
-            agentVerification: .verified(.convos)
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
         )
-        let oauthAgent = Contact.mock(
-            displayName: "OAuth Bot",
-            agentVerification: .verified(.userOAuth)
+        let legacyAssistant = Contact.mock(
+            displayName: "Legacy Assistant",
+            agentVerification: .verified(.convos)
         )
         let unverifiedAgent = Contact.mock(
             displayName: "Unverified Bot",
             agentVerification: .unverified
         )
-        let repo = MockContactsRepository(contacts: [alice, assistant, oauthAgent, unverifiedAgent])
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant, unverifiedAgent])
+
+        let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
+
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
+    }
+
+    /// Add-to-conversation mode is human-only - agents aren't spawned into
+    /// an existing conversation from the picker.
+    func testAddToConversationShowsAgents() {
+        // Template-backed agents are selectable in add-to-conversation mode
+        // too: confirming spawns a fresh instance of the template into the
+        // existing conversation.
+        let alice = Contact.mock(displayName: "Alice")
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent])
 
         let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
+            mode: .addToConversation(conversationId: "convo-1", conversationTitle: nil),
             contactsRepository: repo
         )
 
-        // Alice and the unverified agent pass through; both verified agents
-        // are filtered out. Unverified agents intentionally remain visible
-        // because they're not yet attested.
-        XCTAssertEqual(humanRowIds(viewModel).sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds, [alice.inboxId, coffeeAgent.inboxId])
+    }
+
+    /// At most one agent may be selected. Once an agent is selected, other
+    /// agents are blocked (selecting a second is a no-op and their rows are
+    /// disabled); the user must deselect the first to pick another. Humans
+    /// are unrestricted.
+    func testSecondAgentSelectionIsBlocked() {
+        let alice = Contact.mock(displayName: "Alice")
+        let coffee = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let tea = Contact.mock(
+            displayName: "Earl Grey",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-tea"
+        )
+        let repo = MockContactsRepository(contacts: [alice, coffee, tea])
+        let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
+
+        viewModel.toggleSelection(for: alice.inboxId)
+        viewModel.toggleSelection(for: coffee.inboxId)
+        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
+        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: coffee.inboxId), "the selected agent itself isn't blocked")
+        XCTAssertTrue(viewModel.isAgentSelectionBlocked(for: tea.inboxId), "other agents are blocked once one is selected")
+
+        // Tapping a second agent is a no-op: the first stays, the second is not added.
+        viewModel.toggleSelection(for: tea.inboxId)
+        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
+        XCTAssertFalse(viewModel.isSelected(inboxId: tea.inboxId))
+        XCTAssertTrue(viewModel.isSelected(inboxId: coffee.inboxId))
+        XCTAssertTrue(viewModel.isSelected(inboxId: alice.inboxId))
+        XCTAssertEqual(viewModel.selectionCount, 2)
+
+        // Deselecting the agent unblocks the others.
+        viewModel.toggleSelection(for: coffee.inboxId)
+        XCTAssertNil(viewModel.selectedAgentTemplateId)
+        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: tea.inboxId))
     }
 
     func testHashBucketSortsLastForNonAlphaNames() {
@@ -106,11 +148,11 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.headerTitle, "New conversation")
 
         let firstId = MockContactsRepository.defaultMockContacts[0].inboxId
-        viewModel.toggleSelection(.human(inboxId: firstId))
+        viewModel.toggleSelection(for: firstId)
         XCTAssertEqual(viewModel.confirmButtonTitle, "Continue")
 
         let secondId = MockContactsRepository.defaultMockContacts[1].inboxId
-        viewModel.toggleSelection(.human(inboxId: secondId))
+        viewModel.toggleSelection(for: secondId)
         XCTAssertEqual(viewModel.confirmButtonTitle, "Continue")
     }
 
@@ -123,11 +165,11 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.headerTitle, "Add to Dev Convosation")
 
         let firstId = MockContactsRepository.defaultMockContacts[0].inboxId
-        viewModel.toggleSelection(.human(inboxId: firstId))
+        viewModel.toggleSelection(for: firstId)
         XCTAssertEqual(viewModel.confirmButtonTitle, "Continue")
 
         let secondId = MockContactsRepository.defaultMockContacts[1].inboxId
-        viewModel.toggleSelection(.human(inboxId: secondId))
+        viewModel.toggleSelection(for: secondId)
         XCTAssertEqual(viewModel.confirmButtonTitle, "Continue")
     }
 
@@ -140,7 +182,7 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.headerTitle, "Add to convo")
     }
 
-    // MARK: - Selection (humans)
+    // MARK: - Selection
 
     func testToggleSelectionTogglesAndCanConfirmReflectsCount() {
         let viewModel = ContactsPickerViewModel(
@@ -151,15 +193,14 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.canConfirm)
 
         let target = MockContactsRepository.defaultMockContacts[0].inboxId
-        let selection: ContactsPickerViewModel.Selection = .human(inboxId: target)
-        viewModel.toggleSelection(selection)
+        viewModel.toggleSelection(for: target)
         XCTAssertTrue(viewModel.canConfirm)
         XCTAssertEqual(viewModel.selectionCount, 1)
-        XCTAssertTrue(viewModel.isSelected(selection))
+        XCTAssertTrue(viewModel.isSelected(inboxId: target))
 
-        viewModel.toggleSelection(selection)
+        viewModel.toggleSelection(for: target)
         XCTAssertFalse(viewModel.canConfirm)
-        XCTAssertFalse(viewModel.isSelected(selection))
+        XCTAssertFalse(viewModel.isSelected(inboxId: target))
     }
 
     func testToggleSelectionIgnoresAlreadyInChatContacts() {
@@ -170,8 +211,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
             alreadyInChatInboxIds: [alreadyIn]
         )
 
-        viewModel.toggleSelection(.human(inboxId: alreadyIn))
-        XCTAssertFalse(viewModel.isSelected(.human(inboxId: alreadyIn)))
+        viewModel.toggleSelection(for: alreadyIn)
+        XCTAssertFalse(viewModel.isSelected(inboxId: alreadyIn))
         XCTAssertEqual(viewModel.selectionCount, 0)
     }
 
@@ -188,66 +229,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
         )
 
         XCTAssertEqual(viewModel.selectionCount, 1)
-        XCTAssertFalse(viewModel.isSelected(.human(inboxId: inChat)))
-        XCTAssertTrue(viewModel.isSelected(.human(inboxId: mocks[1].inboxId)))
-    }
-
-    // MARK: - Selection (agent templates)
-
-    func testAgentTemplatesAreSelectableAndMixWithHumans() {
-        let alice = Contact.mock(displayName: "Alice")
-        let bob = Contact.mock(displayName: "Bob")
-        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
-        let tripPlanner = AgentTemplateContact.mock(displayName: "Trip Planner", emoji: "🗺️")
-        let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
-            contactsRepository: MockContactsRepository(contacts: [alice, bob]),
-            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso, tripPlanner])
-        )
-
-        viewModel.toggleSelection(.human(inboxId: alice.inboxId))
-        viewModel.toggleSelection(.agentTemplate(templateId: tifoso.templateId))
-        viewModel.toggleSelection(.agentTemplate(templateId: tripPlanner.templateId))
-
-        XCTAssertEqual(viewModel.selectionCount, 3)
-        XCTAssertEqual(Set(viewModel.selectedContacts.map(\.inboxId)), [alice.inboxId])
-        XCTAssertEqual(
-            Set(viewModel.selectedAgentContacts.map(\.templateId)),
-            [tifoso.templateId, tripPlanner.templateId]
-        )
-    }
-
-    /// Agent-template rows are surfaced in the picker sections (unlike
-    /// verified humans, which are filtered out). Regression guard for the
-    /// 2.4 picker integration.
-    func testAgentTemplateRowsAppearInSections() {
-        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
-        let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
-            contactsRepository: MockContactsRepository(contacts: []),
-            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso])
-        )
-
-        XCTAssertEqual(agentRowIds(viewModel), [tifoso.templateId])
-    }
-
-    /// Selecting / deselecting an agent template via the explicit `Selection`
-    /// API round-trips cleanly. The `templateId` accessor exposes the same
-    /// id through both directions.
-    func testAgentTemplateSelectionRoundTrips() {
-        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
-        let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
-            contactsRepository: MockContactsRepository(contacts: []),
-            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso])
-        )
-        let selection: ContactsPickerViewModel.Selection = .agentTemplate(templateId: tifoso.templateId)
-
-        XCTAssertFalse(viewModel.isSelected(selection))
-        viewModel.toggleSelection(selection)
-        XCTAssertTrue(viewModel.isSelected(selection))
-        viewModel.deselect(selection)
-        XCTAssertFalse(viewModel.isSelected(selection))
+        XCTAssertFalse(viewModel.isSelected(inboxId: inChat))
+        XCTAssertTrue(viewModel.isSelected(inboxId: mocks[1].inboxId))
     }
 
     // MARK: - Search
@@ -264,22 +247,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
         )
 
         viewModel.searchQuery = "ALI"
-        XCTAssertEqual(humanRowIds(viewModel), [alice.inboxId])
-    }
-
-    func testSearchMatchesAgentTemplateNames() {
-        let alice = Contact.mock(displayName: "Alice")
-        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
-        let tripPlanner = AgentTemplateContact.mock(displayName: "Trip Planner", emoji: "🗺️")
-        let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
-            contactsRepository: MockContactsRepository(contacts: [alice]),
-            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso, tripPlanner])
-        )
-
-        viewModel.searchQuery = "trip"
-        XCTAssertEqual(humanRowIds(viewModel), [])
-        XCTAssertEqual(agentRowIds(viewModel), [tripPlanner.templateId])
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds, [alice.inboxId])
     }
 
     func testEmptySearchQueryShowsEverything() {
@@ -304,16 +273,10 @@ final class ContactsPickerViewModelTests: XCTestCase {
             alreadyInChatInboxIds: [inChat]
         )
 
-        let inChatRow = viewModel.sections.flatMap(\.rows).first { row in
-            if case .human(let contact) = row.kind { return contact.inboxId == inChat }
-            return false
-        }
+        let inChatRow = viewModel.sections.flatMap(\.rows).first { $0.id == inChat }
         XCTAssertEqual(inChatRow?.isAlreadyInChat, true)
 
-        let otherRow = viewModel.sections.flatMap(\.rows).first { row in
-            if case .human(let contact) = row.kind { return contact.inboxId == mocks[1].inboxId }
-            return false
-        }
+        let otherRow = viewModel.sections.flatMap(\.rows).first { $0.id == mocks[1].inboxId }
         XCTAssertEqual(otherRow?.isAlreadyInChat, false)
     }
 
@@ -329,8 +292,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
 
         let removed = mocks[0].inboxId
         let kept = mocks[1].inboxId
-        viewModel.toggleSelection(.human(inboxId: removed))
-        viewModel.toggleSelection(.human(inboxId: kept))
+        viewModel.toggleSelection(for: removed)
+        viewModel.toggleSelection(for: kept)
 
         repo.setContacts(mocks.filter { $0.inboxId != removed })
 
@@ -338,32 +301,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
         // operator on the publisher subscription has a chance to deliver.
         try await Task.sleep(nanoseconds: 50_000_000)
 
-        XCTAssertFalse(viewModel.isSelected(.human(inboxId: removed)))
-        XCTAssertTrue(viewModel.isSelected(.human(inboxId: kept)))
-    }
-
-    /// Agent-template pruning mirrors the human path: if the agent-template
-    /// repo drops a row from underneath us (e.g. user removed the contact
-    /// from another surface mid-picker), the selection drops too.
-    func testAgentTemplateSelectionPrunedWhenContactRemoved() async throws {
-        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
-        let tripPlanner = AgentTemplateContact.mock(displayName: "Trip Planner", emoji: "🗺️")
-        let repo = MockAgentTemplateContactsRepository(contacts: [tifoso, tripPlanner])
-        let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
-            contactsRepository: MockContactsRepository(contacts: []),
-            agentTemplateContactsRepository: repo
-        )
-
-        viewModel.toggleSelection(.agentTemplate(templateId: tifoso.templateId))
-        viewModel.toggleSelection(.agentTemplate(templateId: tripPlanner.templateId))
-
-        repo.setContacts([tripPlanner])
-
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        XCTAssertFalse(viewModel.isSelected(.agentTemplate(templateId: tifoso.templateId)))
-        XCTAssertTrue(viewModel.isSelected(.agentTemplate(templateId: tripPlanner.templateId)))
+        XCTAssertFalse(viewModel.isSelected(inboxId: removed))
+        XCTAssertTrue(viewModel.isSelected(inboxId: kept))
     }
 
     // MARK: - pickableContacts (Compose skip decision)

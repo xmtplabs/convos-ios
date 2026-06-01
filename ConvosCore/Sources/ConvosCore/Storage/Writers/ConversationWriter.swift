@@ -51,8 +51,7 @@ protocol ConversationWriterProtocol: Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String?,
-        quarantinedAt: Date?
+        clientConversationId: String?
     ) async throws -> DBConversation
     func createPlaceholderConversation(
         draftConversationId: String?,
@@ -78,22 +77,7 @@ extension ConversationWriterProtocol {
         try await storeWithLatestMessages(
             conversation: conversation,
             inboxId: inboxId,
-            clientConversationId: nil,
-            quarantinedAt: nil
-        )
-    }
-
-    @discardableResult
-    func storeWithLatestMessages(
-        conversation: XMTPiOS.Group,
-        inboxId: String,
-        clientConversationId: String?
-    ) async throws -> DBConversation {
-        try await storeWithLatestMessages(
-            conversation: conversation,
-            inboxId: inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: nil
+            clientConversationId: nil
         )
     }
 }
@@ -153,15 +137,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         return try await _store(
             conversation: conversation,
             inboxId: inboxId,
             withLatestMessages: true,
-            clientConversationId: clientConversationId,
-            quarantinedAt: quarantinedAt
+            clientConversationId: clientConversationId
         )
     }
 
@@ -270,8 +252,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> PreparedConversation {
         try await conversation.sync()
         let metadata = try await extractConversationMetadata(from: conversation)
@@ -283,8 +264,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             metadata: metadata,
             inboxId: inboxId,
             clientConversationId: clientConversationId,
-            imageLastRenewed: nil,
-            quarantinedAt: quarantinedAt
+            imageLastRenewed: nil
         )
         return PreparedConversation(
             dbConversation: dbConversation,
@@ -446,14 +426,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         conversation: XMTPiOS.Group,
         inboxId: String,
         withLatestMessages: Bool = false,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         let prepared = try await prepare(
             conversation: conversation,
             inboxId: inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: quarantinedAt
+            clientConversationId: clientConversationId
         )
 
         // Persist in a single transaction. Capture the actual clientConversationId
@@ -574,8 +552,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         metadata: ConversationMetadata,
         inboxId: String,
         clientConversationId: String? = nil,
-        imageLastRenewed: Date? = nil,
-        quarantinedAt: Date? = nil
+        imageLastRenewed: Date? = nil
     ) async throws -> DBConversation {
         // Assert the inbox exists locally even though the column no longer
         // lives on the conversation row — readers expect an inbox row for the
@@ -609,8 +586,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
-            quarantinedAt: quarantinedAt
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent
         )
     }
 
@@ -662,26 +638,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         // Preserve fields from the existing row that the caller did not
-        // explicitly carry forward:
-        //   - `hasHadVerifiedAgent` is sticky-on (once true, stays true).
-        //   - `quarantinedAt` / `quarantineReleasedAt`: sync paths
-        //     (`store(...)`, push-driven `storeWithLatestMessages`) pass
-        //     `quarantinedAt: nil`, and `createDBConversation` does not
-        //     thread `quarantineReleasedAt` at all. Without this merge a
-        //     refresh would silently un-quarantine a held conversation.
-        //     Explicit non-nil values come from the stream processor's
-        //     quarantine path; the sweeper writes release timestamps
-        //     directly to the DB and never flows through this writer.
+        // explicitly carry forward: `hasHadVerifiedAgent` is sticky-on
+        // (once true, stays true).
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
-            let preservedQuarantinedAt: Date? = dbConversation.quarantinedAt ?? existingConversation.quarantinedAt
-            let preservedQuarantineReleasedAt: Date? = dbConversation.quarantineReleasedAt ?? existingConversation.quarantineReleasedAt
-            conversationToSave = conversationToSave
-                .with(hasHadVerifiedAgent: mergedHasAgent)
-                .with(
-                    quarantinedAt: preservedQuarantinedAt,
-                    quarantineReleasedAt: preservedQuarantineReleasedAt
-                )
+            conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -717,19 +678,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if !localConversation.isUnused {
                 conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
             }
-            // Merge sticky fields from the by-tag match for the same
-            // reasons documented above: this row is replacing
-            // `localConversation`, so its sticky-on agent flag and
-            // quarantine timestamps must carry forward.
+            // This row is replacing `localConversation`, so its sticky-on
+            // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
-            let preservedQuarantinedAtByTag: Date? = conversationToSave.quarantinedAt ?? localConversation.quarantinedAt
-            let preservedQuarantineReleasedAtByTag: Date? = conversationToSave.quarantineReleasedAt ?? localConversation.quarantineReleasedAt
-            conversationToSave = conversationToSave
-                .with(hasHadVerifiedAgent: mergedHasAgentByTag)
-                .with(
-                    quarantinedAt: preservedQuarantinedAtByTag,
-                    quarantineReleasedAt: preservedQuarantineReleasedAtByTag
-                )
+            conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgentByTag)
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

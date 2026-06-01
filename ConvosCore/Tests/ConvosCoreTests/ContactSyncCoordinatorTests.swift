@@ -245,6 +245,60 @@ struct ContactSyncCoordinatorTests {
         #expect(contactIds == Set(["alice", "carol"]))
     }
 
+    @Test("a template-backed agent member persists its template identity onto the contact")
+    func testTemplateAgentPersistsTemplateFields() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-agent"
+        let agentInboxId = "americano"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, agentInboxId]
+            )
+            // Overwrite the agent's per-conversation profile with one that
+            // carries template metadata and a verified-Convos member kind.
+            try DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: agentInboxId,
+                name: "Americano",
+                avatar: nil,
+                memberKind: .verifiedConvos,
+                metadata: [
+                    "templateId": .string("tmpl-coffee"),
+                    "publishedUrl": .string("https://convos.org/t/coffee"),
+                    "emoji": .string("☕️")
+                ]
+            ).save(db)
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+
+        let agent = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: agentInboxId)
+        }
+        #expect(agent?.agentTemplateId == "tmpl-coffee")
+        #expect(agent?.agentTemplatePublishedURL == "https://convos.org/t/coffee")
+        #expect(agent?.agentTemplateEmoji == "☕️")
+        #expect(agent?.agentVerification?.isVerified == true)
+
+        // The hydrated read-model surfaces the same identity and reads as a
+        // verified agent, which is what the browse-list Agent pill keys on.
+        let contact: Contact? = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: agentInboxId).map(Contact.init(dbContact:))
+        }
+        #expect(contact?.isVerifiedAgent == true)
+        #expect(contact?.agentTemplateId == "tmpl-coffee")
+    }
+
     @Test("self inbox is excluded from contacts")
     func testSelfSkip() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -409,352 +463,4 @@ struct ContactSyncCoordinatorTests {
         }
         #expect(inboxIds == Set(["alice"]))
     }
-
-    @Test("syncContacts posts a single `contactsWereAdded` notification covering the whole batch")
-    func testSyncContactsPostsSingleBatchNotification() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let selfInboxId = "self-inbox"
-        let conversationId = "conv-batch"
-
-        try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
-            try Self.seedConversation(
-                db: db,
-                conversationId: conversationId,
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "alice", "bob", "carol"]
-            )
-        }
-
-        // Private center so other suites posting on `.default` cannot leak in.
-        let center = NotificationCenter()
-        let recorder = SyncNotificationRecorder(name: .contactsWereAdded, center: center)
-
-        let coordinator = ContactSyncCoordinator(
-            databaseWriter: dbManager.dbWriter,
-            databaseReader: dbManager.dbReader,
-            notificationCenter: center
-        )
-        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
-
-        // Wait for the main-queue dispatch from `postContactsWereAdded` to
-        // land. Polling beats a fixed sleep because the dispatch latency
-        // varies under CI load.
-        try await waitUntil(timeout: .seconds(2)) {
-            recorder.notifications.count >= 1
-        }
-
-        #expect(recorder.notifications.count == 1, "Batch sync must coalesce N inserts into one notification")
-        let payload = recorder.notifications.first?.userInfo?["inboxIds"] as? [String] ?? []
-        #expect(Set(payload) == Set(["alice", "bob", "carol"]))
-
-        // Second sync is a no-op (already-synced) and must not re-fire. Use
-        // a happens-after sentinel: post a marker on the same center after
-        // the no-op call, wait for the sentinel, then assert no second
-        // `contactsWereAdded` arrived. Polling for the absence of a
-        // notification would be a race; the sentinel pattern is not.
-        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
-        try await flush(center: center)
-        #expect(recorder.notifications.count == 1)
-
-        recorder.stop()
-    }
-
-    @Test("syncContacts does not post `contactsWereAdded` when no new contact rows are inserted")
-    func testSyncContactsDoesNotPostWhenNothingInserted() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let selfInboxId = "self-inbox"
-        let conversationId = "conv-noop"
-
-        // Pre-seed the conversation members as contacts so the coordinator's
-        // upserts merge into existing rows rather than inserting new ones.
-        try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
-            try Self.seedConversation(
-                db: db,
-                conversationId: conversationId,
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "alice"]
-            )
-            try DBContact(
-                inboxId: "alice",
-                addedAt: Date(timeIntervalSince1970: 1),
-                addedViaConversationId: nil,
-                displayName: "Alice",
-                avatarURL: nil,
-                avatarSalt: nil,
-                avatarNonce: nil,
-                avatarKey: nil,
-                profileUpdatedAt: Date(timeIntervalSince1970: 1),
-                agentVerification: nil
-            ).save(db)
-        }
-
-        let center = NotificationCenter()
-        let recorder = SyncNotificationRecorder(name: .contactsWereAdded, center: center)
-
-        let coordinator = ContactSyncCoordinator(
-            databaseWriter: dbManager.dbWriter,
-            databaseReader: dbManager.dbReader,
-            notificationCenter: center
-        )
-        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
-
-        // Happens-after sentinel: any real `contactsWereAdded` post from the
-        // sync above would have been dispatched to the main queue before
-        // the sentinel post we make here, so once the sentinel arrives the
-        // recorder has seen everything the sync could have produced.
-        try await flush(center: center)
-
-        #expect(recorder.notifications.isEmpty, "No new contact rows, so no sweep-trigger should fire")
-
-        recorder.stop()
-    }
-
-    // MARK: - Agent template capture
-
-    /// Saves a template-backed verified-agent member profile: `memberKind`
-    /// is `.verifiedConvos` and the metadata carries the `templateId` plus
-    /// the published-template fields the agent runtime stamps.
-    private static func saveAgentProfile(
-        db: Database,
-        conversationId: String,
-        inboxId: String,
-        templateId: String,
-        name: String = "Tifoso",
-        emoji: String = "🚴",
-        descriptionText: String = "Pro cycling expert",
-        publishedUrl: String = "https://agents-dev.convos.org/tifoso.pnw1o"
-    ) throws {
-        try DBMemberProfile(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: nil,
-            memberKind: .verifiedConvos,
-            metadata: [
-                "templateId": .string(templateId),
-                "emoji": .string(emoji),
-                "description": .string(descriptionText),
-                "publishedUrl": .string(publishedUrl)
-            ]
-        ).save(db)
-    }
-
-    @Test("A conversation with a template-backed agent captures the template as a contact")
-    func testTemplateBackedAgentCapturedAsContact() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let selfInboxId = "self-inbox"
-        let conversationId = "conv-1"
-        let templateId = "200e27dc-badc-429f-a431-b01b0281ec95"
-
-        try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
-            try Self.seedConversation(
-                db: db,
-                conversationId: conversationId,
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "agent-instance-a"]
-            )
-            try Self.saveAgentProfile(
-                db: db,
-                conversationId: conversationId,
-                inboxId: "agent-instance-a",
-                templateId: templateId
-            )
-        }
-
-        let coordinator = ContactSyncCoordinator(
-            databaseWriter: dbManager.dbWriter,
-            databaseReader: dbManager.dbReader
-        )
-        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
-
-        let templateContacts = try await dbManager.dbReader.read { db in
-            try DBAgentTemplateContact.fetchAll(db)
-        }
-        #expect(templateContacts.count == 1)
-        let stored = templateContacts.first
-        #expect(stored?.templateId == templateId)
-        #expect(stored?.displayName == "Tifoso")
-        #expect(stored?.emoji == "🚴")
-        #expect(stored?.publishedURL == "https://agents-dev.convos.org/tifoso.pnw1o")
-        #expect(stored?.addedViaConversationId == conversationId)
-    }
-
-    @Test("The same template across two conversations yields exactly one contact row")
-    func testSameTemplateAcrossConversationsYieldsOneRow() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let selfInboxId = "self-inbox"
-        let templateId = "200e27dc-badc-429f-a431-b01b0281ec95"
-
-        try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
-            // Two conversations, two different agent instances (distinct
-            // inboxIds), both provisioned from the same template.
-            try Self.seedConversation(
-                db: db,
-                conversationId: "conv-1",
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "agent-a"]
-            )
-            try Self.saveAgentProfile(
-                db: db,
-                conversationId: "conv-1",
-                inboxId: "agent-a",
-                templateId: templateId
-            )
-            try Self.seedConversation(
-                db: db,
-                conversationId: "conv-2",
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "agent-b"]
-            )
-            try Self.saveAgentProfile(
-                db: db,
-                conversationId: "conv-2",
-                inboxId: "agent-b",
-                templateId: templateId
-            )
-        }
-
-        let coordinator = ContactSyncCoordinator(
-            databaseWriter: dbManager.dbWriter,
-            databaseReader: dbManager.dbReader
-        )
-        try await coordinator.syncContactsOnFirstMessage(for: "conv-1")
-        try await coordinator.syncContactsOnFirstMessage(for: "conv-2")
-
-        let templateContacts = try await dbManager.dbReader.read { db in
-            try DBAgentTemplateContact.fetchAll(db)
-        }
-        #expect(templateContacts.count == 1)
-        #expect(templateContacts.first?.templateId == templateId)
-    }
-
-    @Test("A conversation with only humans and legacy verified agents yields no template contacts")
-    func testNoTemplateContactsForHumansAndLegacyAgents() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let selfInboxId = "self-inbox"
-        let conversationId = "conv-1"
-
-        try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
-            try Self.seedConversation(
-                db: db,
-                conversationId: conversationId,
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "alice", "legacy-agent"],
-                memberProfiles: ["alice": (name: "Alice", avatar: nil)]
-            )
-            // A legacy verified agent: verified, but carries no templateId
-            // in its profile metadata.
-            try DBMemberProfile(
-                conversationId: conversationId,
-                inboxId: "legacy-agent",
-                name: "Convos Assistant",
-                avatar: nil,
-                memberKind: .verifiedConvos,
-                metadata: nil
-            ).save(db)
-        }
-
-        let coordinator = ContactSyncCoordinator(
-            databaseWriter: dbManager.dbWriter,
-            databaseReader: dbManager.dbReader
-        )
-        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
-
-        let templateCount = try await dbManager.dbReader.read { db in
-            try DBAgentTemplateContact.fetchCount(db)
-        }
-        #expect(templateCount == 0)
-
-        // The inboxId-keyed contact table is unaffected: both non-self
-        // members still land there (the legacy agent is hidden from the
-        // browse list separately, by the `!isVerifiedAgent` filter).
-        let contactIds: Set<String> = try await dbManager.dbReader.read { db in
-            Set(try DBContact.fetchAll(db).map(\.inboxId))
-        }
-        #expect(contactIds == Set(["alice", "legacy-agent"]))
-    }
-}
-
-/// Posts a sentinel notification on `center` and awaits its delivery on the
-/// main queue. Use this in tests that need to assert "nothing happened":
-/// because `postContactsWereAdded` dispatches to the main queue, any real
-/// post made before this call lands on the queue before the sentinel.
-private func flush(center: NotificationCenter) async throws {
-    let sentinelName = Notification.Name("ContactSyncCoordinatorTests.Sentinel.\(UUID().uuidString)")
-    let arrived = SentinelLatch()
-    let token = center.addObserver(forName: sentinelName, object: nil, queue: nil) { _ in
-        arrived.fire()
-    }
-    defer { center.removeObserver(token) }
-
-    await MainActor.run {
-        center.post(name: sentinelName, object: nil)
-    }
-    try await waitUntil(timeout: .seconds(2)) { arrived.didFire }
-}
-
-private final class SentinelLatch: @unchecked Sendable {
-    private let lock: NSLock = NSLock()
-    private var _didFire: Bool = false
-
-    var didFire: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _didFire
-    }
-
-    func fire() {
-        lock.lock()
-        _didFire = true
-        lock.unlock()
-    }
-}
-
-/// Local copy of the recorder used by `ContactsWriterTests`. Kept private
-/// to this file so each test file can opt into the helper without coupling
-/// suites to a shared scaffolding module.
-///
-/// The recorder is bound to a specific `NotificationCenter` so callers can
-/// scope it to a private center and avoid cross-suite leakage through
-/// `.default`. The `lock`-guarded array makes concurrent appends safe when
-/// the center delivers to its own queue.
-private final class SyncNotificationRecorder: @unchecked Sendable {
-    private let center: NotificationCenter
-    private var _notifications: [Notification] = []
-    private var token: NSObjectProtocol?
-    private let lock: NSLock = NSLock()
-
-    var notifications: [Notification] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _notifications
-    }
-
-    init(name: Notification.Name, center: NotificationCenter = .default) {
-        self.center = center
-        token = center.addObserver(
-            forName: name,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard let self else { return }
-            self.lock.lock()
-            self._notifications.append(notification)
-            self.lock.unlock()
-        }
-    }
-
-    func stop() {
-        if let token {
-            center.removeObserver(token)
-            self.token = nil
-        }
-    }
-
-    deinit { stop() }
 }
