@@ -233,7 +233,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func contactsWriter() -> any ContactsWriterProtocol {
-        ContactsWriter(databaseWriter: databaseWriter)
+        ContactsWriter(databaseWriter: databaseWriter, sessionStateManager: sessionStateManager)
     }
 
     func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
