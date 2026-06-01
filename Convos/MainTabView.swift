@@ -208,6 +208,17 @@ struct MainTabView: View {
         }
     }
 
+    /// Tapping a message notification selects the conversation in
+    /// `ConversationsViewModel`, but that conversation only lives under the
+    /// Chats tab. Switch to Chats and dismiss any shell-level modal first so
+    /// the user isn't left on the Stuff tab or behind the App Settings sheet
+    /// looking at a corrupted hierarchy.
+    private func handleConversationNotificationTapped() {
+        activeTab = .chats
+        presentingAppSettings = false
+        presentingCommittedConversation = nil
+    }
+
     var body: some View {
         ZStack {
             tabView
@@ -224,6 +235,9 @@ struct MainTabView: View {
             }
             .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
                 creditBalance = newBalance
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
+                handleConversationNotificationTapped()
             }
             .sheet(item: $presentingCommittedConversation) { convoVM in
                 committedConversationSheetContent(viewModel: convoVM)
