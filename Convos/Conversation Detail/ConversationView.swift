@@ -80,6 +80,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.updateLinkedConversationName(name)
                 focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
+            pendingAgentShareName: viewModel.pendingAgentShare?.resolved?.displayName,
+            pendingAgentShareEmoji: viewModel.pendingAgentShare?.resolved?.emoji,
+            pendingAgentShareSummary: viewModel.pendingAgentShare?.resolved?.descriptionText,
+            isShowingAgentShareChip: viewModel.pendingAgentShare != nil,
+            onClearAgentShare: viewModel.clearPendingAgentShare,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -332,6 +337,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
+            viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
         }
         .animation(.easeOut, value: viewModel.explodeState)
