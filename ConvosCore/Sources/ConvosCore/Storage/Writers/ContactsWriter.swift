@@ -1,12 +1,19 @@
 import Foundation
 import GRDB
 
-// Block / unblock are pure contact-row writes here. Feed visibility is
-// keyed on conversation consent, and `ConversationConsentReconciler`
-// observes the `contact` table: a block flips the creator's conversations
-// to `.denied` (hidden) and an unblock restores them to `.allowed`
-// (visible). No notification or direct consent write is needed at this
-// layer.
+// `block` flips feed visibility synchronously: in one DB transaction it
+// sets the contact's `blockedAt` and demotes the creator's conversations
+// to `.denied`. The feed is a GRDB observation on the `consent` column, so
+// it hides on commit with no network in the path - the user never sees a
+// blocked contact's chats linger. The XMTP-side consent flip then runs
+// best-effort afterward purely for cross-device + re-sync durability;
+// failures are logged, not thrown, because the local feed is already
+// correct. `ConversationConsentReconciler` stays as a backstop that only
+// re-fires when re-sync rewrites the DB `consent` column back to `.allowed`.
+//
+// `unblock` remains a pure contact-row write. By policy a `.denied`
+// conversation is never auto-promoted (the user effectively deleted it),
+// so unblocking does not restore conversations hidden while blocked.
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
 /// the most recent snapshot they have for the inbox. A timestamped
@@ -77,9 +84,14 @@ public protocol ContactsWriterProtocol: Sendable {
         profile: ContactProfileSnapshot
     ) async throws
 
-    /// Marks the contact as blocked. No-op if the inboxId has no contact row
-    /// (blocking does not auto-create contacts) or is already blocked. Repeat
-    /// calls leave the original `blockedAt` timestamp in place.
+    /// Marks the contact as blocked and synchronously demotes the creator's
+    /// still-visible conversations to `.denied` in the same transaction, so
+    /// the feed hides them immediately (no network in the path). The
+    /// XMTP-side consent flip runs best-effort afterward for cross-device
+    /// durability. No-op if the inboxId has no contact row (blocking does
+    /// not auto-create contacts). Repeat calls leave the original
+    /// `blockedAt` timestamp in place but still re-demote any conversation
+    /// that drifted back to visible.
     func block(inboxId: String) async throws
 
     /// Clears the blocked flag on the contact. No-op if the inboxId has no
@@ -89,9 +101,18 @@ public protocol ContactsWriterProtocol: Sendable {
 
 final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
+    /// Used by `block` to flip XMTP consent after the synchronous DB demote.
+    /// Optional so pure-DB unit tests can construct the writer without a
+    /// live session; when nil the XMTP flip is skipped and the
+    /// `ConversationConsentReconciler` backstop covers durability.
+    private let sessionStateManager: (any SessionStateManagerProtocol)?
 
-    init(databaseWriter: any DatabaseWriter) {
+    init(
+        databaseWriter: any DatabaseWriter,
+        sessionStateManager: (any SessionStateManagerProtocol)? = nil
+    ) {
         self.databaseWriter = databaseWriter
+        self.sessionStateManager = sessionStateManager
     }
 
     func upsertContact(
@@ -128,21 +149,67 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 
     func block(inboxId: String) async throws {
-        try await databaseWriter.write { db in
+        let demotedConversationIds: [String] = try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 // Blocking is action-gated on an existing contact row. We
                 // never auto-create a contact just to flag it as blocked.
                 Log.debug("block(inboxId:) skipped, no contact row for \(inboxId)")
-                return
+                return []
             }
-            guard existing.blockedAt == nil else {
-                // Idempotent: leave the original blockedAt timestamp.
-                return
+            // Idempotent: only stamp blockedAt on the first block, but always
+            // demote any still-visible conversations (a repeat block heals a
+            // conversation that drifted back to visible via re-sync).
+            if existing.blockedAt == nil {
+                try existing.with(blockedAt: Date()).save(db)
             }
-            try existing.with(blockedAt: Date()).save(db)
+            return try Self.demoteVisibleConversations(db: db, creatorId: inboxId)
         }
-        // `ConversationConsentReconciler` observes the `contact` table and
-        // demotes this creator's conversations to `.denied`, hiding them.
+        // Feed is already hidden (window 0). Flip XMTP consent best-effort for
+        // cross-device + re-sync durability; the local DB is authoritative so
+        // a failure here is logged, not thrown, and the reconciler backstop
+        // re-converges if re-sync later reverts the DB column.
+        guard let sessionStateManager, !demotedConversationIds.isEmpty else {
+            return
+        }
+        do {
+            let client = try await sessionStateManager.waitForInboxReadyResult().client
+            for conversationId in demotedConversationIds {
+                do {
+                    // Retry transient failures (a momentary network blip). The
+                    // local feed is already correct, so an exhausted retry just
+                    // logs; re-sync drift is then caught by the reconciler
+                    // backstop, which itself re-runs on app foreground and on
+                    // network reconnect (SessionStateMachine -> resume).
+                    try await withExponentialBackoffRetry {
+                        try await client.update(consent: .denied, for: conversationId)
+                    }
+                } catch {
+                    Log.error("block(inboxId:) XMTP consent flip failed for \(conversationId): \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            Log.error("block(inboxId:) could not obtain client for XMTP consent flip: \(error.localizedDescription)")
+        }
+    }
+
+    /// Demotes every still-visible conversation created by `creatorId` to
+    /// `.denied` and returns their ids. Mirrors the
+    /// `ConversationConsentReconciler` join (`conversation.creatorId =
+    /// contact.inboxId`), so shared groups the local user created stay
+    /// visible. Conversations already `.denied` are left untouched.
+    private static func demoteVisibleConversations(db: Database, creatorId: String) throws -> [String] {
+        let conversationIds: [String] = try DBConversation
+            .filter(DBConversation.Columns.creatorId == creatorId)
+            .filter(DBConversation.Columns.consent != Consent.denied)
+            .fetchAll(db)
+            .map(\.id)
+        guard !conversationIds.isEmpty else {
+            return []
+        }
+        try DBConversation
+            .filter(conversationIds.contains(DBConversation.Columns.id))
+            .updateAll(db, DBConversation.Columns.consent.set(to: Consent.denied))
+        return conversationIds
     }
 
     func unblock(inboxId: String) async throws {

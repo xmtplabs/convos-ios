@@ -14,9 +14,14 @@ import XMTPiOS
 /// local user joined stays `.allowed` (flipped at arrival by
 /// `StreamProcessor`). The reconciler covers two contact-state visibility
 /// transitions: promotion when a stranger becomes a contact
-/// (`.unknown` -> `.allowed`) and demotion on block (`.allowed` -> `.denied`),
-/// so `block` stays a pure contact-row write and this reconciler reacts to it
-/// via GRDB observation.
+/// (`.unknown` -> `.allowed`) and demotion on block (`.allowed` -> `.denied`).
+///
+/// Demotion is no longer driven primarily from here: `ContactsWriter.block`
+/// flips both the DB `consent` column and XMTP synchronously, so the feed
+/// hides with zero window. For the block direction this reconciler is a
+/// backstop - it only re-fires when re-sync rewrites the DB `consent` column
+/// back to `.allowed` while the contact is still blocked. Promotion is still
+/// driven from here via GRDB observation.
 ///
 /// Only `.unknown` is promoted - never `.denied`. A `.denied` conversation
 /// from a non-blocked contact is one the user explicitly deleted, so it is
@@ -71,23 +76,53 @@ final class ConversationConsentReconciler: @unchecked Sendable {
         }
     }
 
+    /// Upper bound on concurrent in-flight reconciles per batch. Each
+    /// reconcile is a network round-trip to XMTP, so we parallelize to
+    /// shrink the tail-of-batch window without hammering the service.
+    private static let maxConcurrentReconciles: Int = 6
+
     private func observe() async {
         let dbReader = databaseReader
         let stream = ValueObservation
             .tracking { db in
                 try Self.fetchMismatchedTargets(db: db)
             }
+            // An unrelated conversation/contact write re-emits the observation
+            // even when the mismatched set is unchanged; skip re-driving the
+            // (network-touching) reconcile loop when the targets are identical.
+            .removeDuplicates()
             .values(in: dbReader)
         do {
             for try await targets in stream {
                 if Task.isCancelled { return }
-                for target in targets {
-                    if Task.isCancelled { return }
-                    await reconcile(target)
-                }
+                await reconcileBatch(targets)
             }
         } catch {
             Log.error("ConversationConsentReconciler: stream failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reconciles a batch with bounded concurrency. A large mismatch set
+    /// (block-all, or first launch after the backfill migration) would
+    /// otherwise serialize N network round-trips; a sliding window of at
+    /// most `maxConcurrentReconciles` keeps the tail short.
+    private func reconcileBatch(_ targets: [Target]) async {
+        await withTaskGroup(of: Void.self) { group in
+            var iterator = targets.makeIterator()
+            var inflight = 0
+            while inflight < Self.maxConcurrentReconciles, let target = iterator.next() {
+                group.addTask { [weak self] in await self?.reconcile(target) }
+                inflight += 1
+            }
+            while await group.next() != nil {
+                if Task.isCancelled {
+                    group.cancelAll()
+                    break
+                }
+                if let target = iterator.next() {
+                    group.addTask { [weak self] in await self?.reconcile(target) }
+                }
+            }
         }
     }
 
@@ -138,7 +173,13 @@ final class ConversationConsentReconciler: @unchecked Sendable {
             // which a concurrent save can observe a stale XMTP value.
             let targetState: ConsentState = target.consent.consentState
             if try conversation.consentState() != targetState {
-                try await conversation.updateConsentState(state: targetState)
+                // Retry transient failures in-session; a fully failed target
+                // stays mismatched and is re-driven on the next tracked-region
+                // change, app foreground, or network reconnect (all restart
+                // this observation).
+                try await withExponentialBackoffRetry {
+                    try await conversation.updateConsentState(state: targetState)
+                }
             }
             let consent: Consent = target.consent
             let conversationId: String = target.conversationId
