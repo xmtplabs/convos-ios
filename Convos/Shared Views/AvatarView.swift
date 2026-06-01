@@ -81,6 +81,7 @@ struct ConversationAvatarView: View {
     let conversationImage: UIImage?
 
     @Environment(\.forcedAgentVerification) private var forcedVerification: AgentVerification?
+    @Environment(\.pendingAgentIdentity) private var pendingAgentIdentity: PendingAgentAvatarIdentity?
     @State private var cachedImage: UIImage?
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
@@ -90,7 +91,14 @@ struct ConversationAvatarView: View {
 
     var body: some View {
         Group {
-            if hasForcedAgentStyle {
+            if let pendingAgentIdentity, pendingAgentIdentity.hasContent {
+                // An agent-template flow painted an upcoming identity before
+                // the real verified agent joined (see
+                // `ConversationViewModel.pendingAgentPresentation`). Render its
+                // emoji/photo with verified styling so the indicator advertises
+                // the agent the conversation is about to have.
+                pendingAgentIdentityAvatar(pendingAgentIdentity)
+            } else if hasForcedAgentStyle {
                 // The forced-agent style is set by the Agent Builder's
                 // conversation indicator before the user taps Make
                 // (see `MainTabView.centeredConversationIndicator`). The
@@ -112,6 +120,25 @@ struct ConversationAvatarView: View {
         .aspectRatio(1.0, contentMode: .fit)
         .clipShape(Circle())
         .cachedImage(for: conversation, into: $cachedImage)
+    }
+
+    @ViewBuilder
+    private func pendingAgentIdentityAvatar(_ identity: PendingAgentAvatarIdentity) -> some View {
+        if let emoji = identity.emoji, !emoji.isEmpty {
+            EmojiAvatarView(emoji: emoji, agentVerification: .verified(.convos))
+        } else if let urlString = identity.avatarURL, let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    PendingAgentAvatarView()
+                }
+            }
+        } else {
+            PendingAgentAvatarView()
+        }
     }
 
     @ViewBuilder

@@ -481,9 +481,19 @@ struct ContactDetailView: View {
 
     private func confirmChatWithAgentTemplate() {
         guard let session, let templateId = contact.agentTemplateId else { return }
+        // The contact card already has the agent's identity in hand, so paint
+        // it optimistically while the conversation provisions and the agent
+        // joins -- no async resolve needed.
+        let optimisticIdentity = AgentShareInfo(
+            templateId: templateId,
+            displayName: contact.displayName,
+            emoji: contact.profileEmoji,
+            descriptionText: nil,
+            avatarURL: contact.avatarURL
+        )
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
         )
     }
 

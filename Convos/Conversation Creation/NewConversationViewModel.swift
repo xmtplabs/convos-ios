@@ -49,8 +49,15 @@ enum NewConversationMode {
     /// Same instant-placeholder flow as `.newConversation`; once the
     /// conversation reaches `.ready`, a fresh instance of the given
     /// agent template is requested into it. Used by the agent-template
-    /// deeplink (`convos://template/<id>`).
-    case newConversationWithTemplate(templateId: String)
+    /// deeplink (`convos://template/<id>`) and the "Chat" action on an
+    /// agent contact card.
+    ///
+    /// `optimisticIdentity` paints the upcoming agent (name + emoji/photo,
+    /// verified styling, "Joining..." subtitle, contact card) from the moment
+    /// the sheet opens. The contact-card path passes the in-hand identity; the
+    /// deep link passes `nil` (only the template id is known) and the identity
+    /// is resolved asynchronously and upgraded in place.
+    case newConversationWithTemplate(templateId: String, optimisticIdentity: AgentShareInfo?)
     case scanner
     case joinInvite(code: String)
 }
@@ -65,6 +72,12 @@ class NewConversationViewModel: Identifiable, Hashable {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
             conversationViewModel?.isInAgentBuilderFlow = isInAgentBuilderFlow
+            // Re-arm the optimistic agent overlay on every VM we vend so it
+            // survives the placeholder -> real-conversation swap (mirrors
+            // `suppressesContactCard` / `isInAgentBuilderFlow` above).
+            if isOptimisticAgentMode {
+                conversationViewModel?.activateOptimisticAgent(identity: optimisticAgentIdentity)
+            }
         }
     }
     /// When `true`, every `conversationViewModel` we vend (the initial
@@ -186,6 +199,22 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// agent join twice.
     @ObservationIgnored
     private var didTriggerAgentJoin: Bool = false
+    /// Set for `.newConversationWithTemplate`. Drives the optimistic
+    /// pending-agent identity painted on every inner `conversationViewModel`
+    /// (indicator + contact card) before the real agent joins.
+    @ObservationIgnored
+    private var isOptimisticAgentMode: Bool = false
+    /// The optimistic agent identity forwarded to each inner VM. Starts as the
+    /// caller-supplied identity (contact-card path) or a neutral placeholder
+    /// (deep link); upgraded by `resolveOptimisticAgentIdentityIfNeeded`.
+    @ObservationIgnored
+    private var optimisticAgentIdentity: AgentShareInfo?
+    /// `true` when this VM must resolve the optimistic identity itself (the
+    /// deep-link path supplied only a template id).
+    @ObservationIgnored
+    private var resolvesOptimisticAgentIdentity: Bool = false
+    @ObservationIgnored
+    private var optimisticAgentResolveTask: Task<Void, Never>?
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
@@ -218,8 +247,11 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
 
-        if case .newConversationWithTemplate(let templateId) = mode {
+        if case .newConversationWithTemplate(let templateId, let optimisticIdentity) = mode {
             self.pendingAgentTemplateId = templateId
+            self.isOptimisticAgentMode = true
+            self.optimisticAgentIdentity = optimisticIdentity ?? .neutralPendingAgent(templateId: templateId)
+            self.resolvesOptimisticAgentIdentity = (optimisticIdentity == nil)
         }
         if case .newConversationWithMembers(_, let agentTemplateId) = mode, let agentTemplateId {
             self.pendingAgentTemplateId = agentTemplateId
@@ -261,6 +293,22 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.isCreatingConversation = mode.isNewConversation
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
+        resolveOptimisticAgentIdentityIfNeeded()
+    }
+
+    /// Resolve the optimistic agent identity for the deep-link path, where
+    /// only a template id is known at creation time. The neutral placeholder
+    /// is already painted; this upgrades it in place once the resolver
+    /// returns the real name + emoji/photo.
+    private func resolveOptimisticAgentIdentityIfNeeded() {
+        guard resolvesOptimisticAgentIdentity, let templateId = pendingAgentTemplateId else { return }
+        let resolver = session.agentShareResolver()
+        optimisticAgentResolveTask = Task { [weak self] in
+            let info = await resolver.resolve(identifier: templateId)
+            guard let self, let info else { return }
+            self.optimisticAgentIdentity = info
+            self.conversationViewModel?.applyOptimisticAgentIdentity(info)
+        }
     }
 
     internal init(
@@ -296,6 +344,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         joinConversationTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
+        optimisticAgentResolveTask?.cancel()
     }
 
     func cleanUpIfNeeded() {

@@ -193,8 +193,32 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// `cutoffDate`) elapses without a verified agent joining. Stops the
     /// optimistic Convos-verified placeholder from lingering forever on an
     /// agent that joined but never published attestation -- see
-    /// `shouldRenderAsPendingAgent`.
+    /// `shouldRenderAsPendingAgentBuilder`.
     private var agentBuilderPlaceholderExpired: Bool = false
+
+    /// The agent identity an agent-template flow asked us to paint
+    /// optimistically before the real verified agent joins -- the template
+    /// name + emoji/photo for the "Chat on a contact" path, or a neutral
+    /// placeholder (upgraded in place once the resolve returns) for the
+    /// `convos://template/<id>` deep link. Lives on the view model (not the
+    /// `Conversation` value) so it survives the draft -> real conversation
+    /// swap. Drives the "with identity" case of `pendingAgentPresentation`.
+    private(set) var optimisticAgentIdentity: AgentShareInfo?
+
+    /// `true` once an agent-template flow activates the optimistic overlay.
+    /// Mirrors the agent-builder placeholder machinery: time-boxed via
+    /// `optimisticAgentExpired` so a join that never lands doesn't leave a
+    /// permanent fake-verified agent.
+    private var optimisticAgentActive: Bool = false
+
+    /// Flips `true` when the optimistic-agent window
+    /// (`AgentBuilderPlaceholder.displayDuration` after activation) elapses
+    /// without a real verified agent joining, dropping the optimistic
+    /// presentation so the conversation falls back to its real identity.
+    private var optimisticAgentExpired: Bool = false
+
+    @ObservationIgnored
+    private var optimisticAgentExpiryTask: Task<Void, Never>?
 
     // MARK: - Private
 
@@ -328,9 +352,63 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// Forwards the verified Convos agent from the conversation members
     /// to the messages-list repository — gated by `allowsContactCard` so the
     /// caller can defer the card without changing the underlying conversation.
+    ///
+    /// When no real verified agent has joined yet but an agent-template flow
+    /// is painting an optimistic identity (and that identity has enough to
+    /// render a card), feed a presentation-only synthetic agent member so the
+    /// processor synthesizes the contact card immediately. The synthetic
+    /// member is only ever handed to the repository here -- it is never
+    /// inserted into `conversation.members`.
     private func syncVerifiedAgentToRepo() {
-        let agent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
+        let realAgent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
+        let agent: ConversationMember?
+        if let realAgent {
+            agent = realAgent
+        } else if let presentation = pendingAgentPresentation,
+                  presentation.showsContactCard,
+                  let identity = optimisticAgentIdentity {
+            agent = identity.optimisticCardMember(conversationId: conversation.id)
+        } else {
+            agent = nil
+        }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+    }
+
+    /// Activate the optimistic agent overlay for an agent-template flow.
+    /// Idempotent: calling again only refreshes the identity (so a deep-link
+    /// resolve can upgrade the placeholder in place) without restarting the
+    /// time-box. The window mirrors the agent-builder placeholder so a join
+    /// that never lands eventually drops the optimistic styling rather than
+    /// reading an unverified (or absent) agent as a verified Convos one.
+    func activateOptimisticAgent(identity: AgentShareInfo?) {
+        optimisticAgentIdentity = identity
+        guard !optimisticAgentActive else {
+            syncVerifiedAgentToRepo()
+            return
+        }
+        optimisticAgentActive = true
+        optimisticAgentExpired = false
+        syncVerifiedAgentToRepo()
+        optimisticAgentExpiryTask?.cancel()
+        optimisticAgentExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(AgentBuilderPlaceholder.displayDuration))
+            guard !Task.isCancelled else { return }
+            self?.optimisticAgentExpired = true
+            self?.syncVerifiedAgentToRepo()
+        }
+    }
+
+    /// Upgrade the optimistic identity in place once the agent-template deep
+    /// link's async resolve returns the real profile. Keeps the running
+    /// time-box; the computed `pendingAgentPresentation` and the repo card
+    /// refresh from the new identity.
+    func applyOptimisticAgentIdentity(_ info: AgentShareInfo) {
+        guard optimisticAgentActive else {
+            activateOptimisticAgent(identity: info)
+            return
+        }
+        optimisticAgentIdentity = info
+        syncVerifiedAgentToRepo()
     }
 
     private func applyPendingDraftEdits() {
@@ -359,22 +437,66 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
     var untitledConversationPlaceholder: String {
-        if shouldRenderAsPendingAgent {
-            return "Agent"
+        if let presentation = pendingAgentPresentation {
+            return presentation.name ?? "Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
-    /// `true` while the conversation is in (or was created via) the agent
-    /// builder UX and no verified agent has joined yet. Surfaces a
-    /// stand-in identity for the indicator — "Agent" placeholder name
-    /// and the Convos-verified monogram avatar via `forcedAgentVerification`
-    /// — so the chat header doesn't fall back to the generic "New Convo"
-    /// label + emoji circle while the agent is still provisioning. Flips
-    /// false the moment the verified agent actually appears in
-    /// `conversation.members`, at which point the regular member-driven
-    /// avatar / display name path takes over naturally.
+    /// Unified optimistic pending-agent rendering for the indicator and the
+    /// contact card. `nil` when the conversation should render normally.
+    ///
+    /// The agent-template flows ("Chat on a contact" + the
+    /// `convos://template/<id>` deep link) take priority and supply the real
+    /// identity (`showsContactCard == true`). The Agent Builder is the
+    /// generic "no identity" case (`name`/`emoji` nil, `showsContactCard
+    /// == false`) -- it keeps its own gating in
+    /// `shouldRenderAsPendingAgentBuilder` and its own summary card. Both
+    /// drop the moment a real verified Convos agent joins
+    /// `conversation.members`, and both are time-boxed as a backstop.
+    var pendingAgentPresentation: PendingAgentPresentation? {
+        let hasRealVerifiedAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
+        if optimisticAgentActive, !optimisticAgentExpired, !hasRealVerifiedAgent {
+            let identity = optimisticAgentIdentity
+            let hasIdentity: Bool = (identity?.displayName?.isEmpty == false) || (identity?.emoji?.isEmpty == false)
+            return PendingAgentPresentation(
+                name: identity?.displayName,
+                emoji: identity?.emoji,
+                avatarURL: identity?.avatarURL,
+                agentDescription: identity?.descriptionText,
+                showsContactCard: hasIdentity
+            )
+        }
+        if shouldRenderAsPendingAgentBuilder {
+            return PendingAgentPresentation(
+                name: nil,
+                emoji: nil,
+                avatarURL: nil,
+                agentDescription: nil,
+                showsContactCard: false
+            )
+        }
+        return nil
+    }
+
+    /// `true` while the conversation should show any optimistic pending-agent
+    /// rendering (builder or template). Kept as the indicator's
+    /// `forcedAgentVerification` gate (see `MainTabView` /
+    /// `ConversationPresenter`).
     var shouldRenderAsPendingAgent: Bool {
+        pendingAgentPresentation != nil
+    }
+
+    /// `true` while the conversation is in (or was created via) the agent
+    /// builder UX and no verified agent has joined yet. The generic "no
+    /// identity" input to `pendingAgentPresentation` — surfaces the "New
+    /// Agent" / "Agent" placeholder name and the add-agent glyph via
+    /// `forcedAgentVerification` so the chat header doesn't fall back to the
+    /// generic "New Convo" label + emoji circle while the agent is still
+    /// provisioning. Flips false the moment the verified agent actually
+    /// appears in `conversation.members`, at which point the regular
+    /// member-driven avatar / display name path takes over naturally.
+    var shouldRenderAsPendingAgentBuilder: Bool {
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
         // Pre-commit: while drafting in the builder (no summary yet), always
         // show the generic agent placeholder -- even if a verified agent has
@@ -465,7 +587,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     var conversationName: String {
-        isEditingConversationName ? editingConversationName : conversation.computedDisplayName(memberNameOverride: contactNameLookup)
+        if isEditingConversationName {
+            return editingConversationName
+        }
+        if let presentation = pendingAgentPresentation {
+            return presentation.name ?? "New Agent"
+        }
+        return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
     var conversationDescription: String {
@@ -2704,15 +2832,17 @@ extension ConversationViewModel {
             let info = await resolver.resolve(identifier: identifier)
             await MainActor.run {
                 guard let self, let templateId = info?.templateId else { return }
-                self.openAgentTemplate(templateId: templateId)
+                // The web-slug resolve already returned the agent's profile;
+                // pass it through so the new conversation paints it optimistically.
+                self.openAgentTemplate(templateId: templateId, optimisticIdentity: info)
             }
         }
     }
 
-    private func openAgentTemplate(templateId: String) {
+    private func openAgentTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
         presentingNewConversationForAgentShare = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
         )
     }
 

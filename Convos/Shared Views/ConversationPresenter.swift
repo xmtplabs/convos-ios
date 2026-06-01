@@ -146,6 +146,7 @@ struct ConversationPresenter<Content: View>: View {
         let pendingAgentOverride: AgentVerification? = viewModel.shouldRenderAsPendingAgent
             ? .verified(.convos)
             : nil
+        let pendingAgentIdentity: PendingAgentAvatarIdentity? = viewModel.pendingAgentPresentation?.avatarIdentity
         ConversationIndicatorWrapper(
             viewModel: viewModel,
             placeholderOverride: indicatorPlaceholderOverride,
@@ -155,6 +156,7 @@ struct ConversationPresenter<Content: View>: View {
             focusCoordinator: focusCoordinator
         )
         .environment(\.forcedAgentVerification, pendingAgentOverride)
+        .environment(\.pendingAgentIdentity, pendingAgentIdentity)
         .hoverEffect(.lift)
         .disabled(isReadOnly)
         .matchedGeometryEffect(

@@ -504,6 +504,7 @@ struct MainTabView: View {
         let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
             ? .verified(.convos)
             : nil
+        let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
         let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved
         HStack {
             ConversationIndicatorWrapper(
@@ -515,6 +516,7 @@ struct MainTabView: View {
                 focusCoordinator: liftedIndicatorFocusCoordinator
             )
             .environment(\.forcedAgentVerification, pendingAgentOverride)
+            .environment(\.pendingAgentIdentity, pendingAgentIdentity)
             .hoverEffect(.lift)
             .disabled(isReadOnly)
             .matchedGeometryEffect(

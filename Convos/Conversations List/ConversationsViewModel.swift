@@ -462,7 +462,9 @@ final class ConversationsViewModel {
     private func startConversation(withAgentTemplateId templateId: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId)
+            // Deep link knows only the template id; the optimistic identity is
+            // resolved asynchronously inside NewConversationViewModel.
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: nil)
         )
     }
 
