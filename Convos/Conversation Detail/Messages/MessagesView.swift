@@ -48,6 +48,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onClearMediaAttachment: (UUID) -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -119,6 +121,8 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapAvatar: onTapAvatar,
             onLoadPreviousMessages: onLoadPreviousMessages,
             onTapInvite: onTapInvite,
+            onTapAgentShare: onTapAgentShare,
+            agentShareResolver: agentShareResolver,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,

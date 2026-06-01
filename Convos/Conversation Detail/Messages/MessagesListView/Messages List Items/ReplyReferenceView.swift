@@ -29,6 +29,8 @@ struct ReplyReferenceView: View {
             return "photo"
         case .invite:
             return "invite"
+        case .agentShare:
+            return "agent"
         case .linkPreview(let preview):
             return preview.title ?? preview.displayHost
         case .update, .assistantJoinRequest, .connectionGrantRequest:

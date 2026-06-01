@@ -7,6 +7,12 @@ struct CellConfig {
     let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
+    /// Resolves a received/sent agent-share link to the shared agent's public
+    /// profile so its message card can render name / emoji / description.
+    let agentShareResolver: any AgentShareResolving
+    /// Fired when an agent-share message card is tapped -- opens the shared
+    /// agent's template flow.
+    let onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
     /// concrete `AnyMessage` to attach (e.g. the synthesized agent

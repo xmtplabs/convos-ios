@@ -630,6 +630,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
+    /// Drives the new-conversation flow opened by tapping a shared agent's
+    /// contact card. Mirrors `presentingNewConversationForInvite`.
+    var presentingNewConversationForAgentShare: NewConversationViewModel? {
+        didSet { oldValue?.cleanUpIfNeeded() }
+    }
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
@@ -2645,6 +2650,42 @@ extension ConversationViewModel {
             mode: .joinInvite(code: invite.inviteSlug)
         )
     }
+
+    /// Resolves a shared agent's link to its public profile for the message
+    /// card. Vended by the session so the real API-backed resolver swaps in
+    /// transparently once it lands.
+    var agentShareResolver: any AgentShareResolving {
+        session.agentShareResolver()
+    }
+
+    /// Tapping a shared agent's contact card opens a new conversation seeded
+    /// with that agent template (the same flow the `convos://template/<id>`
+    /// deep link uses). Only the custom-scheme form carries a template id
+    /// directly; a web-slug share resolves to an id via the API resolver,
+    /// which isn't wired yet, so those are a no-op for now.
+    func onTapAgentShare(_ agentShare: MessageAgentShare) {
+        guard isValidTemplateId(agentShare.identifier) else {
+            Log.debug("Agent-share tap with non-template-id identifier (web slug); resolve-to-id not wired yet")
+            return
+        }
+        presentingNewConversationForAgentShare = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: agentShare.identifier)
+        )
+    }
+
+    private func isValidTemplateId(_ value: String) -> Bool {
+        guard let pattern = ConversationViewModel.uuidPattern else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return pattern.firstMatch(in: value, options: [], range: range) != nil
+    }
+
+    private static let uuidPattern: NSRegularExpression? = {
+        try? NSRegularExpression(
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            options: [.caseInsensitive]
+        )
+    }()
 
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         isEditingDisplayName = false

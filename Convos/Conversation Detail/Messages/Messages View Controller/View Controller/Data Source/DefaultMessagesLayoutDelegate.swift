@@ -172,6 +172,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 40.0
         case .invite:
             height = 240.0
+        case .agentShare:
+            height = 160.0
         case .linkPreview:
             height = 210.0
         case .update, .assistantJoinRequest:

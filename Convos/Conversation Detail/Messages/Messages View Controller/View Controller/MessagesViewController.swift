@@ -244,6 +244,10 @@ final class MessagesViewController: UIViewController {
     }
 
     var onTapInvite: ((MessageInvite) -> Void)?
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver() {
+        didSet { dataSource.agentShareResolver = agentShareResolver }
+    }
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onLoadPreviousMessages: (() -> Void)?
     var onReaction: ((String, String) -> Void)?
@@ -453,6 +457,11 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapInvite = { [weak self] invite in
             guard let self = self else { return }
             self.onTapInvite?(invite)
+        }
+        dataSource.agentShareResolver = agentShareResolver
+        dataSource.onTapAgentShare = { [weak self] agentShare in
+            guard let self = self else { return }
+            self.onTapAgentShare?(agentShare)
         }
         dataSource.onTapReactions = { [weak self] message in
             guard let self = self else { return }

@@ -103,6 +103,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onClearMediaAttachment: viewModel.removeMediaAttachment(id:),
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
+            onTapAgentShare: viewModel.onTapAgentShare(_:),
+            agentShareResolver: viewModel.agentShareResolver,
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
@@ -378,6 +380,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isPresented: $presentingAddFromContactsPicker
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
+            NewConversationView(
+                viewModel: viewModel,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
+            .background(.colorBackgroundSurfaceless)
+        }
+        .sheet(item: $viewModel.presentingNewConversationForAgentShare) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
                 profileSettingsViewModel: profileSettingsViewModel

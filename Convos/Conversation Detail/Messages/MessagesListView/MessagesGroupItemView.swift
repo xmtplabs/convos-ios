@@ -114,6 +114,8 @@ struct MessagesGroupItemView: View {
             emojiBubble(text: text)
         case .invite(let invite):
             inviteBubble(invite: invite)
+        case .agentShare(let agentShare):
+            agentShareBubble(agentShare: agentShare)
         case .linkPreview(let preview):
             linkPreviewBubble(preview: preview)
         case .attachment(let attachment):
@@ -195,6 +197,20 @@ struct MessagesGroupItemView: View {
         .id("message-invite-\(message.messageId)")
         .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
         .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func agentShareBubble(agentShare: MessageAgentShare) -> some View {
+        AgentShareBubble(agentShare: agentShare)
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .id("agent-share-\(message.messageId)")
+            .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+            .padding(.trailing, trailingPadding)
     }
 
     @ViewBuilder

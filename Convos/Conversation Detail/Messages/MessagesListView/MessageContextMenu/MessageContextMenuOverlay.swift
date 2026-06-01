@@ -390,6 +390,9 @@ struct MessageContextMenuOverlay: View {
                     onTapAvatar: nil
                 )
 
+            case .agentShare(let agentShare):
+                AgentShareBubble(agentShare: agentShare)
+
             case .linkPreview(let preview):
                 LinkPreviewBubbleView(
                     preview: preview,
