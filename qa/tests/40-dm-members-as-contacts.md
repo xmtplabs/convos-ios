@@ -23,13 +23,23 @@ convention from test 03.
   the agent-templates backend gap does not affect this test).
 - **Names are required.** A human contact is only visible when it has a `displayName`
   (an unnamed member renders as "Somebody" and is filtered out). So each device sets
-  its per-conversation profile name (`setup-profile-button` ->
-  `quick-edit-display-name-field`) - Device A = "Alice", Device B = "Bob".
+  its per-conversation profile name to `quick-edit-display-name-field` - Device A =
+  "Alice", Device B = "Bob". The creator opens that field via `setup-profile-button`
+  on the new-conversation screen; the joiner opens it via `profile-avatar-button`
+  ("Edit your profile") in the message bar (the joiner has no setup-profile-button).
+- **Compose goes through the picker.** `compose-button` opens the ContactsPicker in
+  "compose" mode first (existing contacts, empty on a fresh device); tap
+  `contacts-picker-confirm` (label "Skip") to reach the invite/new-conversation screen.
 - **Both must send.** The contact-sync gate is the local user's first message, so the
   test has each device send once; then each mirrors the other as a contact.
-- The invite is extracted from Device A's `invite.url_displayed` event and opened on
-  Device B with `sim_open_url` (the clean device-to-device join path on fresh sims,
-  per test 03 - unlike the CLI/agent invite path which is unreliable here).
+- **Local invites need the custom scheme.** Device A's `invite.url_displayed` event is
+  the https universal link (`https://local.convos.org/v2?i=<slug>`). On the simulator
+  the local host serves no apple-app-site-association, so opening that https URL lands
+  in **Safari**, not the app. For the Local scheme, route the invite into the app via
+  the registered custom scheme: build `convos-local://invite/<slug>` from the `?i=`
+  slug and `sim_open_url` that (`DeepLinkHandler` accepts host `invite`). If the open
+  is routed through Safari, tap the "Open in Convos?" -> Open prompt. (Dev/Prod
+  universal links deep link directly because those domains serve AASA - see test 03.)
 
 ## Runbook (two simulators)
 
@@ -60,7 +70,17 @@ done
 
 ## Status
 
-Authored to the test-03 multi-device convention + the validated contact rules. Not yet
-run end-to-end here (needs a second simulator); the single-device contact mechanics
-(local-send gate, `isVisibleInContactsList`, no-pill-for-human) are the same ones
-validated in test 36 and the ConvosCore unit suite.
+Validated green end-to-end on two simulators against the local stack. Device A
+("Alice") created the conversation; Device B joined via the `convos-local://invite/`
+deeplink (the https universal link fell through to Safari, as expected on the local
+host) and named itself "Bob"; both exchanged a message. Result:
+
+- **Device A Contacts**: "Bob" renders as a plain contact row (label "Bob", no Agent
+  pill). On a freshly erased Device A this is the only contact, so the
+  `element_not_exists "Agent"` assertion holds; if A already has agent contacts they
+  carry the pill and Bob still does not.
+- **Device B Contacts**: "Alice" renders as a plain contact (count 1, no Agent pill).
+
+Confirms `isVisibleInContactsList` (human branch), `RoleLabelPill` only for verified
+agents, and the bidirectional `ContactSyncCoordinator.syncContactsOnFirstMessage`
+gate. Leaves the A<->B conversation in place for test 40b.

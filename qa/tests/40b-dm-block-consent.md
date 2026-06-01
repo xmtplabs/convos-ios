@@ -30,7 +30,19 @@ This is the UI counterpart to `ConversationConsentReconcilerTests`. See
 
 ## Status
 
-Authored to the test-03 multi-device convention + the validated reconciler semantics
-(confirmed creator-based live: blocking a non-creator agent did NOT demote, with the
-conversation creator = self in the DB). Not yet run end-to-end here (needs a second
-simulator).
+Validated green end-to-end on two simulators against the local stack, reusing test
+40's A<->B DM (Device A "Alice" is the creator). All four criteria passed:
+
+- **Baseline**: Device B's feed showed the Alice conversation.
+- **Block the creator**: Device B blocked Alice; her card flipped to Blocked/Unblock
+  and she stayed in B's browse list (Contacts count unchanged) so she can be unblocked.
+- **Demotion**: the Alice conversation left Device B's feed (only the unrelated "New
+  Convo" draft remained) - demoted to `.denied` because the blocked contact is the
+  conversation's creator. This is the demotion that does NOT fire when blocking a
+  non-creator member (test 37b).
+- **No resurrection on unblock**: unblocking Alice flipped the card back to Block but
+  the conversation stayed absent from the feed - the reconciler only promotes
+  `.unknown -> .allowed`, never `.denied` (the blocker-1 fix).
+
+Confirms `ConversationConsentReconciler.fetchMismatchedTargets` end to end and matches
+`ConversationConsentReconcilerTests`.

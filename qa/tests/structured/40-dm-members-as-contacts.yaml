@@ -28,6 +28,7 @@ state:
   device_a_udid: null
   device_b_udid: null
   invite_url: null
+  invite_deeplink: null
   device_a_name: "Alice"
   device_b_name: "Bob"
 
@@ -44,6 +45,7 @@ steps:
     device: A
     actions:
       - tap: { id: "compose-button" }
+      - tap: { id: "contacts-picker-confirm", optional: true }
       - wait_for_element: { id: "invite-qr-code", timeout: 15 }
       - tap: { id: "setup-profile-button" }
       - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
@@ -54,12 +56,18 @@ steps:
       - element_exists: { id: "invite-qr-code" }
     criteria: device_a_creates_and_names
     note: >
-      A human contact is only visible when it has a displayName
-      (isVisibleInContactsList). Device A names itself "Alice" so Device B will see a
-      named contact (not the hidden "Somebody" default).
+      compose-button opens the ContactsPicker in "compose" mode first (it lists
+      existing contacts; on a freshly erased device the list is empty). Tap
+      contacts-picker-confirm (label "Skip") to reach the new-conversation/invite
+      screen. It is optional because the picker only appears in compose mode. The
+      creator's profile is set on this screen via setup-profile-button (the joiner
+      uses profile-avatar-button instead - see device_b_join_and_name). A human
+      contact is only visible when it has a displayName (isVisibleInContactsList);
+      Device A names itself "Alice" so Device B sees a named contact, not the
+      hidden "Somebody" default.
 
   - id: extract_invite_url
-    name: "Extract invite URL from Device A"
+    name: "Extract invite URL from Device A and derive the local deeplink"
     device: A
     actions:
       - sim_log_events: { event_filter: "invite.url_displayed" }
@@ -68,15 +76,26 @@ steps:
     criteria: invite_url_extractable
     save:
       invite_url: "from invite.url_displayed event"
+      invite_deeplink: "convos-local://invite/<slug>, where <slug> is the value of the ?i= query param in invite_url"
+    note: >
+      The invite.url_displayed event carries the https universal link
+      (https://local.convos.org/v2?i=<slug>). On the simulator the local host
+      serves no apple-app-site-association, so opening that https URL lands in
+      Safari instead of the app. For the Local scheme, route the invite straight
+      into the app via the registered custom scheme: take the ?i= slug and build
+      convos-local://invite/<slug> (DeepLinkHandler accepts host "invite"). That
+      is invite_deeplink, used by the next step. (Dev/Prod universal links deep
+      link fine because those associated domains serve AASA - see test 03.)
 
   - id: device_b_join_and_name
     name: "Device B joins via the invite and sets its profile name"
     device: B
     actions:
-      - sim_open_url: { url: "$invite_url" }
+      - sim_open_url: { url: "$invite_deeplink" }
+      - tap: { label: "Open", optional: true }
       - wait_for_element: { id: "message-text-field", timeout: 60 }
       - wait_for_element: { label_contains: "2 members", timeout: 15 }
-      - tap: { id: "setup-profile-button", optional: true }
+      - tap: { id: "profile-avatar-button" }
       - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
       - type_in_field: { id: "quick-edit-display-name-field", text: "$device_b_name", clear_first: true }
       - press_return: { id: "quick-edit-display-name-field" }
@@ -84,8 +103,14 @@ steps:
       - element_exists: { label_contains: "2 members" }
     criteria: device_b_joins_and_names
     note: >
-      Device A auto-processes the join request. Device B names itself "Bob" so
-      Device A will see a named, non-agent contact.
+      Open invite_deeplink (the convos-local:// form). If the open was routed
+      through Safari, iOS shows an "Open in Convos?" prompt - tap Open (optional,
+      only appears when Safari was foreground). The joiner sets its
+      per-conversation name from the message bar's profile-avatar-button ("Edit
+      your profile"), not setup-profile-button (which only exists on the
+      creator's new-conversation screen). The joined screen reads "You joined as
+      Somebody" until named. Device A auto-processes the join request. Device B
+      names itself "Bob" so Device A sees a named, non-agent contact.
 
   - id: exchange_messages
     name: "Two-way messaging (satisfies the contact-sync gate on both devices)"
