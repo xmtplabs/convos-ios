@@ -51,10 +51,11 @@ final class ContactsPickerViewModel {
         let id: String
         let contact: Contact
         let isAlreadyInChat: Bool
-        /// Caption rendered under the contact name. Resolves to the name of
-        /// the conversation that promoted the inbox to a contact, falling
-        /// back to the agent role label (for verified agents) or "DM" (no
-        /// group convo name available).
+        /// Caption rendered under the contact name: the name of the
+        /// conversation that promoted the inbox to a contact, "DM" for a 1:1,
+        /// or empty when there's no source name to show (the row hides the
+        /// line). Verified agents carry their role label in the trailing pill,
+        /// not here. See `Contact.listSubtitle(sources:)`.
         let subtitle: String
     }
 

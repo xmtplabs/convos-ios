@@ -40,12 +40,11 @@ final class AgentTemplateCacheCoordinator: @unchecked Sendable {
     /// Begin observing. Safe to call repeatedly - the previous task is
     /// cancelled and replaced.
     func start() {
-        let new: Task<Void, Never> = Task { [weak self] in
-            await self?.observe()
-        }
         observationTask.withLock { existing in
             existing?.cancel()
-            existing = new
+            existing = Task { [weak self] in
+                await self?.observe()
+            }
         }
     }
 

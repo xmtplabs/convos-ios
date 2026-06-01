@@ -470,6 +470,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
         if pauseOnComplete {
+            // Mirror handlePause: tear down the session-scoped observers (consent
+            // reconciler + agent-template cache coordinator) before pausing, so
+            // they don't keep observing while the inbox is paused.
+            stopSessionScopedObservers()
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
 
