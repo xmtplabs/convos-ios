@@ -67,6 +67,13 @@ platform :ios do
       groups: ["Convos iOS Team", "Convos Team", "Friends and Family", "XMTP Labs Team"],
       changelog: testflight_release_notes,
       distribute_external: false,
+      # All four groups are internal testers, which never go through Apple Beta
+      # App Review. pilot's submit_beta_review defaults to true and fires
+      # whenever groups: is set (independent of distribute_external), so without
+      # this it calls post_beta_app_review_submission and fails with "Another
+      # build in the same train is already in beta review". Internal groups are
+      # still attached to the build regardless of this flag.
+      submit_beta_review: false,
       skip_waiting_for_build_processing: false,
       notify_external_testers: false,
     )
