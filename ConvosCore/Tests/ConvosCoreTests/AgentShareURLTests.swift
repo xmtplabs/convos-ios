@@ -20,16 +20,22 @@ struct AgentShareURLTests {
         #expect(parsed.identifier == templateId)
     }
 
-    @Test("parses the dev web share link")
+    @Test("parses the dev web share link with the /a/ path prefix")
     func parsesWebLink() throws {
-        let parsed = try #require(AgentShareURL.from(text: "https://agents-dev.convos.org/tifoso.pnw1o"))
-        #expect(parsed.identifier == "tifoso.pnw1o")
+        let parsed = try #require(AgentShareURL.from(text: "https://agents-dev.convos.org/a/gandalf.felpl"))
+        #expect(parsed.identifier == "gandalf.felpl")
     }
 
-    @Test("parses a bare agents.convos.org host")
-    func parsesBareAgentsHost() throws {
+    @Test("parses a bare-slug agents.convos.org host (no /a/ prefix)")
+    func parsesBareSlug() throws {
         let parsed = try #require(AgentShareURL.from(text: "https://agents.convos.org/sous.ab12c"))
         #expect(parsed.identifier == "sous.ab12c")
+    }
+
+    @Test("parses the prod-style /a/ web link")
+    func parsesProdWebLink() throws {
+        let parsed = try #require(AgentShareURL.from(text: "https://agents.convos.org/a/tifoso.pnw1o"))
+        #expect(parsed.identifier == "tifoso.pnw1o")
     }
 
     @Test("rejects a non-template custom-scheme link")
@@ -48,10 +54,11 @@ struct AgentShareURLTests {
         #expect(AgentShareURL.from(text: "https://dev.convos.org/i/somecode") == nil)
     }
 
-    @Test("rejects a web link with no slug or extra path segments")
+    @Test("rejects a web link with no slug or too many path segments")
     func rejectsBadWebPath() {
         #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/") == nil)
-        #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/a/b") == nil)
+        #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/a/slug/extra") == nil)
+        #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/a/") == nil)
     }
 
     @Test("rejects plain text")

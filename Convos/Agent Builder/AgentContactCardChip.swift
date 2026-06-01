@@ -81,20 +81,21 @@ struct AgentContactCardChip: View {
         .accessibilityIdentifier("agent-share-chip-remove-button")
     }
 
-    /// Outer dimensions roughly match a 30%-scale hero contact card (a hero
-    /// card is ~354x232, so ~30% ~= 106x70). Avatar shrinks 74pt -> ~22pt to
-    /// match.
+    /// A 2x scaling of a ~30%-scale hero contact card (a hero card is
+    /// ~354x232, so ~30% ~= 106x70, doubled ~= 220x144). Every metric is
+    /// scaled uniformly so the chip keeps the hero card's aspect ratio and
+    /// internal proportions.
     private enum Metric {
-        static let badgeWidth: CGFloat = 110
-        static let badgeHeight: CGFloat = 72
-        static let cornerRadius: CGFloat = 12
-        static let innerPadding: CGFloat = 8
-        static let avatarSize: CGFloat = 22
-        static let avatarToTextSpacing: CGFloat = 4
-        static let nameToSummarySpacing: CGFloat = 1
-        static let nameFontSize: CGFloat = 11
-        static let nameTracking: CGFloat = -0.3
-        static let summaryFontSize: CGFloat = 7
+        static let badgeWidth: CGFloat = 220
+        static let badgeHeight: CGFloat = 144
+        static let cornerRadius: CGFloat = 24
+        static let innerPadding: CGFloat = 16
+        static let avatarSize: CGFloat = 44
+        static let avatarToTextSpacing: CGFloat = 8
+        static let nameToSummarySpacing: CGFloat = 2
+        static let nameFontSize: CGFloat = 22
+        static let nameTracking: CGFloat = -0.6
+        static let summaryFontSize: CGFloat = 14
     }
 }
 
