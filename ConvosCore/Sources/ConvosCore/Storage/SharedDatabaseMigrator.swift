@@ -196,6 +196,11 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration(
+            "backfillContactAgentTemplateFieldsFromMemberProfiles",
+            migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
+        )
+
         return migrator
     }
 
@@ -319,6 +324,54 @@ extension SharedDatabaseMigrator {
             ON contact(agentTemplateId)
             WHERE agentTemplateId IS NOT NULL
             """)
+    }
+
+    /// Backfill the agent-template columns added by `addContactAgentTemplateFields`
+    /// for contacts that predate them. A template-backed agent's `templateId` (and
+    /// `publishedUrl` / `emoji`) is already on disk in its per-conversation
+    /// `memberProfile.metadata`; without this, an existing agent contact keeps a
+    /// null `agentTemplateId` and `Contact.isVisibleInContactsList` hides it until a
+    /// fresh `ProfileUpdate` re-mirrors the value - which never fires at launch for
+    /// an agent that is not actively messaging, so the contact would stay hidden
+    /// indefinitely. Decodes the raw metadata JSON with `ProfileMetadata` (the
+    /// canonical wire type) rather than a record type, so the migration stays
+    /// reproducible if `memberProfile`'s columns change later. An inbox can have
+    /// several `memberProfile` rows; the `agentTemplateId IS NULL` guard makes the
+    /// first one carrying a templateId win and the rest no-ops.
+    static func backfillContactAgentTemplateFieldsFromMemberProfiles(_ db: Database) throws {
+        let decoder = JSONDecoder()
+        let rows = try Row.fetchCursor(db, sql: "SELECT inboxId, metadata FROM memberProfile WHERE metadata IS NOT NULL")
+        while let row = try rows.next() {
+            guard let json: String = row["metadata"],
+                  let metadata = try? decoder.decode(ProfileMetadata.self, from: Data(json.utf8)),
+                  let templateId = trimmedMetadataValue(metadata, "templateId") else {
+                continue
+            }
+            let inboxId: String = row["inboxId"]
+            try db.execute(
+                sql: """
+                    UPDATE contact
+                    SET agentTemplateId = ?, agentTemplatePublishedURL = ?, agentTemplateEmoji = ?
+                    WHERE inboxId = ? AND agentTemplateId IS NULL
+                    """,
+                arguments: [
+                    templateId,
+                    trimmedMetadataValue(metadata, "publishedUrl"),
+                    trimmedMetadataValue(metadata, "emoji"),
+                    inboxId,
+                ]
+            )
+        }
+    }
+
+    /// Reads a metadata string value, coercing empty / whitespace-only to nil.
+    /// Mirrors `DBMemberProfile.trimmedMetadata` so a backfilled templateId never
+    /// lands as "" (which would collapse unrelated agents in the dedup pipeline).
+    private static func trimmedMetadataValue(_ metadata: ProfileMetadata, _ key: String) -> String? {
+        metadata[key]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 
     /// Read-through cache of canonical agent-template identity (name, emoji,
