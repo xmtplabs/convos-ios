@@ -111,10 +111,11 @@ seed_credits() {
     # tolerate balance as JSON string ("balance":"123") or number ("balance":123)
     bal="$(curl -s --max-time 6 -H "X-Agent-API-Key: $key" "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits" 2>/dev/null | grep -oE '"balance":"?[0-9]+"?' | grep -oE '[0-9]+' || true)"
     { [[ -n "$bal" ]] && (( bal >= floor )); } 2>/dev/null && continue
-    # stable per-account idempotency key: the backend dedupes replays, so this
-    # can never over-grant even if a run repeats before the balance updates.
+    # stable per-(account,amount) idempotency key: the backend dedupes replays,
+    # so a repeated run can never over-grant; keying on the amount too means a
+    # future change to `grant` still applies cleanly instead of replaying.
     curl -s -o /dev/null -X POST "http://localhost:${BACKEND_PORT}/api/v2/accounts/$a/credits/grants" \
-      -H "X-Agent-API-Key: $key" -H 'Content-Type: application/json' -H "Idempotency-Key: seed-${a}" \
+      -H "X-Agent-API-Key: $key" -H 'Content-Type: application/json' -H "Idempotency-Key: seed-${a}-${grant}" \
       -d "{\"grantKind\":\"manual\",\"creditsDelta\":${grant},\"reason\":\"local dev seed\"}" --max-time 8 && n=$((n+1))
   done
   ok "seeded credits for ${n} account(s)"
