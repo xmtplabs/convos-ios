@@ -43,7 +43,9 @@ public struct MockAgentShareResolver: AgentShareResolving {
     public func resolve(identifier: String) async -> AgentShareInfo? {
         try? await Task.sleep(nanoseconds: 400_000_000)
         let personas = MockAgentShareResolver.personas
-        let index = abs(identifier.hashValue) % personas.count
+        // Unsigned arithmetic avoids `abs(Int.min)` trapping -- `hashValue`
+        // can be any `Int`, including `Int.min`.
+        let index = Int(UInt(bitPattern: identifier.hashValue) % UInt(personas.count))
         return personas[index]
     }
 

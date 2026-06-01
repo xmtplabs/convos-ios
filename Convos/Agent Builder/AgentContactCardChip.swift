@@ -59,7 +59,7 @@ struct AgentContactCardChip: View {
             EmojiAvatarView(emoji: emoji, agentVerification: .verified(.convos))
                 .frame(width: Metric.avatarSize, height: Metric.avatarSize)
         } else {
-            MonogramView(text: displayName, agentVerification: .verified(.convos))
+            MonogramView(name: displayName, agentVerification: .verified(.convos))
                 .frame(width: Metric.avatarSize, height: Metric.avatarSize)
                 .clipShape(Circle())
         }
