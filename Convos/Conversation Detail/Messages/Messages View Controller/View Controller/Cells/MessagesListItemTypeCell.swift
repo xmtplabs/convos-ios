@@ -138,6 +138,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
             .environment(\.agentShareResolver, config.agentShareResolver)
+            .environment(\.inviteMembershipResolver, config.inviteMembershipResolver)
             .environment(\.onTapAgentShare, config.onTapAgentShare)
         }
         .margins(.horizontal, 0.0)

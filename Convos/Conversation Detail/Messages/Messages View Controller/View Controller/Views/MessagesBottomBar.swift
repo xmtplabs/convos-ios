@@ -45,6 +45,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteIsEditable: Bool = true
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
     @Binding var pendingInviteImage: UIImage?
@@ -431,6 +432,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteIsEditable: pendingInviteIsEditable,
                 pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteConvoName: $pendingInviteConvoName,
                 pendingInviteImage: $pendingInviteImage,

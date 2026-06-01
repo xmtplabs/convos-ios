@@ -2688,6 +2688,14 @@ extension ConversationViewModel {
         session.agentShareResolver()
     }
 
+    /// Resolves whether the current user already joined the conversation an
+    /// invite card points to, so the card shows the member count instead of
+    /// "Tap to join". Vended by the session so the GRDB-backed resolver swaps in
+    /// transparently.
+    var inviteMembershipResolver: any InviteMembershipResolving {
+        session.inviteMembershipResolver()
+    }
+
     /// Tapping a shared agent's contact card opens a new conversation seeded
     /// with that agent template (the same flow the `convos://template/<id>`
     /// deep link uses). The custom-scheme form carries the template id
