@@ -60,7 +60,7 @@ The in-chat agent-builder ("Make an agent") calls convos-backend directly from i
 ### Shared iOS `.env` (Dev vs Local)
 The workspace also holds **`<workspace>/convos-ios.env`** — the shared **Dev** env (Firebase Dev App Check token, `GATEWAY_URL`, `AGENT_DEBUG_JWKS`). `make init` creates it; **`/firebase-token`**, **`/setup`**, and **`convos-task`** symlink each Dev checkout's `.env → <workspace>/convos-ios.env` (one token, every worktree shares it). They fall back to the legacy `<parent>/.env` when no workspace is configured.
 
-A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by `ios-config` / `/run local`: localhost backend + Firebase *Local* token) — `ios-config` `rm`s any Dev symlink first so it won't clobber the shared file. So a given checkout is configured for Dev *or* Local at a time.
+A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by `ios-config` / `/run local`: Firebase *Local* token, and `CONVOS_API_BASE_URL` left **empty**) — `ios-config` `rm`s any Dev symlink first so it won't clobber the shared file. The backend URL is intentionally left empty: the build phase bakes `.env` into `Secrets.swift` for **both** schemes and a non-empty value overrides the per-scheme config default, so a hard-coded `localhost` would silently redirect a **Dev** build on the same checkout to localhost (fine on the simulator, "connection refused" on a device). Empty means the **Local** build auto-detects this Mac's LAN IP (reachable from sim and device) while a **Dev** build falls back to `config.dev.json`'s real backend. The Firebase debug token still differs per scheme, so a checkout is still effectively Dev *or* Local at a time on the simulator (a device uses real App Attest, not the debug token).
 
 ## Troubleshooting
 | Symptom | Fix |
@@ -74,6 +74,7 @@ A **`Convos (Local)`** checkout instead gets a **standalone `.env`** (written by
 | Agent stays "Joining…" | worker/herald down or auth incomplete → `make … status`, ensure auth works. |
 | Agent-builder: **"Asserted ownerAccountId does not exist"** | worker's `CONVOS_API_BASE_URL` points at the wrong backend (default is the hosted dev one, or the host IP drifted) → `make … up` re-syncs it to this backend; `make … doctor` flags drift. |
 | Agent-builder: **"lost power" / Upgrade** | the account has no local credits → after signing in, `make … seed-credits`. |
+| **Dev** build hits `localhost` / "connection refused" on a device | the checkout's `.env` has a leftover `CONVOS_API_BASE_URL=localhost` from an old Local config → re-run `make … ios-config` (now writes it empty), or clear that line. Newer `ios-config` no longer hard-codes it. |
 
 ## Fixes to upstream (so this needs no workarounds)
 - ✅ **convos-ios** `Scripts/build-phases/copy-env-config-main-app.sh:106` `sed` bug (double-escaped backslashes that broke Local `Secrets.swift`) — **fixed in this branch** (committed in-repo; `ios-config` no longer needs to patch it).

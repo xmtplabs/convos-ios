@@ -287,8 +287,16 @@ cmd_ios_config() {
   local fb=""; { have op && [[ -n "${OP_FIREBASE_LOCAL_TOKEN_REF:-}" ]] && fb="$(op read "$OP_FIREBASE_LOCAL_TOKEN_REF" 2>/dev/null||true)"; } || true
   [[ -z "$fb" ]] && warn "no Firebase Local token from 1Password — set FIREBASE_APP_CHECK_DEBUG_TOKEN in $ios/.env (shared Local token)"
   rm -f "$ios/.env"   # break any Dev-shared symlink; the Local scheme uses a standalone .env
-  { printf 'CONVOS_API_BASE_URL=http://localhost:%s/api\nGATEWAY_URL=\nSENTRY_DSN=\nFIREBASE_APP_CHECK_DEBUG_TOKEN=%s\nAGENT_DEBUG_JWKS=\n' "$BACKEND_PORT" "$fb"; } > "$ios/.env"
-  ok "wrote standalone Local $ios/.env (localhost backend + Firebase Local token; any Dev symlink replaced)"
+  # Leave CONVOS_API_BASE_URL EMPTY on purpose. The build phase reads this same
+  # .env for BOTH schemes (copy-env-config-main-app.sh): a non-empty value here
+  # is baked into Secrets and, per ConfigManager, overrides the per-scheme
+  # config default — so a hard-coded localhost would silently redirect a Dev
+  # build on this checkout to localhost (broken on a device). Empty means:
+  #   - Local build  -> auto-detects this Mac's LAN IP (reachable from sim AND
+  #     device; ATS-allowed via Info.Local.plist NSAllowsLocalNetworking),
+  #   - Dev build     -> falls back to config.dev.json's real dev backend.
+  { printf 'CONVOS_API_BASE_URL=\nGATEWAY_URL=\nSENTRY_DSN=\nFIREBASE_APP_CHECK_DEBUG_TOKEN=%s\nAGENT_DEBUG_JWKS=\n' "$fb"; } > "$ios/.env"
+  ok "wrote standalone Local $ios/.env (Local Firebase token; backend auto-resolved, no Dev-poisoning override)"
 }
 
 cmd_clean() { load_env; cmd_down; rm -rf "$RUN_DIR"; ok "cleaned run state"; }
