@@ -275,7 +275,10 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
+            let cardTap = { onTapSender(group.sender) }
             AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: cardTap)
                 .overlay(alignment: .bottomLeading) {
                     if cardIsLast && !group.sender.isCurrentUser {
                         avatarOverlay { onTapSender(group.sender) }
