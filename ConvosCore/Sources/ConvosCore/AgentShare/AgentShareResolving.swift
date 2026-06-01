@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// The public profile of a shared agent template, resolved from an
 /// agent-share link's identifier. Just enough to render a contact card --
@@ -81,18 +82,43 @@ public struct MockAgentShareResolver: AgentShareResolving {
 }
 
 /// Resolves agent-share links against the backend's public template detail
-/// endpoint (`GET /v2/agent-templates/:idOrUrlSlug`) via `ConvosAPIClient`.
+/// endpoint (`GET /v2/agent-templates/:idOrUrlSlug`) via `ConvosAPIClient`,
+/// read-through the `DBAgentTemplate` cache so a card that's already been
+/// seen (here or by the contacts `AgentTemplateCacheCoordinator`) renders
+/// from disk without a network round-trip. Without the cache the message
+/// list re-fetched on every scroll-into-view -- the cell's resolve state is
+/// per-instance and cells recycle -- so the card flashed its "Somebody" /
+/// pulsing-placeholder state each time and stuck there on any fetch failure.
+///
 /// The real resolver `SessionManager` vends in place of `MockAgentShareResolver`.
 public struct ApiAgentShareResolver: AgentShareResolving {
     private let apiClient: any ConvosAPIClientProtocol
+    private let databaseReader: any DatabaseReader
+    private let cacheWriter: any AgentTemplateCacheWriterProtocol
 
-    public init(apiClient: any ConvosAPIClientProtocol) {
+    public init(
+        apiClient: any ConvosAPIClientProtocol,
+        databaseReader: any DatabaseReader,
+        cacheWriter: any AgentTemplateCacheWriterProtocol
+    ) {
         self.apiClient = apiClient
+        self.databaseReader = databaseReader
+        self.cacheWriter = cacheWriter
     }
 
     public func resolve(identifier: String) async -> AgentShareInfo? {
+        if let cached = await cachedInfo(for: identifier) {
+            return cached
+        }
         do {
             let template = try await apiClient.getAgentTemplate(idOrUrlSlug: identifier)
+            do {
+                try await cacheWriter.upsert(template, fetchedAt: Date())
+            } catch {
+                // Non-fatal: the resolve still returns the fetched data, but a
+                // failed write means the next resolve hits the network again.
+                Log.warning("ApiAgentShareResolver failed to cache \(identifier): \(error.localizedDescription)")
+            }
             return AgentShareInfo(
                 templateId: template.id,
                 displayName: template.agentName,
@@ -104,5 +130,31 @@ public struct ApiAgentShareResolver: AgentShareResolving {
             Log.error("ApiAgentShareResolver failed to resolve \(identifier): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// The share link's identifier is a template id or a url slug, so the
+    /// cache is matched on either. A hit requires a usable identity (name or
+    /// description present) so a sparse row -- e.g. one written from a publish
+    /// response that carried only id/status -- still falls through to the
+    /// detail fetch rather than rendering an empty card.
+    private func cachedInfo(for identifier: String) async -> AgentShareInfo? {
+        let row: DBAgentTemplate? = try? await databaseReader.read { db in
+            try DBAgentTemplate
+                .filter(
+                    DBAgentTemplate.Columns.templateId == identifier
+                        || DBAgentTemplate.Columns.slug == identifier
+                )
+                .fetchOne(db)
+        }
+        guard let row, row.agentName != nil || row.templateDescription != nil else {
+            return nil
+        }
+        return AgentShareInfo(
+            templateId: row.templateId,
+            displayName: row.agentName,
+            emoji: row.emoji,
+            descriptionText: row.templateDescription,
+            avatarURL: row.avatarURL
+        )
     }
 }

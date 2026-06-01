@@ -21,6 +21,8 @@ struct DBAgentTemplate: Codable, FetchableRecord, PersistableRecord, Hashable, I
         static let emoji: Column = Column(CodingKeys.emoji)
         static let avatarURL: Column = Column(CodingKeys.avatarURL)
         static let publishedURL: Column = Column(CodingKeys.publishedURL)
+        static let templateDescription: Column = Column(CodingKeys.templateDescription)
+        static let slug: Column = Column(CodingKeys.slug)
         static let fetchedAt: Column = Column(CodingKeys.fetchedAt)
     }
 
@@ -31,7 +33,17 @@ struct DBAgentTemplate: Codable, FetchableRecord, PersistableRecord, Hashable, I
     var emoji: String?
     var avatarURL: String?
     var publishedURL: String?
+    var templateDescription: String?
+    var slug: String?
     var fetchedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case templateId, agentName, emoji, avatarURL, publishedURL
+        // The cache column is named `description`; the Swift property avoids
+        // that name (it shadows `CustomStringConvertible.description`).
+        case templateDescription = "description"
+        case slug, fetchedAt
+    }
 
     init(
         templateId: String,
@@ -39,6 +51,8 @@ struct DBAgentTemplate: Codable, FetchableRecord, PersistableRecord, Hashable, I
         emoji: String?,
         avatarURL: String?,
         publishedURL: String?,
+        templateDescription: String?,
+        slug: String?,
         fetchedAt: Date
     ) {
         self.templateId = templateId
@@ -46,6 +60,8 @@ struct DBAgentTemplate: Codable, FetchableRecord, PersistableRecord, Hashable, I
         self.emoji = emoji
         self.avatarURL = avatarURL
         self.publishedURL = publishedURL
+        self.templateDescription = templateDescription
+        self.slug = slug
         self.fetchedAt = fetchedAt
     }
 }

@@ -201,6 +201,8 @@ extension SharedDatabaseMigrator {
             migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
         )
 
+        migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
+
         return migrator
     }
 
@@ -386,6 +388,25 @@ extension SharedDatabaseMigrator {
             t.column("publishedURL", .text)
             t.column("fetchedAt", .datetime).notNull()
         }
+    }
+
+    /// Adds the `description` and `slug` columns to the agent-template cache.
+    /// The detail endpoint (`GET /v2/agent-templates/:idOrUrlSlug`) returns
+    /// both; storing them lets the agent-share resolver render a card's
+    /// subtitle from cache and look the cache up by slug, not just by template
+    /// id (share links are often slug-keyed). The slug index keeps that
+    /// lookup cheap; it's partial so null slugs (rows cached before this
+    /// migration, until they're refreshed) don't bloat it.
+    private static func addAgentTemplateDescriptionAndSlug(_ db: Database) throws {
+        try db.alter(table: "agentTemplate") { t in
+            t.add(column: "description", .text)
+            t.add(column: "slug", .text)
+        }
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS agentTemplate_on_slug
+            ON agentTemplate(slug)
+            WHERE slug IS NOT NULL
+            """)
     }
 
     /// Rename `conversation.hasHadVerifiedAssistant` -> `hasHadVerifiedAgent`

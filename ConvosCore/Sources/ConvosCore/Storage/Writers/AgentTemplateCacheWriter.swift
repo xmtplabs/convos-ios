@@ -22,6 +22,8 @@ final class AgentTemplateCacheWriter: AgentTemplateCacheWriterProtocol {
             emoji: template.emoji,
             avatarURL: template.avatarUrl,
             publishedURL: template.publishedUrl,
+            templateDescription: template.description,
+            slug: template.slug,
             fetchedAt: fetchedAt
         )
         try await databaseWriter.write { db in

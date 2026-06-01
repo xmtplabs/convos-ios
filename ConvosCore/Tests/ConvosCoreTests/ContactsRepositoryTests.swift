@@ -253,6 +253,8 @@ struct ContactsRepositoryTests {
                 emoji: "✈️",
                 avatarURL: nil,
                 publishedURL: "https://convos.org/a/travel",
+                templateDescription: nil,
+                slug: nil,
                 fetchedAt: Date()
             ).save(db)
         }

@@ -598,7 +598,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func agentShareResolver() -> any AgentShareResolving {
-        ApiAgentShareResolver(apiClient: apiClient)
+        ApiAgentShareResolver(
+            apiClient: apiClient,
+            databaseReader: databaseReader,
+            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
+        )
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
