@@ -69,40 +69,29 @@ public struct AgentShareURL: Hashable, Sendable {
         return scheme == Constant.schemeBase || scheme.hasPrefix(Constant.schemeBase + "-")
     }
 
-    /// `https://agents[-env].convos.org/a/<slug>` -- the published web link the
-    /// backend hands out (e.g. `agents-dev.convos.org/a/gandalf.felpl`). The
-    /// host varies by environment (`agents-dev.convos.org` in dev; the prod
-    /// host is not finalized), so match any `agents`-prefixed `convos.org`
-    /// subdomain rather than pinning a single host. The path is `/a/<slug>`; a
-    /// bare `/<slug>` is also accepted for resilience.
+    /// The published web link the backend hands out, of the form
+    /// `https://<convos.org host>/a/<slug>`. The host varies by environment --
+    /// `agents-dev.convos.org/a/...` in dev, `convos.org/a/...` in prod -- so
+    /// match any `convos.org` host (apex or subdomain) and key on the reserved
+    /// `/a/` path segment as the agent-page signal. The path must be exactly
+    /// `/a/<slug>`; a bare `/<slug>` is intentionally not matched (it would
+    /// swallow ordinary marketing pages like `convos.org/about`).
     private static func webSlug(from url: URL) -> String? {
-        guard url.scheme == "https", isAgentsHost(url.host) else { return nil }
+        guard url.scheme == "https", isConvosHost(url.host) else { return nil }
         let components = url.pathComponents.filter { $0 != "/" }
-        let slug: String?
-        switch components.count {
-        case 1 where components[0] != Constant.webPathPrefix:
-            // Bare `/<slug>`. Exclude a lone `a` so a trailing-slash `/a/`
-            // (which collapses to `["a"]`) isn't misread as the slug "a".
-            slug = components[0]
-        case 2 where components[0] == Constant.webPathPrefix:
-            slug = components[1]
-        default:
-            slug = nil
+        guard components.count == 2, components[0] == Constant.webPathPrefix else {
+            return nil
         }
-        guard let slug, !slug.isEmpty else { return nil }
+        let slug = components[1]
+        guard !slug.isEmpty else { return nil }
         return slug
     }
 
-    /// Matches `agents.convos.org` and any env-suffixed sibling
-    /// (`agents-dev.convos.org`, `agents-local.convos.org`, ...). The leading
-    /// DNS label must be `agents` or `agents-<env>`, and the remainder must be
-    /// exactly `convos.org`.
-    private static func isAgentsHost(_ host: String?) -> Bool {
-        guard let host, let dotIndex = host.firstIndex(of: ".") else { return false }
-        let label = String(host[host.startIndex..<dotIndex])
-        let remainder = String(host[host.index(after: dotIndex)...])
-        guard remainder == Constant.convosDomainSuffix else { return false }
-        return label == Constant.agentsHostPrefix || label.hasPrefix(Constant.agentsHostPrefix + "-")
+    /// Matches `convos.org` (apex) and any subdomain of it
+    /// (`agents-dev.convos.org`, `app.convos.org`, ...).
+    private static func isConvosHost(_ host: String?) -> Bool {
+        guard let host else { return false }
+        return host == Constant.convosDomainSuffix || host.hasSuffix("." + Constant.convosDomainSuffix)
     }
 
     private static func isValidTemplateId(_ value: String) -> Bool {
@@ -121,7 +110,6 @@ public struct AgentShareURL: Hashable, Sendable {
     private enum Constant {
         static let schemeBase: String = "convos"
         static let templateHost: String = "template"
-        static let agentsHostPrefix: String = "agents"
         static let convosDomainSuffix: String = "convos.org"
         static let webPathPrefix: String = "a"
     }

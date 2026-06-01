@@ -20,21 +20,15 @@ struct AgentShareURLTests {
         #expect(parsed.identifier == templateId)
     }
 
-    @Test("parses the dev web share link with the /a/ path prefix")
-    func parsesWebLink() throws {
+    @Test("parses the dev web share link (agents-dev.convos.org/a/<slug>)")
+    func parsesDevWebLink() throws {
         let parsed = try #require(AgentShareURL.from(text: "https://agents-dev.convos.org/a/gandalf.felpl"))
         #expect(parsed.identifier == "gandalf.felpl")
     }
 
-    @Test("parses a bare-slug agents.convos.org host (no /a/ prefix)")
-    func parsesBareSlug() throws {
-        let parsed = try #require(AgentShareURL.from(text: "https://agents.convos.org/sous.ab12c"))
-        #expect(parsed.identifier == "sous.ab12c")
-    }
-
-    @Test("parses the prod-style /a/ web link")
+    @Test("parses the prod web share link (convos.org/a/<slug>)")
     func parsesProdWebLink() throws {
-        let parsed = try #require(AgentShareURL.from(text: "https://agents.convos.org/a/tifoso.pnw1o"))
+        let parsed = try #require(AgentShareURL.from(text: "https://convos.org/a/tifoso.pnw1o"))
         #expect(parsed.identifier == "tifoso.pnw1o")
     }
 
@@ -48,17 +42,26 @@ struct AgentShareURLTests {
         #expect(AgentShareURL.from(text: "convos://template/not-a-uuid") == nil)
     }
 
-    @Test("rejects an unrelated https host")
+    @Test("rejects a non-convos.org https host even with an /a/ path")
     func rejectsUnrelatedHost() {
-        #expect(AgentShareURL.from(text: "https://example.com/tifoso.pnw1o") == nil)
+        #expect(AgentShareURL.from(text: "https://example.com/a/tifoso.pnw1o") == nil)
+        // A look-alike suffix must not match (notconvos.org is not convos.org).
+        #expect(AgentShareURL.from(text: "https://notconvos.org/a/tifoso.pnw1o") == nil)
+    }
+
+    @Test("rejects convos.org paths that aren't /a/<slug>")
+    func rejectsNonAgentPaths() {
+        // Bare slug / marketing pages must not be swallowed.
+        #expect(AgentShareURL.from(text: "https://convos.org/about") == nil)
+        #expect(AgentShareURL.from(text: "https://convos.org/tifoso.pnw1o") == nil)
         #expect(AgentShareURL.from(text: "https://dev.convos.org/i/somecode") == nil)
     }
 
     @Test("rejects a web link with no slug or too many path segments")
     func rejectsBadWebPath() {
         #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/") == nil)
-        #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/a/slug/extra") == nil)
-        #expect(AgentShareURL.from(text: "https://agents-dev.convos.org/a/") == nil)
+        #expect(AgentShareURL.from(text: "https://convos.org/a/slug/extra") == nil)
+        #expect(AgentShareURL.from(text: "https://convos.org/a/") == nil)
     }
 
     @Test("rejects plain text")

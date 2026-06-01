@@ -310,6 +310,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
     }
 
+    /// Shared content for the invite- and agent-share-driven new-conversation
+    /// sheets. Extracted so neither `.sheet(item:)` closure inflates `body`'s
+    /// type-check past the 300ms budget.
+    @ViewBuilder
+    private func newConversationSheet(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel
+        )
+        .background(.colorBackgroundSurfaceless)
+    }
+
     private var pagerDotsInset: CGFloat {
         isKeyboardVisible ? 0.0 : 24.0
     }
@@ -386,18 +398,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isPresented: $presentingAddFromContactsPicker
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
+            newConversationSheet(viewModel)
         }
         .sheet(item: $viewModel.presentingNewConversationForAgentShare) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
+            newConversationSheet(viewModel)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
