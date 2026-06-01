@@ -156,7 +156,6 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
 
         migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
-        Self.registerAgentTemplateContactMigrations(on: &migrator)
 
         migrator.registerMigration("addAgentBuilderSummaryCloudConnectionIds", migrate: Self.addAgentBuilderSummaryCloudConnectionIds)
 
@@ -169,6 +168,33 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addContactAgentTemplateFields", migrate: Self.addContactAgentTemplateFields)
 
         migrator.registerMigration("createAgentTemplateCache", migrate: Self.createAgentTemplateCache)
+
+        // Append new migrations below this line; never insert one earlier in the
+        // list. In DEBUG builds `eraseDatabaseOnSchemaChange` replays a temporary
+        // database up to the last-applied migration and erases the real database
+        // when the schemas differ. A migration registered ahead of an
+        // already-applied one makes that replay diverge from an upgraded install
+        // and wipes its data - and DEBUG covers the Dev and PR TestFlight configs,
+        // not just local builds. Appending keeps the replay equal to the on-disk
+        // schema, so an upgrade migrates in place.
+        Self.registerAgentTemplateContactMigrations(on: &migrator)
+
+        // Filter set of agent-builder bundle message ids hidden from every
+        // client's chat. Intentionally no foreign key to `conversation`: a
+        // manifest can be processed before its conversation row is stored (the
+        // stream routes supplementals ahead of `conversationWriter.store`, and
+        // catch-up can deliver a manifest before the initial conversation sync
+        // lands); a FK would make those inserts fail and silently drop the hidden
+        // ids, leaving the brief visible. A stray row for an absent conversation
+        // matches nothing and is harmless. Teardown clears the table explicitly
+        // in `SessionManager.deleteAllInboxes` (no cascade).
+        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
+            try db.create(table: "builder_bundle_hidden_message") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.primaryKey(["conversationId", "messageId"])
+            }
+        }
 
         return migrator
     }
@@ -446,27 +472,6 @@ extension SharedDatabaseMigrator {
                 t.column("nextRefreshAt", .datetime).notNull()
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
-            }
-        }
-
-        // Message ids announced by a `BuilderBundleManifest` as belonging to
-        // an agent-builder bundle, so every client can hide them from the
-        // chat (not just the creator, who has them in `AgentBuilderSummary`).
-        //
-        // Intentionally no foreign key to `conversation`: a manifest can be
-        // processed before its conversation row is stored (the stream routes
-        // supplementals ahead of `conversationWriter.store`, and catch-up can
-        // deliver a manifest before the initial conversation sync lands). A FK
-        // would make those inserts fail and silently drop the hidden ids,
-        // leaving the brief visible. Rows are just a filter set keyed by
-        // (conversationId, messageId); a stray row for an absent conversation
-        // matches nothing and is harmless. Teardown clears the table
-        // explicitly in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
             }
         }
     }

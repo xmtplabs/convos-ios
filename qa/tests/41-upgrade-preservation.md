@@ -39,31 +39,28 @@ The investigation that produced this test found the upgrade is **safe on the shi
   `agentTemplateId` / `agentTemplatePublishedURL` / `agentTemplateEmoji` are new contact
   columns (nullable, no backfill).
 
-## Why this MUST be built non-DEBUG (the one real trap)
+## The append-only migration invariant (why this runs on a DEBUG build)
 
 `SharedDatabaseMigrator.createMigrator()` sets `migrator.eraseDatabaseOnSchemaChange = true`
 under `#if DEBUG`. GRDB's `hasSchemaChanges` replays a temporary database **up to the
-last-applied migration** and compares it to the real DB. This branch registers two new
-migrations - `createBuilderBundleHiddenMessage` and `createAgentTemplateContactTable` -
-**before** dev's last migration (`addAgentBuilderSummaryConnectionsAppliedAt`) in the
-registration list. So the temp-replay-to-last-applied schema contains two tables a real
-dev DB does not yet have, the schemas differ, and **in DEBUG GRDB erases the whole
-database** on first launch of the branch build.
+last-applied migration** and erases the real DB if the schemas differ. So a migration
+registered **before** dev's last migration (`addAgentBuilderSummaryConnectionsAppliedAt`)
+makes the temp-replay schema diverge from a real dev DB -> GRDB wipes it on first launch.
 
-Consequences:
+This matters for real users, not just local developers: the `Dev` and `PR Preview` configs
+that go to **TestFlight are DEBUG** (only the App Store `Prod`/`Release` config is not). An
+earlier revision of this branch registered two new migrations
+(`createBuilderBundleHiddenMessage`, `createAgentTemplateContactTable`) mid-list, which
+would have wiped every dev/preview tester's local database on update. The fix: all new
+migrations are now **appended after dev's last migration**, so the temp-replay equals the
+on-disk dev schema, `hasSchemaChanges` returns false, and the upgrade migrates in place on
+every configuration - DEBUG Local/Dev/PR included.
 
-- `Dev`, `Local`, and `PR` configs all define DEBUG. A stock Local/Dev upgrade build will
-  **wipe the DB** and this test would report total data loss that does NOT happen in
-  production. `Prod` defines no DEBUG, so the shipping App Store / TestFlight upgrade keeps
-  `eraseDatabaseOnSchemaChange = false` and migrates in place.
-- Run this UI test with the **Prod scheme**, or build the Local/Dev scheme with
-  `SWIFT_ACTIVE_COMPILATION_CONDITIONS` overridden to drop `DEBUG`. The `no_wipe_fired` step
-  is the gate that you are in a valid configuration.
-- This is also a **developer-experience note**: any engineer who builds this branch over an
-  existing dev DEBUG install loses their local DB on next launch. It self-heals (fresh DB)
-  and is not a production bug, but appending the two new migrations to the END of the
-  registration list (after `addAgentBuilderSummaryConnectionsAppliedAt`) instead of mid-list
-  would avoid the DEBUG erase entirely.
+Consequence for this test: it runs on the **standard Local (DEBUG) build** and reuses the
+local-stack infrastructure (no special non-DEBUG build needed). The `no_wipe_fired` step is
+the regression guard for the invariant - if a future change inserts a migration mid-list,
+that step fails on the Local build because the DB was erased. Keep new migrations appended
+at the bottom of `createMigrator`'s registration list.
 
 ## Behavior changes that are NOT data loss (do not assert as preserved)
 
@@ -111,28 +108,31 @@ SIM=<clone of a base iPhone sim, e.g. convos-<branch>-upgrade>
 DEV_WT=/tmp/convos-upgrade-dev
 git worktree add "$DEV_WT" dev
 
-# Build BOTH sides non-DEBUG (Prod scheme shown; or override DEBUG out of Local/Dev).
+# Standard Local build of both sides (migrations are append-only, so DEBUG is fine).
 # dev side:
-xcodebuild build -project "$DEV_WT/Convos.xcodeproj" -scheme "Convos (Prod)" \
+xcodebuild build -project "$DEV_WT/Convos.xcodeproj" -scheme "Convos (Local)" \
   -derivedDataPath "$DEV_WT/.derivedData" -destination "id=$SIM"
 # install + launch dev, authorize, populate (see populate_on_dev), terminate.
 # branch side (this checkout):
-xcodebuild build -project Convos.xcodeproj -scheme "Convos (Prod)" \
+xcodebuild build -project Convos.xcodeproj -scheme "Convos (Local)" \
   -derivedDataPath .derivedData -destination "id=$SIM"
 # install OVER the dev app (same bundle id, NO erase), launch, run the assertions.
 
 git worktree remove "$DEV_WT"
 ```
 
-> If you build the Local/Dev scheme instead of Prod, strip DEBUG for the build, e.g.
-> `xcodebuild ... SWIFT_ACTIVE_COMPILATION_CONDITIONS=""` - otherwise GRDB erases the DB and
-> the test is invalid. Confirm via `no_wipe_fired`.
+> The `no_wipe_fired` step confirms the upgrade migrated in place (no LegacyDataWipe, no
+> GRDB erase). It passes on this Local build only because the migrations are appended after
+> dev's last migration; if it ever fails on Local, a migration was inserted mid-list.
 
 ## Status
 
 Authored from a verified static investigation of this branch's migrations, the GRDB
-`eraseDatabaseOnSchemaChange` semantics, and the consent/agent-contact surface. Not yet run
-end-to-end (it requires two non-DEBUG builds + an isolated simulator, like test 13). The
-production migration path is statically safe (no generation bump; additive migrations + one
-in-place column drop; no DELETE/UPDATE); the recommended automated guard is the GRDB-level
-unit test described above.
+`eraseDatabaseOnSchemaChange` semantics (including that Dev/PR TestFlight builds are DEBUG),
+and the consent/agent-contact surface. That investigation found - and this branch now fixes
+- a mid-list migration insertion that would have wiped dev/preview TestFlight testers' local
+databases on update; the migrations are now appended after dev's last migration so the
+upgrade migrates in place on every configuration. The migration path is otherwise data-safe
+(no generation bump; additive migrations + one in-place column drop; no DELETE/UPDATE). Not
+yet run end-to-end (two Local builds + an isolated simulator, like test 13); the recommended
+lighter automated guard is the GRDB-level unit test described above.
