@@ -499,6 +499,11 @@ extension Array where Element == DBMessage {
                 return nil
             }
             return .invite(invite)
+        case .agentShare:
+            guard let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) else {
+                return .text(dbMessage.text ?? "")
+            }
+            return .agentShare(agentShare)
         case .linkPreview:
             guard let preview = dbMessage.linkPreview else {
                 return .text(dbMessage.text ?? "")
@@ -624,6 +629,12 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
+        case .agentShare:
+            if let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                replyContent = .agentShare(agentShare)
+            } else {
+                replyContent = .text(dbMessage.text ?? "")
+            }
         case .linkPreview:
             if let preview = dbMessage.linkPreview {
                 replyContent = .linkPreview(preview)
@@ -667,6 +678,12 @@ extension Array where Element == DBMessage {
                 parentContent = .invite(invite)
             } else {
                 parentContent = .text("[Invite]")
+            }
+        case .agentShare:
+            if let text = sourceDBMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                parentContent = .agentShare(agentShare)
+            } else {
+                parentContent = .text(sourceDBMessage.text ?? "")
             }
         case .linkPreview:
             if let preview = sourceDBMessage.linkPreview {

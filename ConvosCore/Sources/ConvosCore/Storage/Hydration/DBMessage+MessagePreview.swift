@@ -59,6 +59,12 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent an invite"
                 }
+            case .agentShare:
+                if shouldShowSenderName {
+                    text = "\(senderName) shared an agent"
+                } else {
+                    text = "shared an agent"
+                }
             case .linkPreview:
                 if shouldShowSenderName {
                     text = "\(senderName) sent a link"
@@ -96,6 +102,12 @@ extension DBLastMessageWithSource {
                     text = "\(senderName) replied with an invite"
                 } else {
                     text = "replied with an invite"
+                }
+            case .agentShare:
+                if shouldShowSenderName {
+                    text = "\(senderName) replied with an agent"
+                } else {
+                    text = "replied with an agent"
                 }
             case .linkPreview:
                 if shouldShowSenderName {

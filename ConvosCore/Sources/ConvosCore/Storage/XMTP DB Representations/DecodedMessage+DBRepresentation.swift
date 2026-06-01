@@ -128,6 +128,17 @@ extension XMTPiOS.DecodedMessage {
                 text: contentString,
                 update: nil
             )
+        } else if !isContentEmoji, MessageAgentShare.from(text: contentString) != nil {
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .agentShare,
+                sourceMessageId: nil,
+                emoji: nil,
+                invite: nil,
+                attachmentUrls: [],
+                text: contentString,
+                update: nil
+            )
         } else if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
             return DBMessageComponents(
                 messageType: .original,

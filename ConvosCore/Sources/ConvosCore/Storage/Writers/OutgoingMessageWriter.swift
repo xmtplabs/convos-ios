@@ -2025,13 +2025,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let isContentEmoji = text.allCharactersEmoji
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let invite = MessageInvite.from(text: text)
-        let linkPreview = invite == nil && !isContentEmoji ? LinkPreview.from(text: text) : nil
+        let isAgentShare = invite == nil && !isContentEmoji && MessageAgentShare.from(text: text) != nil
+        let linkPreview = invite == nil && !isAgentShare && !isContentEmoji ? LinkPreview.from(text: text) : nil
 
         let contentType: MessageContentType
         if isContentEmoji {
             contentType = .emoji
         } else if invite != nil {
             contentType = .invite
+        } else if isAgentShare {
+            contentType = .agentShare
         } else if linkPreview != nil {
             contentType = .linkPreview
         } else {
