@@ -113,6 +113,7 @@ struct ContactDetailView: View {
                 blockAlertMessage: blockAlertMessage,
                 presentingAgentShareSheet: $presentingAgentShareSheet,
                 agentShareURL: resolvedAgentShareURL,
+                onAgentSharePresented: { isPublishingAgentTemplate = false },
                 presentingPublishError: $presentingPublishError,
                 publishErrorMessage: publishErrorMessage,
                 presentingAgentInfo: $presentingAgentInfo,
@@ -497,20 +498,27 @@ struct ContactDetailView: View {
     /// template via the backend on first tap. A publish failure (e.g. the
     /// caller isn't the template owner) surfaces an alert.
     private func handlePublishAndShareAgentTemplate() {
+        // Show the button's spinner from the moment of tap until the share sheet
+        // has finished presenting (cleared in the `.shareSheet` onPresented). This
+        // covers both the already-published path and the publish round-trip, plus
+        // the gap while the share sheet is preparing.
+        isPublishingAgentTemplate = true
         if let url = resolvedAgentShareURL ?? agentTemplateShareURL {
             resolvedAgentShareURL = url
             presentingAgentShareSheet = true
             return
         }
-        guard let session, let templateId = contact.agentTemplateId else { return }
-        isPublishingAgentTemplate = true
+        guard let session, let templateId = contact.agentTemplateId else {
+            isPublishingAgentTemplate = false
+            return
+        }
         Task {
-            defer { isPublishingAgentTemplate = false }
             do {
                 let template = try await session.publishAgentTemplate(id: templateId)
                 guard let urlString = template.publishedUrl, let url = URL(string: urlString) else {
                     publishErrorMessage = "This agent can't be shared yet."
                     presentingPublishError = true
+                    isPublishingAgentTemplate = false
                     return
                 }
                 resolvedAgentShareURL = url
@@ -521,6 +529,7 @@ struct ContactDetailView: View {
                 // bridged NSError ("...ConvosCore.APIError error 6.").
                 publishErrorMessage = (error as? DisplayError)?.description ?? error.localizedDescription
                 presentingPublishError = true
+                isPublishingAgentTemplate = false
             }
         }
     }
@@ -927,6 +936,7 @@ private struct ContactDetailModalsModifier<
     let blockAlertMessage: String
     @Binding var presentingAgentShareSheet: Bool
     let agentShareURL: URL?
+    let onAgentSharePresented: () -> Void
     @Binding var presentingPublishError: Bool
     let publishErrorMessage: String?
     @Binding var presentingAgentInfo: Bool
@@ -963,21 +973,18 @@ private struct ContactDetailModalsModifier<
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
-            .sheet(isPresented: $presentingAgentShareSheet) {
-                agentShareSheet
-            }
+            .shareSheet(
+                isPresented: $presentingAgentShareSheet,
+                items: agentShareItems,
+                onPresented: onAgentSharePresented
+            )
             .selfSizingSheet(isPresented: $presentingAgentInfo, onDismiss: onAgentInfoDismiss) {
                 OneAgentManyConvosInfoSheet(onConfirm: onAgentInfoConfirm)
             }
     }
 
-    @ViewBuilder
-    private var agentShareSheet: some View {
-        if let agentShareURL {
-            AutoShareSheetView(items: [agentShareURL]) {
-                Color.colorBackgroundSurfaceless.ignoresSafeArea()
-            }
-        }
+    private var agentShareItems: [Any] {
+        agentShareURL.map { [$0] } ?? []
     }
 }
 
