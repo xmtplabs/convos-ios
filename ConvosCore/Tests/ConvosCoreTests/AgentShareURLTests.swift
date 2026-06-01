@@ -89,3 +89,48 @@ struct MockAgentShareResolverTests {
         #expect(first?.displayName?.isEmpty == false)
     }
 }
+
+@Suite("ApiAgentShareResolver")
+struct ApiAgentShareResolverTests {
+    @Test("maps the template detail response into AgentShareInfo")
+    func mapsTemplateResponse() async {
+        let api = AgentShareStubAPIClient(
+            template: ConvosAPI.AgentTemplate(
+                id: "17555bf3-f66c-4706-8c35-f2fe6fbe0ef7",
+                status: "published",
+                publishedUrl: "https://agents-dev.convos.org/a/gandalf.felpl",
+                slug: "gandalf",
+                agentName: "Gandalf",
+                description: "The Grey Wizard.",
+                emoji: "🧙",
+                avatarUrl: nil
+            )
+        )
+        let resolver = ApiAgentShareResolver(apiClient: api)
+        let info = await resolver.resolve(identifier: "gandalf.felpl")
+        #expect(info?.templateId == "17555bf3-f66c-4706-8c35-f2fe6fbe0ef7")
+        #expect(info?.displayName == "Gandalf")
+        #expect(info?.emoji == "🧙")
+        #expect(info?.descriptionText == "The Grey Wizard.")
+    }
+
+    @Test("returns nil when the fetch throws")
+    func nilOnError() async {
+        let resolver = ApiAgentShareResolver(apiClient: AgentShareStubAPIClient(template: nil))
+        let info = await resolver.resolve(identifier: "missing.slug")
+        #expect(info == nil)
+    }
+}
+
+/// Returns a fixed template (or throws `notFound` when nil) for the
+/// agent-share detail fetch. Every other `ConvosAPIClientProtocol` requirement
+/// is satisfied by the shared `TestStubAPIClientDefaults` no-op extension.
+private final class AgentShareStubAPIClient: TestStubAPIClient, @unchecked Sendable {
+    private let template: ConvosAPI.AgentTemplate?
+    init(template: ConvosAPI.AgentTemplate?) { self.template = template }
+
+    override func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+        guard let template else { throw APIError.notFound }
+        return template
+    }
+}

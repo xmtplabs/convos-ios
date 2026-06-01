@@ -2690,17 +2690,29 @@ extension ConversationViewModel {
 
     /// Tapping a shared agent's contact card opens a new conversation seeded
     /// with that agent template (the same flow the `convos://template/<id>`
-    /// deep link uses). Only the custom-scheme form carries a template id
-    /// directly; a web-slug share resolves to an id via the API resolver,
-    /// which isn't wired yet, so those are a no-op for now.
+    /// deep link uses). The custom-scheme form carries the template id
+    /// directly; a web-slug share is resolved to its id via the API resolver
+    /// first.
     func onTapAgentShare(_ agentShare: MessageAgentShare) {
-        guard isValidTemplateId(agentShare.identifier) else {
-            Log.debug("Agent-share tap with non-template-id identifier (web slug); resolve-to-id not wired yet")
+        if isValidTemplateId(agentShare.identifier) {
+            openAgentTemplate(templateId: agentShare.identifier)
             return
         }
+        let resolver = agentShareResolver
+        let identifier = agentShare.identifier
+        Task { [weak self] in
+            let info = await resolver.resolve(identifier: identifier)
+            await MainActor.run {
+                guard let self, let templateId = info?.templateId else { return }
+                self.openAgentTemplate(templateId: templateId)
+            }
+        }
+    }
+
+    private func openAgentTemplate(templateId: String) {
         presentingNewConversationForAgentShare = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: agentShare.identifier)
+            mode: .newConversationWithTemplate(templateId: templateId)
         )
     }
 

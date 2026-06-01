@@ -4,17 +4,23 @@ import Foundation
 /// agent-share link's identifier. Just enough to render a contact card --
 /// the same fields `AgentTemplateContact` exposes.
 public struct AgentShareInfo: Sendable, Hashable {
+    /// The resolved template id (UUID). Drives opening the agent's template
+    /// flow when its card is tapped -- a web-slug share only yields an id once
+    /// resolved, so this is `nil` until then.
+    public let templateId: String?
     public let displayName: String?
     public let emoji: String?
     public let descriptionText: String?
     public let avatarURL: String?
 
     public init(
+        templateId: String?,
         displayName: String?,
         emoji: String?,
         descriptionText: String?,
         avatarURL: String?
     ) {
+        self.templateId = templateId
         self.displayName = displayName
         self.emoji = emoji
         self.descriptionText = descriptionText
@@ -51,22 +57,52 @@ public struct MockAgentShareResolver: AgentShareResolving {
 
     private static let personas: [AgentShareInfo] = [
         AgentShareInfo(
+            templateId: nil,
             displayName: "Tifoso",
             emoji: "🚴",
             descriptionText: "I'll help you plan your next ride, log mileage, and remember your favorite routes.",
             avatarURL: nil
         ),
         AgentShareInfo(
+            templateId: nil,
             displayName: "Sous",
             emoji: "🍳",
             descriptionText: "Your kitchen sidekick -- recipes, substitutions, and timing for everything on the stove.",
             avatarURL: nil
         ),
         AgentShareInfo(
+            templateId: nil,
             displayName: "Ledger",
             emoji: "📒",
             descriptionText: "I keep a running tab of shared expenses and tell you who owes what.",
             avatarURL: nil
         ),
     ]
+}
+
+/// Resolves agent-share links against the backend's public template detail
+/// endpoint (`GET /v2/agent-templates/:idOrUrlSlug`) via `ConvosAPIClient`.
+/// The real resolver `SessionManager` vends in place of `MockAgentShareResolver`.
+public struct ApiAgentShareResolver: AgentShareResolving {
+    private let apiClient: any ConvosAPIClientProtocol
+
+    public init(apiClient: any ConvosAPIClientProtocol) {
+        self.apiClient = apiClient
+    }
+
+    public func resolve(identifier: String) async -> AgentShareInfo? {
+        do {
+            let template = try await apiClient.getAgentTemplate(idOrUrlSlug: identifier)
+            return AgentShareInfo(
+                templateId: template.id,
+                displayName: template.agentName,
+                emoji: template.emoji,
+                descriptionText: template.description,
+                avatarURL: template.avatarUrl
+            )
+        } catch {
+            Log.error("ApiAgentShareResolver failed to resolve \(identifier): \(error.localizedDescription)")
+            return nil
+        }
+    }
 }

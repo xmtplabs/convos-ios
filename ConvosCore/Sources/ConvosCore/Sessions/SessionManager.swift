@@ -602,6 +602,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.publishAgentTemplate(id: id)
     }
 
+    public func agentShareResolver() -> any AgentShareResolving {
+        ApiAgentShareResolver(apiClient: apiClient)
+    }
+
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         ConversationRepository(
             conversationId: conversationId,
