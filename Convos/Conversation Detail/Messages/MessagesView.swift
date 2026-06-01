@@ -27,6 +27,10 @@ struct MessagesView<BottomBarContent: View>: View {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    /// True when the staged invite is a side-convo the user created via the
+    /// Convos button (name / image / explode are editable). False for a pasted
+    /// invite into an existing conversation, which renders read-only.
+    var pendingInviteIsEditable: Bool = true
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
     @Binding var pendingInviteImage: UIImage?
@@ -55,6 +59,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -128,6 +133,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapInvite: onTapInvite,
             onTapAgentShare: onTapAgentShare,
             agentShareResolver: agentShareResolver,
+            inviteMembershipResolver: inviteMembershipResolver,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,
@@ -188,6 +194,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     pendingMediaAttachments: pendingMediaAttachments,
                     composerLinkPreview: composerLinkPreview,
                     pendingInviteURL: pendingInviteURL,
+                    pendingInviteIsEditable: pendingInviteIsEditable,
                     pendingInviteEmoji: pendingInviteEmoji,
                     pendingInviteConvoName: $pendingInviteConvoName,
                     pendingInviteImage: $pendingInviteImage,
@@ -264,6 +271,7 @@ struct MessagesView<BottomBarContent: View>: View {
             // here so an agent-share card preview resolves real data, not the
             // env-default mock.
             .environment(\.agentShareResolver, agentShareResolver)
+            .environment(\.inviteMembershipResolver, inviteMembershipResolver)
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(

@@ -15,6 +15,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -93,6 +94,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onTapAgentShare = onTapAgentShare
         messagesViewController.agentShareResolver = agentShareResolver
+        messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction
         messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions

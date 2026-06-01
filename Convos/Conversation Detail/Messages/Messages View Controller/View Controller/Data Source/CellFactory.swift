@@ -7,6 +7,10 @@ struct CellConfig {
     let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
+    /// Resolves whether the current user already joined the conversation an
+    /// invite card points to, so it can show the member count instead of
+    /// "Tap to join".
+    let inviteMembershipResolver: any InviteMembershipResolving
     /// Resolves a received/sent agent-share link to the shared agent's public
     /// profile so its message card can render name / emoji / description.
     let agentShareResolver: any AgentShareResolving

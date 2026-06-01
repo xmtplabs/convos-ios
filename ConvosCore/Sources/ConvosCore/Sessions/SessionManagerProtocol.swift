@@ -129,6 +129,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// iOS client method for the backend's template-resolve endpoint lands.
     func agentShareResolver() -> any AgentShareResolving
 
+    /// Resolves whether the current user already belongs to the conversation a
+    /// received/sent invite points to (and that conversation's member count) so
+    /// the in-chat invite card can show "N members" instead of "Tap to join". A
+    /// default returns `NoopInviteMembershipResolver`; the real GRDB-backed
+    /// resolver is wired in `SessionManager`.
+    func inviteMembershipResolver() -> any InviteMembershipResolving
+
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
         for consent: [Consent],
@@ -212,6 +219,13 @@ extension SessionManagerProtocol {
     /// test mocks) gets a working resolver without bespoke wiring.
     public func agentShareResolver() -> any AgentShareResolving {
         MockAgentShareResolver()
+    }
+
+    /// Default invite-membership resolver. Returns the no-op resolver so every
+    /// conformer (including test mocks) renders the card's default state; the
+    /// GRDB-backed resolver is wired in `SessionManager`.
+    public func inviteMembershipResolver() -> any InviteMembershipResolving {
+        NoopInviteMembershipResolver()
     }
 
     public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {

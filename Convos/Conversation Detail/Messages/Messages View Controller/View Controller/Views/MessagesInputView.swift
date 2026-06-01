@@ -12,6 +12,10 @@ struct MessagesInputView: View {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    /// True for a side-convo created via the Convos button (editable name /
+    /// image / explode). False for a pasted invite into an existing
+    /// conversation, which shows a read-only chip with just the invite info.
+    var pendingInviteIsEditable: Bool = true
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
     @Binding var pendingInviteImage: UIImage?
@@ -333,6 +337,7 @@ struct MessagesInputView: View {
         ZStack(alignment: .topTrailing) {
             ComposerSideConvoCard(
                 inviteURL: url,
+                isEditable: pendingInviteIsEditable,
                 conversationEmoji: pendingInviteEmoji,
                 convoName: $pendingInviteConvoName,
                 convoImage: $pendingInviteImage,
@@ -535,6 +540,11 @@ private struct ComposerImageAreaModifier: ViewModifier {
 
 private struct ComposerSideConvoCard: View {
     let inviteURL: String
+    /// True for a side-convo created via the Convos button. False for a pasted
+    /// invite into an existing conversation, which renders read-only: the
+    /// avatar / name / explode info come straight from the invite and the
+    /// editing controls are replaced with static labels.
+    var isEditable: Bool = true
     var conversationEmoji: String?
     @Binding var convoName: String
     @Binding var convoImage: UIImage?
@@ -563,20 +573,60 @@ private struct ComposerSideConvoCard: View {
         return "Explodes in \(explodeDuration.shortLabel)"
     }
 
+    private var readOnlyTitle: String {
+        if let name = invite?.conversationName, !name.isEmpty { return name }
+        return "New Convo"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            emojiArea
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                nameField
-                explodeButton
+            if isEditable {
+                editableContent
+            } else {
+                readOnlyContent
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
         }
         .frame(width: cardWidth)
         .background(.colorFillSubtle)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("side-convo-card")
+    }
+
+    @ViewBuilder
+    private var editableContent: some View {
+        emojiArea
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            nameField
+            explodeButton
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+    }
+
+    @ViewBuilder
+    private var readOnlyContent: some View {
+        emojiAreaContent
+        readOnlyDetails
+    }
+
+    @ViewBuilder
+    private var readOnlyDetails: some View {
+        let expiresAt: Date? = invite?.conversationExpiresAt
+        let showsCountdown: Bool = (expiresAt ?? .distantPast) > Date()
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            Text(readOnlyTitle)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.colorTextPrimary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("side-convo-readonly-name")
+            if showsCountdown, let expiresAt {
+                ExplosionCountdownBadge(expiresAt: expiresAt)
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
     }
 
     @ViewBuilder

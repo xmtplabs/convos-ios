@@ -605,6 +605,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
+    public func inviteMembershipResolver() -> any InviteMembershipResolving {
+        DatabaseInviteMembershipResolver(databaseReader: databaseReader)
+    }
+
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         ConversationRepository(
             conversationId: conversationId,

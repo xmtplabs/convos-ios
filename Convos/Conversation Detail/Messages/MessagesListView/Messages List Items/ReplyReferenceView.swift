@@ -390,67 +390,102 @@ private struct ReplyReferencePhotoPreview: View {
 private struct ReplyReferenceInvitePreview: View {
     let invite: MessageInvite
     @State private var cachedImage: UIImage?
+    /// Member count of the linked conversation when the current user has
+    /// already joined it; nil while resolving or when not a member. Mirrors
+    /// `MessageInviteView` so the reply preview shows the same subtitle.
+    @State private var joinedMemberCount: Int?
+    @Environment(\.inviteMembershipResolver) private var membershipResolver: any InviteMembershipResolving
 
     private var title: String {
         if let name = invite.conversationName, !name.isEmpty {
-            return "Pop into my convo \"\(name)\""
+            return name
         }
-        return "Pop into my convo"
+        return "New Convo"
+    }
+
+    private var isExpired: Bool {
+        invite.isConversationExpired || invite.isInviteExpired
     }
 
     private var description: String {
-        if let description = invite.conversationDescription, !description.isEmpty {
-            return description
+        if invite.isConversationExpired { return "Exploded" }
+        if invite.isInviteExpired { return "Expired" }
+        if let joinedMemberCount {
+            return "\(joinedMemberCount) \(joinedMemberCount == 1 ? "member" : "members")"
         }
-        return "convos.org"
+        return "Tap to join"
+    }
+
+    @ViewBuilder
+    private var avatarOverlay: some View {
+        if isExpired {
+            Image(systemName: "burst")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 44.0)
+                .foregroundStyle(.colorTextSecondary)
+        } else if let image = cachedImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let emoji = invite.emoji, !emoji.isEmpty {
+            Text(emoji)
+                .font(.system(size: 52))
+                .frame(maxWidth: .infinity)
+        } else {
+            Image("convosOrangeIcon")
+                .resizable()
+                .tint(.colorTextPrimaryInverted)
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 44.0)
+                .frame(maxWidth: .infinity)
+        }
     }
 
     var body: some View {
+        let avatarOpacity: Double = isExpired ? 0.6 : 1.0
         VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else if let emoji = invite.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 52))
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .tint(.colorTextPrimaryInverted)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 56.0)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 128.0)
-            .clipped()
-            .background(.colorBackgroundMedia)
+            Color.colorBackgroundMedia
+                .frame(height: 128.0)
+                .overlay { avatarOverlay }
+                .clipped()
+                .opacity(avatarOpacity)
 
-            VStack(alignment: .leading, spacing: 1.0) {
-                Text(title)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.colorTextPrimary)
-                    .font(.caption)
-                    .truncationMode(.tail)
-                Text(description)
-                    .font(.caption)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.colorTextSecondary)
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                VStack(alignment: .leading, spacing: 1.0) {
+                    Text(title)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.colorTextPrimary)
+                        .font(.caption.weight(.medium))
+                        .truncationMode(.tail)
+                    Text(description)
+                        .font(.caption)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+
+                if !isExpired,
+                   let expiresAt = invite.conversationExpiresAt,
+                   expiresAt > Date() {
+                    Spacer(minLength: 0)
+                    ExplosionCountdownBadge(expiresAt: expiresAt)
+                }
             }
             .padding(.vertical, DesignConstants.Spacing.step2x)
             .padding(.horizontal, DesignConstants.Spacing.step3x)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
         .background(.colorFillSubtle)
         .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .cachedImage(for: invite) { image in
             cachedImage = image
+        }
+        .task(id: invite.inviteSlug) {
+            joinedMemberCount = await membershipResolver.memberCount(forInviteSlug: invite.inviteSlug)
         }
     }
 }
