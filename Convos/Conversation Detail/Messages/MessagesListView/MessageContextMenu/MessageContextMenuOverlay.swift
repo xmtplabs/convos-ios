@@ -489,25 +489,27 @@ struct MessageContextMenuOverlay: View {
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
 
-                    let isBlurred = shouldBlurPhoto
-                    let key = attachment.key
-                    let revealCallback = onPhotoRevealed
-                    let hideCallback = onPhotoHidden
-                    let toggleAction = {
-                        if isBlurred {
-                            blurOverride = false
-                            revealCallback(key)
-                        } else {
-                            blurOverride = true
-                            hideCallback(key)
+                    if attachment.supportsBlur {
+                        let isBlurred = shouldBlurPhoto
+                        let key = attachment.key
+                        let revealCallback = onPhotoRevealed
+                        let hideCallback = onPhotoHidden
+                        let toggleAction = {
+                            if isBlurred {
+                                blurOverride = false
+                                revealCallback(key)
+                            } else {
+                                blurOverride = true
+                                hideCallback(key)
+                            }
+                            dismissMenu(afterStateChange: true)
                         }
-                        dismissMenu(afterStateChange: true)
+                        ContextMenuRow(
+                            icon: isBlurred ? "eye" : "eye.slash",
+                            title: isBlurred ? "Reveal" : "Blur",
+                            action: toggleAction
+                        )
                     }
-                    ContextMenuRow(
-                        icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Blur",
-                        action: toggleAction
-                    )
                 }
             }
             .padding(.vertical, 10)
