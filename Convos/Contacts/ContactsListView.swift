@@ -57,6 +57,7 @@ struct ContactsListView<Row: Identifiable, RowContent: View, ListBackground: Vie
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
         .background(listBackground)
     }
 }

@@ -36,6 +36,7 @@ struct ContactsSearchBar: View {
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
+                .submitLabel(.search)
                 .accessibilityIdentifier(accessibilityIdentifier)
 
             trailingAccessory
