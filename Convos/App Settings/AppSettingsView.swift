@@ -66,9 +66,8 @@ struct AppSettingsView: View {
             List {
                 headerSection
                 myInfoSection
-                contactsSection
-                connectionsSection
                 subscriptionSection
+                connectionsSection
                 devicesSection
                 customizeSection
                 linksSection
@@ -82,7 +81,6 @@ struct AppSettingsView: View {
             .toolbar { topToolbar }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
-            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contactsCount = $0.filter(\.isVisibleInContactsList).count }
         }
     }
 
@@ -126,8 +124,6 @@ struct AppSettingsView: View {
         }
     }
 
-    @State private var contactsCount: Int = 0
-
     @ViewBuilder
     private var devicesSection: some View {
         Section {
@@ -157,31 +153,6 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
-    private var contactsSection: some View {
-        Section {
-            NavigationLink {
-                contactsViewDestination
-            } label: {
-                contactsRowLabel
-            }
-            .accessibilityIdentifier("contacts-row")
-        } footer: {
-            Text("People and agents")
-        }
-    }
-
-    @ViewBuilder
-    private var contactsViewDestination: some View {
-        let messagingService = session.messagingService()
-        ContactsView(
-            contactsRepository: messagingService.contactsRepository(),
-            contactsWriter: messagingService.contactsWriter(),
-            session: session,
-            profileSettingsViewModel: profileSettingsViewModel
-        )
-    }
-
-    @ViewBuilder
     private var myInfoRowLabel: some View {
         HStack {
             Image(systemName: "lanyardcard.fill")
@@ -203,26 +174,6 @@ struct AppSettingsView: View {
                     useSystemPlaceholder: false
                 )
                 .frame(width: 16.0, height: 16.0)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var contactsRowLabel: some View {
-        HStack {
-            Image(systemName: "person.crop.circle")
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
-
-            Text("Contacts")
-                .foregroundStyle(.colorTextPrimary)
-
-            Spacer()
-
-            if contactsCount > 0 {
-                Text("\(contactsCount)")
-                    .foregroundStyle(.colorTextSecondary)
-                    .monospacedDigit()
             }
         }
     }

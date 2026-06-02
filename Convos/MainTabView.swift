@@ -3,17 +3,18 @@ import PhotosUI
 import SwiftUI
 
 /// Root tab shell for the app. Hosts the existing `ConversationsView` under
-/// the "Chats" tab and `StuffTabView` under "Stuff", in a standard SwiftUI
-/// `TabView` with the system tab bar. (Search was a third tab that is
-/// temporarily removed.)
+/// the "Chats" tab, `StuffTabView` under "Stuff", and `ContactsView` under
+/// "Contacts", in a standard SwiftUI `TabView` with the system tab bar.
 ///
 /// The agent builder bar is pinned via a `safeAreaInset` on the edge
 /// opposite the tab bar (top on iPhone, where the tab bar is at the bottom;
 /// bottom on iPad, where the standard tab bar is at the top), shared across
-/// both tabs. It fades out on scroll and is replaced by a compact "add
-/// agent" button in the nav bar. The compose button lives in the shared
-/// toolbar; the app-indicator pill is a top-leading overlay (see
-/// `sharedAppIndicatorOverlay`).
+/// the Chats and Stuff tabs. It fades out on scroll and is replaced by a
+/// compact "add agent" button in the nav bar. The Contacts tab never shows
+/// the builder bar -- its search bar owns the top -- so the "add agent"
+/// button stays in the nav bar there regardless of scroll. The compose
+/// button lives in the shared toolbar; the app-indicator pill is a
+/// top-leading overlay (see `sharedAppIndicatorOverlay`).
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
@@ -32,6 +33,11 @@ struct MainTabView: View {
     /// (same morph as a chats push). Synced via `.onChange` on
     /// `stuffPushedItems` — created lazily, cleared on pop.
     @State private var stuffPushedConvoVM: ConversationViewModel?
+    /// NavigationStack path for the Contacts tab, lifted here so the shared
+    /// app-indicator overlay can tell when a contact detail is pushed and
+    /// re-center the pill (mirrors how `stuffPushedItems` lifts the Stuff
+    /// path). `ContactsView` pushes onto it via value-based `NavigationLink`s.
+    @State private var contactsPath: [Contact] = []
     /// Whether the top `AgentBuilderBar` is revealed (shown under the nav
     /// bar) versus faded out. Held in state with hysteresis thresholds
     /// rather than derived purely from scroll offset so a bouncy scroll
@@ -174,11 +180,19 @@ struct MainTabView: View {
         conversationsViewModel.isEmptyCTAActive
     }
 
+    /// `true` when the Contacts tab is active and has a contact detail pushed
+    /// onto its stack. Used to hide the app-indicator pill while a contact
+    /// detail is on screen.
+    private var isContactDetailPushed: Bool {
+        activeTab == .contacts && !contactsPath.isEmpty
+    }
+
     /// Scroll offset for whichever tab is currently active.
     private var activeTabScrollOffset: CGFloat {
         switch activeTab {
         case .chats: chatsScrollOffset
         case .stuff: stuffScrollOffset
+        case .contacts: 0
         }
     }
 
@@ -297,7 +311,7 @@ struct MainTabView: View {
     private var tabView: some View {
         TabView(selection: $activeTab) {
             Tab(ConvosTab.chats.title, systemImage: ConvosTab.chats.symbol, value: ConvosTab.chats) {
-                tabContainer {
+                tabContainer(for: .chats) {
                     ConversationsView(
                         viewModel: conversationsViewModel,
                         profileSettingsViewModel: profileSettingsViewModel,
@@ -317,7 +331,7 @@ struct MainTabView: View {
             }
 
             Tab(ConvosTab.stuff.title, systemImage: ConvosTab.stuff.symbol, value: ConvosTab.stuff) {
-                tabContainer {
+                tabContainer(for: .stuff) {
                     StuffTabView(
                         appIndicatorContext: appIndicatorContext,
                         conversationsViewModel: conversationsViewModel,
@@ -331,11 +345,32 @@ struct MainTabView: View {
                     )
                 }
             }
+
+            Tab(ConvosTab.contacts.title, systemImage: ConvosTab.contacts.symbol, value: ConvosTab.contacts) {
+                tabContainer(for: .contacts) {
+                    contactsTabContent
+                }
+            }
         }
         .tint(Color.colorTextPrimary)
         .onChange(of: activeTab) { _, _ in
             updateBuilderBarReveal(forOffset: activeTabScrollOffset)
         }
+    }
+
+    /// Builds the Contacts tab content from the live messaging service,
+    /// mirroring the wiring the App Settings "Contacts" row used before it
+    /// was promoted to a top-level tab.
+    @ViewBuilder
+    private var contactsTabContent: some View {
+        let messagingService = conversationsViewModel.session.messagingService()
+        ContactsView(
+            contactsRepository: messagingService.contactsRepository(),
+            contactsWriter: messagingService.contactsWriter(),
+            session: conversationsViewModel.session,
+            profileSettingsViewModel: profileSettingsViewModel,
+            showsComposeButton: false
+        )
     }
 
     /// Wraps each tab's content in its own `NavigationStack` carrying the
@@ -347,19 +382,35 @@ struct MainTabView: View {
     /// The conversation-detail push (via `ConversationsView`'s
     /// `navigationDestination`) lands on this per-tab stack.
     @ViewBuilder
-    private func tabContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        NavigationStack {
-            content()
-                .safeAreaInset(edge: builderBarEdge, spacing: 0) {
-                    if !isConversationSelected && !isInlineBuilderActive {
-                        builderBar
-                            .transition(.blurReplace)
-                    }
-                }
-                .toolbar { sharedToolbar }
-                .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
-                .toolbar((isConversationSelected || isInlineBuilderActive) ? .hidden : .visible, for: .tabBar)
+    private func tabContainer<Content: View>(for tab: ConvosTab, @ViewBuilder content: () -> Content) -> some View {
+        // The Contacts tab binds its stack path to `contactsPath` so the
+        // shared overlay can re-center the app-indicator pill when a contact
+        // detail is pushed; the other tabs use an internally-managed stack.
+        if tab == .contacts {
+            NavigationStack(path: $contactsPath) {
+                tabChrome(content(), for: tab)
+            }
+        } else {
+            NavigationStack {
+                tabChrome(content(), for: tab)
+            }
         }
+    }
+
+    /// Shared chrome (builder bar + toolbars) wrapped around each tab's root
+    /// content inside its `NavigationStack`.
+    @ViewBuilder
+    private func tabChrome(_ content: some View, for tab: ConvosTab) -> some View {
+        content
+            .safeAreaInset(edge: builderBarEdge, spacing: 0) {
+                if tab != .contacts && !isConversationSelected && !isInlineBuilderActive {
+                    builderBar
+                        .transition(.blurReplace)
+                }
+            }
+            .toolbar { sharedToolbar(for: tab) }
+            .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
+            .toolbar((isConversationSelected || isInlineBuilderActive) ? .hidden : .visible, for: .tabBar)
     }
 
     /// Shared toolbar (compose + add-agent) applied to each tab's
@@ -368,7 +419,7 @@ struct MainTabView: View {
     /// It's rendered as a SwiftUI overlay anchored at top-leading instead
     /// (see `sharedAppIndicatorOverlay`).
     @ToolbarContentBuilder
-    private var sharedToolbar: some ToolbarContent {
+    private func sharedToolbar(for tab: ConvosTab) -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button("Compose", systemImage: "square.and.pencil") {
                 conversationsViewModel.onStartConvo()
@@ -379,7 +430,7 @@ struct MainTabView: View {
         }
         // Declared after Compose so it sits at the trailing edge (to the
         // right of Compose) once the top builder bar has faded on scroll.
-        if showsToolbarBuilderButton {
+        if showsToolbarBuilderButton(for: tab) {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: openBuilder) {
                     Image("addAgentIcon")
@@ -400,8 +451,15 @@ struct MainTabView: View {
     /// bar collapses to its own circle instead, so no nav-bar button. Also
     /// hidden while the bar is revealed, while a conversation is pushed, and
     /// during the inline empty-state builder.
-    private var showsToolbarBuilderButton: Bool {
-        horizontalSizeClass == .compact
+    ///
+    /// The Contacts tab is the exception: it never shows the builder bar (the
+    /// contacts search bar owns the top), so the "add agent" button lives in
+    /// the nav bar permanently there, on every size class.
+    private func showsToolbarBuilderButton(for tab: ConvosTab) -> Bool {
+        if tab == .contacts {
+            return !isConversationSelected && !isInlineBuilderActive
+        }
+        return horizontalSizeClass == .compact
             && !isBuilderBarRevealed
             && !isConversationSelected
             && !isInlineBuilderActive
@@ -430,12 +488,13 @@ struct MainTabView: View {
                 if !activeConvoVM.presentingShareView {
                     centeredConversationIndicator(for: activeConvoVM)
                 }
-            } else {
+            } else if !isContactDetailPushed {
                 leadingAppIndicatorPill
             }
             Spacer()
         }
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
+        .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isContactDetailPushed)
         .ignoresSafeArea()
         .allowsHitTesting(true)
         .zIndex(1000)

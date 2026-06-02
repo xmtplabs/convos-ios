@@ -2,19 +2,17 @@ import SwiftUI
 
 /// Source of truth for which lane of the main shell is active. Used as the
 /// `selection` of the standard SwiftUI `TabView` that renders the system
-/// tab bar for Chats and Stuff.
-///
-/// Search was a third lane that is temporarily removed; reintroduce a
-/// `.search` case here (and a `Tab` for it in `MainTabView`) to bring it
-/// back.
+/// tab bar for Chats, Stuff, and Contacts.
 enum ConvosTab: Hashable {
     case chats
     case stuff
+    case contacts
 
     var title: String {
         switch self {
         case .chats: "Chats"
         case .stuff: "Stuff"
+        case .contacts: "Contacts"
         }
     }
 
@@ -22,6 +20,7 @@ enum ConvosTab: Hashable {
         switch self {
         case .chats: "message.fill"
         case .stuff: "square.grid.2x2.fill"
+        case .contacts: "person.fill"
         }
     }
 }

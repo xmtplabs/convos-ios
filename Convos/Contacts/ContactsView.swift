@@ -10,12 +10,18 @@ struct ContactsView: View {
     private let contactsWriter: any ContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
     private let profileSettingsViewModel: ProfileSettingsViewModel
+    /// Whether to render the contacts-scoped compose button. The Contacts
+    /// tab hides it because the shell's shared toolbar already provides a
+    /// compose button (whose `onStartConvo` opens the same contacts picker),
+    /// so the tab's top bar matches Chats and Stuff exactly.
+    private let showsComposeButton: Bool
 
     init(
         contactsRepository: any ContactsRepositoryProtocol,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
-        profileSettingsViewModel: ProfileSettingsViewModel = .shared
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
+        showsComposeButton: Bool = true
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
             contactsRepository: contactsRepository
@@ -24,6 +30,7 @@ struct ContactsView: View {
         self.contactsWriter = contactsWriter
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
+        self.showsComposeButton = showsComposeButton
     }
 
     var body: some View {
@@ -39,17 +46,16 @@ struct ContactsView: View {
             Color.colorBackgroundRaisedSecondary
                 .ignoresSafeArea()
         }
-        // The system `.largeTitle` doesn't transition cleanly during the
-        // navigation pop / search keyboard appearance, so render the
-        // header as an inline `Text` above the search bar instead. The
-        // nav bar is forced to inline mode so only the back / compose
-        // toolbar items remain visible at the top. The bar background
-        // is hidden so the list scrolls behind it with the iOS 26 glass
-        // blur, matching the `safeAreaBar` treatment we apply to the
-        // title + search bar below.
+        // The nav bar is forced to inline mode with a hidden background so
+        // only the toolbar items remain visible at the top and the list
+        // scrolls behind it with the iOS 26 glass blur, matching the
+        // `safeAreaBar` treatment applied to the search bar below.
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar { toolbarContent }
+        .navigationDestination(for: Contact.self) { contact in
+            contactDetail(for: contact)
+        }
         .sheet(isPresented: $presentingPicker) { pickerSheet }
         .sheet(item: $presentingNewConvo) { vm in
             NewConversationView(
@@ -63,38 +69,20 @@ struct ContactsView: View {
     // MARK: - List
 
     /// Same `safeAreaBar` treatment the contacts picker and chat
-    /// composer use. The title + search bar float at the top with iOS 26
-    /// glass blur, and the underlying list's scroll inset is
-    /// auto-adjusted so rows scroll cleanly under the bar.
+    /// composer use. The search bar floats at the top with iOS 26 glass
+    /// blur, and the underlying list's scroll inset is auto-adjusted so
+    /// rows scroll cleanly under the bar.
     @ViewBuilder
     private var contactsContent: some View {
         contactList
             .background(.colorBackgroundRaisedSecondary)
             .safeAreaBar(edge: .top) {
-                VStack(spacing: 0.0) {
-                    titleLabel
-                    ContactsSearchBar(
-                        query: $viewModel.searchQuery,
-                        placeholder: "Search",
-                        accessibilityIdentifier: "contacts-search-field"
-                    )
-                }
+                ContactsSearchBar(
+                    query: $viewModel.searchQuery,
+                    placeholder: "Search contacts",
+                    accessibilityIdentifier: "contacts-search-field"
+                )
             }
-    }
-
-    /// Custom large-title replacement (see comment on `body`). Sized
-    /// per the figma `large/ios` style: SF Pro Bold 40pt with -1pt
-    /// tracking, anchored at 25pt from the leading edge so it lines up
-    /// with the contacts rows below.
-    private var titleLabel: some View {
-        Text("Contacts")
-            .font(.system(size: 40.0, weight: .bold))
-            .tracking(-1.0)
-            .foregroundStyle(.colorTextPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 25.0)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
@@ -108,20 +96,26 @@ struct ContactsView: View {
                 )
             },
             rowContent: { (row: ContactsViewModel.Row) in
-                NavigationLink {
-                    ContactDetailView(
-                        contact: row.contact,
-                        contactsWriter: contactsWriter,
-                        contactsRepository: contactsRepository,
-                        session: session,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        showsCloseButton: false
-                    )
-                } label: {
+                NavigationLink(value: row.contact) {
                     ContactRowView(contact: row.contact, subtitle: row.subtitle)
                 }
             },
             listBackground: { Color.colorBackgroundRaisedSecondary }
+        )
+    }
+
+    /// Detail pushed when a contact row is tapped. Built here (rather than
+    /// inline in the row) so navigation is value-based -- the host lifts the
+    /// stack path to know when a detail is on screen.
+    @ViewBuilder
+    private func contactDetail(for contact: Contact) -> some View {
+        ContactDetailView(
+            contact: contact,
+            contactsWriter: contactsWriter,
+            contactsRepository: contactsRepository,
+            session: session,
+            profileSettingsViewModel: profileSettingsViewModel,
+            showsCloseButton: false
         )
     }
 
@@ -134,14 +128,16 @@ struct ContactsView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            let canCompose = session != nil && viewModel.contactCount > 0
-            Button(action: presentPicker) {
-                Image(systemName: "square.and.pencil")
+        if showsComposeButton {
+            ToolbarItem(placement: .topBarTrailing) {
+                let canCompose = session != nil && viewModel.contactCount > 0
+                Button(action: presentPicker) {
+                    Image(systemName: "square.and.pencil")
+                }
+                .disabled(!canCompose)
+                .accessibilityLabel("Start a new conversation from contacts")
+                .accessibilityIdentifier("contacts-compose-button")
             }
-            .disabled(!canCompose)
-            .accessibilityLabel("Start a new conversation from contacts")
-            .accessibilityIdentifier("contacts-compose-button")
         }
     }
 
