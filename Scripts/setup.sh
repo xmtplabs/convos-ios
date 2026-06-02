@@ -267,6 +267,22 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         echo "4. Paste the UUID above"
     }
 
+    # Source of truth is the team "Convos" 1Password vault. Refresh the shared
+    # .env from it when op is available (soft: skipped if op is missing/signed
+    # out; the cached .env stays the fallback). This runs in shell context where
+    # an `op signin` session is visible, so it works even without 1Password
+    # desktop-app integration.
+    # shellcheck source=Scripts/secrets-utils.sh
+    . "${DIRNAME}/secrets-utils.sh"
+    if command -v op > /dev/null 2>&1; then
+        _op_token="$(op read "${FIREBASE_DEBUG_TOKEN_OP_REF}" --no-newline 2>/dev/null || true)"
+        if [ -n "${_op_token}" ]; then
+            touch "${PARENT_ENV}" 2>/dev/null || true
+            cache_firebase_token_to_env "${PARENT_ENV}" "${_op_token}"
+            echo "🔐 Refreshed Firebase debug token from 1Password (Convos vault)"
+        fi
+    fi
+
     LOCAL_TOKEN="$(read_firebase_token "${LOCAL_ENV}")"
     PARENT_TOKEN="$(read_firebase_token "${PARENT_ENV}")"
 
@@ -276,6 +292,12 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         elif [ -f "${LOCAL_ENV}" ] && [ -n "${LOCAL_TOKEN}" ]; then
             echo "✅ Firebase App Check debug token is configured in ${LOCAL_ENV}"
         else
+            # Token lives in the shared/parent env but this checkout has no .env yet
+            # (fresh worktree). Link it so the build phase finds the cached token.
+            if [ ! -e "${LOCAL_ENV}" ] && [ ! -L "${LOCAL_ENV}" ]; then
+                ln -s "${PARENT_ENV}" "${LOCAL_ENV}"
+                echo "✓ Linked .env → ${PARENT_ENV} at ${LOCAL_ENV}"
+            fi
             echo "✅ Firebase App Check debug token is configured in ${PARENT_ENV}"
         fi
     else

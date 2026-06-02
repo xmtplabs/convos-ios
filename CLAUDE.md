@@ -453,7 +453,7 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/test` | Run tests (ConvosCore by default) |
 | `/lint` | Check code with SwiftLint (run before committing) |
 | `/format` | Format code with SwiftFormat |
-| `/firebase-token` | Get Firebase App Check debug token from simulator logs |
+| `/firebase-token` | Sync/rotate the shared Firebase App Check debug token (1Password source of truth, .env cache) |
 
 **Pre-commit workflow:** SwiftFormat auto-formats and SwiftLint blocks the commit on violations (both via `Scripts/hooks/pre-commit`). Pre-push lints the diff against `dev` again as a final gate before the push hits GitHub. SwiftLint does not run during Xcode builds (for faster compilation). A full-tree `/lint` runs in ~1-2 seconds with the current config.
 

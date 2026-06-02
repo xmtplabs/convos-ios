@@ -111,7 +111,7 @@ For **local mode**, also one line on stack health (from `make -C "$LS" status`) 
 
 ## Local-mode failure notes
 - Crash on app-group container at launch → you built Local without the ad-hoc flags (Step 2). Rebuild with them.
-- Firebase 403 / auth never completes → `./.env` is missing the shared `FIREBASE_APP_CHECK_DEBUG_TOKEN`; re-run `make -C "$LS" ios-config IOS="$(pwd)"`.
+- Firebase 403 / auth never completes → `./.env` is missing the shared `FIREBASE_APP_CHECK_DEBUG_TOKEN`; run `/firebase-token` to sync it from 1Password (or re-run `make -C "$LS" ios-config IOS="$(pwd)"`).
 - Backend 500 on `/auth/*` → backend lost Postgres (Docker bounced); `make -C "$LS" up` re-brings infra and re-disables App Check.
 
 ## DerivedData isolation

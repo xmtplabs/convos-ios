@@ -30,9 +30,10 @@ if [ "$CONFIGURATION" = "Local" ]; then
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         XMTP_CUSTOM_HOST=$(grep -v '^#' "${SRCROOT}/.env" | grep '^XMTP_CUSTOM_HOST=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
-        FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
 
     ESCAPED_AGENT_DEBUG_JWKS=$(swift_escape "$AGENT_DEBUG_JWKS")
 
@@ -60,21 +61,20 @@ elif [ "$CONFIGURATION" = "Dev" ]; then
     SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
     mkdir -p "${SRCROOT}/Convos/Config"
 
-    FIREBASE_TOKEN=""
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
     CONVOS_API_BASE_URL=""
     AGENT_DEBUG_JWKS=""
     if [ -f "${SRCROOT}/.env" ]; then
-        FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
-
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
-        echo "✅ Found Firebase debug token in .env"
+        echo "✅ Resolved Firebase debug token (1Password or .env cache)"
     else
-        echo "⚠️  No Firebase debug token in .env - you may need to register tokens manually"
+        echo "⚠️  No Firebase debug token from 1Password or .env - run /firebase-token"
     fi
 
     if [ -n "$AGENT_DEBUG_JWKS" ]; then

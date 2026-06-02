@@ -98,6 +98,11 @@ HEADER_EOF
 
     echo "    static let GIT_COMMIT_SHA: String = \"$(swift_escape "$GIT_SHA")\"" >> "$SECRETS_FILE"
 
+    # Populate the Firebase token cache from the "Convos" 1Password vault if .env
+    # has none (cache-first: no-op when .env already has a token, in CI, or when op
+    # is unavailable) so the .env dump below can emit it.
+    resolve_firebase_debug_token "${SRCROOT}/.env" >/dev/null
+
     # Add other secrets from .env if available
     if [ -f "${SRCROOT}/.env" ]; then
         echo "📋 Adding additional secrets from .env file..."
@@ -124,22 +129,22 @@ elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Dev" ]; then
     # Create directory if needed
     mkdir -p "${SRCROOT}/Convos/Config"
 
-    # Read Firebase debug token from .env
-    FIREBASE_TOKEN=""
+    # Firebase debug token: cached .env first, else the team "Convos" 1Password
+    # vault on a cache miss. Always empty in CI. See resolve_firebase_debug_token
+    # in Scripts/secrets-utils.sh.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
     CONVOS_API_BASE_URL=""
     AGENT_DEBUG_JWKS=""
     if [ -f "${SRCROOT}/.env" ]; then
-        FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
-
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
-        echo "✅ Found Firebase debug token in .env"
+        echo "✅ Resolved Firebase debug token (1Password or .env cache)"
     else
-        echo "⚠️  No Firebase debug token in .env - you may need to register tokens manually"
+        echo "⚠️  No Firebase debug token from 1Password or .env - you may need to register one (run /firebase-token)"
     fi
 
     if [ -n "$AGENT_DEBUG_JWKS" ]; then
