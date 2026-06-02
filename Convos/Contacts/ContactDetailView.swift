@@ -240,17 +240,13 @@ struct ContactDetailView: View {
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
+                    agentTemplateConversations: agentTemplateConversations,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
                 )
                 .padding(.top, DesignConstants.Spacing.step8x)
-                if !agentTemplateConversations.isEmpty {
-                    AgentTemplateConversationsSections(conversations: agentTemplateConversations)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        .padding(.top, DesignConstants.Spacing.step8x)
-                }
             }
             .padding(.bottom, 80.0)
         }
@@ -645,6 +641,10 @@ private struct ContactDetailActions: View {
     /// Last-known agent verification, drives the debug row's valid/invalid
     /// readout alongside the raw attestation value.
     let agentVerification: AgentVerification?
+    /// Conversations already containing this agent template, rendered as the
+    /// "Convos with you" / "someone else added" sections directly under the
+    /// Share row (or Chat when there's no Share row).
+    let agentTemplateConversations: AgentTemplateConversations
     let onSendMessage: () -> Void
     let onShare: () -> Void
     let onRemove: () -> Void
@@ -659,6 +659,9 @@ private struct ContactDetailActions: View {
             }
             if showShare {
                 shareRow
+            }
+            if !agentTemplateConversations.isEmpty {
+                AgentTemplateConversationsSections(conversations: agentTemplateConversations)
             }
             if showAgentLinks {
                 agentLinkRows

@@ -49,9 +49,9 @@ private struct AgentTemplateConversationsSection: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             if let header {
                 Text(header)
-                    .font(.callout)
+                    .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
             }
 
             VStack(spacing: 0.0) {
@@ -65,12 +65,12 @@ private struct AgentTemplateConversationsSection: View {
 
                 if showsPrivacyNote {
                     Text(Self.privacyNote)
-                        .font(.callout)
+                        .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(DesignConstants.Spacing.step4x)
                         .background(
-                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                                 .fill(.colorFillMinimal)
                         )
                         .padding(DesignConstants.Spacing.step4x)
@@ -82,9 +82,9 @@ private struct AgentTemplateConversationsSection: View {
             )
 
             Text(footer)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.colorTextTertiary)
-                .padding(.horizontal, DesignConstants.Spacing.step2x)
+                .padding(.leading, DesignConstants.Spacing.step2x)
         }
     }
 }
