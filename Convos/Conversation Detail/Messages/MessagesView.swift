@@ -243,6 +243,10 @@ struct MessagesView<BottomBarContent: View>: View {
                                 audioTranscriptText: replyingToAudioTranscriptText,
                                 onDismiss: onCancelReply
                             )
+                            // The bottom bar is hosted in the representable's
+                            // own tree, so inject the resolver directly on the
+                            // bar (same reason the context-menu overlay does).
+                            .environment(\.agentShareResolver, agentShareResolver)
                         }
                     }
                 )

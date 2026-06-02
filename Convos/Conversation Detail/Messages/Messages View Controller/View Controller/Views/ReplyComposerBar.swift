@@ -8,7 +8,9 @@ struct ReplyComposerBar: View {
     var audioTranscriptText: String?
     let onDismiss: () -> Void
 
+    @Environment(\.agentShareResolver) private var agentShareResolver: any AgentShareResolving
     @State private var resolvedHTMLTitle: String?
+    @State private var resolvedAgentShare: AgentShareInfo?
 
     private var senderName: String {
         message.sender.profile.displayName
@@ -30,6 +32,12 @@ struct ReplyComposerBar: View {
             return "Photo"
         case .invite:
             return "Invite"
+        case .agentShare:
+            let name = resolvedAgentShare?.displayName
+            if let name, !name.isEmpty {
+                return name
+            }
+            return "Agent"
         case .linkPreview(let preview):
             return preview.title ?? preview.displayHost
         default:
@@ -51,6 +59,17 @@ struct ReplyComposerBar: View {
         default:
             return nil
         }
+    }
+
+    private var agentShare: MessageAgentShare? {
+        if case .agentShare(let share) = message.content {
+            return share
+        }
+        return nil
+    }
+
+    private var hasLeadingThumbnail: Bool {
+        attachment != nil || agentShare != nil
     }
 
     private var shouldBlurAttachment: Bool {
@@ -103,6 +122,8 @@ struct ReplyComposerBar: View {
                     shouldBlur: shouldBlurAttachment,
                     isVideo: isVideo
                 )
+            } else if agentShare != nil {
+                ReplyAgentShareThumbnail(emoji: resolvedAgentShare?.emoji)
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -134,11 +155,11 @@ struct ReplyComposerBar: View {
             .accessibilityLabel("Cancel reply")
             .accessibilityIdentifier("cancel-reply-button")
         }
-        .padding(.leading, attachment != nil ? DesignConstants.Spacing.step2x : DesignConstants.Spacing.step4x)
+        .padding(.leading, hasLeadingThumbnail ? DesignConstants.Spacing.step2x : DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: attachment != nil ? 16.0 : 26.0))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: hasLeadingThumbnail ? 16.0 : 26.0))
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
         .accessibilityElement(children: .combine)
@@ -147,6 +168,17 @@ struct ReplyComposerBar: View {
         .task(id: htmlAttachment?.key) {
             await loadHTMLTitle()
         }
+        .task(id: agentShare?.identifier) {
+            await resolveAgentShare()
+        }
+    }
+
+    private func resolveAgentShare() async {
+        guard let agentShare else {
+            resolvedAgentShare = nil
+            return
+        }
+        resolvedAgentShare = await agentShareResolver.resolve(identifier: agentShare.identifier)
     }
 
     private func loadHTMLTitle() async {
@@ -300,6 +332,26 @@ private struct ReplyPhotoThumbnail: View {
     }
 }
 
+private struct ReplyAgentShareThumbnail: View {
+    let emoji: String?
+
+    private static let thumbnailSize: CGFloat = 40.0
+    private static let cornerRadius: CGFloat = 8.0
+
+    var body: some View {
+        let emojiFontSize: CGFloat = Self.thumbnailSize * 0.43
+        RoundedRectangle(cornerRadius: Self.cornerRadius)
+            .fill(Color.colorLava)
+            .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            .overlay {
+                if let emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: emojiFontSize, weight: .semibold, design: .rounded))
+                }
+            }
+    }
+}
+
 #Preview("Reply Composer Bar") {
     VStack {
         Spacer()
@@ -322,6 +374,21 @@ private struct ReplyPhotoThumbnail: View {
             message: .message(Message.mock(
                 text: "I was thinking we could implement a new feature that allows users to customize their profile",
                 sender: .mock(isCurrentUser: false, name: "Shane"),
+                status: .published
+            ), .existing),
+            shouldBlurPhotos: false,
+            onDismiss: {}
+        )
+    }
+}
+
+#Preview("Reply Composer Bar - Agent Share") {
+    VStack {
+        Spacer()
+        ReplyComposerBar(
+            message: .message(Message.mock(
+                content: .agentShare(.mock),
+                sender: .mock(isCurrentUser: false, name: "Louis"),
                 status: .published
             ), .existing),
             shouldBlurPhotos: false,
