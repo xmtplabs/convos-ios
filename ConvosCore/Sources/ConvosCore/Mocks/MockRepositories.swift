@@ -32,6 +32,27 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
             return others.count == 1 && others.first?.profile.inboxId == inboxId
         }
     }
+
+    public func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations {
+        var addedByCurrentUser: [Conversation] = []
+        var addedByOthers: [Conversation] = []
+        for conversation in mockConversations {
+            let agentMember = conversation.members.first { member in
+                member.isAgent && member.profile.agentTemplateId == templateId
+            }
+            guard let agentMember else { continue }
+            let currentUserInboxId = conversation.members.first { $0.isCurrentUser }?.profile.inboxId
+            if let inviterInboxId = agentMember.invitedBy?.inboxId, inviterInboxId == currentUserInboxId {
+                addedByCurrentUser.append(conversation)
+            } else {
+                addedByOthers.append(conversation)
+            }
+        }
+        return AgentTemplateConversations(
+            addedByCurrentUser: addedByCurrentUser,
+            addedByOthers: addedByOthers
+        )
+    }
 }
 
 // MARK: - Mock Conversations Count Repository
