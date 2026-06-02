@@ -423,7 +423,13 @@ struct MainTabView: View {
     private var sharedAppIndicatorOverlay: some View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
-                centeredConversationIndicator(for: activeConvoVM)
+                // Hide the lifted conversation indicator while the share
+                // overlay is up. This pill renders above the presenter's
+                // share overlay, so without this it sits on top of the
+                // presented code card.
+                if !activeConvoVM.presentingShareView {
+                    centeredConversationIndicator(for: activeConvoVM)
+                }
             } else {
                 leadingAppIndicatorPill
             }

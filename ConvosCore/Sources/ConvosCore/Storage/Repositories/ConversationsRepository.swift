@@ -74,6 +74,9 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
             // `member.profile.agentTemplateId` is the trusted accessor over the
             // profile metadata, and `invitedBy` already carries the agent's
             // inviter, so this avoids a brittle SQL JSON_EXTRACT predicate.
+            // Trade-off: this hydrates every allowed conversation and partitions
+            // in memory rather than filtering in SQL - fine at expected
+            // conversation counts; revisit with a SQL predicate if it gets hot.
             let currentInboxIds = Set(try DBInbox.fetchAll(db).map(\.inboxId))
             let conversations = try db.composeAllConversations(consent: consent)
             var addedByCurrentUser: [Conversation] = []

@@ -66,6 +66,7 @@ struct ConversationShareOverlay: View {
                         .scaledToFit()
                         .foregroundStyle(.colorTextPrimaryInverted)
                         .padding(inset)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
         }

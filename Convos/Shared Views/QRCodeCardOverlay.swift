@@ -71,14 +71,12 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
 
                 Color.clear
                     .frame(width: 1, height: 1)
-                    .background(
-                        ShareSheetPresenter(
-                            activityItems: [encodedURLString],
-                            isPresented: $isShareSheetPresented,
-                            onDismiss: {
-                                dismissFlow()
-                            }
-                        )
+                    .shareSheet(
+                        isPresented: $isShareSheetPresented,
+                        items: [encodedURLString],
+                        onDismiss: {
+                            dismissFlow()
+                        }
                     )
             }
             .task {
@@ -145,48 +143,14 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
 
     private func dismissFlow() {
         sharePresentTask?.cancel()
+        // Signal the share-sheet presenter to tear down the activity controller;
+        // otherwise it stays orphaned on screen after the card animates away.
+        isShareSheetPresented = false
         withAnimation(.easeOut(duration: 0.25)) {
             showCard = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             isPresented = false
-        }
-    }
-}
-
-private struct ShareSheetPresenter: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    @Binding var isPresented: Bool
-    let onDismiss: () -> Void
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()
-    }
-
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        if isPresented && uiViewController.presentedViewController == nil {
-            let activityVC = UIActivityViewController(
-                activityItems: activityItems,
-                applicationActivities: nil
-            )
-
-            if let popover = activityVC.popoverPresentationController {
-                popover.sourceView = uiViewController.view
-                popover.sourceRect = CGRect(
-                    x: uiViewController.view.bounds.midX,
-                    y: uiViewController.view.bounds.maxY,
-                    width: 0,
-                    height: 0
-                )
-                popover.permittedArrowDirections = .up
-            }
-
-            activityVC.completionWithItemsHandler = { _, _, _, _ in
-                isPresented = false
-                onDismiss()
-            }
-
-            uiViewController.present(activityVC, animated: true)
         }
     }
 }

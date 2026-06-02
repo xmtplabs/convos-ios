@@ -142,7 +142,12 @@ struct ContactDetailView: View {
             return
         }
         let repository = session.conversationsRepository(for: [.allowed])
-        agentTemplateConversations = (try? repository.conversations(withAgentTemplateId: templateId)) ?? .empty
+        do {
+            agentTemplateConversations = try repository.conversations(withAgentTemplateId: templateId)
+        } catch {
+            Log.error("Failed to load agent template conversations for \(templateId): \(error.localizedDescription)")
+            agentTemplateConversations = .empty
+        }
     }
 
     /// Agent "code card" share flow: a QR encoding the template's published
@@ -176,17 +181,24 @@ struct ContactDetailView: View {
     /// Share affordance for a template-backed agent. Shown only once the agent
     /// carries a published share link (`agentTemplateShareURL`, from its
     /// profile metadata or the persisted contact); tapping it presents the
-    /// system share sheet. An agent with no `publishedUrl` can't be shared, so
-    /// the button is hidden rather than offering an action that would fail -
-    /// the backend is expected to populate the link for every template.
+    /// agent-share QR overlay. An agent with no `publishedUrl` can't be shared,
+    /// so the button is hidden rather than offering an action that would fail -
+    /// the backend is expected to populate the link for every template. It is
+    /// also hidden while the overlay is up so it doesn't sit on top of the
+    /// presented card.
+    ///
+    /// Styled with `.glassProminent` tinted to the primary color so it reads as
+    /// a prominent black button with an inverse icon, matching the close
+    /// button's glass treatment without a hand-rolled background.
     @ToolbarContentBuilder
     private var agentShareToolbarItem: some ToolbarContent {
-        if agentTemplateShareURL != nil {
+        if agentTemplateShareURL != nil, !presentingAgentShareSheet {
             ToolbarItem(placement: .topBarTrailing) {
                 let action = { presentingAgentShareSheet = true }
                 Button(action: action) {
                     Image(systemName: "square.and.arrow.up")
                 }
+                .buttonStyle(.glassProminent)
                 .tint(.colorFillPrimary)
                 .accessibilityLabel("Share \(contact.resolvedDisplayName)")
                 .accessibilityIdentifier("contact-detail-share-agent")
