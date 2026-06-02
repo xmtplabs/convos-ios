@@ -238,7 +238,7 @@ FIFO=/tmp/agent-stdin-$SLUG
 rm -f "$FIFO"; mkfifo "$FIFO"
 ( exec 3>"$FIFO"; sleep 99999 ) &  # writer keeps fifo open
 cat "$FIFO" | CONVOS_HOME="$AGENT_HOME" convos agent serve … &
-# once serve logs the `ready` event, push the emoji + description + templateId:
+# once serve logs the `ready` event, push emoji + description + templateId + publishedUrl:
 jq -nc --arg n "$PERSONA_NAME" --arg e "$EMOJI" --arg d "$DESCRIPTION" --arg t "$TEMPLATE_ID" --arg u "$PUBLISHED_URL" \
   '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t,publishedUrl:$u}}' > "$FIFO"
 ```
@@ -294,7 +294,7 @@ Subjects: `calendar`, `contacts`, `tasks`, `mail`, `photos`, `fitness`, `music`,
 - **iOS log shows "[Attestation] timestamp too old".** The agent's `attestation_ts` is older than 24 h. Just re-run `agent serve` — `--attestation-private-key` re-signs on each start.
 - **iOS log shows "[Attestation] cached result: unverified".** Either the JWKS pubkey doesn't match the private key (re-derive JWKS in step 2 and re-pin in step 3), or the kid in `Secrets.swift` differs from the kid used to sign — make sure both ends use the same `--kid`.
 - **Two agents joined; only one is verified.** Each XMTP identity has its own inboxId; each agent needs its own `CONVOS_HOME` so the CLI signs against the correct inboxId.
-- **Agent shows initials (e.g. "FT") instead of its emoji, or the contact card has no description.** The metadata you passed at join time (`emoji` / `description` / `templateId`) was overwritten by the serve loop's metadata-less startup `ProfileUpdate`. Push the whole set again through the running loop's stdin: `jq -nc --arg n "<persona>" --arg e "🏋️" --arg d "<one-liner>" --arg t "debug-<slug>" '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t}}' > "$FIFO"`. iOS re-renders the avatar and card subtitle within a few seconds. (`agent serve` has no `--metadata` flag, so there's no way to carry it through startup — the post-serve push is the reliable path.)
+- **Agent shows initials (e.g. "FT") instead of its emoji, or the contact card has no description.** The metadata you passed at join time (`emoji` / `description` / `templateId` / `publishedUrl`) was overwritten by the serve loop's metadata-less startup `ProfileUpdate`. Push the whole set again through the running loop's stdin: `jq -nc --arg n "<persona>" --arg e "🏋️" --arg d "<one-liner>" --arg t "debug-<slug>" --arg u "<published-url>" '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t,publishedUrl:$u}}' > "$FIFO"`. iOS re-renders the avatar and card subtitle within a few seconds. (`agent serve` has no `--metadata` flag, so there's no way to carry it through startup — the post-serve push is the reliable path.)
 - **Agent is verified in chat but never appears in Contacts.** Its profile is missing `templateId` in `metadata` — `Contact.isVisibleInContactsList` only surfaces agents that carry one. Re-push the profile with both `emoji` and `templateId` (see above), then have the local user send a message in the conversation so `ContactSyncCoordinator` mirrors the templateId onto the contact. (If you only ever set `emoji`, the agent stays chat-only.)
 - **Contact card has no Share button.** The profile is missing `publishedUrl` in `metadata` — `ContactDetailView` only shows the Share action / agent-share QR when `Profile.agentTemplatePublishedURL` is non-empty. Re-push the profile including `publishedUrl` (see Step 6). Any plausible string works for a debug agent; the QR just encodes it.
 
