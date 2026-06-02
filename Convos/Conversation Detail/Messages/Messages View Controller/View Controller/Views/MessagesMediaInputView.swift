@@ -10,6 +10,9 @@ struct MessagesMediaButtonsView: View {
     var isVoiceMemoDisabled: Bool = false
     var isSideConvoDisabled: Bool = false
     var showsSideConvoButton: Bool = true
+    /// File attachment button. Temporarily hidden in the Agent Builder while
+    /// file attachments are disabled there; the regular chat composer keeps it.
+    var showsFileButton: Bool = true
     var buttonSpacing: CGFloat = DesignConstants.Spacing.step2x
     /// Connections button (Agent Builder only). Nil hides the button — the
     /// regular chat composer doesn't surface a connections affordance here.
@@ -75,21 +78,23 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Voice memo")
             .accessibilityIdentifier("voice-memo-button")
 
-            Button {
-                onFilePickerTap()
-            } label: {
-                Image(systemName: "document.fill")
-                    .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(mediaTint)
-                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-                    .contentShape(.circle)
+            if showsFileButton {
+                Button {
+                    onFilePickerTap()
+                } label: {
+                    Image(systemName: "document.fill")
+                        .font(.system(size: 18.0, weight: .medium))
+                        .foregroundStyle(mediaTint)
+                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(isMediaCapacityFull)
+                .hoverEffect(.lift)
+                .hoverEffectDisabled(isMediaCapacityFull)
+                .accessibilityLabel("Attach file")
+                .accessibilityIdentifier("file-picker-button")
             }
-            .buttonStyle(.plain)
-            .disabled(isMediaCapacityFull)
-            .hoverEffect(.lift)
-            .hoverEffectDisabled(isMediaCapacityFull)
-            .accessibilityLabel("Attach file")
-            .accessibilityIdentifier("file-picker-button")
 
             if let onConnectionsTap {
                 Button {

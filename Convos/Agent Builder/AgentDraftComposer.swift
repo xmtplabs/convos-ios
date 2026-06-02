@@ -293,6 +293,7 @@ struct AgentDraftComposer: View {
                 isMediaCapacityFull: isMediaCapacityFull,
                 isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
                 showsSideConvoButton: false,
+                showsFileButton: false,
                 buttonSpacing: DesignConstants.Spacing.step4x,
                 onConnectionsTap: {
                     focusState.wrappedValue = nil
