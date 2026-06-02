@@ -142,6 +142,31 @@ TEMPLATE_ID="${TEMPLATE_ID:-debug-$SLUG}"
 echo "🪪 templateId: $TEMPLATE_ID"
 ```
 
+### Step 4d: Write a one-line description for the contact card
+
+iOS reads `metadata.description` (-> `Profile.agentDescription`) and renders it on the `AgentContactCard` under the agent's name. A real agent writes this itself once it decides what it's set up to do; a debug agent has to set it explicitly or the card shows no subtitle. Map the persona to a short line, generic fallback otherwise:
+
+```bash
+case "$(echo "$PERSONA" | tr '[:upper:]' '[:lower:]')" in
+    *fitness*|*trainer*|*workout*)  DESCRIPTION="Your personal fitness coach - workout plans, form cues, and accountability." ;;
+    *travel*|*trip*)                DESCRIPTION="Plans trips end to end - flights, stays, and a day-by-day itinerary." ;;
+    *calendar*|*schedul*)           DESCRIPTION="Keeps your week in order - scheduling, reminders, and conflict-spotting." ;;
+    *meal*|*chef*|*food*|*recipe*)  DESCRIPTION="Plans meals and recipes around your goals and what is in the fridge." ;;
+    *finance*|*money*|*budget*)     DESCRIPTION="Tracks spending and helps you stick to a budget." ;;
+    *) DESCRIPTION="A $PERSONA assistant (local debug agent)." ;;
+esac
+echo "📝 description: $DESCRIPTION"
+```
+
+### Step 4e: Set a `publishedUrl` so the contact card's Share button shows
+
+iOS only renders the Share button / agent-share QR overlay on the contact detail view when the agent's profile carries a non-empty `publishedUrl` in `metadata` (`Profile.agentTemplatePublishedURL`, which `ContactDetailView` gates the share action on). Real template agents get a backend-minted link shaped like `https://agents-dev.convos.org/<slug>.<shortid>`; a debug agent fakes one. The host doesn't have to resolve — the QR just encodes whatever string you set:
+
+```bash
+PUBLISHED_URL="${PUBLISHED_URL:-https://agents-dev.convos.org/$SLUG.dbg01}"
+echo "🔗 publishedUrl: $PUBLISHED_URL"
+```
+
 ### Step 5: Join (or attach), with one command
 
 Two paths, both single-shot now that the CLI signs internally with `--attestation-private-key`:
@@ -155,7 +180,9 @@ PERSONA_NAME="$PERSONA"
 JOIN=$(CONVOS_HOME="$AGENT_HOME" convos conversations join "$INVITE" \
     --profile-name "$PERSONA_NAME" \
     --metadata "emoji=$EMOJI" \
+    --metadata "description=$DESCRIPTION" \
     --metadata "templateId=$TEMPLATE_ID" \
+    --metadata "publishedUrl=$PUBLISHED_URL" \
     --attestation-private-key "$KEY_PATH" \
     --attestation-kid "$KID" \
     --timeout 120 \
@@ -166,7 +193,7 @@ echo "🤝 Joined conversation $CONV_ID"
 
 The CLI mints the attestation itself, signing `sha256(inboxId || now)` once the XMTP client materializes the inboxId. No re-mint needed.
 
-Caveat about join `--metadata`: emoji and templateId are written into the join's profile, but `convos agent serve` (Step 6) publishes its own `ProfileUpdate` at startup built only from `--name` / `--profile-name` — with no metadata — which **overwrites** the join metadata with an empty set. So neither the emoji nor the templateId set here survives the serve loop. You must re-push both after serve is up (Step 6 below). Verified on the simulator: without the re-push the agent renders as "FT"-style initials and never appears as a contact.
+Caveat about join `--metadata`: emoji, description, templateId, and publishedUrl are written into the join's profile, but `convos agent serve` (Step 6) publishes its own `ProfileUpdate` at startup built only from `--name` / `--profile-name` — with no metadata — which **overwrites** the join metadata with an empty set. So none of the emoji, description, templateId, or publishedUrl set here survives the serve loop. You must re-push all four after serve is up (Step 6 below). Verified on the simulator: without the re-push the agent renders as "FT"-style initials and never appears as a contact.
 
 **b. Attaching to an existing conversation:**
 
@@ -175,7 +202,9 @@ CONV_ID="<existing-id>"
 CONVOS_HOME="$AGENT_HOME" convos conversation update-profile "$CONV_ID" \
     --name "$PERSONA_NAME" \
     --metadata "emoji=$EMOJI" \
-    --metadata "templateId=$TEMPLATE_ID"
+    --metadata "description=$DESCRIPTION" \
+    --metadata "templateId=$TEMPLATE_ID" \
+    --metadata "publishedUrl=$PUBLISHED_URL"
 ```
 
 (Skip the join — go straight to step 6. As with path (a), the serve loop's startup `ProfileUpdate` carries no metadata, so the emoji and templateId have to be pushed *after* serve is up via the stdin `update-profile` command in Step 6, not here.)
@@ -193,13 +222,14 @@ CONVOS_HOME="$AGENT_HOME" convos agent serve "$CONV_ID" \
 
 Keep this in the foreground — the user interacts via stdin (`{"type":"send","text":"…"}`, `{"type":"react",…}`, etc.). Ctrl-C to stop. Nothing persists beyond `~/.convos-debug-attest.pem`, the `.env` entry, and the agent's identity dir.
 
-`agent serve` has no `--metadata` flag, so the emoji and templateId set at join time are gone after the startup `ProfileUpdate`. Re-publish both through the running loop's stdin once serve is up (a single `update-profile` carries the whole metadata set):
+`agent serve` has no `--metadata` flag, so the emoji, description, templateId, and publishedUrl set at join time are gone after the startup `ProfileUpdate`. Re-publish all four through the running loop's stdin once serve is up (a single `update-profile` carries the whole metadata set). Build it with `jq` so the free-text description can't break the JSON:
 
 ```bash
-echo '{"type":"update-profile","name":"'"$PERSONA_NAME"'","metadata":{"emoji":"'"$EMOJI"'","templateId":"'"$TEMPLATE_ID"'"}}' > "$FIFO"
+jq -nc --arg n "$PERSONA_NAME" --arg e "$EMOJI" --arg d "$DESCRIPTION" --arg t "$TEMPLATE_ID" --arg u "$PUBLISHED_URL" \
+  '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t,publishedUrl:$u}}' > "$FIFO"
 ```
 
-The loop logs `{"event":"sent","type":"update-profile",...,"metadata":{"emoji":"…","templateId":"…"}}`; iOS re-renders the avatar with the emoji within a few seconds, and the agent shows up as a contact once the local user next acts in the conversation (`ContactSyncCoordinator` mirrors the templateId onto the contact on the first outbound message / member sync).
+The loop logs `{"event":"sent","type":"update-profile",...,"metadata":{"emoji":"…","description":"…","templateId":"…","publishedUrl":"…"}}`; iOS re-renders the avatar with the emoji within a few seconds, shows the description and the Share button on the contact card, and the agent shows up as a contact once the local user next acts in the conversation (`ContactSyncCoordinator` mirrors the templateId onto the contact on the first outbound message / member sync).
 
 When backgrounding via Claude Code (e.g. for QA), pipe a fifo into stdin so the process doesn't see EOF — and keep the fifo path so you can send the `update-profile` (and later commands) into it:
 
@@ -208,8 +238,9 @@ FIFO=/tmp/agent-stdin-$SLUG
 rm -f "$FIFO"; mkfifo "$FIFO"
 ( exec 3>"$FIFO"; sleep 99999 ) &  # writer keeps fifo open
 cat "$FIFO" | CONVOS_HOME="$AGENT_HOME" convos agent serve … &
-# once serve logs the `ready` event, push the emoji + templateId:
-echo '{"type":"update-profile","name":"'"$PERSONA_NAME"'","metadata":{"emoji":"'"$EMOJI"'","templateId":"'"$TEMPLATE_ID"'"}}' > "$FIFO"
+# once serve logs the `ready` event, push the emoji + description + templateId:
+jq -nc --arg n "$PERSONA_NAME" --arg e "$EMOJI" --arg d "$DESCRIPTION" --arg t "$TEMPLATE_ID" --arg u "$PUBLISHED_URL" \
+  '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t,publishedUrl:$u}}' > "$FIFO"
 ```
 
 ### Step 7: Report
@@ -219,6 +250,9 @@ echo '{"type":"update-profile","name":"'"$PERSONA_NAME"'","metadata":{"emoji":"'
 📌 Pinned in:    <SHARED_ENV>
 📂 Agent home:   ~/.convos-debug-agent-<slug>
 🤖 Agent:         <PERSONA_NAME>
+🪪 templateId:    <TEMPLATE_ID>
+📝 Description:   <DESCRIPTION>
+🔗 publishedUrl:  <PUBLISHED_URL>
 💬 Conversation:  <CONV_ID>
 
 Agent is running. iOS marks it as verified(.convos) once it sees the
@@ -260,8 +294,9 @@ Subjects: `calendar`, `contacts`, `tasks`, `mail`, `photos`, `fitness`, `music`,
 - **iOS log shows "[Attestation] timestamp too old".** The agent's `attestation_ts` is older than 24 h. Just re-run `agent serve` — `--attestation-private-key` re-signs on each start.
 - **iOS log shows "[Attestation] cached result: unverified".** Either the JWKS pubkey doesn't match the private key (re-derive JWKS in step 2 and re-pin in step 3), or the kid in `Secrets.swift` differs from the kid used to sign — make sure both ends use the same `--kid`.
 - **Two agents joined; only one is verified.** Each XMTP identity has its own inboxId; each agent needs its own `CONVOS_HOME` so the CLI signs against the correct inboxId.
-- **Agent shows initials (e.g. "FT") instead of its emoji.** The `--metadata emoji=…` you passed at join time was overwritten by the serve loop's metadata-less startup `ProfileUpdate`. Push it again through the running loop's stdin: `echo '{"type":"update-profile","name":"<persona>","metadata":{"emoji":"🏋️","templateId":"debug-<slug>"}}' > "$FIFO"`. iOS re-renders the avatar within a few seconds. (`agent serve` has no `--metadata` flag, so there's no way to carry it through startup — the post-serve push is the reliable path.)
+- **Agent shows initials (e.g. "FT") instead of its emoji, or the contact card has no description.** The metadata you passed at join time (`emoji` / `description` / `templateId`) was overwritten by the serve loop's metadata-less startup `ProfileUpdate`. Push the whole set again through the running loop's stdin: `jq -nc --arg n "<persona>" --arg e "🏋️" --arg d "<one-liner>" --arg t "debug-<slug>" '{type:"update-profile",name:$n,metadata:{emoji:$e,description:$d,templateId:$t}}' > "$FIFO"`. iOS re-renders the avatar and card subtitle within a few seconds. (`agent serve` has no `--metadata` flag, so there's no way to carry it through startup — the post-serve push is the reliable path.)
 - **Agent is verified in chat but never appears in Contacts.** Its profile is missing `templateId` in `metadata` — `Contact.isVisibleInContactsList` only surfaces agents that carry one. Re-push the profile with both `emoji` and `templateId` (see above), then have the local user send a message in the conversation so `ContactSyncCoordinator` mirrors the templateId onto the contact. (If you only ever set `emoji`, the agent stays chat-only.)
+- **Contact card has no Share button.** The profile is missing `publishedUrl` in `metadata` — `ContactDetailView` only shows the Share action / agent-share QR when `Profile.agentTemplatePublishedURL` is non-empty. Re-push the profile including `publishedUrl` (see Step 6). Any plausible string works for a debug agent; the QR just encodes it.
 
 ## Cleanup
 
