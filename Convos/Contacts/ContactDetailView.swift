@@ -693,15 +693,6 @@ private struct ContactDetailActions: View {
     @ViewBuilder
     private var agentLinkRows: some View {
         ContactDetailActionRow(
-            label: "Get skills",
-            footer: "Browse 100+ curated capabilities",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Get skills",
-            accessibilityIdentifier: "contact-detail-get-skills",
-            action: { openURL(AgentLinks.getSkillsURL) }
-        )
-        ContactDetailActionRow(
             label: "Learn about agents",
             footer: "Capabilities, privacy and security",
             color: .colorTextPrimary,
