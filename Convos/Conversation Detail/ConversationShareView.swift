@@ -2,224 +2,74 @@ import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
 
+/// The conversation "Convos code" share flow: a QR card encoding the invite
+/// URL with the conversation image in the center, presented over
+/// `ConversationInfoView` with the native share sheet behind it. A thin
+/// wrapper over the reusable `QRCodeCardOverlay`.
 struct ConversationShareOverlay: View {
     let conversation: Conversation
     let invite: Invite
     @Binding var isPresented: Bool
     let topSafeAreaInset: CGFloat
 
-    @State private var showCard: Bool = false
-    @State private var isShareSheetPresented: Bool = false
     @State private var conversationImage: Image = Image("convosOrangeIcon")
     /// Whether a real conversation image loaded. Drives the QR center: a real
     /// image renders as-is; otherwise the convos placeholder is tinted to
-    /// contrast the dark center chip (it was previously template-tinted to
-    /// match it, so it was invisible in both light and dark mode).
+    /// contrast the dark center chip.
     @State private var hasConversationImage: Bool = false
-    @State private var qrCodeImage: UIImage?
-    @Environment(\.displayScale) private var displayScale: CGFloat
-
-    private static let headerHeight: CGFloat = 40.0
-    private static let cardPadding: CGFloat = 40.0
-    private static let maxQRSize: CGFloat = 220.0
-    private static let shareSheetFraction: CGFloat = 0.55
-
-    @State private var containerSize: CGSize = .zero
-
-    private func qrDisplaySize(in size: CGSize) -> CGFloat {
-        let availableHeight = size.height * (1.0 - Self.shareSheetFraction)
-            - topSafeAreaInset
-            - DesignConstants.Spacing.step4x
-            - Self.headerHeight
-            - Self.cardPadding
-            - DesignConstants.Spacing.step10x
-        let availableWidth = size.width
-            - DesignConstants.Spacing.step10x * 2
-            - Self.cardPadding * 2
-        let maxFit = min(availableHeight, availableWidth)
-        return min(max(maxFit, 120.0), Self.maxQRSize)
-    }
 
     var body: some View {
-        GeometryReader { geometry in
-        ZStack {
-            if showCard {
-                Color.black.opacity(0.5)
-                    .background(.ultraThinMaterial)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .onTapGesture {
-                        dismissFlow()
-                    }
-            }
-
-            if showCard {
-                VStack(spacing: 0.0) {
-                    convoCodeCard(qrSize: qrDisplaySize(in: geometry.size))
-
-                    Spacer()
+        QRCodeCardOverlay(
+            encodedURLString: invite.inviteURLString,
+            isPresented: $isPresented,
+            topSafeAreaInset: topSafeAreaInset,
+            header: {
+                HStack(alignment: .center) {
+                    Text("Convos code")
+                        .kerning(1.0)
+                    Image("convosOrangeIcon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 14.0, height: 14.0)
+                        .foregroundStyle(.colorFillTertiary)
+                    Text("Scan to join")
+                        .kerning(1.0)
                 }
-                .padding(.top, topSafeAreaInset + DesignConstants.Spacing.step4x)
-                .transition(
-                    .asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    )
-                )
+            },
+            center: {
+                centerChip
             }
-
-            Color.clear
-                .frame(width: 1, height: 1)
-                .background(
-                    ShareSheetPresenter(
-                        activityItems: [invite.inviteURLString],
-                        isPresented: $isShareSheetPresented,
-                        onDismiss: {
-                            dismissFlow()
-                        }
-                    )
-                )
-        }
+        )
         .cachedImage(for: conversation) { image in
             if let image {
                 conversationImage = Image(uiImage: image)
                 hasConversationImage = true
             }
         }
-        .task {
-            guard let inviteURL = invite.inviteURL else { return }
-            let options = QRCodeGenerator.Options(
-                scale: displayScale,
-                displaySize: Self.maxQRSize,
-                foregroundColor: UIColor(.colorTextPrimary),
-                backgroundColor: UIColor(.colorBackgroundSurfaceless)
-            )
-            let generated = await QRCodeGenerator.generate(from: inviteURL.absoluteString, options: options)
-            guard !Task.isCancelled else { return }
-            qrCodeImage = generated
-
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
-                showCard = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                isShareSheetPresented = true
-            }
-        }
-        }
     }
 
-    private func convoCodeCard(qrSize: CGFloat) -> some View {
-        let centerImageSize: CGFloat = qrSize * (50.0 / Self.maxQRSize)
-        let centerBackgroundSize: CGFloat = qrSize * (55.0 / Self.maxQRSize)
-        let cardInternalPadding: CGFloat = qrSize * (Self.cardPadding / Self.maxQRSize)
-
-        return VStack(spacing: 0.0) {
-            HStack(alignment: .center) {
-                Text("Convos code")
-                    .kerning(1.0)
-
-                Image("convosOrangeIcon")
-                    .renderingMode(.template)
+    private var centerChip: some View {
+        ZStack {
+            Rectangle()
+                .fill(.colorTextPrimary)
+            if hasConversationImage {
+                conversationImage
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: 14.0, height: 14.0)
-                    .foregroundStyle(.colorFillTertiary)
-
-                Text("Scan to join")
-                    .kerning(1.0)
-            }
-            .offset(y: 5.0)
-            .foregroundStyle(.colorTextSecondary)
-            .textCase(.uppercase)
-            .font(.caption)
-            .frame(height: Self.headerHeight)
-
-            if let qrCodeImage {
-                ZStack {
-                    Image(uiImage: qrCodeImage)
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                GeometryReader { proxy in
+                    let inset: CGFloat = min(proxy.size.width, proxy.size.height) * 0.2
+                    Image("convosOrangeIcon")
+                        .renderingMode(.template)
                         .resizable()
-                        .aspectRatio(1.0, contentMode: .fit)
-                        .frame(width: qrSize, height: qrSize)
-
-                    ZStack {
-                        Rectangle()
-                            .fill(.colorBackgroundSurfaceless)
-                            .frame(width: centerBackgroundSize, height: centerBackgroundSize)
-
-                        ZStack {
-                            Rectangle()
-                                .fill(.colorTextPrimary)
-                            if hasConversationImage {
-                                conversationImage
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            } else {
-                                Image("convosOrangeIcon")
-                                    .renderingMode(.template)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .foregroundStyle(.colorTextPrimaryInverted)
-                                    .padding(centerImageSize * 0.2)
-                            }
-                        }
-                        .frame(width: centerImageSize, height: centerImageSize)
-                        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
-                    }
+                        .scaledToFit()
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .padding(inset)
                 }
-                .padding([.leading, .trailing, .bottom], cardInternalPadding)
-                .accessibilityLabel("Share QR code for conversation invite")
-                .accessibilityIdentifier("share-qr-code")
             }
         }
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large))
-        .padding(.horizontal, DesignConstants.Spacing.step10x)
-    }
-
-    private func dismissFlow() {
-        withAnimation(.easeOut(duration: 0.25)) {
-            showCard = false
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            isPresented = false
-        }
-    }
-}
-
-private struct ShareSheetPresenter: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    @Binding var isPresented: Bool
-    let onDismiss: () -> Void
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()
-    }
-
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        if isPresented && uiViewController.presentedViewController == nil {
-            let activityVC = UIActivityViewController(
-                activityItems: activityItems,
-                applicationActivities: nil
-            )
-
-            if let popover = activityVC.popoverPresentationController {
-                popover.sourceView = uiViewController.view
-                popover.sourceRect = CGRect(
-                    x: uiViewController.view.bounds.midX,
-                    y: uiViewController.view.bounds.maxY,
-                    width: 0,
-                    height: 0
-                )
-                popover.permittedArrowDirections = .up
-            }
-
-            activityVC.completionWithItemsHandler = { _, _, _, _ in
-                isPresented = false
-                onDismiss()
-            }
-
-            uiViewController.present(activityVC, animated: true)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
     }
 }
 

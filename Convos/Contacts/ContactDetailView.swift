@@ -61,6 +61,10 @@ struct ContactDetailView: View {
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
     @State private var presentingAgentShareSheet: Bool = false
+    /// Conversations already containing this agent template, split by who
+    /// added the agent. Loaded on appear for template-backed agents; drives
+    /// the "Convos with you" / "someone else added them" sections.
+    @State private var agentTemplateConversations: AgentTemplateConversations = .empty
     /// Gates the "One agent, many convos" confirmation before the "Chat"
     /// button spawns a new conversation with this agent. `agentInfoConfirmed`
     /// distinguishes a "Got it" tap from a drag-to-cancel in the sheet's
@@ -90,13 +94,23 @@ struct ContactDetailView: View {
     }
 
     var body: some View {
-        bodyContent
+        contentWithModals
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { closeToolbarItem }
             .toolbar { agentShareToolbarItem }
+            .task(id: contact.inboxId) { await syncBlockedState() }
+            .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
+    }
+
+    /// `bodyContent` plus the modal / sheet / overlay presentation layer.
+    /// Split out of `body` so each modifier chain stays short enough for the
+    /// type-checker (see the CLAUDE.md build-performance notes) as this view
+    /// keeps accruing presentation surfaces.
+    private var contentWithModals: some View {
+        bodyContent
             .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
@@ -104,8 +118,6 @@ struct ContactDetailView: View {
                 sendMessageErrorMessage: sendMessageErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
-                presentingAgentShareSheet: $presentingAgentShareSheet,
-                agentShareURL: agentTemplateShareURL,
                 presentingAgentInfo: $presentingAgentInfo,
                 onAgentInfoConfirm: { agentInfoConfirmed = true },
                 onAgentInfoDismiss: handleAgentInfoDismiss,
@@ -119,7 +131,35 @@ struct ContactDetailView: View {
                 )
                 .background(.colorBackgroundSurfaceless)
             }
-            .task(id: contact.inboxId) { await syncBlockedState() }
+            .overlay { agentShareOverlay }
+    }
+
+    /// Loads conversations already containing this agent template, partitioned
+    /// by who added the agent. No-op for non-template contacts.
+    private func loadAgentTemplateConversations() async {
+        guard let session, let templateId = contact.agentTemplateId else {
+            agentTemplateConversations = .empty
+            return
+        }
+        let repository = session.conversationsRepository(for: [.allowed])
+        agentTemplateConversations = (try? repository.conversations(withAgentTemplateId: templateId)) ?? .empty
+    }
+
+    /// Agent "code card" share flow: a QR encoding the template's published
+    /// URL with the system share sheet behind it (mirrors the conversation
+    /// "Convos code"). Replaces the plain share sheet so the toolbar button
+    /// and the "Share" row both open the richer card.
+    @ViewBuilder
+    private var agentShareOverlay: some View {
+        if presentingAgentShareSheet, let publishedURL = contact.agentTemplatePublishedURL {
+            AgentShareOverlay(
+                displayName: contact.resolvedDisplayName,
+                emoji: contact.profileEmoji,
+                publishedURLString: publishedURL,
+                isPresented: $presentingAgentShareSheet,
+                topSafeAreaInset: 0.0
+            )
+        }
     }
 
     @ToolbarContentBuilder
@@ -147,6 +187,7 @@ struct ContactDetailView: View {
                 Button(action: action) {
                     Image(systemName: "square.and.arrow.up")
                 }
+                .tint(.colorFillPrimary)
                 .accessibilityLabel("Share \(contact.resolvedDisplayName)")
                 .accessibilityIdentifier("contact-detail-share-agent")
             }
@@ -188,6 +229,7 @@ struct ContactDetailView: View {
                     // `handleChatWithAgentTemplate`).
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
                     showChat: !mode.isCurrentUser,
+                    showShare: agentTemplateShareURL != nil,
                     showAgentLinks: isVerifiedAgent,
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
@@ -198,13 +240,15 @@ struct ContactDetailView: View {
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
+                    agentTemplateConversations: agentTemplateConversations,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
+                    onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
                 )
                 .padding(.top, DesignConstants.Spacing.step8x)
-                .padding(.bottom, 80.0)
             }
+            .padding(.bottom, 80.0)
         }
         // ScrollView on short content (human card with just Chat + Block)
         // would otherwise rubber-band on touch even though the content
@@ -581,6 +625,7 @@ private struct ContactDetailActions: View {
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
     let showChat: Bool
+    let showShare: Bool
     let showAgentLinks: Bool
     let showRemove: Bool
     let showBlock: Bool
@@ -596,7 +641,12 @@ private struct ContactDetailActions: View {
     /// Last-known agent verification, drives the debug row's valid/invalid
     /// readout alongside the raw attestation value.
     let agentVerification: AgentVerification?
+    /// Conversations already containing this agent template, rendered as the
+    /// "Convos with you" / "someone else added" sections directly under the
+    /// Share row (or Chat when there's no Share row).
+    let agentTemplateConversations: AgentTemplateConversations
     let onSendMessage: () -> Void
+    let onShare: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
 
@@ -606,6 +656,12 @@ private struct ContactDetailActions: View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
             if showChat {
                 chatButton
+            }
+            if showShare {
+                shareRow
+            }
+            if !agentTemplateConversations.isEmpty {
+                AgentTemplateConversationsSections(conversations: agentTemplateConversations)
             }
             if showAgentLinks {
                 agentLinkRows
@@ -637,15 +693,6 @@ private struct ContactDetailActions: View {
     @ViewBuilder
     private var agentLinkRows: some View {
         ContactDetailActionRow(
-            label: "Get skills",
-            footer: "Browse 100+ curated capabilities",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Get skills",
-            accessibilityIdentifier: "contact-detail-get-skills",
-            action: { openURL(AgentLinks.getSkillsURL) }
-        )
-        ContactDetailActionRow(
             label: "Learn about agents",
             footer: "Capabilities, privacy and security",
             color: .colorTextPrimary,
@@ -672,6 +719,18 @@ private struct ContactDetailActions: View {
         .disabled(!canSendMessage)
         .accessibilityLabel("Chat with \(contactDisplayName)")
         .accessibilityIdentifier("contact-detail-chat")
+    }
+
+    private var shareRow: some View {
+        ContactDetailActionRow(
+            label: "Share \(contactDisplayName)",
+            footer: "Show a code or send a link to add this agent",
+            color: .colorTextPrimary,
+            isDisabled: false,
+            accessibilityLabel: "Share \(contactDisplayName)",
+            accessibilityIdentifier: "contact-detail-share-agent-row",
+            action: onShare
+        )
     }
 
     private var removeRow: some View {
@@ -890,8 +949,6 @@ private struct ContactDetailModalsModifier<
     let sendMessageErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
-    @Binding var presentingAgentShareSheet: Bool
-    let agentShareURL: URL?
     @Binding var presentingAgentInfo: Bool
     let onAgentInfoConfirm: () -> Void
     let onAgentInfoDismiss: () -> Void
@@ -917,17 +974,9 @@ private struct ContactDetailModalsModifier<
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
-            .shareSheet(
-                isPresented: $presentingAgentShareSheet,
-                items: agentShareItems
-            )
             .selfSizingSheet(isPresented: $presentingAgentInfo, onDismiss: onAgentInfoDismiss) {
                 OneAgentManyConvosInfoSheet(onConfirm: onAgentInfoConfirm)
             }
-    }
-
-    private var agentShareItems: [Any] {
-        agentShareURL.map { [$0] } ?? []
     }
 }
 

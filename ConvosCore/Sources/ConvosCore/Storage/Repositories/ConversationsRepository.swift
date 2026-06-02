@@ -18,6 +18,14 @@ public protocol ConversationsRepositoryProtocol {
     /// unused exclusions as `fetchAll`. Returns nil when no other
     /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
+
+    /// Conversations that contain an agent provisioned from `templateId`,
+    /// split by who added that agent: `addedByCurrentUser` when the agent
+    /// member's `invitedBy` is one of the current user's inboxes, otherwise
+    /// `addedByOthers`. Backs the agent contact card's "Convos with you" and
+    /// "someone else added them" sections. Honours the repo's `consent` scope
+    /// and the same draft / expired / unused exclusions as `fetchAll`.
+    func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations
 }
 
 final class ConversationsRepository: ConversationsRepositoryProtocol {
@@ -56,6 +64,34 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                 with: inboxId,
                 excluding: excludedConversationId,
                 consent: consent
+            )
+        }
+    }
+
+    func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations {
+        try dbReader.read { [consent] db in
+            // Filter and partition in Swift over the hydrated conversations:
+            // `member.profile.agentTemplateId` is the trusted accessor over the
+            // profile metadata, and `invitedBy` already carries the agent's
+            // inviter, so this avoids a brittle SQL JSON_EXTRACT predicate.
+            let currentInboxIds = Set(try DBInbox.fetchAll(db).map(\.inboxId))
+            let conversations = try db.composeAllConversations(consent: consent)
+            var addedByCurrentUser: [Conversation] = []
+            var addedByOthers: [Conversation] = []
+            for conversation in conversations {
+                let agentMember = conversation.members.first { member in
+                    member.isAgent && member.profile.agentTemplateId == templateId
+                }
+                guard let agentMember else { continue }
+                if let inviterInboxId = agentMember.invitedBy?.inboxId, currentInboxIds.contains(inviterInboxId) {
+                    addedByCurrentUser.append(conversation)
+                } else {
+                    addedByOthers.append(conversation)
+                }
+            }
+            return AgentTemplateConversations(
+                addedByCurrentUser: addedByCurrentUser,
+                addedByOthers: addedByOthers
             )
         }
     }
