@@ -147,7 +147,7 @@ struct ContactDetailView: View {
                 Button(action: action) {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .accessibilityLabel("Share agent")
+                .accessibilityLabel("Share \(contact.resolvedDisplayName)")
                 .accessibilityIdentifier("contact-detail-share-agent")
             }
         }
