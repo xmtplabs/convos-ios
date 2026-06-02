@@ -94,13 +94,23 @@ struct ContactDetailView: View {
     }
 
     var body: some View {
-        bodyContent
+        contentWithModals
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { closeToolbarItem }
             .toolbar { agentShareToolbarItem }
+            .task(id: contact.inboxId) { await syncBlockedState() }
+            .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
+    }
+
+    /// `bodyContent` plus the modal / sheet / overlay presentation layer.
+    /// Split out of `body` so each modifier chain stays short enough for the
+    /// type-checker (see the CLAUDE.md build-performance notes) as this view
+    /// keeps accruing presentation surfaces.
+    private var contentWithModals: some View {
+        bodyContent
             .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
@@ -122,8 +132,6 @@ struct ContactDetailView: View {
                 .background(.colorBackgroundSurfaceless)
             }
             .overlay { agentShareOverlay }
-            .task(id: contact.inboxId) { await syncBlockedState() }
-            .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
     }
 
     /// Loads conversations already containing this agent template, partitioned

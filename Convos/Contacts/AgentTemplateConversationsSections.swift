@@ -9,22 +9,24 @@ struct AgentTemplateConversationsSections: View {
     let conversations: AgentTemplateConversations
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step6x) {
-            if !conversations.addedByCurrentUser.isEmpty {
-                AgentTemplateConversationsSection(
-                    header: "Convos with you",
-                    conversations: conversations.addedByCurrentUser,
-                    footer: "You added them · Using your credits",
-                    showsPrivacyNote: true
-                )
-            }
-            if !conversations.addedByOthers.isEmpty {
-                AgentTemplateConversationsSection(
-                    header: nil,
-                    conversations: conversations.addedByOthers,
-                    footer: "Someone else added them",
-                    showsPrivacyNote: false
-                )
+        if !conversations.isEmpty {
+            VStack(spacing: DesignConstants.Spacing.step6x) {
+                if !conversations.addedByCurrentUser.isEmpty {
+                    AgentTemplateConversationsSection(
+                        header: "Convos with you",
+                        conversations: conversations.addedByCurrentUser,
+                        footer: "You added them · Using your credits",
+                        showsPrivacyNote: true
+                    )
+                }
+                if !conversations.addedByOthers.isEmpty {
+                    AgentTemplateConversationsSection(
+                        header: nil,
+                        conversations: conversations.addedByOthers,
+                        footer: "Someone else added them",
+                        showsPrivacyNote: false
+                    )
+                }
             }
         }
     }

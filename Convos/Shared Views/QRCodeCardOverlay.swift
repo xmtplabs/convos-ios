@@ -18,6 +18,9 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
     @State private var showCard: Bool = false
     @State private var isShareSheetPresented: Bool = false
     @State private var qrCodeImage: UIImage?
+    /// Defers presenting the share sheet until the card has animated in.
+    /// Tracked so dismissing during the gap cancels the pending present.
+    @State private var sharePresentTask: Task<Void, Never>?
     @Environment(\.displayScale) private var displayScale: CGFloat
 
     private static var headerHeight: CGFloat { 40.0 }
@@ -92,7 +95,9 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
                     showCard = true
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                sharePresentTask = Task {
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled else { return }
                     isShareSheetPresented = true
                 }
             }
@@ -139,6 +144,7 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
     }
 
     private func dismissFlow() {
+        sharePresentTask?.cancel()
         withAnimation(.easeOut(duration: 0.25)) {
             showCard = false
         }
