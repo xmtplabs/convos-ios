@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 /// Where the [[AgentBuilderView]] is being rendered. Drives whether it
@@ -43,6 +44,14 @@ struct AgentBuilderView: View {
     /// compositor handle the cross-tree geometry match.
     @Namespace private var transitionNamespace: Namespace.ID
 
+    /// The existing-conversation builder dismisses on Make and lands the user
+    /// back on the chat they triggered it from, rather than morphing to reveal
+    /// the conversation inside the sheet (the home/draft flow's behavior, where
+    /// there is no underlying chat to return to).
+    private var dismissesOnCommit: Bool {
+        viewModel.existingConversationId != nil
+    }
+
     private var indicatorPlaceholder: String? {
         if viewModel.hasCommitted { return nil }
         if viewModel.isInRemixMode { return "Remix" }
@@ -68,8 +77,8 @@ struct AgentBuilderView: View {
             return "The more info, the better"
         }
         // When the user has already picked a remix agent, they're
-        // *adding* customizations on top of an existing template —
-        // not starting fresh — so swap the verb.
+        // adding customizations on top of an existing template --
+        // not starting fresh -- so swap the verb.
         if viewModel.pickedRemixAgent != nil {
             return "Add a pic, screenshot, voice note or connection"
         }
@@ -94,6 +103,7 @@ struct AgentBuilderView: View {
             // or X cancel) so ordinary post-Make agent chatter anchors
             // inline like a normal agent convo.
             viewModel.newConversationViewModel.isInAgentBuilderFlow = true
+            startVoiceMemoIfNeeded()
         }
         .onDisappear {
             viewModel.newConversationViewModel.isInAgentBuilderFlow = false
@@ -131,12 +141,43 @@ struct AgentBuilderView: View {
                 indicatorPlaceholderOverride: indicatorPlaceholder,
                 indicatorSubtitleOverride: indicatorSubtitle,
                 allowsIndicatorEditing: viewModel.hasCommitted,
-                defaultFocusOverride: viewModel.hasCommitted ? nil : .agentBuilder
+                defaultFocusOverride: initialFocusOverride
             ) { focusState, coordinator in
                 content(focusState: focusState, coordinator: coordinator)
             }
         case .inline:
             inlineBody
+        }
+    }
+
+    /// Initial focus the sheet path requests from `ConversationPresenter`.
+    /// `nil` for post-commit (no input focus needed) and for voice-memo
+    /// entry (keep the keyboard down while we kick off the recording -
+    /// `stopVoiceMemoRecording`'s `restoreComposerFocusAfter: true` path
+    /// brings the keyboard back up when the user finishes the take).
+    /// `.agentBuilder` for the default composer entry.
+    private var initialFocusOverride: MessagesViewInputFocus? {
+        if viewModel.hasCommitted { return nil }
+        if viewModel.entryMode == .voiceMemo { return nil }
+        return .agentBuilder
+    }
+
+    /// On first appear, if the user opened the builder via the
+    /// `AgentBuilderBar`'s waveform button, resolve mic permission and
+    /// then start the recording. The recorder lives directly on
+    /// `AgentBuilderViewModel` (not proxied through the inner conversation
+    /// VM), so it's stable across the placeholder-to-real inner-VM swap
+    /// and the only timing constraint is the permission prompt: a
+    /// `record()` call before
+    /// `AVAudioApplication.requestRecordPermission` resolves fires
+    /// `audioRecorderDidFinishRecording(successfully: false)` and the
+    /// recording UI flashes.
+    private func startVoiceMemoIfNeeded() {
+        guard viewModel.entryMode == .voiceMemo else { return }
+        Task { @MainActor in
+            let granted = await VoiceMemoRecorder.ensureRecordPermission()
+            guard granted else { return }
+            viewModel.startVoiceMemoRecording(restoreComposerFocusAfter: true)
         }
     }
 
@@ -157,15 +198,18 @@ struct AgentBuilderView: View {
                     composerOrRemixCarousel(focusState: $inlineFocusState)
                 }
             }
-            // Hide the legal footer while Remix mode owns the screen —
-            // the carousel + exit X already fill the bottom region,
-            // and the XMTP / Terms links don't make sense layered
-            // under the picker.
+            // Hide the legal footer while Remix mode owns the screen --
+            // the carousel + exit X already fill the bottom region, and
+            // the Terms link doesn't make sense layered under the picker.
             if !viewModel.hasCommitted && !viewModel.isInRemixMode {
-                inlineLegalFooter
+                inlineTermsFooter
             }
         }
         .onAppear {
+            // Voice-memo entry skips the composer focus so the keyboard
+            // doesn't pop up alongside the mic-permission prompt; the
+            // body's main `.onAppear` kicks off the recording itself.
+            guard viewModel.entryMode != .voiceMemo else { return }
             focusCoordinator.moveFocus(to: .agentBuilder)
         }
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
@@ -176,58 +220,11 @@ struct AgentBuilderView: View {
         }
     }
 
-    /// Swap point between the composer and the Remix carousel. While
-    /// `isShowingRemixCarousel` is true the composer slides offscreen
-    /// downward and the random-agent picker takes its place; tapping
-    /// a card (sets `pickedRemixAgent`) or the X (clears
-    /// `isInRemixMode`) flips this back to the composer.
-    @ViewBuilder
-    private func composerOrRemixCarousel(
-        focusState: FocusState<MessagesViewInputFocus?>.Binding
-    ) -> some View {
-        ZStack {
-            if viewModel.isShowingRemixCarousel {
-                RemixAgentCarouselView(
-                    viewModel: viewModel,
-                    agents: RandomAgent.mocks
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else {
-                composerRect(focusState: focusState)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.smooth(duration: 0.35), value: viewModel.isShowingRemixCarousel)
-    }
-
-    /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
-    /// the inline composer. Lifted from the deleted "Pop-up private
-    /// convos" CTA so first-run users still have entry points to the
-    /// XMTP and legal pages on the chats-list empty state.
-    private var inlineLegalFooter: some View {
+    /// "Terms & Privacy Policy" link rendered under the inline composer
+    /// so first-run users on the chats-list empty state still have an
+    /// entry point to the legal page.
+    private var inlineTermsFooter: some View {
         HStack(spacing: DesignConstants.Spacing.step4x) {
-            Button {
-                if let url = URL(string: "https://xmtp.org") {
-                    openURL(url, prefersInApp: true)
-                }
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                    Text("Secured by ")
-                    Image("xmtpIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .frame(width: 10.0, height: 10.0)
-                        .padding(.leading, 2.0)
-                        .padding(.trailing, 1.0)
-                        .offset(y: 0.5)
-                    Text("XMTP")
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(.colorTextTertiary)
-                        .padding(.leading, DesignConstants.Spacing.stepX)
-                }
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-            }
             Button {
                 if let url = URL(string: "https://convos.org/terms-and-privacy") {
                     openURL(url, prefersInApp: true)
@@ -282,6 +279,11 @@ struct AgentBuilderView: View {
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {
+                    // Voice-memo entry skips the composer focus so the
+                    // keyboard doesn't pop up alongside the mic-permission
+                    // prompt; the body's main `.onAppear` kicks off the
+                    // recording itself.
+                    guard viewModel.entryMode != .voiceMemo else { return }
                     coordinator.moveFocus(to: .agentBuilder)
                 }
         }
@@ -316,6 +318,30 @@ struct AgentBuilderView: View {
         }
     }
 
+    /// Swap point between the composer and the Remix carousel. While
+    /// `isShowingRemixCarousel` is true the composer slides offscreen
+    /// downward and the random-agent picker takes its place; tapping
+    /// a card (sets `pickedRemixAgent`) or the X (clears
+    /// `isInRemixMode`) flips this back to the composer.
+    @ViewBuilder
+    private func composerOrRemixCarousel(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        ZStack {
+            if viewModel.isShowingRemixCarousel {
+                RemixAgentCarouselView(
+                    viewModel: viewModel,
+                    agents: RandomAgent.mocks
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                composerRect(focusState: focusState)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.35), value: viewModel.isShowingRemixCarousel)
+    }
+
     private func composerRect(
         focusState: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
@@ -325,6 +351,15 @@ struct AgentBuilderView: View {
                 focusState: focusState,
                 transitionNamespace: transitionNamespace,
                 onMakeTap: {
+                    if dismissesOnCommit {
+                        // Existing-conversation flow: fire the send + join
+                        // (they survive teardown) and dismiss straight back to
+                        // the chat the builder was triggered from. No in-sheet
+                        // morph.
+                        viewModel.commit(focusCoordinator: focusCoordinator)
+                        dismiss()
+                        return
+                    }
                     // Hand focus over to the chat's text field BEFORE
                     // collapsing the composer, so the keyboard stays up
                     // and MessagesBottomBar's expanded state animates in
@@ -337,25 +372,44 @@ struct AgentBuilderView: View {
                     }
                 }
             )
+            // Cap the card at its original height but let it shrink below
+            // that when the keyboard constrains the available space. With a
+            // fixed `height:` the card stayed 375 even when the keyboard
+            // covered its lower content (media row + Make button); with a
+            // plain `maxHeight: .infinity` it ballooned to fill the whole
+            // iPad canvas. `maxHeight: composerHeight` gives both: 375 when
+            // there's room, less when the keyboard pushes up (SwiftUI's
+            // keyboard safe-area inset shrinks the proposed height and the
+            // card follows).
             .frame(maxHeight: Constant.composerHeight)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step4x)
 
-            if !viewModel.isRecordingVoiceMemo {
-                Text(composerHintText)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .padding(.top, DesignConstants.Spacing.step2x)
-                    .padding(.bottom, DesignConstants.Spacing.step3x)
-            }
+            // Hidden (not removed) when recording, so the layout below the
+            // composer doesn't reflow when the user taps the voice-memo
+            // button. Without this, the recording-controls' Spacer-centered
+            // position would jump on entry.
+            Text(composerHintText)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.top, DesignConstants.Spacing.step2x)
+                .padding(.bottom, DesignConstants.Spacing.step3x)
+                .opacity(viewModel.isRecordingVoiceMemo ? 0 : 1)
 
             if viewModel.isRecordingVoiceMemo {
                 Spacer(minLength: 0)
                 recordingControls(focusState: focusState)
-                    .transition(.blurReplace)
+                    // Delay the appearance by `keyboardDismissDelay` so the
+                    // keyboard dismissal animation triggered by the
+                    // voice-memo tap (`focusState = nil`) finishes before
+                    // the controls fade in.
+                    .transition(.blurReplace.animation(
+                        .easeInOut(duration: Constant.recordingControlsFadeDuration)
+                            .delay(Constant.keyboardDismissDelay)
+                    ))
                 Spacer(minLength: 0)
             } else {
                 Spacer(minLength: 0)
@@ -443,7 +497,16 @@ struct AgentBuilderView: View {
     }
 
     private enum Constant {
+        /// Cap for the composer card height. The card grows up to this
+        /// (its original fixed size) and shrinks below it when the keyboard
+        /// constrains the available space.
         static let composerHeight: CGFloat = 375.0
+        /// iOS keyboard dismissal animation duration. Recording controls
+        /// hold for this long before fading in so their position settles
+        /// after the keyboard collapses rather than sliding through the
+        /// transition.
+        static let keyboardDismissDelay: TimeInterval = 0.25
+        static let recordingControlsFadeDuration: TimeInterval = 0.25
     }
 }
 

@@ -72,6 +72,15 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         return clientMessageId
     }
 
+    public func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws {
+        sentImageCount += bundleItems.count
+    }
+
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
         sentImageCount += 1
         return UUID().uuidString

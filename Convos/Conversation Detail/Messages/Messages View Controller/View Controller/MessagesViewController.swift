@@ -18,12 +18,16 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
 
 /// Controls how the messages list's leading "empty state" content is presented.
 /// `.standard` shows either the invite QR (for the creator of an unlocked,
-/// non-full conversation) or the `ConversationInfoPreview`. `.hidden` suppresses
-/// the leading view entirely — used by the Agent Builder so the
-/// underlying chat doesn't flash a QR while the user is still drafting.
+/// non-full conversation) or the `ConversationInfoPreview`. `.hidden`
+/// suppresses the QR but still renders the "Invite members" affordance —
+/// used by the Agent Builder so the underlying chat doesn't flash a QR
+/// while the user is still drafting. `.suppressed` hides every leading
+/// affordance (QR, invite chip, info preview) — used by read-only
+/// surfaces where the user has no permission to add members.
 enum MessagesHeaderMode {
     case standard
     case hidden
+    case suppressed
 }
 
 final class MessagesViewController: UIViewController {
@@ -38,6 +42,7 @@ final class MessagesViewController: UIViewController {
         /// prepends an `.agentBuilderSummary` cell.
         let agentBuilderSummary: AgentBuilderSummary?
         let agentBuilderTransitionNamespace: Namespace.ID?
+        let htmlAttachmentTransitionNamespace: Namespace.ID?
 
         init(
             conversation: Conversation,
@@ -46,7 +51,8 @@ final class MessagesViewController: UIViewController {
             hasLoadedAllMessages: Bool,
             headerMode: MessagesHeaderMode = .standard,
             agentBuilderSummary: AgentBuilderSummary? = nil,
-            agentBuilderTransitionNamespace: Namespace.ID? = nil
+            agentBuilderTransitionNamespace: Namespace.ID? = nil,
+            htmlAttachmentTransitionNamespace: Namespace.ID? = nil
         ) {
             self.conversation = conversation
             self.messages = messages
@@ -55,6 +61,7 @@ final class MessagesViewController: UIViewController {
             self.headerMode = headerMode
             self.agentBuilderSummary = agentBuilderSummary
             self.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace
+            self.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace
         }
     }
 
@@ -131,6 +138,7 @@ final class MessagesViewController: UIViewController {
             headerMode = state.headerMode
             agentBuilderSummary = state.agentBuilderSummary
             agentBuilderTransitionNamespace = state.agentBuilderTransitionNamespace
+            htmlAttachmentTransitionNamespace = state.htmlAttachmentTransitionNamespace
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -236,6 +244,13 @@ final class MessagesViewController: UIViewController {
     }
 
     var onTapInvite: ((MessageInvite) -> Void)?
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver() {
+        didSet { dataSource.agentShareResolver = agentShareResolver }
+    }
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver() {
+        didSet { dataSource.inviteMembershipResolver = inviteMembershipResolver }
+    }
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onLoadPreviousMessages: (() -> Void)?
     var onReaction: ((String, String) -> Void)?
@@ -247,9 +262,6 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
-    var onBottomOverscrollChanged: ((CGFloat) -> Void)?
-    var onBottomOverscrollReleased: ((CGFloat) -> Void)?
-    private var lastBottomOverscroll: CGFloat = 0.0
 
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
@@ -287,6 +299,15 @@ final class MessagesViewController: UIViewController {
     var agentBuilderTransitionNamespace: Namespace.ID? {
         didSet { dataSource.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace }
     }
+    var htmlAttachmentTransitionNamespace: Namespace.ID? {
+        didSet { dataSource.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace }
+    }
+    /// Called with the loaded HTML file URL when the user taps an HTML
+    /// bubble. SwiftUI subscribes (via `MessagesViewRepresentable`) so it
+    /// can drive the post-tap `AttachmentPreviewSheet` presentation with
+    /// a matched-geometry zoom transition. When `nil`, falls back to the
+    /// in-class UIKit `presentAttachmentPreview` path.
+    var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
 
     var hasAgent: Bool = false {
         didSet { dataSource.hasAgent = hasAgent }
@@ -439,6 +460,12 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapInvite = { [weak self] invite in
             guard let self = self else { return }
             self.onTapInvite?(invite)
+        }
+        dataSource.agentShareResolver = agentShareResolver
+        dataSource.inviteMembershipResolver = inviteMembershipResolver
+        dataSource.onTapAgentShare = { [weak self] agentShare in
+            guard let self = self else { return }
+            self.onTapAgentShare?(agentShare)
         }
         dataSource.onTapReactions = { [weak self] message in
             guard let self = self else { return }
@@ -655,13 +682,17 @@ extension MessagesViewController {
         dataSource.hidesInviteCard = conversation.hidesInviteCard
 
         // Add invite or conversation info at the beginning if all messages are loaded.
-        // When the Agent Builder summary is present, suppress this whole block -
-        // the summary card already announces the agent via its "You created an
-        // agent" footer, so showing the "+ Invite members" pill on top of it is
-        // redundant. Without a summary, `.hidden` header mode still renders the
-        // `.invite` cell (which surfaces just the "Invite members" affordance - the
-        // QR is gated inside the cell on the same `headerMode`).
-        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil {
+        // A home-flow Agent Builder summary suppresses this whole block - the
+        // summary card already announces the agent via its "You created an
+        // agent" footer, so the "+ Invite members" pill on top of it is
+        // redundant. The in-chat "New Agent" flow (`existingConversation`) is
+        // different: it targets a real group, so its invite affordances stay
+        // visible while the card shows. Without a summary, `.hidden` header
+        // mode still renders the `.invite` cell (which surfaces just the
+        // "Invite members" affordance - the QR is gated inside the cell on the
+        // same `headerMode`).
+        let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
+        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else if headerMode == .standard, !hasVerifiedConvosAgent {
@@ -671,13 +702,14 @@ extension MessagesViewController {
 
         if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
+            let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember))
+                cells.append(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator))
             }
         }
 
@@ -824,8 +856,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
             interruptCurrentUpdateAnimation()
         }
 
-        reportBottomOverscroll(scrollView)
-
         guard !currentControllerActions.options.contains(.loadingInitialMessages),
               !currentControllerActions.options.contains(.loadingPreviousMessages),
               !currentInterfaceActions.options.contains(.scrollingToTop),
@@ -835,30 +865,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         if scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top {
             loadPreviousMessages()
-        }
-    }
-
-    private func reportBottomOverscroll(_ scrollView: UIScrollView) {
-        let bottomInset = scrollView.adjustedContentInset.bottom
-        let topInset = scrollView.adjustedContentInset.top
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight = scrollView.frame.height
-        let minOffset = -topInset
-        let maxOffset = max(minOffset, contentHeight - frameHeight + bottomInset)
-        let bottomOverscroll = max(0, scrollView.contentOffset.y - maxOffset)
-        if bottomOverscroll > 0, scrollView.isDragging {
-            lastBottomOverscroll = bottomOverscroll
-            onBottomOverscrollChanged?(bottomOverscroll)
-        } else {
-            lastBottomOverscroll = 0.0
-            onBottomOverscrollChanged?(0.0)
-        }
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate _: Bool) {
-        if lastBottomOverscroll > 0 {
-            onBottomOverscrollReleased?(lastBottomOverscroll)
-            lastBottomOverscroll = 0.0
         }
     }
 
@@ -1037,12 +1043,21 @@ extension MessagesViewController {
             do {
                 let fileURL = try await loadFileForPreview(attachment)
                 await MainActor.run {
-                    presentAttachmentPreview(
-                        attachment: attachment,
-                        fileURL: fileURL,
-                        sender: message.sender,
-                        sentAt: message.date
-                    )
+                    if attachment.isHTMLFile, let onPresentHTMLAttachmentPreview {
+                        onPresentHTMLAttachmentPreview(
+                            attachment,
+                            fileURL,
+                            message.sender,
+                            message.date
+                        )
+                    } else {
+                        presentAttachmentPreview(
+                            attachment: attachment,
+                            fileURL: fileURL,
+                            sender: message.sender,
+                            sentAt: message.date
+                        )
+                    }
                 }
             } catch {
                 Log.error("Failed to open file attachment: \(error)")

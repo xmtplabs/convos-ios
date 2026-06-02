@@ -11,6 +11,33 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 }
 
 public protocol SessionManagerProtocol: AnyObject, Sendable {
+    // MARK: Pairing
+
+    /// Constructs a joiner-side pairing service backed by an ephemeral
+    /// XMTP client. The host app calls this when the joiner deep link
+    /// arrives (`/pair/<slug>`) to present `JoinerPairingSheetView` on a
+    /// fresh install. The ephemeral client lives only inside the returned
+    /// service; on `stop()` (or successful pairing) the underlying libxmtp
+    /// db directory is wiped.
+    func joinerPairingService() -> any PairingServiceProtocol
+
+    /// Called after a successful pairing on the joiner side. Drops any
+    /// cached `MessagingService` so the next access reads the (now-paired)
+    /// keychain entry. If silent identity creation had already produced a
+    /// placeholder inbox before the pairing deep link landed, this also
+    /// stops that placeholder service.
+    func refreshAfterPairingCompleted() async
+
+    /// Returns true if the local database holds at least one conversation
+    /// that the user has actually engaged with (`isUnused == false`). The
+    /// pairing flow uses this — not "is there *any* keychain identity?" —
+    /// to decide whether the joiner has real data that would be lost on
+    /// pair. Silent identity creation + the pre-warmed unused-conversation
+    /// cache means every fresh install has an identity and one unused
+    /// conversation; that combination should still let the user pair
+    /// without a destructive warning.
+    func hasAnyUsedConversations() async -> Bool
+
     // MARK: Inbox Management
 
     /// Returns the shared messaging service and an optional conversation id
@@ -86,7 +113,22 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository
     func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol
     func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
+    func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
+
+    /// Resolves a pasted/received agent-share link to the shared template's
+    /// public profile (name / emoji / description) for rendering its contact
+    /// card. A default returns `MockAgentShareResolver`; the real
+    /// `ConvosAPIClient`-backed resolver is wired in `SessionManager` once the
+    /// iOS client method for the backend's template-resolve endpoint lands.
+    func agentShareResolver() -> any AgentShareResolving
+
+    /// Resolves whether the current user already belongs to the conversation a
+    /// received/sent invite points to (and that conversation's member count) so
+    /// the in-chat invite card can show "N members" instead of "Tap to join". A
+    /// default returns `NoopInviteMembershipResolver`; the real GRDB-backed
+    /// resolver is wired in `SessionManager`.
+    func inviteMembershipResolver() -> any InviteMembershipResolving
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
@@ -166,6 +208,20 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 }
 
 extension SessionManagerProtocol {
+    /// Default agent-share resolver. Returns the mock until the API-backed
+    /// resolver is wired into `SessionManager`, so every conformer (including
+    /// test mocks) gets a working resolver without bespoke wiring.
+    public func agentShareResolver() -> any AgentShareResolving {
+        MockAgentShareResolver()
+    }
+
+    /// Default invite-membership resolver. Returns the no-op resolver so every
+    /// conformer (including test mocks) renders the card's default state; the
+    /// GRDB-backed resolver is wired in `SessionManager`.
+    public func inviteMembershipResolver() -> any InviteMembershipResolving {
+        NoopInviteMembershipResolver()
+    }
+
     public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
     }

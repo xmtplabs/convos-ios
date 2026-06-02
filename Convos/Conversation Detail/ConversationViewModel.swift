@@ -16,6 +16,14 @@ struct PendingInvite {
     var explodeDuration: ExplodeDuration?
 }
 
+/// A pasted agent-share link staged as a composer chip. `share` is the parsed
+/// link (sent verbatim on send); `resolved` is the agent's public profile once
+/// the resolver returns (nil while resolving -> chip shows its placeholder).
+struct PendingAgentShare {
+    let share: MessageAgentShare
+    var resolved: AgentShareInfo?
+}
+
 struct PendingFileAttachment: Identifiable, Equatable {
     let id: UUID
     let url: URL
@@ -29,6 +37,17 @@ struct PendingFileAttachment: Identifiable, Equatable {
         self.filename = filename
         self.mimeType = mimeType
         self.fileSize = fileSize
+    }
+
+    /// Mirrors `HydratedAttachment.isHTMLFile` so the composer's staged-file
+    /// preview can match the in-chat HTML tile (square thumbnail) instead of
+    /// the generic filename + type chip.
+    var isHTMLFile: Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if ext == "html" || ext == "htm" {
+            return true
+        }
+        return mimeType.lowercased() == "text/html"
     }
 
     static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
@@ -165,8 +184,41 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var agentBuilderSummary: AgentBuilderSummary? {
         didSet {
             messagesListRepository.agentBuilderSummary = agentBuilderSummary
+            scheduleAgentBuilderPlaceholderExpiry()
         }
     }
+
+    /// Flips true once the post-commit agent-builder placeholder window
+    /// (`AgentBuilderPlaceholder.displayDuration` past the summary's
+    /// `cutoffDate`) elapses without a verified agent joining. Stops the
+    /// optimistic Convos-verified placeholder from lingering forever on an
+    /// agent that joined but never published attestation -- see
+    /// `shouldRenderAsPendingAgentBuilder`.
+    private var agentBuilderPlaceholderExpired: Bool = false
+
+    /// The agent identity an agent-template flow asked us to paint
+    /// optimistically before the real verified agent joins -- the template
+    /// name + emoji/photo for the "Chat on a contact" path, or a neutral
+    /// placeholder (upgraded in place once the resolve returns) for the
+    /// `convos://template/<id>` deep link. Lives on the view model (not the
+    /// `Conversation` value) so it survives the draft -> real conversation
+    /// swap. Drives the "with identity" case of `pendingAgentPresentation`.
+    private(set) var optimisticAgentIdentity: AgentShareInfo?
+
+    /// `true` once an agent-template flow activates the optimistic overlay.
+    /// Mirrors the agent-builder placeholder machinery: time-boxed via
+    /// `optimisticAgentExpired` so a join that never lands doesn't leave a
+    /// permanent fake-verified agent.
+    private var optimisticAgentActive: Bool = false
+
+    /// Flips `true` when the optimistic-agent window
+    /// (`AgentBuilderPlaceholder.displayDuration` after activation) elapses
+    /// without a real verified agent joining, dropping the optimistic
+    /// presentation so the conversation falls back to its real identity.
+    private var optimisticAgentExpired: Bool = false
+
+    @ObservationIgnored
+    private var optimisticAgentExpiryTask: Task<Void, Never>?
 
     // MARK: - Private
 
@@ -248,6 +300,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
     @ObservationIgnored
+    private var agentBuilderPlaceholderExpiryTask: Task<Void, Never>?
+    @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
@@ -298,9 +352,63 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// Forwards the verified Convos agent from the conversation members
     /// to the messages-list repository — gated by `allowsContactCard` so the
     /// caller can defer the card without changing the underlying conversation.
+    ///
+    /// When no real verified agent has joined yet but an agent-template flow
+    /// is painting an optimistic identity (and that identity has enough to
+    /// render a card), feed a presentation-only synthetic agent member so the
+    /// processor synthesizes the contact card immediately. The synthetic
+    /// member is only ever handed to the repository here -- it is never
+    /// inserted into `conversation.members`.
     private func syncVerifiedAgentToRepo() {
-        let agent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
+        let realAgent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
+        let agent: ConversationMember?
+        if let realAgent {
+            agent = realAgent
+        } else if let presentation = pendingAgentPresentation,
+                  presentation.showsContactCard,
+                  let identity = optimisticAgentIdentity {
+            agent = identity.optimisticCardMember(conversationId: conversation.id)
+        } else {
+            agent = nil
+        }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+    }
+
+    /// Activate the optimistic agent overlay for an agent-template flow.
+    /// Idempotent: calling again only refreshes the identity (so a deep-link
+    /// resolve can upgrade the placeholder in place) without restarting the
+    /// time-box. The window mirrors the agent-builder placeholder so a join
+    /// that never lands eventually drops the optimistic styling rather than
+    /// reading an unverified (or absent) agent as a verified Convos one.
+    func activateOptimisticAgent(identity: AgentShareInfo?) {
+        optimisticAgentIdentity = identity
+        guard !optimisticAgentActive else {
+            syncVerifiedAgentToRepo()
+            return
+        }
+        optimisticAgentActive = true
+        optimisticAgentExpired = false
+        syncVerifiedAgentToRepo()
+        optimisticAgentExpiryTask?.cancel()
+        optimisticAgentExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(AgentBuilderPlaceholder.displayDuration))
+            guard !Task.isCancelled else { return }
+            self?.optimisticAgentExpired = true
+            self?.syncVerifiedAgentToRepo()
+        }
+    }
+
+    /// Upgrade the optimistic identity in place once the agent-template deep
+    /// link's async resolve returns the real profile. Keeps the running
+    /// time-box; the computed `pendingAgentPresentation` and the repo card
+    /// refresh from the new identity.
+    func applyOptimisticAgentIdentity(_ info: AgentShareInfo) {
+        guard optimisticAgentActive else {
+            activateOptimisticAgent(identity: info)
+            return
+        }
+        optimisticAgentIdentity = info
+        syncVerifiedAgentToRepo()
     }
 
     private func applyPendingDraftEdits() {
@@ -329,24 +437,110 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
     var untitledConversationPlaceholder: String {
-        if shouldRenderAsPendingAgent {
-            return "Agent"
+        if let presentation = pendingAgentPresentation {
+            return presentation.name ?? "Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
-    /// `true` while the conversation is in (or was created via) the agent
-    /// builder UX and no verified agent has joined yet. Surfaces a
-    /// stand-in identity for the indicator — "Agent" placeholder name
-    /// and the Convos-verified monogram avatar via `forcedAgentVerification`
-    /// — so the chat header doesn't fall back to the generic "New Convo"
-    /// label + emoji circle while the agent is still provisioning. Flips
-    /// false the moment the verified agent actually appears in
-    /// `conversation.members`, at which point the regular member-driven
-    /// avatar / display name path takes over naturally.
+    /// Unified optimistic pending-agent rendering for the indicator and the
+    /// contact card. `nil` when the conversation should render normally.
+    ///
+    /// The agent-template flows ("Chat on a contact" + the
+    /// `convos://template/<id>` deep link) take priority and supply the real
+    /// identity (`showsContactCard == true`). The Agent Builder is the
+    /// generic "no identity" case (`name`/`emoji` nil, `showsContactCard
+    /// == false`) -- it keeps its own gating in
+    /// `shouldRenderAsPendingAgentBuilder` and its own summary card. Both
+    /// drop the moment a real verified Convos agent joins
+    /// `conversation.members`, and both are time-boxed as a backstop.
+    var pendingAgentPresentation: PendingAgentPresentation? {
+        let hasRealVerifiedAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
+        if optimisticAgentActive, !optimisticAgentExpired, !hasRealVerifiedAgent {
+            let identity = optimisticAgentIdentity
+            let hasIdentity: Bool = (identity?.displayName?.isEmpty == false) || (identity?.emoji?.isEmpty == false)
+            return PendingAgentPresentation(
+                name: identity?.displayName,
+                emoji: identity?.emoji,
+                avatarURL: identity?.avatarURL,
+                agentDescription: identity?.descriptionText,
+                showsContactCard: hasIdentity
+            )
+        }
+        if shouldRenderAsPendingAgentBuilder {
+            return PendingAgentPresentation(
+                name: nil,
+                emoji: nil,
+                avatarURL: nil,
+                agentDescription: nil,
+                showsContactCard: false
+            )
+        }
+        return nil
+    }
+
+    /// `true` while the conversation should show any optimistic pending-agent
+    /// rendering (builder or template). Kept as the indicator's
+    /// `forcedAgentVerification` gate (see `MainTabView` /
+    /// `ConversationPresenter`).
     var shouldRenderAsPendingAgent: Bool {
+        pendingAgentPresentation != nil
+    }
+
+    /// `true` while the conversation is in (or was created via) the agent
+    /// builder UX and no verified agent has joined yet. The generic "no
+    /// identity" input to `pendingAgentPresentation` — surfaces the "New
+    /// Agent" / "Agent" placeholder name and the add-agent glyph via
+    /// `forcedAgentVerification` so the chat header doesn't fall back to the
+    /// generic "New Convo" label + emoji circle while the agent is still
+    /// provisioning. Flips false the moment the verified agent actually
+    /// appears in `conversation.members`, at which point the regular
+    /// member-driven avatar / display name path takes over naturally.
+    var shouldRenderAsPendingAgentBuilder: Bool {
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
-        return !conversation.members.contains(where: \.isVerifiedConvosAgent)
+        // Pre-commit: while drafting in the builder (no summary yet), always
+        // show the generic agent placeholder -- even if a verified agent has
+        // silently joined the draft in the background. The user hasn't tapped
+        // Make, so the indicator stays generic ("New Agent" / "Draft").
+        if isInAgentBuilderFlow, agentBuilderSummary == nil {
+            return true
+        }
+        // A real verified Convos agent joined -> drop the placeholder
+        // immediately, even while the builder view is still mounted. The
+        // builder view stays on screen through the post-Make morph, so gating
+        // on `isInAgentBuilderFlow` alone pinned "Joining..." on forever even
+        // after the agent verified.
+        guard !conversation.members.contains(where: \.isVerifiedConvosAgent) else { return false }
+        // No verified agent yet -> keep the optimistic verified placeholder
+        // only within the time-box past the commit. If the agent never
+        // verifies (e.g. it joins without publishing attestation), this stops
+        // the placeholder lingering forever and reading an unverified agent as
+        // a verified Convos one.
+        return !agentBuilderPlaceholderExpired
+    }
+
+    /// (Re)arm the post-commit placeholder time-box whenever the summary
+    /// changes. Anchored on the summary's `cutoffDate` so the window is correct
+    /// across relaunches: a summary rehydrated after its window has already
+    /// elapsed expires immediately rather than restarting the clock. Cleared
+    /// (no summary) resets to not-expired so a fresh draft starts clean.
+    private func scheduleAgentBuilderPlaceholderExpiry() {
+        agentBuilderPlaceholderExpiryTask?.cancel()
+        guard let summary = agentBuilderSummary else {
+            agentBuilderPlaceholderExpired = false
+            return
+        }
+        let remaining: TimeInterval = AgentBuilderPlaceholder.remainingDisplayTime(since: summary.cutoffDate)
+        guard remaining > 0 else {
+            agentBuilderPlaceholderExpired = true
+            return
+        }
+        agentBuilderPlaceholderExpired = false
+        agentBuilderPlaceholderExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.agentBuilderPlaceholderExpired = true
+        }
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
@@ -393,7 +587,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     var conversationName: String {
-        isEditingConversationName ? editingConversationName : conversation.computedDisplayName(memberNameOverride: contactNameLookup)
+        if isEditingConversationName {
+            return editingConversationName
+        }
+        if let presentation = pendingAgentPresentation {
+            return presentation.name ?? "New Agent"
+        }
+        return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
     var conversationDescription: String {
@@ -455,15 +655,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// when the agent actually joins). Used by
     /// `ConversationViewModel+ThinkingIndicators` to route agent
     /// thinking sessions under the contact card instead of the inline
-    /// footer, and forwarded to the messages-list repo so the processor
-    /// can suppress the legacy "Agent joined" update row for the
-    /// duration of the builder UX. Independent of whether the conversation
-    /// was created via the builder — the same flow will run when adding
-    /// an agent to an existing conversation.
-    var isInAgentBuilderFlow: Bool = false {
-        didSet {
-            messagesListRepository.isInAgentBuilderFlow = isInAgentBuilderFlow
-        }
+    /// footer, and read by the messages-list processor so it can suppress
+    /// the legacy "Agent joined" update row for the duration of the builder
+    /// UX. Independent of whether the conversation was created via the
+    /// builder — the same flow will run when adding an agent to an existing
+    /// conversation.
+    ///
+    /// Backed by `messagesListRepository` (its single owner, which feeds the
+    /// processor) rather than a mirrored stored copy, so there's one value to
+    /// keep in sync across the placeholder-to-real VM swap instead of two.
+    var isInAgentBuilderFlow: Bool {
+        get { messagesListRepository.isInAgentBuilderFlow }
+        set { messagesListRepository.isInAgentBuilderFlow = newValue }
     }
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
@@ -527,10 +730,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var pendingInviteConvoName: String = ""
     var pendingInviteImage: UIImage?
 
+    /// A pasted agent-share link staged as a composer chip. Display-only: the
+    /// agent's name / emoji come from the resolver, not the sender, so unlike
+    /// `pendingInvite` there are no editable fields. The URL is sent verbatim
+    /// on send (and auto-classifies as an agent-share message).
+    var pendingAgentShare: PendingAgentShare?
+
     var sendButtonEnabled: Bool {
         !messageText.isEmpty
             || !pendingMediaAttachments.isEmpty
             || pendingInvite != nil
+            || pendingAgentShare != nil
             || pastedLinkPreview != nil
     }
 
@@ -563,6 +773,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
+    /// Drives the new-conversation flow opened by tapping a shared agent's
+    /// contact card. Mirrors `presentingNewConversationForInvite`.
+    var presentingNewConversationForAgentShare: NewConversationViewModel? {
+        didSet { oldValue?.cleanUpIfNeeded() }
+    }
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
@@ -571,7 +786,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
-    var presentingAgentConfirmation: Bool = false
+    /// Drives the "New Agent" context-menu builder sheet, scoped to this
+    /// existing conversation. The builder defers the agent join until the
+    /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
+    /// so we only add the agent once they confirm.
+    var presentingAgentBuilder: AgentBuilderViewModel?
+    /// Drives the first-run agents explainer shown before the builder. Its
+    /// "Make an agent" button sets `pendingAgentBuilderAfterIntro` and dismisses;
+    /// the sheet's onDismiss then opens the builder. Dismissing without the
+    /// button leaves the builder unopened.
+    var presentingAgentsIntro: Bool = false
+    var pendingAgentBuilderAfterIntro: Bool = false
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -604,12 +829,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownAgentConfirmationKey: String = "hasShownAgentConfirmation"
-    private var hasShownAgentConfirmation: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownAgentConfirmationKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAgentConfirmationKey) }
-    }
-
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
     private var hasShownRevealInfoSheet: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
@@ -628,8 +847,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownAgentConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: hasShownAgentsIntroKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
@@ -641,13 +860,50 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // composer should interrupt the user with it on attach.
     }
 
-    func onRequestAgentJoin() {
-        guard !hasShownAgentConfirmation else {
-            requestAgentJoin()
-            return
+    /// A fresh agent builder scoped to this conversation. The "New Agent"
+    /// entries take the user through the same builder flow as the home screen
+    /// but defer the agent join until they tap Make, so the brief they compose
+    /// is what the agent receives. Surfaces nested inside another sheet (the
+    /// Info sheet, Members list) present this from their own `.sheet` so it
+    /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
+    func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
+        AgentBuilderViewModel(session: session, existingConversationId: conversation.id)
+    }
+
+    private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
+
+    /// First-run gate for the "New Agent" agents explainer: returns `true`
+    /// exactly once (the first "New Agent" tap, from any in-chat surface) and
+    /// marks it shown. Callers present `AgentsInfoView` when this is true and
+    /// open the builder only if the user taps its "Make an agent" button.
+    func consumeAgentsIntroGate() -> Bool {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.hasShownAgentsIntroKey) else { return false }
+        defaults.set(true, forKey: Self.hasShownAgentsIntroKey)
+        return true
+    }
+
+    /// Present the agent builder from the top-level `ConversationView` (the
+    /// in-chat "+"/context menu and the new-convo "Invite members" capsule,
+    /// neither of which has another sheet up). On the first-ever tap, show the
+    /// agents explainer first; the builder opens only if the user taps
+    /// "Make an agent" (handled by `presentAgentBuilderAfterIntroIfNeeded()`
+    /// from the intro sheet's onDismiss).
+    func presentAgentBuilder() {
+        guard presentingAgentBuilder == nil, !presentingAgentsIntro else { return }
+        if consumeAgentsIntroGate() {
+            presentingAgentsIntro = true
+        } else {
+            presentingAgentBuilder = makeAgentBuilderViewModel()
         }
-        hasShownAgentConfirmation = true
-        presentingAgentConfirmation = true
+    }
+
+    /// Called from the intro sheet's onDismiss: opens the builder only if the
+    /// user opted in via "Make an agent" (which sets the pending flag).
+    func presentAgentBuilderAfterIntroIfNeeded() {
+        guard pendingAgentBuilderAfterIntro else { return }
+        pendingAgentBuilderAfterIntro = false
+        presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
     var shouldBlurPhotos: Bool {
@@ -681,9 +937,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pendingTypingIndicatorTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
-        agentJoinTask?.cancel()
+        // Intentionally not cancelled here. A requested agent join is a
+        // durable backend trigger that should complete even after the user
+        // closes the conversation view (which deallocates this VM). The
+        // in-flight request holds `session` strongly and finishes on its own;
+        // tying it to the view lifecycle was cancelling joins mid-request, so
+        // the backend never provisioned the agent.
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
+        agentBuilderPlaceholderExpiryTask?.cancel()
     }
 
     // MARK: - Init
@@ -735,6 +997,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -829,6 +1092,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo2 = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -919,6 +1183,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .sink { [weak self] summary in
                 self?.agentBuilderSummary = summary
             }
+        // The summary set during `init` doesn't fire `agentBuilderSummary`'s
+        // `didSet`, so arm the placeholder time-box explicitly here (this runs
+        // from both init paths). Without it, a cold launch of an already-expired
+        // builder convo would briefly render the verified placeholder until the
+        // publisher's first emission rescheduled it.
+        scheduleAgentBuilderPlaceholderExpiry()
     }
 
     /// Subscribe to the GRDB-backed thinking session feed for this
@@ -2055,36 +2325,38 @@ extension ConversationViewModel {
             voiceMemoRecorder.resetState()
         }
 
-        // Send the multi-remote attachment bundle first, then the prompt
-        // text. The backend agent expects this ordering so it can resolve
-        // attachment references before processing the textual prompt.
-        if !bundleItems.isEmpty {
-            do {
-                if let bundleMessageId {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems, clientMessageId: bundleMessageId)
-                } else {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
-                // Restore pending attachments so the user can retry from the
-                // chat composer. The eager-upload state inside the writer may
-                // already be partially consumed; in practice this only fires
-                // on a network-level failure, and the failed-send UI surfaces
-                // individual item retries.
-                pendingMediaAttachments = attachmentsSnapshot
-            }
-        }
-
-        if !text.isEmpty {
-            do {
-                if let textMessageId {
-                    try await writer.send(text: text, clientMessageId: textMessageId)
-                } else {
-                    try await writer.send(text: text)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
+        // Send a `BuilderBundleManifest` first, then the media bundle, then the
+        // prompt text. The manifest lists the bundle's prepared XMTP ids so
+        // every recipient hides the brief before it renders; the agent still
+        // sees attachments before the prompt. `sendBuilderBundle` prepares all
+        // three up front so the manifest can reference real ids and publish
+        // ahead of them. The optimistic ids match the summary's
+        // `bundledMessageIds`, keeping the sender's own copy hidden too.
+        let resolvedBundleClientMessageId: String = bundleMessageId ?? UUID().uuidString
+        let resolvedTextClientMessageId: String = textMessageId ?? UUID().uuidString
+        do {
+            try await writer.sendBuilderBundle(
+                text: text,
+                bundleItems: bundleItems,
+                textClientMessageId: resolvedTextClientMessageId,
+                bundleClientMessageId: resolvedBundleClientMessageId
+            )
+        } catch {
+            Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
+            // Restore pending attachments and the voice memo so the user can
+            // retry from the chat composer. Both were cleared optimistically
+            // above; without restoring the recorder, the recording is lost
+            // with no way to retry. The eager-upload state inside the writer
+            // may already be partially consumed; in practice this only fires
+            // on a network-level failure, and the failed-send UI surfaces
+            // individual item retries.
+            pendingMediaAttachments = attachmentsSnapshot
+            if let voiceMemo {
+                voiceMemoRecorder.restoreRecorded(
+                    url: voiceMemo.url,
+                    duration: voiceMemo.duration,
+                    audioLevels: voiceMemo.levels
+                )
             }
         }
     }
@@ -2118,9 +2390,10 @@ extension ConversationViewModel {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
+        let hasAgentShare = pendingAgentShare != nil
         let hasLinkPreview = pastedLinkPreview != nil
 
-        guard hasText || hasMedia || hasInvite || hasLinkPreview else { return }
+        guard hasText || hasMedia || hasInvite || hasAgentShare || hasLinkPreview else { return }
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
@@ -2130,6 +2403,7 @@ extension ConversationViewModel {
         let sideConvoLinkedId = pendingInvite?.linkedConversationId
         let sideConvoExplodeDuration = pendingInvite?.explodeDuration
         let sideConvoImage = pendingInviteImage
+        let prevAgentShareURL = pendingAgentShare?.share.url
         let prevLinkURL = pastedLinkPreview?.url
 
         stopTyping()
@@ -2141,6 +2415,7 @@ extension ConversationViewModel {
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
+        pendingAgentShare = nil
         pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
@@ -2175,6 +2450,7 @@ extension ConversationViewModel {
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
                     inviteURL: finalInviteURL,
+                    agentShareURL: prevAgentShareURL,
                     linkURL: prevLinkURL,
                     photoTrackingKey: nil,
                     replyTarget: trailingReplyTarget,
@@ -2388,6 +2664,7 @@ extension ConversationViewModel {
     private func sendTextAndLinksIfNeeded(
         text: String?,
         inviteURL: String?,
+        agentShareURL: String? = nil,
         linkURL: String?,
         photoTrackingKey: String?,
         replyTarget: AnyMessage?,
@@ -2403,8 +2680,18 @@ extension ConversationViewModel {
             }
         }
 
-        if let linkURL {
+        if let agentShareURL {
+            // The URL auto-classifies as an agent-share message on save, so
+            // this is a plain send -- no dedicated writer entry point needed.
             if replyTarget != nil && !hasAttachment && text == nil && inviteURL == nil, let replyTarget {
+                try await messageWriter.sendReply(text: agentShareURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
+            } else {
+                try await messageWriter.send(text: agentShareURL, afterPhoto: photoTrackingKey)
+            }
+        }
+
+        if let linkURL {
+            if replyTarget != nil && !hasAttachment && text == nil && inviteURL == nil && agentShareURL == nil, let replyTarget {
                 try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
             } else {
                 try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
@@ -2522,6 +2809,80 @@ extension ConversationViewModel {
         )
     }
 
+    /// Resolves a shared agent's link to its public profile for the message
+    /// card. Vended by the session so the real API-backed resolver swaps in
+    /// transparently once it lands.
+    var agentShareResolver: any AgentShareResolving {
+        session.agentShareResolver()
+    }
+
+    /// Resolves whether the current user already joined the conversation an
+    /// invite card points to, so the card shows the member count instead of
+    /// "Tap to join". Vended by the session so the GRDB-backed resolver swaps in
+    /// transparently.
+    var inviteMembershipResolver: any InviteMembershipResolving {
+        session.inviteMembershipResolver()
+    }
+
+    /// Tapping a shared agent's contact card opens that agent's contact
+    /// detail when an agent running the same template is already a member of
+    /// this conversation; otherwise it opens a new conversation seeded with
+    /// the template (the same flow the `convos://template/<id>` deep link
+    /// uses). The custom-scheme form carries the template id directly; a
+    /// web-slug share is resolved to its id via the API resolver first.
+    func onTapAgentShare(_ agentShare: MessageAgentShare) {
+        if isValidTemplateId(agentShare.identifier) {
+            presentAgentMemberOrTemplate(templateId: agentShare.identifier)
+            return
+        }
+        let resolver = agentShareResolver
+        let identifier = agentShare.identifier
+        Task { [weak self] in
+            let info = await resolver.resolve(identifier: identifier)
+            await MainActor.run {
+                guard let self, let templateId = info?.templateId else { return }
+                // The web-slug resolve already returned the agent's profile;
+                // pass it through so the new conversation paints it optimistically.
+                self.presentAgentMemberOrTemplate(templateId: templateId, optimisticIdentity: info)
+            }
+        }
+    }
+
+    /// Routes a tapped agent template to the in-conversation member's contact
+    /// detail when present, falling back to the spawn-a-new-conversation
+    /// template flow otherwise. The post-builder contact card reaches the same
+    /// member detail directly via `onTapAvatar` (it already has the member).
+    private func presentAgentMemberOrTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
+        let member: ConversationMember? = conversation.members.first { member in
+            member.isAgent && member.profile.agentTemplateId == templateId
+        }
+        if let member {
+            presentingProfileForMember = member
+            return
+        }
+        openAgentTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
+    }
+
+    private func openAgentTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
+        presentingNewConversationForAgentShare = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
+        )
+    }
+
+    private func isValidTemplateId(_ value: String) -> Bool {
+        guard let pattern = ConversationViewModel.uuidPattern else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return pattern.firstMatch(in: value, options: [], range: range) != nil
+    }
+
+    private static let uuidPattern: NSRegularExpression? = {
+        try? NSRegularExpression(
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            options: [.caseInsensitive]
+        )
+    }()
+
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         isEditingDisplayName = false
 
@@ -2608,6 +2969,9 @@ extension ConversationViewModel {
     /// is a bare join (the backend provisions its default agent); a
     /// non-nil id provisions a fresh instance of that template. The
     /// caller-facing `agents/join` body no longer accepts `instructions`.
+    ///
+    /// Single-flight: a new call cancels any prior in-flight join request
+    /// (retry-from-error semantics for the chat-header "+" menu).
     func requestAgentJoin(templateId: String?) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
@@ -2618,48 +2982,21 @@ extension ConversationViewModel {
         let conversationId = conversation.id
         let requestId = UUID().uuidString
         let taskId = requestId
-        agentJoinTask = Task { [weak self, session] in
-            await Self.broadcastAgentJoinRequest(
-                status: .pending, requestId: requestId,
-                conversationId: conversationId, session: session
+        let session = self.session
+        agentJoinTask = Task { [weak self] in
+            let success = await Self.performAgentJoinCall(
+                templateId: templateId,
+                slug: slug,
+                conversationId: conversationId,
+                requestId: requestId,
+                forceErrorCode: forceErrorCode,
+                session: session
             )
-
-            do {
-                _ = try await session.requestAgentJoin(
-                    slug: slug,
-                    templateId: templateId,
-                    options: nil,
-                    forceErrorCode: forceErrorCode
-                )
-            } catch is CancellationError {
-                await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
-                return
-            } catch let error as APIError {
-                Log.error("requestAgentJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
-                let status: AgentJoinStatus
-                if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
-                await Self.broadcastAgentJoinRequest(
-                    status: status, requestId: requestId,
-                    conversationId: conversationId, session: session
-                )
-                await MainActor.run {
-                    self?.clearAgentJoinTask(id: taskId)
-                    self?.onAgentJoinError()
-                }
-                return
-            } catch {
-                Log.error("requestAgentJoin: agents/join unknown error: \(error.localizedDescription)")
-                await Self.broadcastAgentJoinRequest(
-                    status: .failed, requestId: requestId,
-                    conversationId: conversationId, session: session
-                )
-                await MainActor.run {
-                    self?.clearAgentJoinTask(id: taskId)
-                    self?.onAgentJoinError()
-                }
-                return
+            await MainActor.run {
+                guard let self else { return }
+                if !success { self.onAgentJoinError() }
+                self.clearAgentJoinTask(id: taskId)
             }
-            await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
         }
         agentJoinTaskId = taskId
     }
@@ -2668,6 +3005,60 @@ extension ConversationViewModel {
     /// affordances. Kept so their call sites don't change.
     func requestAgentJoin() {
         requestAgentJoin(templateId: nil)
+    }
+
+    /// Performs a single `agents/join` call: broadcasts `.pending` before,
+    /// broadcasts the appropriate failure status (`.failed` or
+    /// `.noAgentsAvailable`) on error. Returns `true` on success or
+    /// cooperative cancellation, `false` only on an actual error response
+    /// from the backend. Static + parameterized so both the single-flight
+    /// and batched callers can share the same body without holding `self`.
+    private static func performAgentJoinCall(
+        templateId: String?,
+        slug: String,
+        conversationId: String,
+        requestId: String,
+        forceErrorCode: Int?,
+        session: any SessionManagerProtocol
+    ) async -> Bool {
+        Log.info("performAgentJoinCall starting templateId=\(templateId ?? "nil") requestId=\(requestId)")
+        await Self.broadcastAgentJoinRequest(
+            status: .pending, requestId: requestId,
+            conversationId: conversationId, session: session
+        )
+        Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
+        do {
+            _ = try await session.requestAgentJoin(
+                slug: slug,
+                templateId: templateId,
+                options: nil,
+                forceErrorCode: forceErrorCode
+            )
+            Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch is CancellationError {
+            Log.warning("performAgentJoinCall cancelled (CancellationError) templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            Log.warning("performAgentJoinCall cancelled (URLError.cancelled) templateId=\(templateId ?? "nil") requestId=\(requestId)")
+            return true
+        } catch let error as APIError {
+            Log.error("requestAgentJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
+            let status: AgentJoinStatus
+            if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
+            await Self.broadcastAgentJoinRequest(
+                status: status, requestId: requestId,
+                conversationId: conversationId, session: session
+            )
+            return false
+        } catch {
+            Log.error("requestAgentJoin: agents/join unknown error: \(error.localizedDescription)")
+            await Self.broadcastAgentJoinRequest(
+                status: .failed, requestId: requestId,
+                conversationId: conversationId, session: session
+            )
+            return false
+        }
     }
 
     private static func broadcastAgentJoinRequest(
@@ -3222,6 +3613,33 @@ extension ConversationViewModel {
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
+    }
+
+    /// Detects a pasted agent-share link, lifts it out of the text into a
+    /// composer chip, and kicks off an async resolve to populate the chip's
+    /// name / emoji. Mirrors `checkForInviteURL`; runs from the same
+    /// `messageText` onChange.
+    func checkForAgentShareURL() {
+        guard pendingAgentShare == nil,
+              let share = MessageAgentShare.from(text: messageText) else {
+            return
+        }
+        convosButtonTask?.cancel()
+        convosButtonCancellable?.cancel()
+        pendingAgentShare = PendingAgentShare(share: share, resolved: nil)
+        messageText = ""
+        let resolver = agentShareResolver
+        Task { [weak self] in
+            let info = await resolver.resolve(identifier: share.identifier)
+            await MainActor.run {
+                guard let self, self.pendingAgentShare?.share == share else { return }
+                self.pendingAgentShare?.resolved = info
+            }
+        }
+    }
+
+    func clearPendingAgentShare() {
+        pendingAgentShare = nil
     }
 
     func clearPendingInvite() {

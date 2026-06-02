@@ -1,18 +1,19 @@
 import Foundation
 import GRDB
 
-public extension Notification.Name {
-    /// Posted on the main queue by `ContactsWriter.block` / `unblock` when
-    /// a contact's blocked state actually changes (idempotent no-ops do
-    /// not fire). `SessionManager` observes this to run an immediate
-    /// `QuarantineSweeper.sweep()`; unblocking should restore held-by-
-    /// block conversations to the main feed without waiting for the next
-    /// hourly or foreground-entry sweep. UserInfo:
-    /// `inboxId: String`, `blocked: Bool`.
-    static let contactBlockingDidChange: Notification.Name = Notification.Name(
-        "ContactBlockingDidChange"
-    )
-}
+// `block` flips feed visibility synchronously: in one DB transaction it
+// sets the contact's `blockedAt` and demotes the creator's conversations
+// to `.denied`. The feed is a GRDB observation on the `consent` column, so
+// it hides on commit with no network in the path - the user never sees a
+// blocked contact's chats linger. The XMTP-side consent flip then runs
+// best-effort afterward purely for cross-device + re-sync durability;
+// failures are logged, not thrown, because the local feed is already
+// correct. `ConversationConsentReconciler` stays as a backstop that only
+// re-fires when re-sync rewrites the DB `consent` column back to `.allowed`.
+//
+// `unblock` remains a pure contact-row write. By policy a `.denied`
+// conversation is never auto-promoted (the user effectively deleted it),
+// so unblocking does not restore conversations hidden while blocked.
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
 /// the most recent snapshot they have for the inbox. A timestamped
@@ -34,6 +35,11 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
     public let avatarKey: Data?
     public let profileUpdatedAt: Date?
     public let agentVerification: AgentVerification?
+    /// Template identity for a template-backed agent, mirrored onto the
+    /// contact so it survives leaving the conversation. `nil` for humans.
+    public let agentTemplateId: String?
+    public let agentTemplatePublishedURL: String?
+    public let agentTemplateEmoji: String?
 
     public init(
         displayName: String? = nil,
@@ -42,7 +48,10 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         profileUpdatedAt: Date? = nil,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) {
         self.displayName = displayName
         self.avatarURL = avatarURL
@@ -51,6 +60,9 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         self.avatarKey = avatarKey
         self.profileUpdatedAt = profileUpdatedAt
         self.agentVerification = agentVerification
+        self.agentTemplateId = agentTemplateId
+        self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.agentTemplateEmoji = agentTemplateEmoji
     }
 }
 
@@ -72,9 +84,14 @@ public protocol ContactsWriterProtocol: Sendable {
         profile: ContactProfileSnapshot
     ) async throws
 
-    /// Marks the contact as blocked. No-op if the inboxId has no contact row
-    /// (blocking does not auto-create contacts) or is already blocked. Repeat
-    /// calls leave the original `blockedAt` timestamp in place.
+    /// Marks the contact as blocked and synchronously demotes the creator's
+    /// still-visible conversations to `.denied` in the same transaction, so
+    /// the feed hides them immediately (no network in the path). The
+    /// XMTP-side consent flip runs best-effort afterward for cross-device
+    /// durability. No-op if the inboxId has no contact row (blocking does
+    /// not auto-create contacts). Repeat calls leave the original
+    /// `blockedAt` timestamp in place but still re-demote any conversation
+    /// that drifted back to visible.
     func block(inboxId: String) async throws
 
     /// Clears the blocked flag on the contact. No-op if the inboxId has no
@@ -84,9 +101,18 @@ public protocol ContactsWriterProtocol: Sendable {
 
 final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
+    /// Used by `block` to flip XMTP consent after the synchronous DB demote.
+    /// Optional so pure-DB unit tests can construct the writer without a
+    /// live session; when nil the XMTP flip is skipped and the
+    /// `ConversationConsentReconciler` backstop covers durability.
+    private let sessionStateManager: (any SessionStateManagerProtocol)?
 
-    init(databaseWriter: any DatabaseWriter) {
+    init(
+        databaseWriter: any DatabaseWriter,
+        sessionStateManager: (any SessionStateManagerProtocol)? = nil
+    ) {
         self.databaseWriter = databaseWriter
+        self.sessionStateManager = sessionStateManager
     }
 
     func upsertContact(
@@ -123,64 +149,82 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 
     func block(inboxId: String) async throws {
-        let didChange: Bool = try await databaseWriter.write { db in
+        let demotedConversationIds: [String] = try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 // Blocking is action-gated on an existing contact row. We
                 // never auto-create a contact just to flag it as blocked.
                 Log.debug("block(inboxId:) skipped, no contact row for \(inboxId)")
-                return false
+                return []
             }
-            guard existing.blockedAt == nil else {
-                // Idempotent: leave the original blockedAt timestamp.
-                return false
+            // Idempotent: only stamp blockedAt on the first block, but always
+            // demote any still-visible conversations (a repeat block heals a
+            // conversation that drifted back to visible via re-sync).
+            if existing.blockedAt == nil {
+                try existing.with(blockedAt: Date()).save(db)
             }
-            try existing.with(blockedAt: Date()).save(db)
-            return true
+            return try Self.demoteVisibleConversations(db: db, creatorId: inboxId)
         }
-        if didChange {
-            ContactsWriter.postBlockingDidChange(inboxId: inboxId, blocked: true)
+        // Feed is already hidden (window 0). Flip XMTP consent best-effort for
+        // cross-device + re-sync durability; the local DB is authoritative so
+        // a failure here is logged, not thrown, and the reconciler backstop
+        // re-converges if re-sync later reverts the DB column.
+        guard let sessionStateManager, !demotedConversationIds.isEmpty else {
+            return
         }
+        do {
+            let client = try await sessionStateManager.waitForInboxReadyResult().client
+            for conversationId in demotedConversationIds {
+                do {
+                    // Retry transient failures (a momentary network blip). The
+                    // local feed is already correct, so an exhausted retry just
+                    // logs; re-sync drift is then caught by the reconciler
+                    // backstop, which itself re-runs on app foreground and on
+                    // network reconnect (SessionStateMachine -> resume).
+                    try await withExponentialBackoffRetry {
+                        try await client.update(consent: .denied, for: conversationId)
+                    }
+                } catch {
+                    Log.error("block(inboxId:) XMTP consent flip failed for \(conversationId): \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            Log.error("block(inboxId:) could not obtain client for XMTP consent flip: \(error.localizedDescription)")
+        }
+    }
+
+    /// Demotes every still-visible conversation created by `creatorId` to
+    /// `.denied` and returns their ids. Mirrors the
+    /// `ConversationConsentReconciler` join (`conversation.creatorId =
+    /// contact.inboxId`), so shared groups the local user created stay
+    /// visible. Conversations already `.denied` are left untouched.
+    private static func demoteVisibleConversations(db: Database, creatorId: String) throws -> [String] {
+        let conversationIds: [String] = try DBConversation
+            .filter(DBConversation.Columns.creatorId == creatorId)
+            .filter(DBConversation.Columns.consent != Consent.denied)
+            .fetchAll(db)
+            .map(\.id)
+        guard !conversationIds.isEmpty else {
+            return []
+        }
+        try DBConversation
+            .filter(conversationIds.contains(DBConversation.Columns.id))
+            .updateAll(db, DBConversation.Columns.consent.set(to: Consent.denied))
+        return conversationIds
     }
 
     func unblock(inboxId: String) async throws {
-        let didChange: Bool = try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 Log.debug("unblock(inboxId:) skipped, no contact row for \(inboxId)")
-                return false
+                return
             }
             guard existing.blockedAt != nil else {
-                return false
+                return
             }
             try existing.with(blockedAt: nil).save(db)
-            return true
         }
-        if didChange {
-            ContactsWriter.postBlockingDidChange(inboxId: inboxId, blocked: false)
-        }
-    }
-
-    /// Posted on the main queue after `block` / `unblock` writes a real
-    /// state change (idempotent no-ops do not fire). `SessionManager`
-    /// observes this to trigger an immediate `QuarantineSweeper.sweep()`
-    /// so unblocking restores held-by-block conversations to the main
-    /// feed without waiting for the next hourly/foreground sweep.
-    private static func postBlockingDidChange(inboxId: String, blocked: Bool) {
-        let userInfo: [String: Any] = ["inboxId": inboxId, "blocked": blocked]
-        if Thread.isMainThread {
-            NotificationCenter.default.post(
-                name: .contactBlockingDidChange,
-                object: nil,
-                userInfo: userInfo
-            )
-        } else {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .contactBlockingDidChange,
-                    object: nil,
-                    userInfo: userInfo
-                )
-            }
-        }
+        // `ConversationConsentReconciler` observes the `contact` table and
+        // restores this creator's conversations to `.allowed`.
     }
 
     fileprivate static func upsert(
@@ -213,7 +257,10 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             profileUpdatedAt: profile.profileUpdatedAt ?? now,
-            agentVerification: profile.agentVerification
+            agentVerification: profile.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
@@ -291,7 +338,10 @@ extension ContactsWriter {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         receivedAt: Date,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) throws {
         guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
             return
@@ -303,7 +353,10 @@ extension ContactsWriter {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             profileUpdatedAt: receivedAt,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentTemplateEmoji: agentTemplateEmoji
         )
         guard let merged = replacingProfile(of: existing, with: snapshot) else {
             return
@@ -330,7 +383,10 @@ extension ContactsWriter {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             receivedAt: receivedAt,
-            agentVerification: profile.memberKind?.agentVerification
+            agentVerification: profile.memberKind?.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
     }
 }

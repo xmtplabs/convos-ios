@@ -12,6 +12,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
+    var isReadOnly: Bool = false
     /// Hide the trailing toolbar item (the "+" add menu / scan button)
     /// without removing the rest of the toolbar. Used by the Agent
     /// Builder to keep the bar clean during the draft phase, then bring
@@ -31,10 +32,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
-    @State private var scrollOverscrollAmount: CGFloat = 0.0
-    @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
+    /// Lifted out of `MessagesView` so this view can gate the pager
+    /// against horizontal swipes while the long-press context menu is
+    /// presented.
+    @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -50,13 +53,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         viewModel.messagingService.contactsRepository().contact(for:)
     }
 
-    private var showPullToAddAgent: Bool {
-        !viewModel.conversation.hasAgent && !viewModel.isAgentJoinPending
-    }
-
     private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return MessagesView(
+            contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
@@ -71,6 +71,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             pendingMediaAttachments: viewModel.isAwaitingBuilderBundleSend ? [] : viewModel.pendingMediaAttachments,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
+            pendingInviteIsEditable: viewModel.pendingInvite?.linkedConversationId != nil,
             pendingInviteEmoji: viewModel.conversation.conversationEmoji,
             pendingInviteConvoName: $viewModel.pendingInviteConvoName,
             pendingInviteImage: $viewModel.pendingInviteImage,
@@ -80,12 +81,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.updateLinkedConversationName(name)
                 focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
+            pendingAgentShareName: viewModel.pendingAgentShare?.resolved?.displayName,
+            pendingAgentShareEmoji: viewModel.pendingAgentShare?.resolved?.emoji,
+            pendingAgentShareSummary: viewModel.pendingAgentShare?.resolved?.descriptionText,
+            isShowingAgentShareChip: viewModel.pendingAgentShare != nil,
+            onClearAgentShare: viewModel.clearPendingAgentShare,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
+            isReadOnly: isReadOnly,
             onUserInteraction: {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
@@ -102,6 +109,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onClearMediaAttachment: viewModel.removeMediaAttachment(id:),
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
+            onTapAgentShare: viewModel.onTapAgentShare(_:),
+            agentShareResolver: viewModel.agentShareResolver,
+            inviteMembershipResolver: viewModel.inviteMembershipResolver,
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
@@ -143,7 +153,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onInviteAgent: { viewModel.onRequestAgentJoin() },
+            onInviteAgent: { viewModel.presentAgentBuilder() },
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
@@ -151,21 +161,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             memberContactOverride: contactOverride,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: headerMode,
+            headerMode: isReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
-            onBottomOverscrollChanged: { overscroll in
-                scrollOverscrollAmount = overscroll
-                if overscroll == 0 {
-                    didReleasePastThreshold = false
-                }
-            },
-            onBottomOverscrollReleased: { overscroll in
-                if overscroll >= PullToAddAgentView.activationThreshold,
-                   !viewModel.isAgentJoinPending {
-                    didReleasePastThreshold = true
-                }
-            },
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
@@ -174,19 +172,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
-                    if showPullToAddAgent {
-                        PullToAddAgentView(
-                            overscrollAmount: scrollOverscrollAmount,
-                            didReleasePastThreshold: didReleasePastThreshold,
-                            onTriggered: {
-                                viewModel.onRequestAgentJoin()
-                            }
-                        )
-                        .fixedSize()
-                        .frame(height: 0, alignment: .bottom)
-                        .allowsHitTesting(false)
-                    }
-
                     bottomBarContent()
 
                     Group {
@@ -212,7 +197,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             ConversationOnboardingView(
                                 coordinator: onboardingCoordinator,
                                 focusCoordinator: focusCoordinator,
-                                scrollOverscrollAmount: scrollOverscrollAmount,
                                 onTapSetupProfile: {
                                     onboardingCoordinator.didTapProfilePhoto()
                                     viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
@@ -264,7 +248,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isFull: viewModel.isFull,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled,
+            isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
             onConvoCode: {
                 if viewModel.isFull {
                     showingFullInfo = true
@@ -276,7 +260,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.copyInviteLink()
             },
             onInviteAgent: {
-                viewModel.onRequestAgentJoin()
+                viewModel.presentAgentBuilder()
             },
             onAddFromContacts: handleAddFromContactsTap
         )
@@ -298,7 +282,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             Image(systemName: "viewfinder")
         }
         .buttonBorderShape(.circle)
-        .disabled(!messagesTopBarTrailingItemEnabled)
+        .disabled(!messagesTopBarTrailingItemEnabled || isReadOnly)
         .accessibilityLabel("Scan invite code")
         .accessibilityIdentifier("scan-invite-button")
     }
@@ -328,14 +312,29 @@ struct ConversationView<MessagesBottomBar: View>: View {
         AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
     }
 
+    /// Shared content for the invite- and agent-share-driven new-conversation
+    /// sheets. Extracted so neither `.sheet(item:)` closure inflates `body`'s
+    /// type-check past the 300ms budget.
+    @ViewBuilder
+    private func newConversationSheet(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel
+        )
+        .background(.colorBackgroundSurfaceless)
+    }
+
     private var pagerDotsInset: CGFloat {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
     var body: some View {
+        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
+            dotsHidden: contextMenuPresented,
+            scrollingDisabled: contextMenuPresented,
             messagesPage: { messagesView },
             stuffPage: { stuffPage }
         )
@@ -352,6 +351,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
+            viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
         }
         .animation(.easeOut, value: viewModel.explodeState)
@@ -400,22 +400,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isPresented: $presentingAddFromContactsPicker
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
+            newConversationSheet(viewModel)
+        }
+        .sheet(item: $viewModel.presentingNewConversationForAgentShare) { viewModel in
+            newConversationSheet(viewModel)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .selfSizingSheet(isPresented: $viewModel.presentingAgentConfirmation) {
-            AgentsInfoView(
-                isConfirmation: true,
-                onConfirm: { viewModel.requestAgentJoin() }
+        .sheet(item: $viewModel.presentingAgentBuilder) { builderViewModel in
+            AgentBuilderView(
+                viewModel: builderViewModel,
+                profileSettingsViewModel: profileSettingsViewModel
             )
-            .padding(.top, 20)
         }
+        .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
+            viewModel.presentAgentBuilderAfterIntroIfNeeded()
+        }, content: {
+            AgentsInfoView(onMakeAgent: { viewModel.pendingAgentBuilderAfterIntro = true })
+                .padding(.top, 20)
+        })
         .sheet(isPresented: $viewModel.presentingPaywall) {
             let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: paywallViewModel)

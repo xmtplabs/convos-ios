@@ -58,6 +58,19 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         mockMessagingService
     }
 
+    public func joinerPairingService() -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func refreshAfterPairingCompleted() async {
+    }
+
+    public var mockHasAnyUsedConversations: Bool = false
+
+    public func hasAnyUsedConversations() async -> Bool {
+        mockHasAnyUsedConversations
+    }
+
     // MARK: - Factory methods for repositories
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
@@ -137,6 +150,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
         AgentBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    }
+
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: Self.mockDatabase)
     }
 
     public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {

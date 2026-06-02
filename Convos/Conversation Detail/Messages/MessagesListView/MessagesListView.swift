@@ -105,12 +105,11 @@ var body: some View {
             ConversationInfoPreview(conversation: conversation)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case .agentOutOfCredits(let member):
-            TextTitleContentView(
-                title: "\(member.profile.displayName) is out of credits",
-                profile: member.profile,
-                agentVerification: member.agentVerification,
-                onTap: onAgentOutOfCredits
+        case let .agentOutOfCredits(member, isCurrentUserCreator):
+            AgentLostPowerStatus(
+                agentName: member.profile.displayName,
+                isCreator: isCurrentUserCreator,
+                onUpgrade: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
 

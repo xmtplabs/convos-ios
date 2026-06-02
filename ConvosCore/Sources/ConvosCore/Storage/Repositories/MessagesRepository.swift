@@ -499,6 +499,11 @@ extension Array where Element == DBMessage {
                 return nil
             }
             return .invite(invite)
+        case .agentShare:
+            guard let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) else {
+                return .text(dbMessage.text ?? "")
+            }
+            return .agentShare(agentShare)
         case .linkPreview:
             guard let preview = dbMessage.linkPreview else {
                 return .text(dbMessage.text ?? "")
@@ -624,6 +629,12 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
+        case .agentShare:
+            if let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                replyContent = .agentShare(agentShare)
+            } else {
+                replyContent = .text(dbMessage.text ?? "")
+            }
         case .linkPreview:
             if let preview = dbMessage.linkPreview {
                 replyContent = .linkPreview(preview)
@@ -667,6 +678,12 @@ extension Array where Element == DBMessage {
                 parentContent = .invite(invite)
             } else {
                 parentContent = .text("[Invite]")
+            }
+        case .agentShare:
+            if let text = sourceDBMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                parentContent = .agentShare(agentShare)
+            } else {
+                parentContent = .text(sourceDBMessage.text ?? "")
             }
         case .linkPreview:
             if let preview = sourceDBMessage.linkPreview {
@@ -796,6 +813,7 @@ fileprivate extension Database {
                     .including(optional: DBConversationMember.memberProfile)
             )
             .including(required: DBConversation.localState)
+            .including(optional: DBConversation.agentBuilderSummary)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
@@ -822,6 +840,7 @@ private struct LightweightConversationDetails: Codable, FetchableRecord, Hashabl
     let conversationCreator: LightweightCreatorDetails?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLocalState: ConversationLocalState
+    let conversationAgentBuilderSummary: DBAgentBuilderSummary?
 }
 
 private extension LightweightConversationDetails {
@@ -890,7 +909,8 @@ private extension LightweightConversationDetails {
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
         )
     }
 }

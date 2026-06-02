@@ -292,6 +292,20 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
     }
 
+    public func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws {
+        try await stateMachine.sendBuilderBundle(
+            text: text,
+            bundleItems: bundleItems,
+            textClientMessageId: textClientMessageId,
+            bundleClientMessageId: bundleClientMessageId
+        )
+    }
+
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
         try await stateMachine.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
     }

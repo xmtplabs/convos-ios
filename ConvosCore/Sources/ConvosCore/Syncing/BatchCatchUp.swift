@@ -82,7 +82,8 @@ struct BatchCatchUp {
     func run(
         client: any XMTPClientProvider,
         inboxId: String,
-        since: Date?
+        since: Date?,
+        activeConversationId: String?
     ) async throws -> BatchCatchUpResult {
         let started = CFAbsoluteTimeGetCurrent()
         let cursorNs: Int64? = since.map { Int64($0.nanosecondsSince1970) }
@@ -112,57 +113,39 @@ struct BatchCatchUp {
         // different clientConversationId than the input (sticky-draft
         // logic), which the image-cache key downstream depends on.
         //
-        // We also capture two post-commit signals that the stream path
+        // We also capture three post-commit signals that the stream path
         // emits inside `IncomingMessageWriter.store` /
         // `fetchAndStoreLatestMessages` and which the batch must mirror:
         //   - conversations where a backlog message removed the local
         //     inbox -> `postLeftConversationNotification` after commit
         //   - conversations that received a message whose content type
         //     marks the conversation unread (from a sender that isn't
-        //     us) -> `setUnread(true, ...)` after commit
+        //     us, and that isn't the conversation the user is currently
+        //     viewing) -> `setUnread(true, ...)` after commit
+        //   - a "received" QA event per newly-persisted message ->
+        //     `QAEvent.emit(.message, "received", ...)` after commit
         // Collected inside the transaction (only `persist` knows the
         // result) but dispatched after commit (notification posts +
         // localStateWriter writes are not part of this transaction).
-        struct PersistOutcomes {
-            let saveResults: [ConversationWriter.ConversationSaveResult]
-            let conversationsRemovingLocalInbox: [DBConversation]
-            let conversationsToMarkUnread: [String]
-        }
         let outcomes: PersistOutcomes = try await databaseWriter.write { [conversationWriter, messageWriter] db in
-            var results: [ConversationWriter.ConversationSaveResult] = []
-            var removals: [DBConversation] = []
-            var unreadIds: [String] = []
-            results.reserveCapacity(prepared.count)
-            for entry in prepared {
-                let result = try conversationWriter.persist(entry.conversation, in: db)
-                results.append(result)
-                var entryMarksUnread = false
-                for preparedMessage in entry.regularMessages {
-                    let messageResult = try messageWriter.persist(
-                        preparedMessage,
-                        conversation: entry.conversation.dbConversation,
-                        in: db
-                    )
-                    guard let messageResult else { continue }
-                    if messageResult.wasRemovedFromConversation, !messageResult.messageAlreadyExists {
-                        removals.append(entry.conversation.dbConversation)
-                    }
-                    if messageResult.contentType.marksConversationAsUnread,
-                       preparedMessage.source.senderInboxId != inboxId {
-                        entryMarksUnread = true
-                    }
-                }
-                if entryMarksUnread {
-                    unreadIds.append(entry.conversation.dbConversation.id)
-                }
-            }
-            return PersistOutcomes(
-                saveResults: results,
-                conversationsRemovingLocalInbox: removals,
-                conversationsToMarkUnread: unreadIds
+            try Self.persistPreparedEntries(
+                prepared,
+                inboxId: inboxId,
+                activeConversationId: activeConversationId,
+                conversationWriter: conversationWriter,
+                messageWriter: messageWriter,
+                in: db
             )
         }
         let saveResults = outcomes.saveResults
+
+        // Emit the per-message "received" QA events the stream path emits
+        // in `IncomingMessageWriter.store`. Collected inside the
+        // transaction (only `persist` knows whether the row was new) and
+        // emitted here after commit, matching the stream path's ordering.
+        for params in outcomes.qaReceivedEvents {
+            QAEvent.emit(.message, "received", params)
+        }
 
         // Post-commit notifications, matching the stream path's tail in
         // `IncomingMessageWriter.store`.
@@ -193,7 +176,8 @@ struct BatchCatchUp {
             supplementalCount += entry.supplementalMessages.count
             await conversationWriter.applyBacklogSupplementals(
                 entry.supplementalMessages,
-                for: entry.conversation.dbConversation
+                for: entry.conversation.dbConversation,
+                currentInboxId: inboxId
             )
         }
 
@@ -228,6 +212,80 @@ struct BatchCatchUp {
         let conversation: ConversationWriter.PreparedConversation
         let regularMessages: [IncomingMessageWriter.PreparedIncomingMessage]
         let supplementalMessages: [XMTPiOS.DecodedMessage]
+    }
+
+    /// Signals collected inside the persist transaction but dispatched
+    /// after commit. `saveResults[i]` corresponds to `prepared[i]`.
+    private struct PersistOutcomes {
+        let saveResults: [ConversationWriter.ConversationSaveResult]
+        let conversationsRemovingLocalInbox: [DBConversation]
+        let conversationsToMarkUnread: [String]
+        let qaReceivedEvents: [[String: String]]
+    }
+
+    /// Persists every prepared conversation + its regular messages inside
+    /// the caller's single transaction and returns the post-commit signals
+    /// the batch must mirror from the stream path. Pure transaction work;
+    /// the caller fires the notifications / unread marks / QA events after
+    /// the transaction commits.
+    private static func persistPreparedEntries(
+        _ prepared: [PreparedEntry],
+        inboxId: String,
+        activeConversationId: String?,
+        conversationWriter: ConversationWriter,
+        messageWriter: IncomingMessageWriter,
+        in db: Database
+    ) throws -> PersistOutcomes {
+        var results: [ConversationWriter.ConversationSaveResult] = []
+        var removals: [DBConversation] = []
+        var unreadIds: [String] = []
+        var qaReceivedEvents: [[String: String]] = []
+        results.reserveCapacity(prepared.count)
+        for entry in prepared {
+            let result = try conversationWriter.persist(entry.conversation, in: db)
+            results.append(result)
+            var entryMarksUnread = false
+            for preparedMessage in entry.regularMessages {
+                let messageResult = try messageWriter.persist(
+                    preparedMessage,
+                    conversation: entry.conversation.dbConversation,
+                    in: db
+                )
+                guard let messageResult else { continue }
+                if !messageResult.messageAlreadyExists {
+                    qaReceivedEvents.append([
+                        "id": preparedMessage.source.id,
+                        "conversation": entry.conversation.dbConversation.id,
+                        "sender": preparedMessage.source.senderInboxId,
+                        "type": messageResult.contentType.rawValue
+                    ])
+                }
+                if messageResult.wasRemovedFromConversation, !messageResult.messageAlreadyExists {
+                    removals.append(entry.conversation.dbConversation)
+                }
+                // Shared unread predicate: skips our own messages and the
+                // conversation the user is currently viewing, identically to
+                // the stream paths.
+                if marksConversationUnread(
+                    contentType: messageResult.contentType,
+                    senderInboxId: preparedMessage.source.senderInboxId,
+                    currentInboxId: inboxId,
+                    conversationId: entry.conversation.dbConversation.id,
+                    activeConversationId: activeConversationId
+                ) {
+                    entryMarksUnread = true
+                }
+            }
+            if entryMarksUnread {
+                unreadIds.append(entry.conversation.dbConversation.id)
+            }
+        }
+        return PersistOutcomes(
+            saveResults: results,
+            conversationsRemovingLocalInbox: removals,
+            conversationsToMarkUnread: unreadIds,
+            qaReceivedEvents: qaReceivedEvents
+        )
     }
 
     private func prepareAll(
@@ -284,9 +342,9 @@ struct BatchCatchUp {
         /// Goes through `IncomingMessageWriter.persist` in the batched transaction.
         case regular
         /// Handled post-transaction via `ConversationWriter.applyBacklogSupplementals`
-        /// (reactions, read receipts). These have per-type handlers that
-        /// the stream-driven path also uses; we apply them here because
-        /// the libxmtp stream doesn't replay historical backlog.
+        /// (reactions, read receipts, thinking moments). These have per-type
+        /// handlers that the stream-driven path also uses; we apply them here
+        /// because the libxmtp stream doesn't replay historical backlog.
         case supplemental
         /// Drop entirely (typing indicators, profile messages, undecodable).
         /// Typing indicators are inherently live-only; profile messages
@@ -295,19 +353,19 @@ struct BatchCatchUp {
     }
 
     private static func classify(_ message: XMTPiOS.DecodedMessage) -> MessageClassification {
-        if message.isProfileMessage || message.isTypingIndicator {
+        switch CaughtUpMessageKind.of(message) {
+        case .ignore:
             return .skip
-        }
-        if message.isReadReceipt {
+        // Read receipts, thinking, the builder-bundle manifest, and reactions
+        // all run through the per-message supplemental handlers (post-commit),
+        // never the batched regular-message transaction. Thinking backs the
+        // thinking-detail view and the manifest is a hide-control record --
+        // neither is persisted as a chat row.
+        case .readReceipt, .thinking, .builderBundleManifest, .reaction:
             return .supplemental
+        case .regular:
+            return .regular
         }
-        guard let contentType = try? message.encodedContent.type else {
-            return .skip
-        }
-        if contentType == ContentTypeReaction || contentType == ContentTypeReactionV2 {
-            return .supplemental
-        }
-        return .regular
     }
 
     /// `MAX(dateNs)` for the conversation, or `0` when the local DB has no messages

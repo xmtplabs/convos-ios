@@ -54,7 +54,7 @@ final class PaywallViewModelTests: XCTestCase {
             purchaseResult: .failure(SubscriptionServiceError.purchasePending)
         )
         let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service)
-        let product: PaywallProduct = .builderMonthlyTestProduct
+        let product: PaywallProduct = .plusMonthlyTestProduct
 
         await viewModel.purchase(product: product)
 
@@ -68,7 +68,7 @@ final class PaywallViewModelTests: XCTestCase {
         )
         let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service)
 
-        await viewModel.purchase(product: .builderMonthlyTestProduct)
+        await viewModel.purchase(product: .plusMonthlyTestProduct)
 
         XCTAssertTrue(viewModel.isShowingAlert)
         XCTAssertEqual(viewModel.alertTitle, "Couldn't verify purchase")
@@ -80,7 +80,7 @@ final class PaywallViewModelTests: XCTestCase {
         )
         let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service)
 
-        await viewModel.purchase(product: .builderMonthlyTestProduct)
+        await viewModel.purchase(product: .plusMonthlyTestProduct)
 
         XCTAssertFalse(viewModel.isShowingAlert, "User-cancelled purchases must be silent")
     }
@@ -91,7 +91,7 @@ final class PaywallViewModelTests: XCTestCase {
         )
         let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service)
 
-        await viewModel.purchase(product: .builderMonthlyTestProduct)
+        await viewModel.purchase(product: .plusMonthlyTestProduct)
 
         XCTAssertTrue(viewModel.isShowingAlert)
         XCTAssertEqual(viewModel.alertTitle, "Something went wrong")
@@ -103,7 +103,7 @@ final class PaywallViewModelTests: XCTestCase {
         var callbackCount: Int = 0
         viewModel.onPurchaseSucceeded = { callbackCount += 1 }
 
-        await viewModel.purchase(product: .builderMonthlyTestProduct)
+        await viewModel.purchase(product: .plusMonthlyTestProduct)
 
         XCTAssertEqual(callbackCount, 1)
         XCTAssertFalse(viewModel.isShowingAlert, "Success path must not show an error alert")
@@ -135,7 +135,7 @@ private final class SlowAvailableProductsService: SubscriptionServiceProtocol, @
         if sleepNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: sleepNanoseconds)
         }
-        return [.builderMonthlyTestProduct]
+        return [.plusMonthlyTestProduct]
     }
 
     func purchase(productId: String) async throws {}
@@ -169,9 +169,9 @@ private final class StubSubscriptionService: SubscriptionServiceProtocol, @unche
 }
 
 private extension PaywallProduct {
-    static let builderMonthlyTestProduct: PaywallProduct = PaywallProduct(
-        id: SubscriptionProductIDs.builderMonthly,
-        tier: .builder,
+    static let plusMonthlyTestProduct: PaywallProduct = PaywallProduct(
+        id: SubscriptionProductIDs.plusMonthly,
+        tier: .plus,
         period: .monthly,
         displayPrice: "$19.99",
         pricePerMonthDisplay: nil,

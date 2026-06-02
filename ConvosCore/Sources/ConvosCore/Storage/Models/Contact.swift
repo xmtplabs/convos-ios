@@ -29,30 +29,35 @@ public struct Contact: Hashable, Identifiable, Sendable {
     public let agentVerification: AgentVerification?
     /// The backend `AgentTemplate.id` a template-backed agent was
     /// provisioned from. `nil` for human contacts and for agents that do
-    /// not carry a template. Not persisted on `DBContact`; it is overlaid
-    /// onto the contact at resolution time from the per-conversation
-    /// member profile metadata (see `Contact.resolved(member:...)`), which
-    /// is the freshest source. Drives the contact card's Chat action.
+    /// not carry a template. Persisted on `DBContact` (mirrored from the
+    /// per-conversation member profile metadata) so it survives leaving
+    /// every conversation with a running instance; `Contact.resolved(member:...)`
+    /// overlays the freshest value when a live member profile is on hand.
+    /// Drives the contact card's Chat action.
     public let agentTemplateId: String?
     /// The shareable web URL for a template-backed agent (the backend's
     /// `publishedUrl`). `nil` for human contacts and for agents that do
-    /// not carry a template. Not persisted on `DBContact`; it is overlaid
-    /// onto the contact at resolution time from the per-conversation
-    /// member profile metadata (see `Contact.resolved(member:...)`), which
-    /// is the freshest source. Drives the contact card's Share button.
+    /// not carry a template. Persisted on `DBContact` alongside
+    /// `agentTemplateId`; overlaid live by `Contact.resolved(member:...)`
+    /// when available. Drives the contact card's Share button.
     public let agentTemplatePublishedURL: String?
-    /// Emoji glyph the member set on their per-conversation profile.
-    /// Not persisted on `DBContact`; overlaid onto the contact at
-    /// resolution time from the per-conversation member profile metadata
-    /// (see `Contact.resolved(member:...)`) so avatars rendered from a
-    /// resolved `Contact` (e.g. the in-chat contact detail sheet) carry
-    /// the same emoji avatar that `MessageAvatarView` shows in the
-    /// messages list.
+    /// Emoji glyph for the contact's avatar fallback. For template-backed
+    /// agents this is persisted on `DBContact` (the template emoji) so the
+    /// browse row renders it without a live member profile;
+    /// `Contact.resolved(member:...)` overlays the freshest per-conversation
+    /// emoji when available, matching `MessageAvatarView` in the messages list.
     public let profileEmoji: String?
     /// The agent runtime's `instanceId` for a specific provisioned agent.
     /// Not persisted on `DBContact`; overlaid at resolution time from the
     /// per-conversation member profile (see `Contact.resolved(member:...)`).
     public let agentInstanceId: String?
+    /// The agent's published attestation signature, read from the
+    /// per-conversation member profile metadata at resolution time. Not
+    /// persisted on `DBContact`. Surfaced on the contact card behind a
+    /// debug-build gate alongside `agentVerification` for diagnosing why an
+    /// agent reads as verified or unverified. Overlaid via
+    /// `with(agentAttestation:)`, applied last in `resolved(member:...)`.
+    public let agentAttestation: String?
 
     public init(
         inboxId: String,
@@ -68,7 +73,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil,
         profileEmoji: String? = nil,
-        agentInstanceId: String? = nil
+        agentInstanceId: String? = nil,
+        agentAttestation: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -84,6 +90,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
         self.profileEmoji = profileEmoji
         self.agentInstanceId = agentInstanceId
+        self.agentAttestation = agentAttestation
     }
 
     /// True when this contact has the full set of AES-256-GCM material
@@ -106,14 +113,16 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentVerification?.isVerified == true
     }
 
-    /// Display label that always returns something printable. Falls back to a
-    /// truncated inboxId so the alphabetical browse list never renders an
-    /// empty cell.
+    /// Display label that always returns something printable. Falls back
+    /// to "Somebody" rather than a truncated inboxId -- exposing a hex
+    /// prefix in any user-facing surface reads as a bug. Same placeholder
+    /// the message-input and profile-settings surfaces use for unnamed
+    /// participants.
     public var resolvedDisplayName: String {
         if let name = displayName, !name.isEmpty {
             return name
         }
-        return shortInboxId
+        return "Somebody"
     }
 
     /// Used for alphabetical sectioning. Returns "#" for contacts whose
@@ -127,11 +136,6 @@ public struct Contact: Hashable, Identifiable, Sendable {
             return "#"
         }
         return String(firstUpper)
-    }
-
-    private var shortInboxId: String {
-        guard inboxId.count > 8 else { return inboxId }
-        return String(inboxId.prefix(8))
     }
 }
 
@@ -147,7 +151,10 @@ extension Contact {
             addedAt: dbContact.addedAt,
             addedViaConversationId: dbContact.addedViaConversationId,
             isBlocked: dbContact.blockedAt != nil,
-            agentVerification: dbContact.agentVerification
+            agentVerification: dbContact.agentVerification,
+            agentTemplateId: dbContact.agentTemplateId,
+            agentTemplatePublishedURL: dbContact.agentTemplatePublishedURL,
+            profileEmoji: dbContact.agentTemplateEmoji
         )
     }
 }
@@ -187,9 +194,9 @@ extension Contact {
     }
 
     /// Returns a copy with `agentTemplateId` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest template id
-    /// from the per-conversation member profile onto a stored contact,
-    /// which has no template column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest template id
+    /// from a live per-conversation member profile over the value
+    /// persisted on the stored contact.
     public func with(agentTemplateId: String?) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -210,9 +217,9 @@ extension Contact {
     }
 
     /// Returns a copy with `agentTemplatePublishedURL` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest template
-    /// `publishedUrl` from the per-conversation member profile onto a
-    /// stored contact, which has no template column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest template
+    /// `publishedUrl` from a live per-conversation member profile over
+    /// the value persisted on the stored contact.
     public func with(agentTemplatePublishedURL: String?) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -260,9 +267,9 @@ extension Contact {
     }
 
     /// Returns a copy with `profileEmoji` overlaid. Used by
-    /// `Contact.resolved(member:...)` to carry the freshest emoji glyph
-    /// from the per-conversation member profile metadata onto a stored
-    /// contact, which has no emoji column of its own.
+    /// `Contact.resolved(member:...)` to prefer the freshest emoji glyph
+    /// from a live per-conversation member profile over the value
+    /// persisted on the stored contact.
     public func with(profileEmoji: String?) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -298,7 +305,32 @@ extension Contact {
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
-            agentInstanceId: agentInstanceId
+            agentInstanceId: agentInstanceId,
+            agentAttestation: agentAttestation
+        )
+    }
+
+    /// Returns a copy with `agentAttestation` overlaid. The other `with(...)`
+    /// overlays don't carry this field, so apply this one last in
+    /// `resolved(member:...)` -- it copies every current field, so any prior
+    /// overlay in the chain is preserved.
+    public func with(agentAttestation: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId,
+            agentAttestation: agentAttestation
         )
     }
 }

@@ -141,7 +141,13 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     // signal (preserve existing); .agent / .verifiedConvos /
                     // .verifiedUserOAuth map to the corresponding
                     // AgentVerification.
-                    agentVerification: profile?.memberKind?.agentVerification
+                    agentVerification: profile?.memberKind?.agentVerification,
+                    // Template identity for template-backed agents, persisted
+                    // so the contact can spawn a fresh instance after the
+                    // user leaves every conversation with a running instance.
+                    agentTemplateId: profile?.agentTemplateId,
+                    agentTemplatePublishedURL: profile?.agentTemplatePublishedURL,
+                    agentTemplateEmoji: profile?.agentTemplateEmoji
                 )
                 try ContactsWriter.upsertContactInTransaction(
                     db: db,

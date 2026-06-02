@@ -1,25 +1,28 @@
 import Foundation
 
-/// In-memory, session-scoped summary of an Agent Builder draft, captured
-/// at the moment the user taps "Make". Rendered as the first cell of the
-/// post-commit `MessagesListView` in place of the user's prompt messages and
-/// any pre-Make agent chatter — see `MessagesListItemType.agentBuilderSummary`.
+/// Summary of an Agent Builder draft, captured at the moment the user taps
+/// "Make". Rendered as the first cell of the post-commit `MessagesListView`
+/// in place of the user's prompt messages and any pre-Make agent chatter —
+/// see `MessagesListItemType.agentBuilderSummary`.
 ///
-/// Not persisted: if the user navigates away and comes back, the conversation
-/// shows the natural message history. This struct intentionally avoids
-/// iOS-only types (no `UIImage`) so it can live in ConvosCore and be embedded
-/// in `MessagesListItemType` without a circular import.
+/// Persisted via `DBAgentBuilderSummary` (written by `AgentBuilderSummaryWriter`
+/// before any send), so a force-quit between Make and the bundle landing still
+/// rehydrates the summary + its `bundledMessageIds` filter on next launch, and
+/// the `AgentBuilderConnectionGrantReplayer` can fire missing grants after the
+/// agent joins. This struct intentionally avoids iOS-only types (no `UIImage`)
+/// so it can live in ConvosCore and be embedded in `MessagesListItemType`
+/// without a circular import.
 public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, Hashable {
     public let id: UUID
     public let prompt: String
     public let attachments: [AgentBuilderSummaryAttachment]
     public let createdAt: Date
-    /// Agent-side cutoff: messages sent by *other* members with
-    /// `sentAt < cutoffDate` are filtered out of the post-commit list (pre-Make
-    /// hello chatter from the agent). User-side filtering goes through
-    /// `bundledMessageIds` instead — timestamps proved unreliable there
-    /// because uploads can stretch a multi-remote bundle's `sentAt` well past
-    /// the moment the user tapped Make.
+    /// The moment the user tapped Make. Anchors the post-commit placeholder
+    /// display window (`AgentBuilderPlaceholder.remainingDisplayTime`). No
+    /// longer used to filter messages by time -- the backend now skips the
+    /// agent's pre-Make greeting, and the user's own bundle is hidden by id
+    /// (`bundledMessageIds` + the `BuilderBundleManifest` / local hidden rows),
+    /// so the old `sentAt < cutoffDate` filter was removed.
     public let cutoffDate: Date
     /// `clientMessageId`s of the sends the builder issued on the user's behalf
     /// (prompt text + multi-remote attachment bundle today; voice memo etc.
@@ -29,6 +32,30 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
     /// any writer call returns, so the messages are filtered the moment they
     /// land in the DB — no `sentAt` race.
     public let bundledMessageIds: Set<String>
+    /// Captured `CloudConnection.id`s keyed by the iOS-side
+    /// `AgentBuilderConnection` rawValue (e.g. "googleCalendar"). Snapshotted
+    /// at the moment the user toggled the connection on (or completed the
+    /// OAuth flow). Device-only connections like `appleHealth` are not present
+    /// in this dictionary — they don't need an id, the enablement-store
+    /// write is enough. Persisted alongside the summary so the
+    /// `AgentBuilderConnectionGrantReplayer` can fire missing grants after
+    /// an app death between Make and agent-join. Empty for summaries written
+    /// without any cloud connections enabled.
+    public let cloudConnectionIds: [String: String]
+    /// Set the first time the `AgentBuilderConnectionGrantReplayer` has
+    /// fully processed this summary's connections (every connection
+    /// either fired successfully or was already applied). Once non-nil,
+    /// the replayer skips this summary so it can't re-fire grants the
+    /// user later revoked from the chat UI. `nil` for summaries that
+    /// haven't reached the replayer yet (e.g. the agent hasn't joined,
+    /// or this summary was written before the replayer existed).
+    public let connectionsAppliedAt: Date?
+    /// True when the summary belongs to a conversation the user was already in
+    /// (the in-chat "New Agent" entry) rather than a fresh home-flow agent
+    /// chat. The messages list keeps the conversation's invite affordances
+    /// (QR / "Invite members") visible while this card shows, instead of
+    /// suppressing them the way the home flow does.
+    public let existingConversation: Bool
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +63,10 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         attachments: [AgentBuilderSummaryAttachment],
         createdAt: Date = Date(),
         cutoffDate: Date,
-        bundledMessageIds: Set<String> = []
+        bundledMessageIds: Set<String> = [],
+        cloudConnectionIds: [String: String] = [:],
+        connectionsAppliedAt: Date? = nil,
+        existingConversation: Bool = false
     ) {
         self.id = id
         self.prompt = prompt
@@ -44,6 +74,9 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         self.createdAt = createdAt
         self.cutoffDate = cutoffDate
         self.bundledMessageIds = bundledMessageIds
+        self.cloudConnectionIds = cloudConnectionIds
+        self.connectionsAppliedAt = connectionsAppliedAt
+        self.existingConversation = existingConversation
     }
 }
 

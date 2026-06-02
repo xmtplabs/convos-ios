@@ -1,8 +1,20 @@
 import Foundation
 
 public enum SubscriptionTier: String, Codable, Hashable, Sendable, CaseIterable {
-    case builder
-    case pro
+    case plus
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        switch raw {
+        case "plus", "builder", "pro":
+            self = .plus
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: try decoder.singleValueContainer(),
+                debugDescription: "Unknown subscription tier: \(raw)"
+            )
+        }
+    }
 }
 
 public enum SubscriptionPeriod: String, Codable, Hashable, Sendable, CaseIterable {

@@ -15,8 +15,8 @@ public protocol ConversationsRepositoryProtocol {
     /// already in a 1:1 with this person falls through to the picker
     /// (the user clearly wants to start a different chat). Honours
     /// the repo's `consent` scope and the same draft / expired /
-    /// quarantined / unused exclusions as `fetchAll`. Returns nil
-    /// when no other match exists.
+    /// unused exclusions as `fetchAll`. Returns nil when no other
+    /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
 }
 
@@ -88,14 +88,6 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            // Exclude held / quarantined inbound conversations from the main
-            // feed. Released rows (sender promoted to contact) keep their
-            // `quarantinedAt` for audit but expose `quarantineReleasedAt` —
-            // those reappear here.
-            .filter(
-                DBConversation.Columns.quarantinedAt == nil
-                || DBConversation.Columns.quarantineReleasedAt != nil
-            )
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
@@ -143,10 +135,6 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            .filter(
-                DBConversation.Columns.quarantinedAt == nil
-                || DBConversation.Columns.quarantineReleasedAt != nil
-            )
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)
@@ -189,6 +177,7 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                     .including(optional: DBConversationMember.inviterProfile)
             )
             .including(required: DBConversation.localState)
+            .including(optional: DBConversation.agentBuilderSummary)
             .with(DBConversation.lastMessageWithSourceCTE)
             .including(optional: lastMessageWithSource)
             .with(DBConversation.latestAgentJoinRequestCTE)

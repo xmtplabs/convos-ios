@@ -26,6 +26,33 @@ public final class VoiceMemoRecorder: NSObject {
         super.init()
     }
 
+    /// Resolve mic permission ahead of `startRecording()`. Returns `true`
+    /// when the user has already granted (or just granted via the system
+    /// prompt) access; `false` when they've denied. Callers must await
+    /// this before invoking `startRecording()` - if `record()` is called
+    /// while permission is `.undetermined`, AVFoundation succeeds the
+    /// initial call but immediately fires
+    /// `audioRecorderDidFinishRecording(_:successfully: false)`, which
+    /// flips the recorder back to `.idle` without ever capturing audio.
+    @MainActor
+    public static func ensureRecordPermission() async -> Bool {
+        let application = AVAudioApplication.shared
+        switch application.recordPermission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await withCheckedContinuation { continuation in
+                AVAudioApplication.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        @unknown default:
+            return false
+        }
+    }
+
     public func startRecording() throws {
         guard case .idle = state else { return }
 
@@ -120,6 +147,18 @@ public final class VoiceMemoRecorder: NSObject {
         duration = 0
         audioLevels = []
         state = .idle
+    }
+
+    /// Re-seed a previously recorded memo back into the `.recorded` state.
+    /// Used to restore composer state when a send that optimistically cleared
+    /// the recorder (e.g. the agent-builder bundle) fails, so the user can
+    /// retry from the chat composer. The audio file is left on disk by
+    /// `resetState()`, so the original `url` is still valid.
+    public func restoreRecorded(url: URL, duration: TimeInterval, audioLevels: [Float]) {
+        recordingURL = url
+        self.duration = duration
+        self.audioLevels = audioLevels
+        state = .recorded(url, duration)
     }
 
     public func cancelRecording() {

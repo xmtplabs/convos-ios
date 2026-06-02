@@ -10,6 +10,7 @@ public protocol MessageSender {
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
@@ -73,6 +74,16 @@ public protocol ConversationsProvider {
 
     func findOrCreateDm(with peerInboxId: String) async throws -> Dm
 
+    /// Same as `findOrCreateDm(with:)` but applies the given disappearing-
+    /// messages settings on create (passed through to libxmtp's
+    /// `findOrCreateDm(with:disappearingMessageSettings:)`). Use the basic
+    /// overload by default; callers that need a TTL on the conversation
+    /// (e.g. pairing) reach for this one.
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> Dm
+
     func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
 
     func sync() async throws
@@ -105,6 +116,7 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo]
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -137,6 +149,11 @@ extension XMTPiOS.Conversations: ConversationsProvider {
         try await findOrCreateDm(with: peerInboxId, disappearingMessageSettings: nil)
     }
 }
+
+// libxmtp's `findOrCreateDm(with:disappearingMessageSettings:)` is the
+// underlying API the no-arg overload calls. It already satisfies the
+// new protocol method via the same name + argument labels, so no
+// additional bridging shim is needed here.
 
 extension XMTPiOS.Client: XMTPClientProvider {
     public var conversationsProvider: any ConversationsProvider {
@@ -207,6 +224,11 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        let state = try await inboxState(refreshFromNetwork: refreshFromNetwork)
+        return state.installations.map { InstallationInfo(id: $0.id, createdAt: $0.createdAt) }
     }
 }
 
@@ -279,6 +301,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: reply,
             options: .init(contentType: ContentTypeReply)
+        )
+    }
+
+    public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType)
         )
     }
 

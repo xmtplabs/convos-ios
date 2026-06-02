@@ -17,6 +17,9 @@ final class MessagesCollectionViewDataSource: NSObject {
     var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
@@ -43,6 +46,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var isAgentJoinPending: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
@@ -88,6 +92,11 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
+            },
+            inviteMembershipResolver: inviteMembershipResolver,
+            agentShareResolver: agentShareResolver,
+            onTapAgentShare: { [weak self] agentShare in
+                self?.onTapAgentShare?(agentShare)
             },
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
@@ -162,6 +171,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             headerMode: headerMode,
             hidesInviteCard: hidesInviteCard,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
                 self?.memberContactOverride?(inboxId)
             }

@@ -1,0 +1,137 @@
+id: "40b"
+name: "DM Block Demotes Creator's Conversation (Two Simulators)"
+description: >
+  The consent-driven feed visibility, validated where it applies: blocking the
+  CREATOR of a conversation. Builds on test 40 (Device A created the conversation,
+  Device B joined, each is the other's contact). Device B blocks Device A (the
+  creator); B's conversation with A is demoted to .denied and leaves B's feed, A
+  stays in B's browse list (blocked), and unblocking does NOT resurrect the .denied
+  conversation - the blocker-1 fix. Guards
+  ConversationConsentReconciler.fetchMismatchedTargets (demote on blocked creator;
+  only .unknown -> .allowed is promoted, never .denied). Requires TWO simulators.
+tags: [contacts, dm, consent, block, destructive, multi-device, local-stack]
+depends_on: ["40"]
+estimated_duration_s: 240
+
+prerequisites:
+  two_simulators: true
+  app_authorized_on_both: true
+  shared_dm_from_40: true
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  device_a_name: "Alice"
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: >
+      Reuses test 40's state: Device A created the conversation (A is the creator),
+      Device B joined, and A ("Alice") is a contact on Device B. Do not erase between
+      40 and 40b.
+
+steps:
+  - id: device_b_baseline_feed
+    name: "Device B: the conversation with Alice is in the feed"
+    device: B
+    actions:
+      - navigate_to_conversations_list: {}
+      - find_elements: { pattern: "conversation-list-item-" }
+      - screenshot: {}
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item-", min: 1 }
+    criteria: dm_visible_before_block
+    note: >
+      Baseline: the A<->B conversation (created by Alice, consent .allowed on B) is in
+      Device B's home feed.
+
+  - id: device_b_block_alice
+    name: "Device B blocks Alice (the conversation creator)"
+    device: B
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Alice", timeout: 15 }
+      - tap: { label_contains: "Alice" }
+      - wait_for_element: { id: "contact-detail-block", timeout: 10 }
+      - tap: { id: "contact-detail-block" }
+      - wait_for_element: { label: "Block", timeout: 10 }
+      - tap: { label: "Block" }
+      - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "contact-detail-unblock" }
+    criteria: device_b_blocks_creator
+    note: >
+      Alice is the CREATOR of the A<->B conversation. Blocking her makes
+      fetchMismatchedTargets match (contact.blockedAt IS NOT NULL AND
+      conversation.consent <> .denied) and demote that conversation to .denied.
+
+  - id: device_b_conversation_demoted
+    name: "Device B: Alice's conversation leaves the feed (demoted to .denied)"
+    device: B
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - navigate_to_conversations_list: {}
+      - wait: { seconds: 4 }
+      - find_elements: { pattern: "conversation-list-item-" }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The conversation that was created by Alice is no longer in Device B's home
+          feed - it was demoted to .denied and feed visibility is keyed on consent.
+          (Unlike blocking a non-creator member, which leaves existing shared
+          conversations untouched.)
+    criteria: creator_conversation_hidden
+    note: >
+      Allow a few seconds for the reconciler. This is the consent demotion that does
+      NOT happen when you block a non-creator member (test 37b).
+
+  - id: device_b_unblock_does_not_resurrect
+    name: "Device B unblocks Alice; the .denied conversation stays hidden"
+    device: B
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "contacts-row", timeout: 10 }
+      - tap: { id: "contacts-row" }
+      - wait_for_element: { label_contains: "Alice", timeout: 10 }
+      - tap: { label_contains: "Alice" }
+      - wait_for_element: { id: "contact-detail-unblock", timeout: 10 }
+      - tap: { id: "contact-detail-unblock" }
+      - wait_for_element: { label: "Unblock", timeout: 10 }
+      - tap: { label: "Unblock" }
+      - wait_for_element: { id: "contact-detail-block", timeout: 10 }
+      - tap: { id: "BackButton", optional: true }
+      - navigate_to_conversations_list: {}
+      - wait: { seconds: 4 }
+      - find_elements: { pattern: "conversation-list-item-" }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          Alice's conversation is STILL absent from Device B's feed after unblock.
+          fetchMismatchedTargets only promotes .unknown -> .allowed, never .denied, so
+          the demoted conversation stays hidden even though Alice is no longer blocked.
+    criteria: denied_not_resurrected_on_unblock
+    note: >
+      The blocker-1 regression - the same code path that prevents a user-deleted
+      conversation (delete writes .denied) from being resurrected. Authoritative unit
+      coverage: ConversationConsentReconcilerTests.testPromotesUnknownButNotDeniedFromNonBlockedContact.
+
+teardown:
+  - action: erase_simulators
+    args: { udids: ["$device_a_udid", "$device_b_udid"] }
+    note: "End of the DM sequence — clear both devices."
+
+criteria:
+  dm_visible_before_block:
+    description: "Baseline: the A<->B conversation (created by Alice) is in Device B's feed"
+  device_b_blocks_creator:
+    description: "Device B blocks Alice, the conversation creator; the card flips to Unblock"
+  creator_conversation_hidden:
+    description: "Blocking the creator demotes the conversation to .denied; it leaves Device B's feed"
+  denied_not_resurrected_on_unblock:
+    description: "Unblocking does NOT promote the .denied conversation back to .allowed; it stays hidden (blocker-1)"

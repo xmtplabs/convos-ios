@@ -156,6 +156,20 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
     }
 
+    /// Marks the global onboarding flags as completed so the in-conversation
+    /// "set up your name / pic" prompts are skipped. Used by the pairing
+    /// flow on the joiner side — the joiner just adopted the initiator's
+    /// fully-onboarded identity, so they shouldn't be asked to set up a
+    /// profile again. Per-conversation flags (the `hasSetProfilePrefix`
+    /// keys) are intentionally left alone — those track whether the user
+    /// has chosen *what* profile to expose in a specific conversation,
+    /// which is a separate decision from "have I ever set a profile."
+    static func markCompletedForPairedDevice() {
+        UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+        UserDefaults.standard.set(true, forKey: hasCompletedOnboardingKey)
+        UserDefaults.standard.set(true, forKey: hasSeenAddAsProfileKey)
+    }
+
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasShownProfileEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
@@ -537,11 +551,6 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func transitionAfterProfileSetup() async {
-        if shouldShowNUXPaywall {
-            state = .presentingPaywall
-            handleStateChange()
-            return
-        }
         await transitionToNotificationState()
     }
 

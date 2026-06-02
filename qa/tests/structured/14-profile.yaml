@@ -97,7 +97,7 @@ steps:
     name: "Open App Settings → My Info"
     actions:
       - tap: { id: "BackButton", optional: true }
-      - tap: { id: "convos-settings-button" }
+      - tap: { id: "app-indicator-pill" }
       - wait_for_element: { label_contains: "My info", timeout: 10 }
     verify:
       - element_exists: { label_contains: "My info" }
@@ -123,7 +123,7 @@ steps:
   - id: join_conversation_b
     name: "Join CLI-created conversation B"
     actions:
-      - tap: { id: "close-app-settings", optional: true }
+      - swipe: { x_start: 200, y_start: 180, x_end: 200, y_end: 780, gesture: "swipe the settings sheet down to dismiss it (replaces the removed close-app-settings button)" }
       - cli_create_conversation:
           name: "Profile Test B"
           profile_name: "CLI Bot"
@@ -207,7 +207,7 @@ steps:
     name: "Global in App Settings is still the updated name"
     actions:
       - tap: { id: "BackButton" }
-      - tap: { id: "convos-settings-button" }
+      - tap: { id: "app-indicator-pill" }
       - wait_for_element: { label_contains: "My info", timeout: 10 }
     verify:
       - element_exists: { label_contains: "$updated_profile" }
@@ -217,7 +217,7 @@ steps:
   - id: convo_b_unaffected
     name: "Conversation B still shows the global name"
     actions:
-      - tap: { id: "close-app-settings", optional: true }
+      - swipe: { x_start: 200, y_start: 180, x_end: 200, y_end: 780, gesture: "swipe the settings sheet down to dismiss it (replaces the removed close-app-settings button)" }
       - tap: { label: "Profile Test B" }
       - wait_for_element: { label_contains: "Chat as $updated_profile", timeout: 10 }
     verify:

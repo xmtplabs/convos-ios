@@ -5,7 +5,6 @@ import SwiftUI
 struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
-    let scrollOverscrollAmount: CGFloat
     let onTapSetupProfile: () -> Void
     let onUseProfile: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
@@ -154,7 +153,6 @@ struct ConversationOnboardingView: View {
         ConversationOnboardingView(
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
-            scrollOverscrollAmount: 0,
             onTapSetupProfile: {},
             onUseProfile: { _, _ in },
             onPresentProfileSettings: {}
@@ -172,9 +170,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -190,9 +186,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -208,9 +202,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -226,9 +218,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -244,9 +234,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
@@ -262,9 +250,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )

@@ -87,6 +87,23 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// for the Agent Builder commit path.
     func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String
 
+    /// Send the Agent Builder bundle (an optional media bundle followed by the
+    /// prompt text) preceded by a `BuilderBundleManifest` that lists the
+    /// bundle's real XMTP message ids. All three are prepared first so the
+    /// manifest can reference the messages' prepared ids, then published in
+    /// manifest -> bundle -> text order: the manifest commits before the
+    /// messages it hides, so every recipient filters the agent brief out of
+    /// the chat before it renders (see `BuilderBundleHiddenMessagesRepository`).
+    /// `textClientMessageId` / `bundleClientMessageId` are the optimistic ids
+    /// the caller persisted into `AgentBuilderSummary.bundledMessageIds`, so
+    /// the sender's own copy stays hidden via the summary filter too.
+    func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws
+
     // MARK: - Replies
 
     /// Send a video from a local file URL.
@@ -690,6 +707,64 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let conversationIdLocal = self.conversationId
         let perfStart = CFAbsoluteTimeGetCurrent()
 
+        let staged = try await stageMultiRemoteAttachmentBundle(items: items, clientMessageId: clientMessageId, inboxReady: inboxReady)
+
+        guard let sender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
+        }
+        let messageId: String
+        do {
+            messageId = try await sender.prepare(multiRemoteAttachment: staged.multi)
+        } catch {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw error
+        }
+        do {
+            try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: staged.jsonList)
+        } catch {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw error
+        }
+        await migrateBundleAttachmentKeys(entries: staged.entries, jsonList: staged.jsonList)
+
+        do {
+            try await sender.publish()
+        } catch {
+            try? await markMessageFailed(messageId: messageId)
+            throw error
+        }
+        try? await markMessagePublished(messageId: messageId)
+        await finalizeBundleLocalState(entries: staged.entries, jsonList: staged.jsonList)
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] message.publish_multi: \(perfElapsed)ms id=\(messageId) count=\(staged.entries.count)")
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment", "count": "\(staged.entries.count)"])
+        return messageId
+    }
+
+    private struct StagedAttachmentBundle {
+        let multi: MultiRemoteAttachment
+        let entries: [ResolvedBundleEntry]
+        let jsonList: [String]
+    }
+
+    private struct PreparedAttachmentBundle {
+        let messageId: String
+        let entries: [ResolvedBundleEntry]
+        let jsonList: [String]
+    }
+
+    /// Resolve and persist a multi-remote attachment bundle into a local DB row
+    /// and build its `MultiRemoteAttachment` payload, ready to `prepare`. Holds
+    /// no `MessageSender` (non-Sendable), so the caller resolves and uses its
+    /// own local sender to prepare/publish — letting `sendBuilderBundle` control
+    /// publish order without crossing the actor boundary with a sender.
+    private func stageMultiRemoteAttachmentBundle(
+        items: [MultiAttachmentBundleItem],
+        clientMessageId: String,
+        inboxReady: InboxReadyResult
+    ) async throws -> StagedAttachmentBundle {
         let entries = try await resolveBundleEntries(items: items, inboxReady: inboxReady)
         let jsonList = try entries.map { entry -> String in
             guard let json = try? entry.stored.toJSON() else {
@@ -702,40 +777,226 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             attachmentUrls: entries.map { $0.trackingURL?.absoluteString ?? UUID().uuidString }
         )
         cacheBundleThumbnails(entries: entries, jsonList: jsonList)
-
-        guard let sender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
-            try? await markMessageFailed(clientMessageId: clientMessageId)
-            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
-        }
         let multi = MultiRemoteAttachment(remoteAttachments: entries.map { $0.info })
+        return StagedAttachmentBundle(multi: multi, entries: entries, jsonList: jsonList)
+    }
+
+    func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        await persistLocalBundleHiddenIds(
+            text: text,
+            bundleItems: bundleItems,
+            textClientMessageId: textClientMessageId,
+            bundleClientMessageId: bundleClientMessageId
+        )
+
+        // Prepare (but don't publish) the bundle messages so the manifest can
+        // reference their real XMTP ids. Attachments are prepared before the
+        // text so the agent resolves attachment references before the prompt.
+        let prepared: PreparedAttachmentBundle? = bundleItems.isEmpty
+            ? nil
+            : try await prepareBuilderBundleAttachments(items: bundleItems, clientMessageId: bundleClientMessageId, inboxReady: inboxReady)
+        let textMessageId: String?
+        do {
+            textMessageId = text.isEmpty
+                ? nil
+                : try await prepareBuilderBundleText(text, clientMessageId: textClientMessageId, inboxReady: inboxReady)
+        } catch {
+            // The attachment bundle is already prepared and persisted "sending";
+            // a text-prepare failure aborts the send before publishing, so mark
+            // the bundle failed too rather than stranding it.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            throw error
+        }
+
+        let bundledMessageIds: [String] = [prepared?.messageId, textMessageId].compactMap { $0 }
+        guard !bundledMessageIds.isEmpty else { return }
+
+        try await publishPreparedBuilderBundle(
+            manifestIds: bundledMessageIds,
+            prepared: prepared,
+            textMessageId: textMessageId,
+            sentText: text,
+            inboxReady: inboxReady
+        )
+    }
+
+    /// Hide the bundle on this (sender's) client from the first render. The
+    /// sender renders these under their `clientMessageId` (presentation
+    /// `Message.id == clientMessageId`), which the broadcast manifest's XMTP
+    /// ids won't match -- so persist the local client ids directly. Recipients
+    /// are covered by the manifest. Mirrors the `AgentBuilderSummary.
+    /// bundledMessageIds` filter for the home flow, and is the sole sender-side
+    /// hide for the existing-conversation builder (no summary, so its history
+    /// isn't cut).
+    private func persistLocalBundleHiddenIds(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async {
+        var ids: [String] = []
+        if !bundleItems.isEmpty { ids.append(bundleClientMessageId) }
+        if !text.isEmpty { ids.append(textClientMessageId) }
+        let localHiddenIds: [String] = ids
+        guard !localHiddenIds.isEmpty else { return }
+        let conversationIdLocal = self.conversationId
+        do {
+            try await databaseWriter.write { db in
+                for messageId in localHiddenIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationIdLocal, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            // Non-fatal: the bundle still sends and recipients hide via the
+            // manifest; only this sender's own copy would stay visible.
+            Log.error("Failed to persist local builder-bundle hidden ids: \(error.localizedDescription)")
+        }
+    }
+
+    /// Stage + `prepare` (no publish) the media bundle, returning the prepared
+    /// XMTP id and the resolved entries needed to finalize local state once it
+    /// publishes.
+    private func prepareBuilderBundleAttachments(
+        items: [MultiAttachmentBundleItem],
+        clientMessageId: String,
+        inboxReady: InboxReadyResult
+    ) async throws -> PreparedAttachmentBundle {
+        let staged = try await stageMultiRemoteAttachmentBundle(items: items, clientMessageId: clientMessageId, inboxReady: inboxReady)
+        guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
+        }
         let messageId: String
         do {
-            messageId = try await sender.prepare(multiRemoteAttachment: multi)
+            messageId = try await sender.prepare(multiRemoteAttachment: staged.multi)
+            try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: staged.jsonList)
         } catch {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
         }
+        await migrateBundleAttachmentKeys(entries: staged.entries, jsonList: staged.jsonList)
+        return PreparedAttachmentBundle(messageId: messageId, entries: staged.entries, jsonList: staged.jsonList)
+    }
+
+    /// Persist + `prepare` (no publish) the builder prompt text, returning its
+    /// prepared XMTP id. Mirrors the prepare half of `publishText` for the
+    /// non-reply, freshly-saved case the builder always hits.
+    private func prepareBuilderBundleText(
+        _ text: String,
+        clientMessageId: String,
+        inboxReady: InboxReadyResult
+    ) async throws -> String {
+        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: nil)
+        guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
+        }
+        let xmtpMessageId: String
         do {
-            try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: jsonList)
+            xmtpMessageId = try await sender.prepare(text: text)
         } catch {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
         }
-        await migrateBundleAttachmentKeys(entries: entries, jsonList: jsonList)
+        // Swap only the `id` column to the prepared XMTP id; `clientMessageId`
+        // must stay the original UUID -- the sender renders the message under
+        // it (presentation Message.id == clientMessageId) and
+        // `persistLocalBundleHiddenIds` keyed the hidden row on it. Guard the
+        // write so a swap failure marks the message failed rather than leaving
+        // a local row whose id no longer matches the published message.
+        if xmtpMessageId != clientMessageId {
+            do {
+                try await databaseWriter.write { db in
+                    try db.execute(sql: "UPDATE message SET id = ? WHERE id = ?", arguments: [xmtpMessageId, clientMessageId])
+                    try db.execute(sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?", arguments: [xmtpMessageId, clientMessageId])
+                }
+            } catch {
+                try? await markMessageFailed(clientMessageId: clientMessageId)
+                throw error
+            }
+        }
+        return xmtpMessageId
+    }
 
+    /// Publish the manifest first, then the bundle, then the text. Publishing
+    /// the manifest commit first means it is the first to reach the network, so
+    /// recipients usually process it before the messages it hides. This is
+    /// best-effort ordering, not a guarantee -- delivery/sort order on
+    /// recipients can differ. Final correctness does not depend on it: the
+    /// reactive `builder_bundle_hidden_message` filter re-runs when the manifest
+    /// lands, so a late manifest only means a brief flash, never a permanently
+    /// visible brief. All three were prepared into the group's shared local
+    /// store, so a freshly-resolved sender publishes them by id.
+    private func publishPreparedBuilderBundle(
+        manifestIds: [String],
+        prepared: PreparedAttachmentBundle?,
+        textMessageId: String?,
+        sentText: String,
+        inboxReady: InboxReadyResult
+    ) async throws {
+        let conversationIdLocal = self.conversationId
+        let sender: any MessageSender
+        let manifestMessageId: String
         do {
-            try await sender.publish()
+            guard let resolvedSender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
+                throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
+            }
+            sender = resolvedSender
+            manifestMessageId = try await resolvedSender.prepare(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
         } catch {
-            try? await markMessageFailed(messageId: messageId)
+            // Sender resolution and the manifest prepare run before anything
+            // publishes, but the bundle and text are already persisted
+            // "sending". A failure here aborts the send, so mark them failed --
+            // otherwise they'd be stuck "sending" with no retry affordance.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
             throw error
         }
-        try? await markMessagePublished(messageId: messageId)
-        await finalizeBundleLocalState(entries: entries, jsonList: jsonList)
+        do {
+            try await sender.publishMessage(messageId: manifestMessageId)
+        } catch {
+            // The manifest publishes before the bundle and the text, both of
+            // which are already persisted as "sending". A manifest failure
+            // bails out of the whole send, so mark them failed too -- otherwise
+            // they'd be stuck "sending" with no retry affordance.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
+            throw error
+        }
 
-        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-        Log.info("[PERF] message.publish_multi: \(perfElapsed)ms id=\(messageId) count=\(entries.count)")
-        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment", "count": "\(entries.count)"])
-        return messageId
+        if let prepared {
+            do {
+                try await sender.publishMessage(messageId: prepared.messageId)
+            } catch {
+                try? await markMessageFailed(messageId: prepared.messageId)
+                // The text was prepared and saved before the bundle published;
+                // mark it failed too so a bundle failure can't strand it
+                // "sending" (the text-publish block below is unreachable here).
+                if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
+                throw error
+            }
+            try? await markMessagePublished(messageId: prepared.messageId)
+            await finalizeBundleLocalState(entries: prepared.entries, jsonList: prepared.jsonList)
+            QAEvent.emit(.message, "sent", ["id": prepared.messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment"])
+        }
+
+        if let textMessageId {
+            do {
+                try await sender.publishMessage(messageId: textMessageId)
+            } catch {
+                try? await markMessageFailed(messageId: textMessageId)
+                throw error
+            }
+            try? await markMessagePublished(messageId: textMessageId)
+            sentMessageSubject.send(sentText)
+        }
     }
 
     private func resolveBundleEntries(
@@ -1764,13 +2025,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let isContentEmoji = text.allCharactersEmoji
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let invite = MessageInvite.from(text: text)
-        let linkPreview = invite == nil && !isContentEmoji ? LinkPreview.from(text: text) : nil
+        let isAgentShare = invite == nil && !isContentEmoji && MessageAgentShare.from(text: text) != nil
+        let linkPreview = invite == nil && !isAgentShare && !isContentEmoji ? LinkPreview.from(text: text) : nil
 
         let contentType: MessageContentType
         if isContentEmoji {
             contentType = .emoji
         } else if invite != nil {
             contentType = .invite
+        } else if isAgentShare {
+            contentType = .agentShare
         } else if linkPreview != nil {
             contentType = .linkPreview
         } else {

@@ -20,7 +20,7 @@ enum AdaptiveAppIndicatorMode {
 
 /// Subtitle for [[AppIndicatorPill]]. Either a plain string (typically the
 /// active subscription tier name) or an SF Symbol — currently used to
-/// surface low / depleted credit balance as a battery glyph.
+/// surface depleted credit balance as a bolt icon in colorLava.
 enum AppIndicatorSubtitle {
     case text(String)
     case symbol(systemName: String, tint: Color, accessibilityLabel: String)

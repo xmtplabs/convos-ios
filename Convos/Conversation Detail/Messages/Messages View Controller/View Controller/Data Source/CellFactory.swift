@@ -7,6 +7,16 @@ struct CellConfig {
     let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
+    /// Resolves whether the current user already joined the conversation an
+    /// invite card points to, so it can show the member count instead of
+    /// "Tap to join".
+    let inviteMembershipResolver: any InviteMembershipResolving
+    /// Resolves a received/sent agent-share link to the shared agent's public
+    /// profile so its message card can render name / emoji / description.
+    let agentShareResolver: any AgentShareResolving
+    /// Fired when an agent-share message card is tapped -- opens the shared
+    /// agent's template flow.
+    let onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
     /// concrete `AnyMessage` to attach (e.g. the synthesized agent
@@ -47,6 +57,10 @@ struct CellConfig {
     /// glassEffectTransition(.matchedGeometry)`. Nil when the messages list
     /// isn't part of a builder commit (regular chats).
     let agentBuilderTransitionNamespace: Namespace.ID?
+    /// Shared SwiftUI namespace used to zoom-transition an
+    /// `HTMLAttachmentBubble` into the post-tap `AttachmentPreviewSheet`.
+    /// `MessagesView` owns the namespace and the matching `.sheet(item:)`.
+    let htmlAttachmentTransitionNamespace: Namespace.ID?
     /// Maps an inbox to the user's full `Contact` when the inbox is a
     /// known contact. Cells use it for both the display-name override
     /// (via `?.displayName`) and avatar substitution (so a system-

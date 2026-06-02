@@ -38,7 +38,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .messages(let group):
                 return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
             case .agentOutOfCredits:
-                return .estimated(CGSize(width: width, height: 48.0))
+                return .estimated(CGSize(width: width, height: 100.0))
             case .agentJoinStatus:
                 return .estimated(CGSize(width: width, height: 48.0))
             case .agentPresentInfo:
@@ -102,10 +102,11 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     }
 
     private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
-        // HTML attachments render via HTMLAttachmentBubble at a fixed 500pt cellHeight
-        // regardless of mediaType, so check before falling into the .file branch.
+        // HTML attachments render via HTMLAttachmentBubble as a 160×160 tile
+        // inside the message group, regardless of mediaType, so check before
+        // falling into the .file branch.
         if attachment.isHTMLFile {
-            return 500.0
+            return 160.0
         }
         switch attachment.mediaType {
         case .audio:
@@ -171,6 +172,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 40.0
         case .invite:
             height = 240.0
+        case .agentShare:
+            height = 160.0
         case .linkPreview:
             height = 210.0
         case .update, .assistantJoinRequest:

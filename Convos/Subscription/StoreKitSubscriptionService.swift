@@ -198,6 +198,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             tier: tier,
             period: period,
             displayPrice: product.displayPrice,
+            price: product.price,
             pricePerMonthDisplay: perMonthDisplay,
             currencyCode: currencyCode
         )

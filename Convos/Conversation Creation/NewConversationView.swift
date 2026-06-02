@@ -4,6 +4,17 @@ import SwiftUI
 struct NewConversationView: View {
     let viewModel: NewConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    /// When `true` (the default) the view wraps its content in its own
+    /// `NavigationStack` -- the standalone sheet presentation. The Compose
+    /// flow sets this `false` so the view is pushed onto the contacts
+    /// picker's stack (no nested `NavigationStack`). When pushed the back
+    /// button is hidden so the user can't return to the picker; the close
+    /// (X) button tears down the whole flow via `onClose` instead.
+    var embedsNavigationStack: Bool = true
+    /// Closes the entire Compose flow. Set when the view is pushed onto the
+    /// picker's stack; when `nil` (standalone sheet) the close button
+    /// dismisses via the environment `dismiss`.
+    var onClose: (() -> Void)?
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -18,7 +29,7 @@ struct NewConversationView: View {
             insetsTopSafeArea: false,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
-            NavigationStack {
+            ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
                 Group {
                     if viewModel.showingFullScreenScanner {
@@ -48,15 +59,25 @@ struct NewConversationView: View {
                     }
                 }
                 .toolbar {
+                    // The close (X) is the only way out in both presentations:
+                    // standalone it dismisses the sheet; pushed (Compose flow)
+                    // `onClose` tears down the whole flow. Paired with the
+                    // hidden back button below so the pushed view can't return
+                    // to the picker.
                     if !viewModel.showingFullScreenScanner {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(role: .close) {
-                                dismiss()
+                                if let onClose {
+                                    onClose()
+                                } else {
+                                    dismiss()
+                                }
                             }
                             .accessibilityIdentifier("close-new-conversation")
                         }
                     }
                 }
+                .navigationBarBackButtonHidden(!embedsNavigationStack)
                 .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { scannedCode in
@@ -88,6 +109,22 @@ struct NewConversationView: View {
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass
+        }
+    }
+}
+
+/// Wraps content in a `NavigationStack` only when `embedsStack` is true.
+/// Lets a view be presented standalone (its own stack) or pushed onto a
+/// host's stack (no nested stack) from the same body.
+private struct ConditionalNavigationStack<Content: View>: View {
+    let embedsStack: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if embedsStack {
+            NavigationStack { content() }
+        } else {
+            content()
         }
     }
 }

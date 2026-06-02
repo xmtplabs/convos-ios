@@ -1,5 +1,12 @@
 # Test: Join Conversation via Paste in Scan View (Two Simulators)
 
+> **Blocked (#910 home-shell rework).** The in-app scan view and its
+> bottom-toolbar `scan-button` were removed, so there is no in-app
+> paste-invite entry point. Joining is now via the device camera (QR scan,
+> not automatable on the simulator) or a deep-link invite URL - the URL path
+> is covered by `03-invite-join-deep-link.md`. Steps below are preserved for
+> if/when the scan button returns. See `qa/future/home-shell-qa-migration.md`.
+
 Verify that a conversation created on one device can be joined from a second device by pasting the invite URL in the scan view.
 
 > **Single-inbox model (C10).** Same scope note as `03-invite-join-deep-link.md`: joining reuses the singleton inbox; there should be **no** "creating new inbox" UI indicator. The paste flow itself is unchanged.

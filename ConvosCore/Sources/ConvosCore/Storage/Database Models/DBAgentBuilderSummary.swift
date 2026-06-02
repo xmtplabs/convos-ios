@@ -17,6 +17,9 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         public static let createdAt: Column = Column(CodingKeys.createdAt)
         public static let cutoffDate: Column = Column(CodingKeys.cutoffDate)
         public static let bundledMessageIdsJSON: Column = Column(CodingKeys.bundledMessageIdsJSON)
+        public static let cloudConnectionIdsJSON: Column = Column(CodingKeys.cloudConnectionIdsJSON)
+        public static let connectionsAppliedAt: Column = Column(CodingKeys.connectionsAppliedAt)
+        public static let existingConversation: Column = Column(CodingKeys.existingConversation)
     }
 
     public let conversationId: String
@@ -36,6 +39,23 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
     /// JSON array (not a Set) for portability; the model layer rehydrates
     /// into a Set for O(1) lookups.
     public let bundledMessageIdsJSON: String
+    /// JSON-encoded `[String: String]` mapping `AgentBuilderConnection`
+    /// rawValue → captured `CloudConnection.id`. Drives the post-Make grant
+    /// replayer so a force-quit between Make and agent-join doesn't lose the
+    /// user's selection. Defaults to `"{}"` on summaries written before this
+    /// column existed.
+    public let cloudConnectionIdsJSON: String
+    /// Set the first time the replayer has fully processed this summary's
+    /// connections. Once non-null, the replayer skips this row. `nil` for
+    /// summaries written before the replayer existed, or that haven't yet
+    /// reached the replayer.
+    public let connectionsAppliedAt: Date?
+    /// `true` for summaries written by the in-chat "New Agent" entry (a
+    /// conversation the user was already in). Defaults to `false` on summaries
+    /// written before this column existed -- i.e. home-flow agent chats, which
+    /// is the correct default. The messages list keeps the invite affordances
+    /// visible when this is `true`.
+    public let existingConversation: Bool
 
     public init(
         conversationId: String,
@@ -44,7 +64,10 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         attachmentsJSON: String,
         createdAt: Date,
         cutoffDate: Date,
-        bundledMessageIdsJSON: String
+        bundledMessageIdsJSON: String,
+        cloudConnectionIdsJSON: String,
+        connectionsAppliedAt: Date? = nil,
+        existingConversation: Bool = false
     ) {
         self.conversationId = conversationId
         self.summaryId = summaryId
@@ -53,5 +76,8 @@ public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord
         self.createdAt = createdAt
         self.cutoffDate = cutoffDate
         self.bundledMessageIdsJSON = bundledMessageIdsJSON
+        self.cloudConnectionIdsJSON = cloudConnectionIdsJSON
+        self.connectionsAppliedAt = connectionsAppliedAt
+        self.existingConversation = existingConversation
     }
 }

@@ -11,7 +11,8 @@ app_identifier([
   "org.convos.ios.ConvosNSE",
   "org.convos.ios-preview.ConvosNSE",
   "org.convos.ios-preview.pr.ConvosNSE",
-  "org.convos.ios-testnet.ConvosNSE"
+  "org.convos.ios-testnet.ConvosNSE",
+  "org.convos.ios-preview.Clip"
 ])
 
 team_id("FY4NZR34Z3")

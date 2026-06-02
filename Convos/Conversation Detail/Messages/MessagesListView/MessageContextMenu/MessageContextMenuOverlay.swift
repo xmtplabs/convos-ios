@@ -5,6 +5,7 @@ import SwiftUI
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
     let shouldBlurPhotos: Bool
+    var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
@@ -136,14 +137,16 @@ struct MessageContextMenuOverlay: View {
             ZStack(alignment: .topLeading) {
                 backgroundDimming
 
-                reactionsBar(
-                    messageId: message.messageId,
-                    bubbleRect: activeBubble,
-                    sourceBubble: localBubble,
-                    keyboardAdjustment: keyboardAdjustment,
-                    minBarY: safeTop
-                )
-                .zIndex(1)
+                if !isReadOnly {
+                    reactionsBar(
+                        messageId: message.messageId,
+                        bubbleRect: activeBubble,
+                        sourceBubble: localBubble,
+                        keyboardAdjustment: keyboardAdjustment,
+                        minBarY: safeTop
+                    )
+                    .zIndex(1)
+                }
 
                 actionMenu(
                     message: message,
@@ -387,6 +390,9 @@ struct MessageContextMenuOverlay: View {
                     onTapAvatar: nil
                 )
 
+            case .agentShare(let agentShare):
+                AgentShareBubble(agentShare: agentShare)
+
             case .linkPreview(let preview):
                 LinkPreviewBubbleView(
                     preview: preview,
@@ -457,14 +463,16 @@ struct MessageContextMenuOverlay: View {
                         .padding(.bottom, 8)
                 }
 
-                let replyAction = {
-                    let msg = message
-                    dismissMenu()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        onReply(msg)
+                if !isReadOnly {
+                    let replyAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            onReply(msg)
+                        }
                     }
+                    ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
                 }
-                ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
                     let copyAction = {
@@ -481,25 +489,27 @@ struct MessageContextMenuOverlay: View {
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
 
-                    let isBlurred = shouldBlurPhoto
-                    let key = attachment.key
-                    let revealCallback = onPhotoRevealed
-                    let hideCallback = onPhotoHidden
-                    let toggleAction = {
-                        if isBlurred {
-                            blurOverride = false
-                            revealCallback(key)
-                        } else {
-                            blurOverride = true
-                            hideCallback(key)
+                    if attachment.supportsBlur {
+                        let isBlurred = shouldBlurPhoto
+                        let key = attachment.key
+                        let revealCallback = onPhotoRevealed
+                        let hideCallback = onPhotoHidden
+                        let toggleAction = {
+                            if isBlurred {
+                                blurOverride = false
+                                revealCallback(key)
+                            } else {
+                                blurOverride = true
+                                hideCallback(key)
+                            }
+                            dismissMenu(afterStateChange: true)
                         }
-                        dismissMenu(afterStateChange: true)
+                        ContextMenuRow(
+                            icon: isBlurred ? "eye" : "eye.slash",
+                            title: isBlurred ? "Reveal" : "Blur",
+                            action: toggleAction
+                        )
                     }
-                    ContextMenuRow(
-                        icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Blur",
-                        action: toggleAction
-                    )
                 }
             }
             .padding(.vertical, 10)
@@ -614,7 +624,6 @@ struct MessageContextMenuOverlay: View {
             HTMLAttachmentBubble(
                 attachment: attachment,
                 profile: profile,
-                reactions: [],
                 agentVerification: message?.sender.agentVerification ?? .unverified,
                 cornerRadiusOverride: radius
             )

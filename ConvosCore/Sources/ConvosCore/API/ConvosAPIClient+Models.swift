@@ -206,6 +206,46 @@ public enum ConvosAPI {
         }
     }
 
+    // MARK: - v2/agent-templates/:id
+
+    // Subset of the agent-template object the backend returns from the
+    // publish endpoint (POST /:id/publish). We only model the fields the
+    // share flow consumes today (id, status, publishedUrl); decoding is
+    // tolerant of extra keys via the default Codable behavior.
+    public struct AgentTemplate: Codable, Sendable {
+        public let id: String
+        public let status: String
+        public let publishedUrl: String?
+        /// Public profile fields, populated by the detail endpoint
+        /// (`GET /v2/agent-templates/:idOrUrlSlug`). Optional because the
+        /// publish response historically only carried id/status/publishedUrl.
+        public let slug: String?
+        public let agentName: String?
+        public let description: String?
+        public let emoji: String?
+        public let avatarUrl: String?
+
+        public init(
+            id: String,
+            status: String,
+            publishedUrl: String?,
+            slug: String? = nil,
+            agentName: String? = nil,
+            description: String? = nil,
+            emoji: String? = nil,
+            avatarUrl: String? = nil
+        ) {
+            self.id = id
+            self.status = status
+            self.publishedUrl = publishedUrl
+            self.slug = slug
+            self.agentName = agentName
+            self.description = description
+            self.emoji = emoji
+            self.avatarUrl = avatarUrl
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {

@@ -45,12 +45,18 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteIsEditable: Bool = true
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
     @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingAgentShareName: String?
+    var pendingAgentShareEmoji: String?
+    var pendingAgentShareSummary: String?
+    var isShowingAgentShareChip: Bool = false
+    var onClearAgentShare: (() -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -426,12 +432,17 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteIsEditable: pendingInviteIsEditable,
                 pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteConvoName: $pendingInviteConvoName,
                 pendingInviteImage: $pendingInviteImage,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                pendingAgentShareName: pendingAgentShareName,
+                pendingAgentShareEmoji: pendingAgentShareEmoji,
+                pendingAgentShareSummary: pendingAgentShareSummary,
+                isShowingAgentShareChip: isShowingAgentShareChip,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
@@ -441,6 +452,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
+                onClearAgentShare: onClearAgentShare,
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment
             )
@@ -539,8 +551,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             hasAgent: false,
             isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
-            onBottomOverscrollChanged: { _ in },
-            onBottomOverscrollReleased: { _ in },
             scrollToBottomTrigger: { _ in },
             messageInputFocusTrigger: { _ in }
         )

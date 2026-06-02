@@ -23,7 +23,7 @@ enum AgentBuilderTransition {
 /// the two don't collide in this file's scope.
 private enum RemixBadgeMetric {
     /// Outer dimensions roughly match a 30%-scale hero contact card
-    /// (carousel card ≈ 354 × 232, so ~30% ≈ 106 × 70).
+    /// (carousel card ~= 354 x 232, so ~30% ~= 106 x 70).
     static let badgeWidth: CGFloat = 110
     static let badgeHeight: CGFloat = 72
     static let cornerRadius: CGFloat = 12
@@ -68,8 +68,8 @@ struct AgentDraftComposer: View {
 
     var body: some View {
         Group {
-            if viewModel.isRecordingVoiceMemo, let recorder = viewModel.voiceMemoRecorder {
-                recordingLayout(recorder: recorder)
+            if viewModel.isRecordingVoiceMemo {
+                recordingLayout(recorder: viewModel.voiceMemoRecorder)
             } else {
                 standardLayout
             }
@@ -233,6 +233,27 @@ struct AgentDraftComposer: View {
         }
     }
 
+    @ViewBuilder
+    private func recordingLayout(recorder: VoiceMemoRecorder) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            // Keep the picked remix-agent badge pinned in the
+            // composer while recording -- it's part of the draft
+            // context, not the input chrome. Without this the
+            // badge would disappear the moment the user taps the
+            // microphone and reappear on stop, which reads as a
+            // bug.
+            if let pickedAgent = viewModel.pickedRemixAgent {
+                remixAgentBadge(for: pickedAgent)
+                    .padding(.bottom, DesignConstants.Spacing.step2x)
+                    .transition(.scale(scale: 1.4).combined(with: .opacity))
+            }
+            textField
+            Spacer(minLength: 0)
+            VoiceMemoRecordingView(recorder: recorder, showsInlineStopButton: false)
+                .frame(minHeight: 32)
+        }
+    }
+
     /// Pinned thumbnail of the picked Remix agent. Mirrors the
     /// `AgentContactCardView.hero` layout (round emoji avatar above
     /// bold name above tail-truncated summary) at ~30% of the
@@ -296,7 +317,7 @@ struct AgentDraftComposer: View {
     /// Attachment-style X overlaid on the scaled card. Matches the
     /// `removeButton` styling from the photo / file / voice-memo
     /// chips so the affordance reads consistently. Tap clears the
-    /// pick *and* exits Remix mode in one shot.
+    /// pick and exits Remix mode in one shot.
     private func remixAgentBadgeRemoveButton(for agent: RandomAgent) -> some View {
         Button {
             withAnimation(.smooth(duration: 0.3)) {
@@ -318,7 +339,7 @@ struct AgentDraftComposer: View {
     }
 
     /// Dice button positioned as a top-trailing overlay on the composer
-    /// rather than a layout sibling — keeps the text field flush with
+    /// rather than a layout sibling -- keeps the text field flush with
     /// the top edge regardless of whether the button is visible. Hidden
     /// once the user puts any content in the composer (text, media,
     /// voice memo, or connections) so the dice gesture is reserved for
@@ -347,30 +368,9 @@ struct AgentDraftComposer: View {
         .accessibilityIdentifier("remix-dice-button")
     }
 
-    @ViewBuilder
-    private func recordingLayout(recorder: VoiceMemoRecorder) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            // Keep the picked remix-agent badge pinned in the
-            // composer while recording — it's part of the draft
-            // context, not the input chrome. Without this the
-            // badge would disappear the moment the user taps the
-            // microphone and reappear on stop, which reads as a
-            // bug.
-            if let pickedAgent = viewModel.pickedRemixAgent {
-                remixAgentBadge(for: pickedAgent)
-                    .padding(.bottom, DesignConstants.Spacing.step2x)
-                    .transition(.scale(scale: 1.4).combined(with: .opacity))
-            }
-            textField
-            Spacer(minLength: 0)
-            VoiceMemoRecordingView(recorder: recorder, showsInlineStopButton: false)
-                .frame(minHeight: 32)
-        }
-    }
-
     private var textFieldPlaceholder: String {
         if viewModel.isRecordingVoiceMemo {
-            return "Speaking an agent into existance"
+            return "Speaking an agent into existence"
         }
         if let picked = viewModel.pickedRemixAgent {
             return "Customize \(picked.displayName) to make it yours"
@@ -453,6 +453,7 @@ struct AgentDraftComposer: View {
                 isMediaCapacityFull: isMediaCapacityFull,
                 isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
                 showsSideConvoButton: false,
+                showsFileButton: false,
                 buttonSpacing: DesignConstants.Spacing.step4x,
                 onConnectionsTap: {
                     focusState.wrappedValue = nil
@@ -461,6 +462,7 @@ struct AgentDraftComposer: View {
             )
             .padding(.horizontal, fadeWidth)
         }
+        .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, alignment: .leading)
         .mask(

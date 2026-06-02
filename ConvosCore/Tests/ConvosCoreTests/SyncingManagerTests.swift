@@ -84,6 +84,10 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
+    }
+
     func deleteLocalDatabase() throws {
     }
 
@@ -219,6 +223,13 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         fatalError("not implemented in test mock")
     }
 
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in test mock")
+    }
+
     func streamAllMessages(
         type: ConversationFilterType,
         consentStates: [ConsentState]?,
@@ -317,6 +328,10 @@ class TestableMockMessageSender: MessageSender {
     }
 
     func prepare(reply: Reply) async throws -> String {
+        ""
+    }
+
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
         ""
     }
 

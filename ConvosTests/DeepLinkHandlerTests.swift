@@ -17,14 +17,14 @@ final class DeepLinkHandlerTests: XCTestCase {
     // MARK: - Connection Grant Deep Links (custom scheme)
 
     func testCustomSchemeConnectionGrant_ParsesServiceAndConversationId() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc123"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=abc123"))
         let destination = DeepLinkHandler.destination(for: url)
 
         guard case let .connectionGrant(service, conversationId) = destination else {
             XCTFail("Expected .connectionGrant, got \(String(describing: destination))")
             return
         }
-        XCTAssertEqual(service, "google_calendar")
+        XCTAssertEqual(service, "googlecalendar")
         XCTAssertEqual(conversationId, "abc123")
     }
 
@@ -34,7 +34,7 @@ final class DeepLinkHandlerTests: XCTestCase {
     }
 
     func testCustomSchemeConnectionGrant_MissingConversationIdReturnsNil() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
@@ -49,7 +49,7 @@ final class DeepLinkHandlerTests: XCTestCase {
     }
 
     func testCustomScheme_WrongPathReturnsNil() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/revoke?service=google_calendar&conversationId=abc123"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/revoke?service=googlecalendar&conversationId=abc123"))
         let destination = DeepLinkHandler.destination(for: url)
         if case .connectionGrant = destination {
             XCTFail("Unknown path under connections host should not be parsed as connectionGrant")
@@ -59,19 +59,19 @@ final class DeepLinkHandlerTests: XCTestCase {
     // MARK: - Connection Grant Deep Links (https universal link)
 
     func testHttpsConnectionGrant_ParsesServiceAndConversationId() throws {
-        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/connections/grant?service=google_calendar&conversationId=abc123"))
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/connections/grant?service=googlecalendar&conversationId=abc123"))
         let destination = DeepLinkHandler.destination(for: url)
 
         guard case let .connectionGrant(service, conversationId) = destination else {
             XCTFail("Expected .connectionGrant, got \(String(describing: destination))")
             return
         }
-        XCTAssertEqual(service, "google_calendar")
+        XCTAssertEqual(service, "googlecalendar")
         XCTAssertEqual(conversationId, "abc123")
     }
 
     func testHttpsConnectionGrant_InvalidHostReturnsNil() throws {
-        let url = try XCTUnwrap(URL(string: "https://evil.example.com/connections/grant?service=google_calendar&conversationId=abc"))
+        let url = try XCTUnwrap(URL(string: "https://evil.example.com/connections/grant?service=googlecalendar&conversationId=abc"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
@@ -95,35 +95,35 @@ final class DeepLinkHandlerTests: XCTestCase {
     }
 
     func testKnownServiceIsAccepted() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_drive&conversationId=abc123"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googledrive&conversationId=abc123"))
         guard case let .connectionGrant(service, conversationId) = DeepLinkHandler.destination(for: url) else {
             XCTFail("Expected .connectionGrant for known service")
             return
         }
-        XCTAssertEqual(service, "google_drive")
+        XCTAssertEqual(service, "googledrive")
         XCTAssertEqual(conversationId, "abc123")
     }
 
     // MARK: - Malicious conversationId
 
     func testConversationIdWithQuotesIsRejected() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%27%20OR%201%3D1"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=abc%27%20OR%201%3D1"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
     func testConversationIdWithPathTraversalIsRejected() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=..%2Fetc%2Fpasswd"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=..%2Fetc%2Fpasswd"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
     func testConversationIdWithSpacesIsRejected() throws {
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%20123"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=abc%20123"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
     func testOverlyLongConversationIdIsRejected() throws {
         let longId = String(repeating: "a", count: 600)
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=\(longId)"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=\(longId)"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
     }
 
@@ -199,7 +199,7 @@ final class DeepLinkHandlerTests: XCTestCase {
         // scanned conversation invite keeps routing through the invite
         // path unchanged.
         let url = try XCTUnwrap(
-            URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc123")
+            URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=abc123")
         )
         XCTAssertNil(DeepLinkHandler.agentTemplateId(from: url))
     }
@@ -215,7 +215,7 @@ final class DeepLinkHandlerTests: XCTestCase {
     func testHandleURLDropsUnknownConversationId() throws {
         let knownConversation = Conversation.mock(id: "known-conv")
         let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=unknown-conv"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=unknown-conv"))
 
         viewModel.handleURL(url)
 
@@ -227,12 +227,12 @@ final class DeepLinkHandlerTests: XCTestCase {
     func testHandleURLSetsPendingGrantForKnownConversation() throws {
         let knownConversation = Conversation.mock(id: "known-conv")
         let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=known-conv"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=known-conv"))
 
         viewModel.handleURL(url)
 
         XCTAssertNotNil(viewModel.pendingGrantRequest)
-        XCTAssertEqual(viewModel.pendingGrantRequest?.serviceId, "google_calendar")
+        XCTAssertEqual(viewModel.pendingGrantRequest?.serviceId, "googlecalendar")
         XCTAssertEqual(viewModel.pendingGrantRequest?.conversationId, "known-conv")
         XCTAssertEqual(viewModel.selectedConversationId, "known-conv")
     }
@@ -252,7 +252,7 @@ final class DeepLinkHandlerTests: XCTestCase {
     func testHandleURLDropsMaliciousConversationId() throws {
         let knownConversation = Conversation.mock(id: "known-conv")
         let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
-        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%27%20OR%201%3D1"))
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=googlecalendar&conversationId=abc%27%20OR%201%3D1"))
 
         viewModel.handleURL(url)
 

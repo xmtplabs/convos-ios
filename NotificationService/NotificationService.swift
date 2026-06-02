@@ -13,20 +13,24 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
 
         Log.info("Initializing global push handler for environment: \(environment.name)")
 
+        // LibXMTP logging is intentionally disabled in the Notification Service
+        // Extension. Enabling it triggered a Rust panic in `tracing-oslog`:
+        //     thread '<unnamed>' panicked at .../tracing-oslog-0.3.0/src/logger.rs:166:
+        //     invalid span, this shouldn't happen
+        // The panic fires deep in the os_log integration when libxmtp emits
+        // tracing spans inside the NSE process, killing the extension before
+        // it can decode the payload. To the user this presents as "push
+        // arrived in APNS but no banner shown" (verified on real device,
+        // 2026-05-29). Main app is unaffected; only the NSE process crosses
+        // the tracing-oslog boundary that triggers it.
+        //
+        // Mitigation: drop NSE-side logging entirely on non-production builds.
+        // We lose NSE debug visibility but recover push delivery. File the
+        // libxmtp / tracing-oslog issue and revisit once the panic is fixed
+        // upstream. Production already skipped this block, so production
+        // users were never affected.
         if !environment.isProduction {
-            Log.info("Activating LibXMTP file log writer (NSE) at \(environment.defaultXMTPLogsDirectoryURL.path) (level=.debug, rotation=hourly, maxFiles=10)…")
-            Client.activatePersistentLibXMTPLogWriter(
-                logLevel: .debug,
-                rotationSchedule: .hourly,
-                maxFiles: 10,
-                customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
-                processType: .notificationExtension
-            )
-            Log.info("LibXMTP file log writer activated (NSE)")
-            // NSE memory/time limits — quieter than main app.
-            Log.info("Setting LibXMTP native log level to .info (NSE)…")
-            Client.setLibXMTPNativeLogLevel(.info)
-            Log.info("LibXMTP native log level set to .info (NSE)")
+            Log.info("Skipping LibXMTP logging in NSE (tracing-oslog panic workaround). Main app still logs.")
         }
 
         let nseVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

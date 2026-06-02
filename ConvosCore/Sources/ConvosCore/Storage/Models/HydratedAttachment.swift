@@ -73,7 +73,7 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
     }
 
     public var isFullBleed: Bool {
-        mediaType.isFullBleed || isHTMLFile
+        mediaType.isFullBleed
     }
 
     public var mediaType: MediaType {
@@ -82,6 +82,14 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("audio/") { return .audio }
         return .file
+    }
+
+    /// Whether this attachment renders as visual media that can be blurred and revealed.
+    /// Mirrors the routing in `MessagesGroupItemView`: voice memos, files, and HTML tiles
+    /// render in their own bubbles and never receive the blur overlay, so the reveal/blur
+    /// toggle must not be offered for them.
+    public var supportsBlur: Bool {
+        !isHTMLFile && mediaType != .audio && mediaType != .file
     }
 
     public var aspectRatio: CGFloat? {

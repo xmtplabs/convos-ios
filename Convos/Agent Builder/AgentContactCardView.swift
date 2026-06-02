@@ -10,12 +10,12 @@ import SwiftUI
 /// "Learning more about my job" with a pulse highlight matching
 /// `AgentJoinStatusView`. Once the value arrives, the subtitle
 /// blur-replaces to the real text.
-/// Visual styling of an `AgentContactCardView`. `.standard` is the
-/// in-chat / post-Make appearance (40pt avatar, `.title2` name,
-/// `.body` summary). `.hero` is the larger "browse" variant used by
-/// the Remix carousel — bigger avatar, larger bolded name with tight
-/// letter-spacing, smaller footnote-style summary, and almost no gap
-/// between the two text lines.
+///
+/// Visual styling of an `AgentContactCardView`. `.standard` is the in-chat /
+/// post-Make appearance (40pt avatar, `.title2` name, `.body` summary).
+/// `.hero` is the larger "browse" variant -- bigger avatar, larger bolded
+/// name with tight letter-spacing, smaller footnote-style summary, and almost
+/// no gap between the two text lines.
 enum AgentContactCardStyle {
     case standard
     case hero
@@ -25,11 +25,10 @@ struct AgentContactCardView: View {
     let profile: Profile
     let agentDescription: String?
     var style: AgentContactCardStyle = .standard
-    /// Optional explicit size. When set, the card sizes itself to
-    /// these dimensions instead of relying on its intrinsic size or
-    /// an outer `.frame` from the caller — required for the Remix
-    /// carousel where every card must be exactly the same width for
-    /// `.scrollTargetBehavior(.viewAligned)` to snap centers cleanly.
+    /// Optional explicit size. When set, the card sizes itself to this width
+    /// instead of relying on its intrinsic size or an outer `.frame` from the
+    /// caller -- required where every card must be exactly the same width (e.g.
+    /// a paged carousel that snaps centers).
     var cardSize: CGSize?
 
     @State private var isAppearing: Bool = true
@@ -81,11 +80,10 @@ struct AgentContactCardView: View {
         }
     }
 
-    /// `nil` lets the subtitle expand to whatever its content needs;
-    /// the Remix carousel's `.hero` variant pins it at 3 lines with
-    /// `reservesSpace: true` so every card has the same intrinsic
-    /// height regardless of summary length (and longer summaries
-    /// tail-truncate cleanly).
+    /// `nil` lets the subtitle expand to whatever its content needs; the
+    /// `.hero` variant pins it at a fixed line count with `reservesSpace: true`
+    /// so every card has the same intrinsic height regardless of summary
+    /// length (and longer summaries tail-truncate cleanly).
     private var subtitleLineLimit: Int? {
         switch style {
         case .standard: return nil
@@ -106,12 +104,9 @@ struct AgentContactCardView: View {
         GlassEffectContainer {
             glassCard
         }
-        // Only constrain width — height is intrinsic. With the
-        // subtitle pinned to a fixed line count via `lineLimit(_:
-        // reservesSpace:)`, every card has identical intrinsic
-        // height, so the carousel can let the cards size themselves
-        // vertically rather than padding them out to a container
-        // height.
+        // Only constrain width -- height stays intrinsic. With the subtitle
+        // pinned to a fixed line count in `.hero`, every card has identical
+        // intrinsic height.
         .frame(width: cardSize?.width)
         .opacity(isAppearing ? 0 : 1)
         .onAppear {
@@ -164,31 +159,29 @@ struct AgentContactCardView: View {
 
     private enum Constant {
         static let standardAvatarSize: CGFloat = 40
-        /// 74pt "hero" avatar — used by the Remix-mode carousel so the
-        /// card reads as a browse-target rather than a chat-row
-        /// thumbnail.
+        /// 74pt "hero" avatar -- reads as a browse-target rather than a
+        /// chat-row thumbnail.
         static let heroAvatarSize: CGFloat = 74
         static let cornerRadius: CGFloat = 24
-        /// Hero display-name typography: SF Pro Bold 40pt with -1pt
-        /// letter spacing.
+        /// Hero display-name typography: SF Pro Bold 40pt with -1pt letter
+        /// spacing.
         static let heroDisplayNameFont: Font = .system(size: 40, weight: .bold)
         static let heroDisplayNameTracking: CGFloat = -1
-        /// Hero variant collapses the gap between name and summary to
-        /// 2pt — design wants the two lines to read as one unit.
+        /// Hero variant collapses the gap between name and summary to 2pt --
+        /// the two lines should read as one unit.
         static let heroTitleSubtitleSpacing: CGFloat = 2
-        /// Hero variant reserves space for a 2-line summary so every
-        /// card in the Remix carousel has the same intrinsic height
-        /// regardless of summary length.
+        /// Hero variant reserves space for a 2-line summary so every card has
+        /// the same intrinsic height regardless of summary length.
         static let heroSubtitleLineLimit: Int = 2
     }
 
     static let placeholderSubtitle: String = "Learning more about my job"
 }
 
-/// Applies `.lineLimit(_:Int, reservesSpace: true).truncationMode(.tail)`
-/// when a line count is provided. The `reservesSpace` overload
-/// doesn't accept `Int?`, so we branch via a `ViewModifier` rather
-/// than passing the optional directly.
+/// Applies `.lineLimit(_:Int, reservesSpace: true).truncationMode(.tail)` when
+/// a line count is provided. The `reservesSpace` overload doesn't accept
+/// `Int?`, so we branch via a `ViewModifier` rather than passing the optional
+/// directly.
 private struct SubtitleLineLimitModifier: ViewModifier {
     let lineLimit: Int?
 

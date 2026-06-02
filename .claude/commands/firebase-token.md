@@ -1,159 +1,105 @@
 ---
-description: Fetch the Firebase App Check debug token from simulator logs and pin it in the shared parent .env so every worktree reuses one token.
+description: Fetch the Firebase App Check debug token from simulator logs and pin it in the shared workspace convos-ios.env so every worktree reuses one token.
 ---
 
 # /firebase-token
 
-Retrieve a Firebase App Check debug token from the running app, pin it in the **shared parent `.env`**, and make sure the current repo/worktree's `.env` is symlinked to that shared file. One token, one place to rotate it, every worktree picks it up.
+Retrieve a Firebase App Check debug token from the running app, pin it in the **shared `convos-ios.env`** (in the local-stack workspace), and make sure this checkout's `.env` symlinks to that shared file. One token, one place to rotate it, every worktree picks it up.
 
 ## When to use
-
 - You've launched the app on a fresh simulator and are seeing App Check rejections.
 - You want to set up the shared-token pattern for the first time.
-- The token rotated (e.g. token expired / Firebase removed it) and you need a new one.
+- The token rotated (expired / Firebase removed it) and you need a new one.
 
 ## Instructions
 
-### Step 1: Resolve paths for the shared `.env`
+### Step 1: Resolve the shared `.env`
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-PARENT_DIR=$(dirname "$REPO_ROOT")
-PARENT_ENV="$PARENT_DIR/.env"
+# Shared convos-ios DEV .env: prefer the local-stack workspace (CONVOS_REPOS_DIR env, or the
+# .convos-stack pointer at the repo root) -> <workspace>/convos-ios.env. Fall back to the legacy
+# parent (<dirname repo>/.env) when no workspace is configured.
+WS="${CONVOS_REPOS_DIR:-}"
+[ -z "$WS" ] && [ -f "$REPO_ROOT/.convos-stack" ] && WS="$(tr -d '\n' < "$REPO_ROOT/.convos-stack")"
+if [ -n "$WS" ] && [ -d "$WS" ]; then SHARED_ENV="$WS/convos-ios.env"; else SHARED_ENV="$(dirname "$REPO_ROOT")/.env"; fi
 LOCAL_ENV="$REPO_ROOT/.env"
 ```
-
-For the standard layout (`~/Code/xmtplabs/convos-ios/`, `~/Code/xmtplabs/convos-ios-task-*/`), `$PARENT_DIR` is `~/Code/xmtplabs/` and the shared file is `~/Code/xmtplabs/.env`. Both the main clone and every worktree's `.env` symlinks to it via `../.env`.
+With the local stack set up (`make -C dev/local-stack init`), `$SHARED_ENV` is `<workspace>/convos-ios.env`. Without it, it's the legacy `<parent>/.env`. Every checkout's `.env` symlinks to `$SHARED_ENV`.
 
 ### Step 2: Ensure the symlink exists
+
+Ensure `$SHARED_ENV` exists first — if missing, `touch "$SHARED_ENV"`.
 
 Four cases for `$LOCAL_ENV`:
 
 | State | Action |
 |-------|--------|
-| Missing | `ln -s ../.env "$LOCAL_ENV"` and report "Linked .env → ../.env" |
-| Symlink → `../.env` (resolves to `$PARENT_ENV`) | No-op |
-| Symlink pointing elsewhere | Warn, stop. Don't clobber. |
-| Regular file | Warn, stop. Don't destroy local env vars. Print the migration recipe: `mv .env ../.env && ln -s ../.env .env` (after verifying the user actually wants the contents moved to the shared file). |
-
-Ensure `$PARENT_ENV` exists — if missing, `touch "$PARENT_ENV"`.
+| Missing | `ln -s "$SHARED_ENV" "$LOCAL_ENV"` and report "Linked .env → $SHARED_ENV" |
+| Symlink → `$SHARED_ENV` | No-op |
+| Symlink pointing elsewhere | Warn, stop. Don't clobber. (A `Convos (Local)` checkout intentionally has a *standalone* `.env` written by `ios-config` — leave it.) |
+| Regular file | Warn, stop. Print the migration recipe: `cat .env >> "$SHARED_ENV" && rm .env && ln -s "$SHARED_ENV" .env` (after confirming the user wants the contents moved). |
 
 ### Step 3: Verify the app is running
 
-Take a screenshot or call `xcrun simctl listapps $UDID | grep -q org.convos.ios-preview`. If the app isn't running, tell the user to run `/run` first and stop — we can't extract a token without a live app.
+Take a screenshot or `xcrun simctl listapps $UDID | grep -q org.convos.ios-preview`. If the app isn't running, tell the user to `/run` first and stop — no live app, no token.
 
 ### Step 4: Capture logs and extract the token
 
-Preferred path (MCP available in the main session):
-
+Preferred (MCP):
 ```
 mcp__XcodeBuildMCP__start_sim_log_cap with bundleId and captureConsole: true
 wait 3-5 seconds
 mcp__XcodeBuildMCP__stop_sim_log_cap with logSessionId
 ```
-
-Bash fallback when MCP isn't available:
-
+Bash fallback:
 ```bash
 UDID=$(cat .claude/.simulator_id)
 xcrun simctl spawn "$UDID" log show \
   --predicate 'eventMessage CONTAINS "App Check debug token"' \
   --last 5m --style compact 2>/dev/null | tail -50
 ```
-
-Search the output for:
-
-```
-[AppCheckCore][I-GAC004001] App Check debug token: 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX'
-```
-
-The token is a UUID inside single quotes.
+Find: `[AppCheckCore][I-GAC004001] App Check debug token: 'XXXXXXXX-...'` — a UUID in single quotes.
 
 ### Step 5: Write the token to the shared `.env`
 
-Update `$PARENT_ENV` in place. Replace any existing line, otherwise append:
-
 ```bash
 TOKEN="<extracted-uuid>"
-if grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' "$PARENT_ENV"; then
-  # macOS sed requires '' after -i
-  sed -i '' "s|^FIREBASE_APP_CHECK_DEBUG_TOKEN=.*|FIREBASE_APP_CHECK_DEBUG_TOKEN=${TOKEN}|" "$PARENT_ENV"
+if grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' "$SHARED_ENV"; then
+  sed -i '' "s|^FIREBASE_APP_CHECK_DEBUG_TOKEN=.*|FIREBASE_APP_CHECK_DEBUG_TOKEN=${TOKEN}|" "$SHARED_ENV"
 else
-  echo "FIREBASE_APP_CHECK_DEBUG_TOKEN=${TOKEN}" >> "$PARENT_ENV"
+  echo "FIREBASE_APP_CHECK_DEBUG_TOKEN=${TOKEN}" >> "$SHARED_ENV"
 fi
 ```
 
 ### Step 6: Report
-
-**If token extracted and pinned:**
 
 ```
 🔥 Firebase App Check Debug Token
 
 Token: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 
-✓ Pinned in <PARENT_ENV>
-✓ .env → ../.env symlink in place at <LOCAL_ENV>
-  (all convos-ios worktrees under <PARENT_DIR> share this token)
+✓ Pinned in <SHARED_ENV>
+✓ .env → <SHARED_ENV> symlink in place at <LOCAL_ENV>
+  (every convos-ios checkout/worktree sharing this workspace reuses this token)
 
 Register it in Firebase Console if you haven't already:
 https://console.firebase.google.com/u/1/project/convos-otr/appcheck/apps
+  → pick the app for your scheme (Dev: org.convos.ios-preview, Local: org.convos.ios-local,
+    Prod: org.convos.ios) → ⋮ → Manage debug tokens → Add debug token → paste the UUID.
+  (Register in BOTH the Dev and Local apps if you build both schemes against this token.)
 
-1. Click the link
-2. Pick the iOS app for your scheme:
-   - Dev:   org.convos.ios-preview
-   - Local: org.convos.ios-local
-   - Prod:  org.convos.ios
-3. Overflow menu (⋮) → Manage debug tokens → Add debug token
-4. Paste the UUID above
-
-Relaunch the app (/run) to pick up the new token.
+Relaunch the app (/run) to pick it up.
 ```
 
-**If no token found in logs:**
-
-```
-No Firebase App Check debug token found in logs.
-
-Could mean:
-- The simulator is already registered with this token (check <PARENT_ENV>)
-- The app hasn't initialized Firebase yet (try interacting with the app, then rerun)
-- Logs were captured too early (rerun /firebase-token)
-```
-
-Still report the symlink status from step 2 so the user knows `.env` plumbing is in place.
-
-**If local `.env` blocked the symlink (step 2 warning case):**
-
-Stop before step 3 and print clear instructions:
-
-```
-⚠️  <LOCAL_ENV> is a regular file, not a symlink.
-
-The shared-token pattern requires each worktree's .env to be a symlink to
-../.env so one token rotation updates every workspace.
-
-To migrate (preserves your existing contents):
-  cat .env >> ../.env     # merge into shared
-  rm .env                 # remove the local
-  ln -s ../.env .env      # symlink it
-
-Review ../.env afterwards to dedupe any keys.
-```
+If no token found, or the local `.env` blocked the symlink, report that and the migration recipe (Step 2), and still report the symlink status.
 
 ## Bundle IDs per scheme
-
 | Scheme | Bundle id |
 |--------|-----------|
 | Convos (Dev) | `org.convos.ios-preview` |
 | Convos (Local) | `org.convos.ios-local` |
 | Convos (Prod) | `org.convos.ios` |
 
-## Why the shared-parent pattern
-
-Engineers working across multiple convos-ios worktrees want one Firebase debug token:
-- One place to rotate when the token expires or gets removed from the Firebase Console
-- No per-worktree duplication or drift
-- New worktrees created via `convos-task new` pick it up automatically (the script symlinks `.env` → `../.env` when the parent exists)
-
-`/setup`'s `.env` warning also leads with the symlink recipe to keep every worktree on the same token.
+## Why the shared-workspace pattern
+One Firebase debug token across all your convos-ios worktrees: one place to rotate it, no per-worktree drift. It lives in the **local-stack workspace** (`<workspace>/convos-ios.env`) alongside the rest of the shared local-dev state, resolved via the `.convos-stack` pointer. `/setup` and `convos-task` create the same symlink for new checkouts/worktrees. (Falls back to the legacy `<parent>/.env` when no workspace is configured.) A `Convos (Local)` checkout keeps a *standalone* `.env` (written by `ios-config` / `/run local`) instead of the symlink, since Local needs a localhost backend URL.

@@ -13,6 +13,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
+    var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -40,6 +43,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
     var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
+    var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -50,8 +55,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
-    let onBottomOverscrollChanged: (CGFloat) -> Void
-    let onBottomOverscrollReleased: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
@@ -89,6 +92,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapAvatar = onTapAvatar
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
+        messagesViewController.onTapAgentShare = onTapAgentShare
+        messagesViewController.agentShareResolver = agentShareResolver
+        messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction
         messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
@@ -104,8 +110,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
             self.onPhotoHidden(key)
         }
-        messagesViewController.onBottomOverscrollChanged = onBottomOverscrollChanged
-        messagesViewController.onBottomOverscrollReleased = onBottomOverscrollReleased
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
@@ -139,6 +143,7 @@ let menuPresented = contextMenuState.isPresented
         if wasMenuPresented, !menuPresented {
             messagesViewController.applyDeferredBottomInset()
         }
+        messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
@@ -146,7 +151,8 @@ let menuPresented = contextMenuState.isPresented
             hasLoadedAllMessages: hasLoadedAllMessages,
             headerMode: headerMode,
             agentBuilderSummary: agentBuilderSummary,
-            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace
         )
     }
 }
@@ -192,8 +198,6 @@ let menuPresented = contextMenuState.isPresented
         hasAgent: false,
         isAgentJoinPending: false,
         bottomBarHeight: bottomBarHeight,
-        onBottomOverscrollChanged: { _ in },
-        onBottomOverscrollReleased: { _ in },
         scrollToBottomTrigger: { _ in },
         messageInputFocusTrigger: { _ in }
     )

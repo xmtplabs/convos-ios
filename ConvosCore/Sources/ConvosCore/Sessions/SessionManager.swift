@@ -30,9 +30,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var assetRenewalTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
-    private var contactBlockingObserver: NSObjectProtocol?
-    private var quarantineSweeperTask: Task<Void, Never>?
-    private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
+    private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
     /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
@@ -146,6 +144,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.bootstrapCapabilityProviders()
             guard !Task.isCancelled else { return }
 
+            // Kick off the AgentBuilder grant replayer after the capability
+            // providers have bootstrapped — it relies on the cloud-connection
+            // and enablement stores being ready to query.
+            _ = self.agentBuilderConnectionGrantReplayer()
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -162,14 +165,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     deinit {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
-        quarantineSweeperTask?.cancel()
+        staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
-        }
-        if let contactBlockingObserver {
-            NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
     }
 
@@ -184,7 +184,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
-                self.runQuarantineSweep(reason: "foreground")
+                self.runStaleStrangerGC(reason: "foreground")
             }
         }
 
@@ -197,68 +197,41 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             self?.updateActiveConversation(conversationId)
         }
 
-        // Trigger an immediate quarantine sweep when a contact gets
-        // unblocked (or blocked — though only unblocking has a UX-visible
-        // effect on existing held conversations). Without this, the user
-        // would have to wait for the next hourly sweep or app-foreground
-        // entry before quarantined-by-block conversations reappear in
-        // the main feed.
-        contactBlockingObserver = NotificationCenter.default.addObserver(
-            forName: .contactBlockingDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.runQuarantineSweep(reason: "contactBlockingDidChange")
-        }
-
-        scheduleQuarantineSweeper()
+        scheduleStaleStrangerGC()
     }
 
-    /// Periodic sweeper that promotes quarantined conversations whose
-    /// senders have become contacts and deletes those past the TTL. Runs
-    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
-    /// while the process is alive. The foreground observer above also
-    /// triggers an extra sweep on every foreground entry.
-    private func scheduleQuarantineSweeper() {
-        let sweeper = QuarantineSweeper(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
-        cachedQuarantineSweeper = sweeper
-
-        quarantineSweeperTask?.cancel()
-        quarantineSweeperTask = Task { [weak self] in
-            // Initial sweep at launch.
-            await Self.invokeSweep(sweeper, reason: "launch")
-            // Hourly sweep while the process lives. Foreground entries also
-            // trigger an extra sweep via the foreground observer.
+    /// Periodic garbage collector for stranger conversations that have
+    /// sat hidden in the main feed (creator never became a contact, so
+    /// consent was never promoted past `.unknown`) beyond the retention
+    /// window. Runs at launch and once per `staleStrangerGCInterval`
+    /// while the process is alive; foreground entries also trigger an
+    /// extra run.
+    private func scheduleStaleStrangerGC() {
+        staleStrangerGCTask?.cancel()
+        staleStrangerGCTask = Task { [weak self] in
+            await self?.runStaleStrangerGC(reason: "launch")
             while !Task.isCancelled {
-                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                let interval: UInt64 = UInt64(SessionManager.staleStrangerGCInterval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: interval)
-                guard self != nil, !Task.isCancelled else { return }
-                await Self.invokeSweep(sweeper, reason: "interval")
+                guard let self, !Task.isCancelled else { return }
+                await self.runStaleStrangerGC(reason: "interval")
             }
         }
     }
 
-    private func runQuarantineSweep(reason: String) {
-        guard let sweeper = cachedQuarantineSweeper else { return }
-        Task.detached {
-            await Self.invokeSweep(sweeper, reason: reason)
+    private func runStaleStrangerGC(reason: String) {
+        Task.detached { [databaseWriter] in
+            await SessionManager.deleteStaleStrangerConversations(
+                databaseWriter: databaseWriter,
+                reason: reason
+            )
         }
     }
 
-    private static func invokeSweep(
-        _ sweeper: any QuarantineSweeperProtocol,
-        reason: String
-    ) async {
-        do {
-            try await sweeper.sweep()
-        } catch {
-            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
-        }
-    }
+    /// 7-day hold for stranger conversations before hard delete.
+    private static let staleStrangerTTL: TimeInterval = 7 * 24 * 60 * 60
+    /// Hourly cadence for the foreground GC loop.
+    private static let staleStrangerGCInterval: TimeInterval = 60 * 60
 
     private func updateActiveConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
@@ -558,14 +531,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try DBCloudConnectionGrant.deleteAll(db)
             try DBCloudConnection.deleteAll(db)
             try DBCapabilityResolution.deleteAll(db)
+            try DBCreditBalance.deleteAll(db)
             try DBConversationReadReceipt.deleteAll(db)
             try DBPendingPhotoUpload.deleteAll(db)
+            try DBBuilderBundleHiddenMessage.deleteAll(db)
             try DBVoiceMemoTranscript.deleteAll(db)
             try AttachmentLocalState.deleteAll(db)
             try DBPhotoPreferences.deleteAll(db)
             try ConversationLocalState.deleteAll(db)
             try DBInvite.deleteAll(db)
             try DBConversationContactsSync.deleteAll(db)
+            try DBAgentTemplate.deleteAll(db)
             try DBMessage.deleteAll(db)
             try DBMemberProfile.deleteAll(db)
             try DBConversationMember.deleteAll(db)
@@ -615,6 +591,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             options: options,
             forceErrorCode: forceErrorCode
         )
+    }
+
+    public func agentShareResolver() -> any AgentShareResolving {
+        ApiAgentShareResolver(
+            apiClient: apiClient,
+            databaseReader: databaseReader,
+            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
+        )
+    }
+
+    public func inviteMembershipResolver() -> any InviteMembershipResolving {
+        DatabaseInviteMembershipResolver(databaseReader: databaseReader)
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
@@ -833,6 +821,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// shared registry per session instead of per-callsite copies.
     private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
     private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
+    /// Lazily-constructed singleton replayer. Lives for the lifetime of
+    /// the session because it owns a long-running `ValueObservation`
+    /// stream over `agentBuilderSummary` + member rows. Constructed by
+    /// the accessor in `SessionManager+AgentBuilderGrantReplayer.swift`.
+    let agentBuilderGrantReplayerLock: OSAllocatedUnfairLock<AgentBuilderConnectionGrantReplayer?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in
@@ -913,5 +906,199 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
             }
         }
+    }
+}
+
+// MARK: - Stale-stranger GC
+
+extension SessionManager {
+    private static func deleteStaleStrangerConversations(
+        databaseWriter: any DatabaseWriter,
+        reason: String
+    ) async {
+        let cutoff: Date = Date().addingTimeInterval(-staleStrangerTTL)
+        do {
+            let deleted: Int = try await databaseWriter.write { db in
+                try deleteStaleStrangerConversations(db: db, cutoff: cutoff)
+            }
+            if deleted > 0 {
+                Log.info("StaleStrangerGC: deleted \(deleted) stranger conversation(s) (reason=\(reason))")
+            }
+        } catch {
+            Log.error("StaleStrangerGC sweep (reason=\(reason)) failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Hard-deletes empty stranger conversations (consent `.unknown` with no
+    /// local messages) created before `cutoff`. A conversation the user
+    /// created, joined, or whose creator became a contact has had its consent
+    /// promoted (`.allowed`) or demoted (`.denied`), so anything still
+    /// `.unknown` past the window is an unsolicited stranger the user never
+    /// engaged with.
+    ///
+    /// The `NOT EXISTS messages` guard means a stranger conversation that
+    /// actually received content is never deleted here - only truly empty
+    /// shells are reclaimed. `createdAt` is the XMTP network timestamp, so a
+    /// freshly-synced but network-old empty shell is eligible immediately;
+    /// gating the grace window on a local-arrival timestamp instead is a
+    /// follow-up (the column was dropped with the quarantine machinery).
+    ///
+    /// Returns the number of rows deleted. `internal` + db/cutoff-injectable
+    /// so it can be unit-tested without a clock seam.
+    static func deleteStaleStrangerConversations(db: Database, cutoff: Date) throws -> Int {
+        let sql: SQL = """
+            DELETE FROM conversation
+            WHERE createdAt < \(cutoff)
+              AND consent = \(Consent.unknown.rawValue)
+              AND NOT EXISTS (
+                  SELECT 1 FROM message WHERE message.conversationId = conversation.id
+              )
+            """
+        try db.execute(literal: sql)
+        return db.changesCount
+    }
+}
+
+// MARK: - Pairing
+
+public extension SessionManager {
+    func joinerPairingService() -> any PairingServiceProtocol {
+        LivePairingService(role: .joiner(identityStore: identityStore, environment: environment))
+    }
+
+    /// Returns true when the local DB contains at least one `DBConversation`
+    /// the user has actually engaged with (`isUnused == false`). Used by
+    /// the pairing flow to decide whether the joiner has real data that
+    /// would be lost on adoption. Silent identity creation + pre-warmed
+    /// unused conversation means every fresh install reports `false` here,
+    /// so the destructive-warning sheet stays out of the way.
+    func hasAnyUsedConversations() async -> Bool {
+        do {
+            return try await databaseReader.read { db in
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == false)
+                    .fetchCount(db) > 0
+            }
+        } catch {
+            Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
+            return false
+        }
+    }
+
+    /// Called after a successful pairing on the joiner side. The paired
+    /// secp256k1 key was already saved to the keychain by
+    /// `LivePairingService.handleIdentityShare` before this runs. We:
+    ///
+    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
+    ///    bootstrap may have stood up before the deep link arrived).
+    /// 2. Delete any pre-existing libxmtp DB files for the *adopted*
+    ///    inboxId. See `deleteStaleLibxmtpDatabaseFilesForAdoptedInbox`
+    ///    for the file-naming details and the pair-then-re-pair scenario
+    ///    that produces the conflict.
+    /// 3. Wipe the placeholder's GRDB rows. Without this, the local DB
+    ///    still has the placeholder marked as `isCurrentUser` and the
+    ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
+    ///    History-synced messages from the *paired* identity then come in
+    ///    as not-mine and render on the wrong side of the message list.
+    /// 4. Clear the cache. Next `messagingService()` call reads the new
+    ///    keychain entry and bootstraps a fresh service under the paired
+    ///    inboxId.
+    ///
+    /// Note: we deliberately do NOT call `existing.stopAndDelete()` even
+    /// though it has DB-file-deletion logic. The `MessagingService.delete`
+    /// path also runs `identityStore.delete()` — and the keychain has
+    /// already been overwritten with the freshly-paired identity by
+    /// `LivePairingService.handleIdentityShare`. Letting `stopAndDelete`
+    /// run would wipe the newly-paired keychain entry. Inline file
+    /// deletion keeps the keychain intact.
+    func refreshAfterPairingCompleted() async {
+        // Mirror `tearDownInbox`'s ordering: keep the cached reference live
+        // through stop + wipe so a concurrent `loadOrCreateService()` call
+        // observes the being-torn-down service rather than building a second
+        // one under the (just-replaced) paired keychain entry.
+        let existing = cachedMessagingService.withLock { $0 }
+        if let existing {
+            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
+            await existing.stop()
+        }
+        deleteStaleLibxmtpDatabaseFilesForAdoptedInbox()
+        do {
+            try await wipeResidualInboxRows()
+            Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
+        } catch {
+            Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
+        }
+        cachedMessagingService.withLock { $0 = nil }
+    }
+
+    /// Removes libxmtp's on-disk DB files for the *just-adopted* inboxId
+    /// so the paired identity's `Client.create` opens a fresh SQLCipher
+    /// store with its own databaseKey.
+    ///
+    /// File naming and cause of the conflict:
+    /// `XMTPiOS.Client.create` builds the alias `xmtp-<env>-<inboxId>.db3`
+    /// (see `sdks/ios/Sources/XMTPiOS/Client.swift`) with sidecars
+    /// `<alias>-wal`, `<alias>-shm`, and `<alias>.sqlcipher_salt`. Each
+    /// inboxId gets its own family. The conflict here is *not* about
+    /// "one family per install": it's that the joiner reuses the
+    /// **same paired inboxId** across pair attempts (it's the
+    /// initiator's). `LivePairingService.handleIdentityShare` generates
+    /// a **fresh random databaseKey** on every adoption and overwrites
+    /// the keychain. So pair #2 finds pair #1's files at exactly that
+    /// per-inbox path, encrypted with the previous key, and SQLCipher
+    /// rejects with `PRAGMA key or salt has incorrect value`.
+    ///
+    /// Targeted deletion only removes the adopted inboxId's family.
+    /// The placeholder identity's own files (different inboxId,
+    /// different path) are left as cruft until a full "Delete All
+    /// Data" sweep — they don't conflict with anything new because the
+    /// silent-bootstrap path always generates a fresh inboxId.
+    private func deleteStaleLibxmtpDatabaseFilesForAdoptedInbox() {
+        let adoptedInboxId: String
+        do {
+            guard let identity = try identityStore.loadSync() else {
+                Log.info("SessionManager: no adopted identity in keychain; skipping libxmtp DB cleanup")
+                return
+            }
+            adoptedInboxId = identity.inboxId
+        } catch {
+            Log.warning("SessionManager: identityStore.loadSync failed during libxmtp DB cleanup: \(error)")
+            return
+        }
+
+        let fileManager = FileManager.default
+        let dbDirectory = environment.defaultDatabasesDirectoryURL
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: dbDirectory,
+            includingPropertiesForKeys: nil
+        ) else {
+            Log.warning("SessionManager: could not enumerate \(dbDirectory.path) for adopted-inbox DB cleanup")
+            return
+        }
+
+        // Match any file whose name starts with `xmtp-` and contains the
+        // adopted inboxId. Covers the current alias form
+        // (`xmtp-<env>-<inboxId>.db3`), the legacy form
+        // (`xmtp-<env>:443-<inboxId>.db3`) that libxmtp's Swift binding
+        // still falls back to, and all four sidecar suffixes (`.db3`,
+        // `.db3-wal`, `.db3-shm`, `.db3.sqlcipher_salt`).
+        var deletedCount: Int = 0
+        for url in entries {
+            let name = url.lastPathComponent
+            guard name.hasPrefix("xmtp-"), name.contains(adoptedInboxId) else { continue }
+            do {
+                try fileManager.removeItem(at: url)
+                deletedCount += 1
+            } catch {
+                Log.warning("SessionManager: failed to delete stale libxmtp file \(name): \(error)")
+            }
+        }
+        Log.info("SessionManager: removed \(deletedCount) stale libxmtp file(s) for adopted inboxId after pairing adoption")
+    }
+}
+
+extension SessionManager {
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
     }
 }

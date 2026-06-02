@@ -68,7 +68,17 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         )
     }
 
-    private func handleConfirm(_ inboxIds: Set<String>) {
+    private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateId: String?) {
+        // Selecting an agent spawns a fresh instance of its template into
+        // this conversation (the picker already showed the "one agent, many
+        // convos" confirmation). Humans are added as members; both can be
+        // present in a single confirm. At most one agent per conversation -
+        // skip the spawn if this conversation already has one (the canonical
+        // agent row can collapse a different instance than the one in chat,
+        // so the picker's already-in-chat filter doesn't catch this).
+        if let agentTemplateId, !viewModel.conversation.hasAgent {
+            viewModel.requestAgentJoin(templateId: agentTemplateId)
+        }
         let ids = Array(inboxIds)
         guard !ids.isEmpty else { return }
         Task {

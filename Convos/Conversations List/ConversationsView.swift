@@ -17,14 +17,20 @@ struct ConversationsView: View {
     var sidebarBottomAccessory: AnyView?
     /// Fired with the conversation list's current scroll content-offset Y
     /// on every scroll tick, forwarded from `ConversationsViewController`.
-    /// `MainTabView` uses this to flip the agent builder bar between
-    /// expanded and collapsed states.
+    /// `MainTabView` uses this to reveal the top agent builder bar at the
+    /// top of the list and fade it out (revealing a nav-bar button) once
+    /// the user scrolls down.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Extra bottom inset (in points) for the conversation list to clear
-    /// the SwiftUI bottom chrome (builder bar + custom tab bar) rendered
-    /// by `MainTabView` as a `safeAreaInset`. SwiftUI's safe-area chain
-    /// doesn't reliably propagate that inset to the UIKit collection
-    /// view, so we plumb it through explicitly.
+    /// Extra top inset (in points) for the conversation list to clear the
+    /// SwiftUI top chrome (the agent builder bar rendered by `MainTabView`
+    /// as a `safeAreaInset(.top)` under the nav bar). SwiftUI's safe-area
+    /// chain doesn't reliably propagate that inset to the UIKit collection
+    /// view, so we plumb it through explicitly. The list still scrolls
+    /// *under* the bar (so it can blur/fade over the content); this inset
+    /// just sets where the content rests at the top.
+    var topChromeInset: CGFloat = 0
+    /// Bottom counterpart to `topChromeInset`, used when the builder bar
+    /// pins to the bottom edge (iPad, where the tab bar is at the top).
     var bottomChromeInset: CGFloat = 0
     /// Binding into the shell's "present this conversation as a sheet"
     /// slot. Set by the inline agent builder (rendered in the chats
@@ -45,11 +51,30 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var staleDeviceSheetDismissed: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
+    }
+
+    private var toolbarStatusLabel: String {
+        if creditBalance?.isDepleted == true { return "No power" }
+        if currentSubscription != nil { return "Plus" }
+        return "Basic"
+    }
+
+    private var toolbarStatusColor: Color {
+        if creditBalance?.isDepleted == true { return .colorLava }
+        return .colorTextSecondary
+    }
+
+    private var toolbarShowsBolt: Bool {
+        creditBalance?.isDepleted == true
     }
 
     /// Inbox-to-contact-name override applied across the whole
@@ -134,10 +159,12 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
+        let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
         ConversationPresenter(
             viewModel: convoVM,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
+            isReadOnly: isReadOnly,
             sidebarColumnWidth: $sidebarWidth,
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
@@ -153,6 +180,7 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItem: .share,
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
+                isReadOnly: isReadOnly,
                 bottomBarContent: { EmptyView() }
             )
         }
@@ -174,7 +202,14 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        ConversationsViewRepresentable(
+        // The builder bar is rendered as a `safeAreaInset` by `MainTabView`
+        // (reserving its edge) *and* its height is re-applied here as the
+        // collection view's `additionalSafeAreaInsets`. To avoid counting it
+        // twice we ignore the system safe area on the bar's edge: `.top` on
+        // iPhone (bar pins to the top) and additionally `.bottom` on iPad
+        // (bar pins to the bottom, signalled by a non-zero bottom inset).
+        let ignoredSafeAreaEdges: Edge.Set = bottomChromeInset > 0 ? [.top, .bottom] : .top
+        return ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
             selectedConversationId: viewModel.selectedConversationId,
@@ -203,9 +238,10 @@ struct ConversationsView: View {
             onJoinConvo: viewModel.onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all },
             onScrollOffsetChange: onScrollOffsetChange,
+            topChromeInset: topChromeInset,
             bottomChromeInset: bottomChromeInset
         )
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: ignoredSafeAreaEdges)
     }
 
     @ViewBuilder
@@ -277,6 +313,8 @@ struct ConversationsView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
+            .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
             .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
                 guard !wasNil, isNil else { return }
                 handleCommittedSheetDidDismiss()
@@ -292,8 +330,21 @@ struct ConversationsView: View {
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
+            staleDeviceSheetDismissed: $staleDeviceSheetDismissed,
             namespace: namespace
         ))
+        .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
+            // If a fresh revoke arrives while the user has previously
+            // dismissed the sheet (e.g. after a separate device re-revokes
+            // them post-reset), clear the dismissal so the sheet returns.
+            if isRemoved { staleDeviceSheetDismissed = false }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-present the stale-device sheet on each foreground entry so
+            // a previously-dismissed banner doesn't permanently hide the
+            // fact that the device is in a terminal state.
+            if newPhase == .active { staleDeviceSheetDismissed = false }
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -309,7 +360,17 @@ private struct ConversationsSheetModifier: ViewModifier {
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
+    @Binding var staleDeviceSheetDismissed: Bool
     var namespace: Namespace.ID
+
+    private var staleDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.staleDeviceObserver.isDeviceRemoved && !staleDeviceSheetDismissed },
+            set: { newValue in
+                if !newValue { staleDeviceSheetDismissed = true }
+            }
+        )
+    }
 
     func body(content: Content) -> some View {
         content
@@ -325,11 +386,29 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
                 .presentationDetents([.medium])
             }
+            .selfSizingSheet(
+                item: $viewModel.pendingJoinerPairing,
+                onDismiss: {
+                    viewModel.pendingPairDevice = nil
+                    viewModel.pendingJoinerPairing = nil
+                },
+                content: { pairingVM in
+                    JoinerPairingSheetView(viewModel: pairingVM)
+                        .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()
             }
             .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
                 PinLimitInfoView()
+            }
+            .selfSizingSheet(isPresented: staleDeviceSheetBinding) {
+                StaleDeviceSheet(
+                    onDelete: { viewModel.resetForStaleDevice() },
+                    onContinue: { staleDeviceSheetDismissed = true },
+                    isDeleting: viewModel.appSettingsViewModel.isDeleting
+                )
             }
             .background {
                 Color.clear

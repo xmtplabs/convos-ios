@@ -38,6 +38,42 @@ struct ContactsWriterTests {
         ).insert(db)
     }
 
+    /// Inserts a `conversation` row created by `creatorId` with the given
+    /// consent, plus its creator `DBMember`. Used by block-demotion tests
+    /// that need conversations attributed to a specific (blockable) inbox.
+    private static func seedConversation(
+        _ db: Database,
+        id: String,
+        creatorId: String,
+        consent: Consent
+    ) throws {
+        try DBMember(inboxId: creatorId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: id,
+            inviteTag: "tag-\(id)",
+            creatorId: creatorId,
+            kind: .group,
+            consent: consent,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false
+        ).insert(db)
+    }
+
     @Test("upsertContact preserves addedAt and addedViaConversationId on subsequent calls")
     func testIdempotentUpsertPreservesIdentityColumns() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -373,46 +409,6 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
-    @Test("Block and unblock post `contactBlockingDidChange` on real state changes only")
-    func testBlockingPostsNotificationOnRealChanges() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
-        let inboxId = "inbox-1"
-
-        try await writer.upsertContact(
-            inboxId: inboxId,
-            addedViaConversationId: nil,
-            profile: ContactProfileSnapshot(displayName: "Test")
-        )
-
-        let recorder = NotificationRecorder(name: .contactBlockingDidChange)
-
-        // First block: real change → post.
-        try await writer.block(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 1)
-        #expect(recorder.notifications.first?.userInfo?["inboxId"] as? String == inboxId)
-        #expect(recorder.notifications.first?.userInfo?["blocked"] as? Bool == true)
-
-        // Idempotent re-block: no change → no post.
-        try await writer.block(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 1)
-
-        // Unblock: real change → post.
-        try await writer.unblock(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 2)
-        #expect(recorder.notifications.last?.userInfo?["blocked"] as? Bool == false)
-
-        // Idempotent re-unblock: no change → no post.
-        try await writer.unblock(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 2)
-
-        recorder.stop()
-    }
-
     @Test("block followed by unblock returns the contact to the unblocked state")
     func testBlockUnblockRoundTrip() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -458,6 +454,43 @@ struct ContactsWriterTests {
         }
         #expect(contact?.displayName == "Renamed")
         #expect(contact?.blockedAt != nil)
+    }
+
+    @Test("block synchronously demotes the creator's visible conversations to denied (window 0)")
+    func testBlockDemotesCreatorConversationsSynchronously() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let blockedInboxId = "blocked-inbox"
+        let otherCreator = "other-creator"
+
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db, id: "conv-allowed", creatorId: blockedInboxId, consent: .allowed)
+            try Self.seedConversation(db, id: "conv-unknown", creatorId: blockedInboxId, consent: .unknown)
+            try Self.seedConversation(db, id: "conv-mine", creatorId: otherCreator, consent: .allowed)
+        }
+        try await writer.upsertContact(
+            inboxId: blockedInboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Blocked")
+        )
+
+        try await writer.block(inboxId: blockedInboxId)
+
+        // No observation tick required: consent is demoted in the same write
+        // transaction as blockedAt, so the feed (a consent observation) hides
+        // these on commit.
+        let (allowedConsent, unknownConsent, mineConsent) = try await dbManager.dbReader.read { db in
+            try (
+                DBConversation.fetchOne(db, key: "conv-allowed")?.consent,
+                DBConversation.fetchOne(db, key: "conv-unknown")?.consent,
+                DBConversation.fetchOne(db, key: "conv-mine")?.consent
+            )
+        }
+        #expect(allowedConsent == .denied)
+        #expect(unknownConsent == .denied)
+        // A conversation created by someone else (e.g. a shared group the
+        // local user created) stays visible - mirrors the reconciler join.
+        #expect(mineConsent == .allowed)
     }
 
     @Test("agentVerification persists on a new contact via upsert")

@@ -4,7 +4,6 @@ import ConvosCore
 import ConvosCoreiOS
 import Foundation
 import Observation
-import Sentry
 import SwiftUI
 import UIKit
 
@@ -59,7 +58,49 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// `ConnectionKind` for device-backed kinds, `nil` for cloud kinds.
+    /// Used by `supportedCases` to gate device kinds behind the same
+    /// allowlist (`SupportedConnections`) that the chat-side picker and
+    /// `ConversationConnectionsViewModel` already respect.
+    var deviceKind: ConnectionKind? {
+        switch self {
+        case .appleHealth: return .health
+        case .googleCalendar: return nil
+        }
+    }
+
+    /// Cases currently surfaced to users. Mirrors the gating in
+    /// `ConversationConnectionsViewModel`: device kinds are filtered by
+    /// `SupportedConnections.supportedDeviceKinds` and cloud kinds by
+    /// `SupportedConnections.supportedCloudServiceIds`. v1 ships cloud-
+    /// only (Google Calendar) — Apple Health is hidden until the host
+    /// re-introduces it in `SupportedConnections`.
+    static var supportedCases: [AgentBuilderConnection] {
+        allCases.filter { connection in
+            if let kind = connection.deviceKind {
+                return SupportedConnections.isSupported(kind)
+            }
+            if let cloudServiceId = connection.cloudServiceId {
+                return SupportedConnections.isSupported(cloudServiceId: cloudServiceId)
+            }
+            return false
+        }
+    }
+
     static let googleCalendarServiceId: String = "googlecalendar"
+}
+
+/// How the builder was entered. Drives which surface (composer text
+/// field vs. voice-memo recorder) gets attention on first appear.
+/// `composer` is the default - the builder appears with its text field
+/// focused and the keyboard up. `voiceMemo` is the
+/// `AgentBuilderBar`'s waveform-button path: the builder appears
+/// without focusing the text field (so the keyboard stays down while
+/// the system mic-permission prompt resolves) and the view kicks off
+/// `startVoiceMemoRecording` on appear.
+enum AgentBuilderEntryMode {
+    case composer
+    case voiceMemo
 }
 
 @MainActor
@@ -67,6 +108,26 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
 final class AgentBuilderViewModel: Identifiable {
     let id: UUID = UUID()
     let session: any SessionManagerProtocol
+    /// How the builder was entered. Read by `AgentBuilderView` on appear
+    /// to decide whether to focus the composer (and raise the keyboard)
+    /// or skip focus and start a voice-memo recording instead.
+    let entryMode: AgentBuilderEntryMode
+
+    /// Non-nil when the builder targets an existing conversation (the
+    /// in-chat "New Agent" context-menu entry) rather than spinning up a
+    /// fresh draft group (the home-screen flow). It changes three things:
+    ///   - the inner conversation uses `.existingConversation` mode, so the
+    ///     builder operates on the group the user is already in
+    ///   - the agent join is deferred to `commit()` ("Make") instead of
+    ///     firing on `.ready`, so we only add the agent once the user
+    ///     confirms by tapping Make
+    ///   - `discard()` never leaves / deletes the group (there's no draft to
+    ///     tear down), and no `AgentBuilderSummary` is persisted (its
+    ///     cutoff would hide the existing history)
+    let existingConversationId: String?
+
+    /// `true` when this builder targets an existing conversation.
+    private var targetsExistingConversation: Bool { existingConversationId != nil }
 
     let newConversationViewModel: NewConversationViewModel
 
@@ -79,27 +140,29 @@ final class AgentBuilderViewModel: Identifiable {
         newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
     }
 
-    /// Shares the inner conversation VM's voice-memo recorder so the same
-    /// audio file flows through to `sendVoiceMemo()` on commit. The
-    /// builder's UI reacts to recorder state changes via Observation.
-    var voiceMemoRecorder: VoiceMemoRecorder? {
-        newConversationViewModel.conversationViewModel?.voiceMemoRecorder
-    }
+    /// Builder-owned voice-memo recorder. Lives directly on the
+    /// AgentBuilderViewModel (rather than proxying through the inner
+    /// `ConversationViewModel`) because `NewConversationViewModel` seats
+    /// a placeholder inner VM synchronously and swaps it for the real
+    /// one once `prepareNewConversation()` returns. A proxy would lose
+    /// any recording in flight at the moment of the swap; owning the
+    /// recorder here keeps it stable for the entire builder lifetime.
+    /// The recorded audio file (URL) is what flows through to
+    /// `sendBuilderBundle()` at commit, so post-Make path is unaffected.
+    let voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
 
     var isRecordingVoiceMemo: Bool {
-        guard let recorder = voiceMemoRecorder else { return false }
-        if case .recording = recorder.state { return true }
+        if case .recording = voiceMemoRecorder.state { return true }
         return false
     }
 
     var recordedVoiceMemo: (url: URL, duration: TimeInterval)? {
-        guard let recorder = voiceMemoRecorder else { return nil }
-        if case let .recorded(url, duration) = recorder.state { return (url, duration) }
+        if case let .recorded(url, duration) = voiceMemoRecorder.state { return (url, duration) }
         return nil
     }
 
     var voiceMemoAudioLevels: [Float] {
-        voiceMemoRecorder?.audioLevels ?? []
+        voiceMemoRecorder.audioLevels
     }
 
     /// Connection toggles set in the connections sheet. Drives chip rendering
@@ -139,19 +202,39 @@ final class AgentBuilderViewModel: Identifiable {
     private var didRequestAgentJoin: Bool = false
     @ObservationIgnored
     private(set) var didDiscard: Bool = false
-    @ObservationIgnored
-    private var pendingConnectionGrantTask: Task<Void, Never>?
     /// Whether the composer text field was focused at the moment the user
     /// kicked off a voice memo. Read by the stop-recording action so we can
     /// return the keyboard to the composer where the user left off.
     @ObservationIgnored
     private var restoreComposerFocusAfterRecording: Bool = false
 
-    init(session: any SessionManagerProtocol) {
+    /// Attachments captured before the inner `ConversationViewModel`
+    /// finishes its placeholder-to-real swap. Drained into the real
+    /// inner VM from `onReachedReady`.
+    @ObservationIgnored
+    private var queuedInitialAttachments: [QueuedInitialAttachment] = []
+    @ObservationIgnored
+    private var hasDrainedInitialAttachments: Bool = false
+
+    private enum QueuedInitialAttachment {
+        case photo(UIImage)
+        case video(URL)
+        case file(url: URL, filename: String, mimeType: String, fileSize: Int)
+    }
+
+    init(
+        session: any SessionManagerProtocol,
+        entryMode: AgentBuilderEntryMode = .composer,
+        existingConversationId: String? = nil
+    ) {
         self.session = session
+        self.entryMode = entryMode
+        self.existingConversationId = existingConversationId
+        let mode: NewConversationMode = existingConversationId
+            .map { .existingConversation(conversationId: $0) } ?? .newAgent
         self.newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .newAgent
+            mode: mode
         )
         // Suppress the contact card for the entire builder lifetime. The
         // agent may join while the user is still drafting (state machine
@@ -165,6 +248,12 @@ final class AgentBuilderViewModel: Identifiable {
         // both the placeholder VM and its real replacement stay suppressed.
         self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
+            self?.drainInitialAttachmentsIfNeeded()
+            // The home flow joins the agent the instant the draft is ready so
+            // it's present by the time the user taps Make. The existing-
+            // conversation flow defers the join to `commit()` so we only add
+            // the agent once the user confirms by tapping Make.
+            guard self?.targetsExistingConversation == false else { return }
             self?.requestAgentJoinIfNeeded()
         }
         cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
@@ -176,36 +265,117 @@ final class AgentBuilderViewModel: Identifiable {
 
     deinit {
         agentJoinTask?.cancel()
-        pendingConnectionGrantTask?.cancel()
     }
 
     // MARK: - Composer mutations
 
+    /// Bar-entry attachment paths (camera capture, photo picker, file
+    /// picker) call `addPhotoAttachment` etc. immediately after
+    /// `onStartAgent()` returns - i.e. while `NewConversationViewModel`
+    /// is still on its synchronously-created placeholder
+    /// `ConversationViewModel`. Forwarding straight to the inner VM at
+    /// that moment lands the attachment on the placeholder, which is
+    /// then discarded when `configureWithMessagingService` swaps in the
+    /// real VM. Queue any add that lands before the real-VM swap and
+    /// drain into the real VM at `onReachedReady`, so the eager-upload
+    /// pipeline fires on the real `cachedMessageWriter`.
     func addPhotoAttachment(_ image: UIImage) {
-        newConversationViewModel.conversationViewModel?.addPhotoAttachment(image)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addPhotoAttachment(image)
+        } else {
+            queuedInitialAttachments.append(.photo(image))
+        }
     }
 
     func addVideoAttachment(url: URL) {
-        newConversationViewModel.conversationViewModel?.addVideoAttachment(url: url)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addVideoAttachment(url: url)
+        } else {
+            queuedInitialAttachments.append(.video(url))
+        }
     }
 
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
-        newConversationViewModel.conversationViewModel?.addFileAttachment(
-            url: url,
-            filename: filename,
-            mimeType: mimeType,
-            fileSize: fileSize
-        )
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addFileAttachment(
+                url: url,
+                filename: filename,
+                mimeType: mimeType,
+                fileSize: fileSize
+            )
+        } else {
+            queuedInitialAttachments.append(
+                .file(url: url, filename: filename, mimeType: mimeType, fileSize: fileSize)
+            )
+        }
     }
 
     func removeAttachment(id: UUID) {
         newConversationViewModel.conversationViewModel?.removeMediaAttachment(id: id)
     }
 
+    /// Flush attachments queued during the placeholder window into the
+    /// real inner conversation VM. Called once from `onReachedReady`;
+    /// the `hasDrainedInitialAttachments` flag then lets subsequent
+    /// adds short-circuit straight through.
+    /// Delete temp files owned by attachments still sitting in
+    /// `queuedInitialAttachments`. Called from `discard()` when the user
+    /// bails before the inner VM resolves -- the queue items haven't been
+    /// forwarded to the VM yet, so `cleanupPendingMediaAttachments()` on
+    /// the VM doesn't see them and their `temporaryDirectory` copies would
+    /// otherwise leak. Photos are in-memory `UIImage`s so they have no
+    /// file to delete.
+    private func cleanupQueuedInitialAttachments() {
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case .photo:
+                continue
+            case .video(let url):
+                try? FileManager.default.removeItem(at: url)
+            case .file(let url, _, _, _):
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private func drainInitialAttachmentsIfNeeded() {
+        guard !hasDrainedInitialAttachments else { return }
+        // Flip the flag only after confirming the inner VM is available.
+        // Setting it before the guard left the queue full + the flag latched
+        // true when `onReachedReady` ran without a VM ever resolving --
+        // subsequent `addPhotoAttachment`/etc. calls would then route to the
+        // queue (their `if hasDrained, let convoVM` short-circuit fails on
+        // nil VM), and the queue would never drain because the early
+        // `hasDrainedInitialAttachments` guard above returns immediately.
+        guard let convoVM = newConversationViewModel.conversationViewModel else { return }
+        hasDrainedInitialAttachments = true
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case let .photo(image):
+                convoVM.addPhotoAttachment(image)
+            case let .video(url):
+                convoVM.addVideoAttachment(url: url)
+            case let .file(url, filename, mimeType, fileSize):
+                convoVM.addFileAttachment(
+                    url: url,
+                    filename: filename,
+                    mimeType: mimeType,
+                    fileSize: fileSize
+                )
+            }
+        }
+    }
+
     func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {
-        guard let recorder = voiceMemoRecorder else { return }
         do {
-            try recorder.startRecording()
+            try voiceMemoRecorder.startRecording()
             restoreComposerFocusAfterRecording = restoreComposerFocusAfter
         } catch {
             Log.error("AgentBuilder: failed to start voice memo recording: \(error.localizedDescription)")
@@ -217,14 +387,14 @@ final class AgentBuilderViewModel: Identifiable {
     /// kicked off the recording.
     @discardableResult
     func stopVoiceMemoRecording() -> Bool {
-        voiceMemoRecorder?.stopRecording()
+        voiceMemoRecorder.stopRecording()
         let shouldRestore = restoreComposerFocusAfterRecording
         restoreComposerFocusAfterRecording = false
         return shouldRestore
     }
 
     func cancelRecordedVoiceMemo() {
-        voiceMemoRecorder?.cancelRecording()
+        voiceMemoRecorder.cancelRecording()
     }
 
     /// Toggle a connection. Device kinds (Apple Health) are local-only —
@@ -284,6 +454,13 @@ final class AgentBuilderViewModel: Identifiable {
 
     // MARK: - Derived state
 
+    /// Whitespace-/newline-only composer text isn't a prompt — the commit
+    /// planner trims it away and never sends it, so Make must not treat it
+    /// as content either.
+    private var hasPromptText: Bool {
+        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Make button is enabled as soon as the composer has any content.
     /// Tapping Make before the state machine reaches `.ready` is fine —
     /// the morph animates the user into `ConversationView`, which surfaces
@@ -291,7 +468,7 @@ final class AgentBuilderViewModel: Identifiable {
     /// via `ConversationStateMachine.sendMessage` (which already
     /// serializes against `.ready`).
     var isMakeEnabled: Bool {
-        !composerText.isEmpty
+        hasPromptText
             || !pendingMediaAttachments.isEmpty
             || recordedVoiceMemo != nil
             || !enabledConnections.isEmpty
@@ -388,13 +565,12 @@ final class AgentBuilderViewModel: Identifiable {
         let textToSend = composerText
         composerText = ""
 
+        if targetsExistingConversation {
+            commitToExistingConversation(text: textToSend)
+            return
+        }
+
         if let innerVM = newConversationViewModel.conversationViewModel {
-            // Allocate the bundle's `clientMessageId`s synchronously so they
-            // can land in `AgentBuilderSummary.bundledMessageIds` BEFORE
-            // the writer ever touches the DB. `MessagesListProcessor` then
-            // filters by id, not by timestamp — a slow multi-remote upload
-            // can no longer leak a bare bundle bubble past the summary card.
-            let textMessageId: String? = textToSend.isEmpty ? nil : UUID().uuidString
             let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
             if let recorded = recordedVoiceMemo {
                 voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
@@ -405,21 +581,30 @@ final class AgentBuilderViewModel: Identifiable {
             } else {
                 voiceMemoSnapshot = nil
             }
-            let willSendBundle: Bool = voiceMemoSnapshot != nil || !innerVM.pendingMediaAttachments.isEmpty
-            let bundleMessageId: String? = willSendBundle ? UUID().uuidString : nil
-            var bundledMessageIds: Set<String> = []
-            if let textMessageId { bundledMessageIds.insert(textMessageId) }
-            if let bundleMessageId { bundledMessageIds.insert(bundleMessageId) }
 
-            let summary: AgentBuilderSummary = buildSummary(
-                prompt: textToSend,
-                voiceMemo: recordedVoiceMemo,
-                voiceMemoLevels: voiceMemoAudioLevels,
+            var cloudConnectionIdsByRawValue: [String: String] = [:]
+            for (connection, cloudConnectionId) in capturedCloudConnectionIds {
+                cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
+            }
+            // `AgentBuilderCommitPlanner` allocates the bundle's
+            // `clientMessageId`s and assembles the summary so they land in
+            // `AgentBuilderSummary.bundledMessageIds` before the writer ever
+            // touches the DB. `MessagesListProcessor` then filters by id, not
+            // by timestamp — a slow multi-remote upload can no longer leak a
+            // bare bundle bubble past the summary card.
+            let attachments: [AgentBuilderSummaryAttachment] = buildSummaryAttachments(
+                voiceMemo: voiceMemoSnapshot,
                 mediaAttachments: innerVM.pendingMediaAttachments,
-                connections: enabledConnections,
-                bundledMessageIds: bundledMessageIds
+                connections: enabledConnections
             )
-            innerVM.agentBuilderSummary = summary
+            let plan: AgentBuilderCommitPlan = AgentBuilderCommitPlanner.makePlan(
+                prompt: textToSend,
+                attachments: attachments,
+                cloudConnectionIds: cloudConnectionIdsByRawValue
+            )
+            let textMessageId: String? = plan.textMessageId
+            let bundleMessageId: String? = plan.bundleMessageId
+            innerVM.agentBuilderSummary = plan.summary
             // Hide the staged-chip strip on the chat composer for the
             // duration of the post-commit upload + publish window. Without
             // this the chat view emerges (under the fading-out builder)
@@ -446,12 +631,12 @@ final class AgentBuilderViewModel: Identifiable {
             // conversation send path stays per-attachment so per-item
             // reactions / replies keep working there; the bundle path is
             // builder-only.
-            let summaryToPersist: AgentBuilderSummary = summary
+            let summaryToPersist: AgentBuilderSummary = plan.summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
-            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
+            Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
-                // Persist the summary (with its `bundledMessageIds`) BEFORE
+                // Persist the summary (with its `bundledMessageIds`) before
                 // any writer call. If the app dies between Make and the
                 // bundle landing, the filter set is already on disk — the
                 // next launch's `summaryPublisher` rehydrates the summary
@@ -475,7 +660,7 @@ final class AgentBuilderViewModel: Identifiable {
                     // stuck pulsing card.
                 }
                 await innerVM.sendBuilderBundle(
-                    text: textToSend,
+                    text: summaryToPersist.prompt,
                     voiceMemo: voiceMemoSnapshot,
                     textMessageId: textMessageId,
                     bundleMessageId: bundleMessageId
@@ -513,26 +698,136 @@ final class AgentBuilderViewModel: Identifiable {
             self.newConversationViewModel.suppressesContactCard = false
             self.newConversationViewModel.conversationViewModel?.allowsContactCard = true
         }
-
-        scheduleConnectionGrants()
+        // Connection grants are now driven by
+        // `AgentBuilderConnectionGrantReplayer`, which observes the
+        // persisted summary + member rows and fires grants once the
+        // verified agent appears. The replayer survives app death
+        // between Make and agent-join — the in-memory poll-and-timeout
+        // path it replaced did not.
     }
 
-    /// Build the AgentBuilderSummary that renders as the first cell of the
-    /// post-Make conversation. Captures chip-ready data (thumbnails encoded as
-    /// PNG, file metadata, voice memo levels, connection identifiers) so the
-    /// summary view can render the same chips the composer just had — minus
-    /// the X buttons.
-    private func buildSummary(
-        prompt: String,
-        voiceMemo: (url: URL, duration: TimeInterval)?,
-        voiceMemoLevels: [Float],
+    /// Commit path for the in-chat "New Agent" entry. The builder targets the
+    /// conversation the user is already in, so there's no draft to promote.
+    /// We persist an `AgentBuilderSummary` so the chat the user returns to
+    /// renders the builder card immediately, but with `cutoffDate = .distantPast`
+    /// so it hides none of the conversation's existing history: the brief is
+    /// hidden purely by id (the `BuilderBundleManifest` for other members, the
+    /// writer's local hidden rows for this client), which is robust enough that
+    /// the date cutoff isn't needed here. The agent join is deferred to here
+    /// (not `.ready`) so we only add the agent once the user taps Make.
+    private func commitToExistingConversation(text: String) {
+        guard let innerVM = newConversationViewModel.conversationViewModel else {
+            // The inner conversation hasn't resolved yet. Roll back the commit
+            // so the brief the user typed isn't silently lost -- restore the
+            // composer text and let them tap Make again once it's ready.
+            Log.warning("AgentBuilder(existing): commit before inner conversation ready; restoring composer")
+            composerText = text
+            isCommitting = false
+            return
+        }
+        let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
+        if let recorded = recordedVoiceMemo {
+            voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
+                url: recorded.url,
+                duration: recorded.duration,
+                levels: voiceMemoAudioLevels
+            )
+        } else {
+            voiceMemoSnapshot = nil
+        }
+
+        var cloudConnectionIdsByRawValue: [String: String] = [:]
+        for (connection, cloudConnectionId) in capturedCloudConnectionIds {
+            cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
+        }
+        let attachments: [AgentBuilderSummaryAttachment] = buildSummaryAttachments(
+            voiceMemo: voiceMemoSnapshot,
+            mediaAttachments: innerVM.pendingMediaAttachments,
+            connections: enabledConnections
+        )
+        // `existingConversation: true` keeps the chat's invite affordances
+        // (QR / "Invite members") visible while the card shows. There's no
+        // time-based message filtering anymore (the bundle is hidden by id via
+        // the manifest + local hidden rows), so the default `now` cutoffDate is
+        // fine -- it just anchors the placeholder display window.
+        let plan: AgentBuilderCommitPlan = AgentBuilderCommitPlanner.makePlan(
+            prompt: text,
+            attachments: attachments,
+            cloudConnectionIds: cloudConnectionIdsByRawValue,
+            existingConversation: true
+        )
+        let textMessageId: String? = plan.textMessageId
+        let bundleMessageId: String? = plan.bundleMessageId
+        let summaryToPersist: AgentBuilderSummary = plan.summary
+        let conversationIdForPersist: String = innerVM.conversation.id
+
+        innerVM.isAwaitingBuilderBundleSend = true
+
+        // Capture `innerVM` and `session` strongly (not `self`/weak): the
+        // builder sheet dismisses on Make, tearing down this view-model tree,
+        // but the persist + send + join must still complete. The strong hold
+        // keeps the inner conversation VM alive until the bundle is sent; it
+        // owns its own message writer, so it sends independently of the
+        // dismissed builder.
+        Task { @MainActor [innerVM, voiceMemoSnapshot, summaryToPersist, conversationIdForPersist, textMessageId, bundleMessageId, session] in
+            // Persist the summary first so the chat the user returns to renders
+            // the card immediately (its `summaryPublisher` picks this up) and
+            // the filter set is on disk before the bundle lands.
+            do {
+                try await session.agentBuilderSummaryWriter().save(summaryToPersist, for: conversationIdForPersist)
+            } catch {
+                Log.error("AgentBuilder(existing): failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
+            }
+            do {
+                try await innerVM.awaitPendingMediaUploads()
+            } catch {
+                Log.error("AgentBuilder(existing): pending media upload await failed: \(error.localizedDescription)")
+            }
+            await innerVM.sendBuilderBundle(
+                text: summaryToPersist.prompt,
+                voiceMemo: voiceMemoSnapshot,
+                textMessageId: textMessageId,
+                bundleMessageId: bundleMessageId
+            )
+            let slug = innerVM.conversation.invite?.urlSlug ?? ""
+            guard !slug.isEmpty else {
+                Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
+                return
+            }
+            // The join must finish even after the builder sheet dismisses.
+            // Unlike the draft flow, there is no draft to discard -- the user's
+            // group stays -- so the join survives the view closing (like
+            // `ConversationViewModel`'s committed-conversation join, the
+            // opposite of the draft path).
+            do {
+                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
+            } catch {
+                Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
+            }
+        }
+        // No in-sheet morph: the builder targets a conversation the user is
+        // already in, so `AgentBuilderView` dismisses the sheet on Make and the
+        // user lands back on the original chat (where the card, the agent's
+        // join, and the hidden brief surface via that view's own observation).
+        // `isCommitting` stays true so the dismiss doesn't trip `discard()`;
+        // the Tasks above hold their own references and finish independently.
+    }
+
+    /// Map the composer's staged inputs into the `AgentBuilderSummaryAttachment`
+    /// list the summary card renders — thumbnails encoded as JPEG `Data`, file
+    /// metadata, voice memo levels, connection identifiers — so the summary view
+    /// can show the same chips the composer just had, minus the X buttons. The
+    /// id allocation, bundle detection, and summary assembly happen in
+    /// `AgentBuilderCommitPlanner`; this method owns only the iOS-side
+    /// (`UIImage`) encoding that can't live in ConvosCore.
+    private func buildSummaryAttachments(
+        voiceMemo: BuilderVoiceMemoSnapshot?,
         mediaAttachments: [PendingMediaAttachment],
-        connections: Set<AgentBuilderConnection>,
-        bundledMessageIds: Set<String>
-    ) -> AgentBuilderSummary {
+        connections: Set<AgentBuilderConnection>
+    ) -> [AgentBuilderSummaryAttachment] {
         var attachments: [AgentBuilderSummaryAttachment] = []
         if let voiceMemo {
-            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemoLevels))
+            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemo.levels))
         }
         for attachment in mediaAttachments {
             switch attachment {
@@ -552,119 +847,11 @@ final class AgentBuilderViewModel: Identifiable {
         for connection in connections.sorted(by: { $0.id < $1.id }) {
             attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
         }
-        // `cutoffDate` still gates agent-side groups (pre-Make hello
-        // messages from the agent) — we don't control the agent's send
-        // timing so timestamps are the only signal there. User-side filtering
-        // is by-id via `bundledMessageIds`, which doesn't suffer the
-        // upload-stretch race that the old user-side cutoff pad did.
-        return AgentBuilderSummary(
-            prompt: prompt,
-            attachments: attachments,
-            cutoffDate: Date(),
-            bundledMessageIds: bundledMessageIds
-        )
-    }
-
-    private func scheduleConnectionGrants() {
-        guard !enabledConnections.isEmpty else { return }
-        let connections = enabledConnections
-        let capturedIds = capturedCloudConnectionIds
-        pendingConnectionGrantTask?.cancel()
-        pendingConnectionGrantTask = Task { @MainActor [weak self] in
-            let deadline: Date = Date().addingTimeInterval(Constant.agentJoinTimeoutS)
-            while !Task.isCancelled, Date() < deadline {
-                if let convoVM = self?.newConversationViewModel.conversationViewModel,
-                   convoVM.conversation.hasAgent {
-                    self?.fireConnectionGrants(connections, capturedIds: capturedIds, in: convoVM)
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
-            }
-            guard !Task.isCancelled else { return }
-            let message: String = "AgentBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for agent to join — \(connections.count) connection grant(s) skipped"
-            Log.error(message)
-            SentrySDK.capture(message: message) { scope in
-                scope.setLevel(.warning)
-                scope.setTag(value: "agent_join_timeout", key: "agent_builder")
-                scope.setExtra(value: connections.count, key: "skipped_connection_count")
-                scope.setExtra(value: connections.map(\.id).sorted().joined(separator: ","), key: "skipped_connections")
-            }
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-        }
-    }
-
-    /// Fires the user-enabled connection grants against the now-real conversation.
-    /// Device kinds go through `ConversationConnectionsViewModel.toggleDeviceConnection`
-    /// (it owns the `EnablementStore` write + per-agent fanout + connection event).
-    /// Cloud kinds bypass that VM's `cloudRows` lookup — the freshly-constructed VM's
-    /// `.receive(on:.main)` subscription leaves rows empty for one runloop tick, racy
-    /// when we tap Make right after OAuth completes. We use the
-    /// `CloudConnection.id` we captured at toggle-on time and fan out the grant
-    /// directly via the messaging service's writers, mirroring what
-    /// `ConversationConnectionsViewModel.grant(connectionId:providerId:)` does.
-    private func fireConnectionGrants(
-        _ connections: Set<AgentBuilderConnection>,
-        capturedIds: [AgentBuilderConnection: String],
-        in convoVM: ConversationViewModel
-    ) {
-        let connectionsVM = convoVM.makeConversationConnectionsViewModel()
-        for connection in connections {
-            switch connection {
-            case .appleHealth:
-                connectionsVM.toggleDeviceConnection(.health)
-            case .googleCalendar:
-                guard let connectionId = capturedIds[connection] else {
-                    Log.warning("AgentBuilder: no captured CloudConnection.id for \(connection.id) — grant skipped")
-                    continue
-                }
-                fireCloudGrant(
-                    connectionId: connectionId,
-                    serviceId: AgentBuilderConnection.googleCalendarServiceId,
-                    in: convoVM
-                )
-            }
-        }
-    }
-
-    private func fireCloudGrant(
-        connectionId: String,
-        serviceId: String,
-        in convoVM: ConversationViewModel
-    ) {
-        let agentInboxIds: [String] = convoVM.conversation.members
-            .filter(\.isAgent)
-            .map(\.profile.inboxId)
-        guard !agentInboxIds.isEmpty else { return }
-        let messagingService = session.messagingService()
-        let grantWriter = messagingService.connectionGrantWriter()
-        let connectionEventWriter = messagingService.connectionEventWriter()
-        let conversationId: String = convoVM.conversation.id
-        let providerId: String = "composio.\(serviceId)"
-        Task {
-            var grantedAgents: [String] = []
-            for agent in agentInboxIds {
-                do {
-                    try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
-                    grantedAgents.append(agent)
-                } catch {
-                    Log.error("AgentBuilder: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
-                }
-            }
-            if let representative = grantedAgents.first {
-                try? await connectionEventWriter.sendGranted(
-                    providerId: providerId,
-                    capability: nil,
-                    grantedToInboxId: representative,
-                    in: conversationId
-                )
-            }
-        }
+        return attachments
     }
 
     private enum Constant {
         static let contentFadeMs: Int = 180
-        static let agentPollIntervalMs: Int = 250
-        static let agentJoinTimeoutS: TimeInterval = 30
         /// Wall-clock delay from Make tap until the contact card is allowed
         /// to render. ~180ms covers the content fade, ~350ms the overlay
         /// spring; the rest (~970ms) is dwell time so the chat reveals
@@ -709,19 +896,38 @@ final class AgentBuilderViewModel: Identifiable {
     func discard() {
         guard !didDiscard else { return }
         didDiscard = true
+        if targetsExistingConversation {
+            // The builder targeted an existing conversation: there is no draft
+            // to tear down, and we must never leave / delete the user's group.
+            // A pre-Make cancel just releases the staged-but-unsent inputs.
+            // (Post-Make, `isCommitting`/`hasCommitted` are set, so the inner
+            // bundle send + agent join — fired in `commitToExistingConversation`
+            // capturing only `session` — keep running independently.)
+            if !isCommitting {
+                voiceMemoRecorder.cancelRecording()
+                newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+                cleanupQueuedInitialAttachments()
+            }
+            return
+        }
         agentJoinTask?.cancel()
-        pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
         // Skip recording/attachment cleanup while a commit is mid-flight —
         // `sendBuilderBundle` still holds references to those temp files
         // until `hasCommitted` flips. Cleaning them here would race the
         // in-flight upload and leave the bundle pointing at deleted paths.
         if !isCommitting {
-            voiceMemoRecorder?.cancelRecording()
+            voiceMemoRecorder.cancelRecording()
             // File picker stages copies into `FileManager.default.temporaryDirectory`;
             // those temp copies are otherwise orphaned because `dismissWithDeletion`
             // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
             newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+            // Attachments staged before the inner VM resolved haven't been
+            // forwarded yet -- `cleanupPendingMediaAttachments()` only walks
+            // what's already inside that VM. Walk the local queue too so the
+            // file-picker / camera / photo-picker temp files don't leak when
+            // the user discards before the placeholder window closes.
+            cleanupQueuedInitialAttachments()
         }
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
@@ -763,6 +969,13 @@ final class AgentBuilderViewModel: Identifiable {
         didRequestAgentJoin = true
 
         agentJoinTask?.cancel()
+        // Capture `session` only, not `self`: the join needs nothing back from
+        // the VM, and not capturing `self` avoids a cycle through the stored
+        // `agentJoinTask`. `deinit` and `discard()` cancel the task on teardown,
+        // which is intentional here (and the opposite of the committed-
+        // conversation join in `ConversationViewModel`, which must survive the
+        // view closing): closing the builder discards the draft conversation --
+        // leaving / deleting the group -- so there's nothing left to join.
         agentJoinTask = Task { [session] in
             do {
                 _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)

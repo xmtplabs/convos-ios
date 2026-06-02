@@ -28,8 +28,13 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    /// Threaded through to `HTMLAttachmentBubble`'s
+    /// `.matchedTransitionSource(...)` so the bubble pairs with the
+    /// `AttachmentPreviewSheet` zoom transition. nil outside the main
+    /// messages list path.
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     /// Mirrors `ConversationViewModel.creditsDepleted`. Drives the inline
-    /// `battery.0percent` glyph next to an agent sender's display name when
+    /// `bolt.fill` glyph next to an agent sender's display name when
     /// the global credit balance is depleted.
     var creditsDepleted: Bool = false
 
@@ -71,8 +76,8 @@ struct MessagesGroupView: View {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text(group.sender.profile.displayName)
                 if group.sender.isAgent && creditsDepleted {
-                    Image(systemName: "battery.0percent")
-                        .foregroundStyle(.colorRed)
+                    Image(systemName: "bolt.fill")
+                        .foregroundStyle(.colorLava)
                 }
             }
         }
@@ -270,7 +275,10 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
+            let cardTap = { onTapSender(group.sender) }
             AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: cardTap)
                 .overlay(alignment: .bottomLeading) {
                     if cardIsLast && !group.sender.isCurrentUser {
                         avatarOverlay { onTapSender(group.sender) }
@@ -342,6 +350,7 @@ struct MessagesGroupView: View {
                     onPhotoHidden: onPhotoHidden,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
+                    htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
                     onTapReactions: onTapReactions,
                     onReaction: onReaction,
                     onToggleReaction: onToggleReaction,

@@ -298,13 +298,25 @@ cmd_new() {
     echo -e "${BLUE}📁 Location: $WORKTREE_DIR${NC}"
     echo -e "${BLUE}🌿 Branch: $BRANCH_NAME${NC}"
 
-    # Link the parent's .env into the worktree so Firebase App Check debug token
-    # (and any other shared secrets) are picked up without per-worktree duplication.
-    if [ -f "$BASE_DIR/.env" ] && [ ! -e "$WORKTREE_DIR/.env" ]; then
-        ln -s ../.env "$WORKTREE_DIR/.env"
-        echo -e "${BLUE}🔗 Linked .env → ../.env${NC}"
-    elif [ ! -f "$BASE_DIR/.env" ]; then
-        echo -e "${YELLOW}⚠️  No .env at $BASE_DIR/.env — create one and worktrees will link to it on next 'new'${NC}"
+    # Share the convos-ios DEV .env (Firebase App Check token + other shared secrets) without
+    # per-worktree duplication. Prefer the local-stack workspace (CONVOS_REPOS_DIR env, or the
+    # main repo's .convos-stack pointer) -> <workspace>/convos-ios.env; else legacy $BASE_DIR/.env.
+    SHARED_ENV=""
+    WS_DIR="${CONVOS_REPOS_DIR:-}"
+    [ -z "$WS_DIR" ] && [ -f "$MAIN_REPO/.convos-stack" ] && WS_DIR="$(tr -d '\n' < "$MAIN_REPO/.convos-stack")"
+    if [ -n "$WS_DIR" ] && [ -d "$WS_DIR" ]; then
+        SHARED_ENV="$WS_DIR/convos-ios.env"
+        # propagate the workspace pointer so /run local, /local-stack, /firebase-token resolve it in the worktree
+        [ -f "$MAIN_REPO/.convos-stack" ] && cp "$MAIN_REPO/.convos-stack" "$WORKTREE_DIR/.convos-stack" 2>/dev/null || true
+    elif [ -f "$BASE_DIR/.env" ]; then
+        SHARED_ENV="$BASE_DIR/.env"
+    fi
+    if [ -n "$SHARED_ENV" ] && [ ! -e "$WORKTREE_DIR/.env" ]; then
+        [ -f "$SHARED_ENV" ] || touch "$SHARED_ENV"
+        ln -s "$SHARED_ENV" "$WORKTREE_DIR/.env"
+        echo -e "${BLUE}🔗 Linked .env → $SHARED_ENV${NC}"
+    elif [ -z "$SHARED_ENV" ]; then
+        echo -e "${YELLOW}⚠️  No shared .env found (no workspace pointer, no $BASE_DIR/.env) — run 'make -C dev/local-stack init' or /firebase-token${NC}"
     fi
 
     # Write task config file (includes simulator name for later use)

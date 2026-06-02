@@ -245,6 +245,60 @@ struct ContactSyncCoordinatorTests {
         #expect(contactIds == Set(["alice", "carol"]))
     }
 
+    @Test("a template-backed agent member persists its template identity onto the contact")
+    func testTemplateAgentPersistsTemplateFields() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-agent"
+        let agentInboxId = "americano"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, agentInboxId]
+            )
+            // Overwrite the agent's per-conversation profile with one that
+            // carries template metadata and a verified-Convos member kind.
+            try DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: agentInboxId,
+                name: "Americano",
+                avatar: nil,
+                memberKind: .verifiedConvos,
+                metadata: [
+                    "templateId": .string("tmpl-coffee"),
+                    "publishedUrl": .string("https://convos.org/t/coffee"),
+                    "emoji": .string("☕️")
+                ]
+            ).save(db)
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+
+        let agent = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: agentInboxId)
+        }
+        #expect(agent?.agentTemplateId == "tmpl-coffee")
+        #expect(agent?.agentTemplatePublishedURL == "https://convos.org/t/coffee")
+        #expect(agent?.agentTemplateEmoji == "☕️")
+        #expect(agent?.agentVerification?.isVerified == true)
+
+        // The hydrated read-model surfaces the same identity and reads as a
+        // verified agent, which is what the browse-list Agent pill keys on.
+        let contact: Contact? = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: agentInboxId).map(Contact.init(dbContact:))
+        }
+        #expect(contact?.isVerifiedAgent == true)
+        #expect(contact?.agentTemplateId == "tmpl-coffee")
+    }
+
     @Test("self inbox is excluded from contacts")
     func testSelfSkip() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

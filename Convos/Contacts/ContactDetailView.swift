@@ -60,6 +60,13 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
+    @State private var presentingAgentShareSheet: Bool = false
+    /// Gates the "One agent, many convos" confirmation before the "Chat"
+    /// button spawns a new conversation with this agent. `agentInfoConfirmed`
+    /// distinguishes a "Got it" tap from a drag-to-cancel in the sheet's
+    /// `onDismiss`.
+    @State private var presentingAgentInfo: Bool = false
+    @State private var agentInfoConfirmed: Bool = false
 
     init(
         contact: Contact,
@@ -89,6 +96,7 @@ struct ContactDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { closeToolbarItem }
+            .toolbar { agentShareToolbarItem }
             .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
@@ -96,6 +104,11 @@ struct ContactDetailView: View {
                 sendMessageErrorMessage: sendMessageErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
+                presentingAgentShareSheet: $presentingAgentShareSheet,
+                agentShareURL: agentTemplateShareURL,
+                presentingAgentInfo: $presentingAgentInfo,
+                onAgentInfoConfirm: { agentInfoConfirmed = true },
+                onAgentInfoDismiss: handleAgentInfoDismiss,
                 blockAlertActions: { blockAlertActions },
                 pickerSheet: { pickerSheet }
             ))
@@ -116,6 +129,26 @@ struct ContactDetailView: View {
                 let action = { dismiss() }
                 Button(role: .cancel, action: action)
                     .accessibilityIdentifier("contact-detail-close")
+            }
+        }
+    }
+
+    /// Share affordance for a template-backed agent. Shown only once the agent
+    /// carries a published share link (`agentTemplateShareURL`, from its
+    /// profile metadata or the persisted contact); tapping it presents the
+    /// system share sheet. An agent with no `publishedUrl` can't be shared, so
+    /// the button is hidden rather than offering an action that would fail -
+    /// the backend is expected to populate the link for every template.
+    @ToolbarContentBuilder
+    private var agentShareToolbarItem: some ToolbarContent {
+        if agentTemplateShareURL != nil {
+            ToolbarItem(placement: .topBarTrailing) {
+                let action = { presentingAgentShareSheet = true }
+                Button(action: action) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share \(contact.resolvedDisplayName)")
+                .accessibilityIdentifier("contact-detail-share-agent")
             }
         }
     }
@@ -161,9 +194,10 @@ struct ContactDetailView: View {
                         && mode.canRemoveMembers,
                     showBlock: !mode.isCurrentUser,
                     contactDisplayName: contact.resolvedDisplayName,
-                    agentTemplateShareURL: agentTemplateShareURL,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
+                    agentAttestation: contact.agentAttestation,
+                    agentVerification: contact.agentVerification,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -213,13 +247,13 @@ struct ContactDetailView: View {
     @ViewBuilder
     private var headerBadge: some View {
         if mode.isCurrentUser {
-            ContactDetailBadge(
+            RoleLabelPill(
                 label: "You",
                 accessibilityIdentifier: "contact-detail-you-badge"
             )
             .padding(.top, DesignConstants.Spacing.step2x)
         } else if let roleLabel = contact.agentVerification?.roleLabel {
-            ContactDetailBadge(
+            RoleLabelPill(
                 label: roleLabel,
                 accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
             )
@@ -408,11 +442,14 @@ struct ContactDetailView: View {
     /// `ContactsView.handlePickerConfirm` and the invite-cell-tap pattern
     /// where the new-convo sheet is owned by the same view that hosted
     /// the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateId: String?) {
+        guard !memberInboxIds.isEmpty || agentTemplateId != nil, let session else { return }
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: Array(memberInboxIds),
+                agentTemplateId: agentTemplateId
+            )
         )
     }
 
@@ -421,12 +458,36 @@ struct ContactDetailView: View {
     /// `presentingNewConvo`, the same sheet anchor `handlePickerConfirm`
     /// uses; the `.newConversationWithTemplate` mode creates the
     /// conversation and joins the agent once it reaches `.ready`.
+    /// Chat with a template-backed agent shows the "One agent, many convos"
+    /// confirmation first; its "Got it" proceeds via `confirmChatWithAgentTemplate`
+    /// (run from the sheet's `onDismiss` so the new-convo sheet presents after
+    /// this one closes).
     private func handleChatWithAgentTemplate() {
+        presentingAgentInfo = true
+    }
+
+    private func confirmChatWithAgentTemplate() {
         guard let session, let templateId = contact.agentTemplateId else { return }
+        // The contact card already has the agent's identity in hand, so paint
+        // it optimistically while the conversation provisions and the agent
+        // joins -- no async resolve needed.
+        let optimisticIdentity = AgentShareInfo(
+            templateId: templateId,
+            displayName: contact.displayName,
+            emoji: contact.profileEmoji,
+            descriptionText: nil,
+            avatarURL: contact.avatarURL
+        )
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
         )
+    }
+
+    private func handleAgentInfoDismiss() {
+        guard agentInfoConfirmed else { return }
+        agentInfoConfirmed = false
+        confirmChatWithAgentTemplate()
     }
 
     private func syncBlockedState() async {
@@ -455,26 +516,6 @@ private struct ContactDetailHeader: View {
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
         }
-    }
-}
-
-/// Small capsule pill rendered below the subtitle. Used for the
-/// verified-agent role label ("Agent", "Verified by ...") and for
-/// the "You" indicator on the current user's own card - same shape so
-/// the spacing around the pill mirrors the surrounding label spacing
-/// regardless of which one is showing.
-private struct ContactDetailBadge: View {
-    let label: String
-    let accessibilityIdentifier: String
-
-    var body: some View {
-        Text(label)
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-            .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -544,13 +585,17 @@ private struct ContactDetailActions: View {
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
-    /// Non-nil only for template-backed agents; drives the Share row.
-    let agentTemplateShareURL: URL?
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
     /// True on Dev/Local builds. Hides the row on production.
     let showsInstanceIdRow: Bool
+    /// Agent's published attestation signature (`nil` when it joined without
+    /// attaching one). Surfaced in the debug-only attestation row.
+    let agentAttestation: String?
+    /// Last-known agent verification, drives the debug row's valid/invalid
+    /// readout alongside the raw attestation value.
+    let agentVerification: AgentVerification?
     let onSendMessage: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
@@ -561,12 +606,6 @@ private struct ContactDetailActions: View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
             if showChat {
                 chatButton
-            }
-            if let agentTemplateShareURL {
-                ContactDetailShareRow(
-                    url: agentTemplateShareURL,
-                    contactDisplayName: contactDisplayName
-                )
             }
             if showAgentLinks {
                 agentLinkRows
@@ -580,6 +619,17 @@ private struct ContactDetailActions: View {
             if showsInstanceIdRow, let agentInstanceId {
                 ContactDetailDebugInstanceIdRow(instanceId: agentInstanceId)
             }
+            #if DEBUG
+            // Agents only (provisioned, attested, or verified) -- skip human
+            // contacts, which carry no attestation. Shows even for unverified
+            // agents on purpose: the whole point is to see why one isn't valid.
+            if agentInstanceId != nil || agentAttestation != nil || agentVerification?.isVerified == true {
+                ContactDetailDebugAttestationRow(
+                    attestation: agentAttestation,
+                    verification: agentVerification
+                )
+            }
+            #endif
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
@@ -694,37 +744,6 @@ private struct ContactDetailActionRow: View {
 
 // MARK: - Share row (template-backed agents)
 
-/// Share row for a template-backed agent. Mirrors `ContactDetailActionRow`'s
-/// capsule-plus-footer shape, but wraps a SwiftUI `ShareLink` (which presents
-/// the system share sheet) rather than a plain action button, since the
-/// share intent is fully handled by the system. Rendered only when the
-/// agent carries a template `publishedUrl`.
-private struct ContactDetailShareRow: View {
-    let url: URL
-    let contactDisplayName: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            ShareLink(item: url) {
-                Text("Share")
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .background(Capsule().fill(.colorFillMinimal))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Share \(contactDisplayName)")
-            .accessibilityIdentifier("contact-card-share-agent-template")
-            Text("Share a link to add \(contactDisplayName) to a convo")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-        }
-    }
-}
-
 // MARK: - Debug instance id row (internal builds only)
 
 /// Internal-build-only row surfacing the agent runtime's `instanceId`
@@ -779,6 +798,86 @@ private struct ContactDetailDebugInstanceIdRow: View {
     }
 }
 
+#if DEBUG
+// MARK: - Debug attestation row (debug builds only)
+
+/// Debug-build-only row surfacing an agent's published attestation signature
+/// and whether it currently verifies, so engineers can diagnose in-app why an
+/// agent reads as verified or unverified (e.g. an agent that joined without
+/// publishing attestation shows "(none)" + "Not verified"). Sits directly
+/// below the instance-id row and mirrors its capsule + footer shape. Tap to
+/// copy the raw attestation value.
+private struct ContactDetailDebugAttestationRow: View {
+    let attestation: String?
+    let verification: AgentVerification?
+
+    @State private var didCopy: Bool = false
+
+    private var displayValue: String {
+        guard let attestation, !attestation.isEmpty else { return "(none)" }
+        return attestation
+    }
+
+    private var validityText: String {
+        switch verification {
+        case .verified(let issuer):
+            return "Valid - \(issuer.rawValue)"
+        case .unverified, .none:
+            return attestation == nil ? "No attestation" : "Invalid (not verified)"
+        }
+    }
+
+    private var isValid: Bool {
+        verification?.isVerified == true
+    }
+
+    var body: some View {
+        let validityColor: Color = isValid ? .colorTextPrimary : .colorTextSecondary
+        let footerText: String = didCopy ? "Copied" : validityText
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Button(action: copyToClipboard) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Text("Attestation")
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+                    Image(systemName: isValid ? "checkmark.seal.fill" : "xmark.seal")
+                        .foregroundStyle(validityColor)
+                    Text(displayValue)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .background(Capsule().fill(.colorFillMinimal))
+            }
+            .buttonStyle(.plain)
+            .disabled(attestation == nil)
+            .accessibilityLabel("Attestation, \(validityText)")
+            .accessibilityHint("Double tap to copy")
+            .accessibilityIdentifier("contact-detail-debug-attestation")
+            Text(footerText)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+
+    private func copyToClipboard() {
+        guard let attestation else { return }
+        UIPasteboard.general.string = attestation
+        didCopy = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            didCopy = false
+        }
+    }
+}
+#endif
+
 // MARK: - Modals modifier
 
 private struct ContactDetailModalsModifier<
@@ -791,6 +890,11 @@ private struct ContactDetailModalsModifier<
     let sendMessageErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
+    @Binding var presentingAgentShareSheet: Bool
+    let agentShareURL: URL?
+    @Binding var presentingAgentInfo: Bool
+    let onAgentInfoConfirm: () -> Void
+    let onAgentInfoDismiss: () -> Void
     let blockAlertActions: () -> BlockActions
     let pickerSheet: () -> PickerContent
 
@@ -813,6 +917,17 @@ private struct ContactDetailModalsModifier<
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
+            .shareSheet(
+                isPresented: $presentingAgentShareSheet,
+                items: agentShareItems
+            )
+            .selfSizingSheet(isPresented: $presentingAgentInfo, onDismiss: onAgentInfoDismiss) {
+                OneAgentManyConvosInfoSheet(onConfirm: onAgentInfoConfirm)
+            }
+    }
+
+    private var agentShareItems: [Any] {
+        agentShareURL.map { [$0] } ?? []
     }
 }
 
@@ -864,11 +979,13 @@ extension Contact {
     /// and non-contact members. The synthetic fallback is promoted to a
     /// real contact when the user taps "Chat".
     ///
-    /// The agent-template `templateId`, `publishedUrl`, and `instanceId`
-    /// live only in the per-conversation member profile metadata
-    /// (`DBContact` has no template column), so they are overlaid here
-    /// onto whichever contact is returned. Without the `templateId`
-    /// overlay `isAgentTemplate` is always false.
+    /// The agent-template `templateId`, `publishedUrl`, and `instanceId` are
+    /// overlaid here from the freshest per-conversation member profile
+    /// metadata onto whichever contact is returned. Without the `templateId`
+    /// overlay `isAgentTemplate` is always false. `publishedUrl` falls back to
+    /// the persisted contact value when the live metadata omits it - the agent
+    /// runtime doesn't always carry the link, and overwriting a known URL with
+    /// a nil would hide the Share button for an agent we already have a link for.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
@@ -878,13 +995,16 @@ extension Contact {
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         let emoji: String? = member.profile.profileEmoji
         let instanceId: String? = member.profile.agentInstanceId
+        let attestation: String? = member.profile.agentAttestation
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
+            let resolvedPublishedURL: String? = templatePublishedURL ?? stored.agentTemplatePublishedURL
             return stored
                 .with(agentTemplateId: templateId)
-                .with(agentTemplatePublishedURL: templatePublishedURL)
+                .with(agentTemplatePublishedURL: resolvedPublishedURL)
                 .with(profileEmoji: emoji)
                 .with(agentInstanceId: instanceId)
                 .with(agentVerification: member.agentVerification)
+                .with(agentAttestation: attestation)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -900,6 +1020,7 @@ extension Contact {
             profileEmoji: emoji,
             agentInstanceId: instanceId
         )
+        .with(agentAttestation: attestation)
     }
 }
 

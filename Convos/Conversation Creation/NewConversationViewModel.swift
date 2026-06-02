@@ -34,8 +34,11 @@ enum NewConversationMode {
     /// inbox IDs before emitting `.ready`. Used by the contacts picker
     /// "Start Conversation" path so navigation feels instant and the
     /// conversation arrives at `.ready` with the picked members already
-    /// in it.
-    case newConversationWithMembers(initialMemberInboxIds: [String])
+    /// in it. When `agentTemplateId` is non-nil the picker also selected
+    /// an agent: a fresh instance of that template is spawned into the
+    /// conversation once it reaches `.ready` (at most one agent per
+    /// conversation, enforced in the picker).
+    case newConversationWithMembers(initialMemberInboxIds: [String], agentTemplateId: String?)
     /// Opens an existing conversation in the same sheet presentation we
     /// use for the new-convo flows. Used when "Chat" on a contact card
     /// resolves to a 1:1 the user already has with that person, so the
@@ -46,15 +49,22 @@ enum NewConversationMode {
     /// Same instant-placeholder flow as `.newConversation`; once the
     /// conversation reaches `.ready`, a fresh instance of the given
     /// agent template is requested into it. Used by the agent-template
-    /// deeplink (`convos://template/<id>`).
-    case newConversationWithTemplate(templateId: String)
+    /// deeplink (`convos://template/<id>`) and the "Chat" action on an
+    /// agent contact card.
+    ///
+    /// `optimisticIdentity` paints the upcoming agent (name + emoji/photo,
+    /// verified styling, "Joining..." subtitle, contact card) from the moment
+    /// the sheet opens. The contact-card path passes the in-hand identity; the
+    /// deep link passes `nil` (only the template id is known) and the identity
+    /// is resolved asynchronously and upgraded in place.
+    case newConversationWithTemplate(templateId: String, optimisticIdentity: AgentShareInfo?)
     case scanner
     case joinInvite(code: String)
 }
 
 @MainActor
 @Observable
-class NewConversationViewModel: Identifiable {
+class NewConversationViewModel: Identifiable, Hashable {
     // MARK: - Public
 
     let session: any SessionManagerProtocol
@@ -62,6 +72,12 @@ class NewConversationViewModel: Identifiable {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
             conversationViewModel?.isInAgentBuilderFlow = isInAgentBuilderFlow
+            // Re-arm the optimistic agent overlay on every VM we vend so it
+            // survives the placeholder -> real-conversation swap (mirrors
+            // `suppressesContactCard` / `isInAgentBuilderFlow` above).
+            if isOptimisticAgentMode {
+                conversationViewModel?.activateOptimisticAgent(identity: optimisticAgentIdentity)
+            }
         }
     }
     /// When `true`, every `conversationViewModel` we vend (the initial
@@ -183,6 +199,22 @@ class NewConversationViewModel: Identifiable {
     /// agent join twice.
     @ObservationIgnored
     private var didTriggerAgentJoin: Bool = false
+    /// Set for `.newConversationWithTemplate`. Drives the optimistic
+    /// pending-agent identity painted on every inner `conversationViewModel`
+    /// (indicator + contact card) before the real agent joins.
+    @ObservationIgnored
+    private var isOptimisticAgentMode: Bool = false
+    /// The optimistic agent identity forwarded to each inner VM. Starts as the
+    /// caller-supplied identity (contact-card path) or a neutral placeholder
+    /// (deep link); upgraded by `resolveOptimisticAgentIdentityIfNeeded`.
+    @ObservationIgnored
+    private var optimisticAgentIdentity: AgentShareInfo?
+    /// `true` when this VM must resolve the optimistic identity itself (the
+    /// deep-link path supplied only a template id).
+    @ObservationIgnored
+    private var resolvesOptimisticAgentIdentity: Bool = false
+    @ObservationIgnored
+    private var optimisticAgentResolveTask: Task<Void, Never>?
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
@@ -215,8 +247,14 @@ class NewConversationViewModel: Identifiable {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
 
-        if case .newConversationWithTemplate(let templateId) = mode {
+        if case .newConversationWithTemplate(let templateId, let optimisticIdentity) = mode {
             self.pendingAgentTemplateId = templateId
+            self.isOptimisticAgentMode = true
+            self.optimisticAgentIdentity = optimisticIdentity ?? .neutralPendingAgent(templateId: templateId)
+            self.resolvesOptimisticAgentIdentity = (optimisticIdentity == nil)
+        }
+        if case .newConversationWithMembers(_, let agentTemplateId) = mode, let agentTemplateId {
+            self.pendingAgentTemplateId = agentTemplateId
         }
 
         switch mode {
@@ -242,7 +280,7 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
-        if case .newConversationWithMembers(let ids) = mode {
+        if case .newConversationWithMembers(let ids, _) = mode {
             self.startedWithSeededMembers = true
             self.seededMemberInboxIds = ids
         } else {
@@ -255,6 +293,22 @@ class NewConversationViewModel: Identifiable {
         self.isCreatingConversation = mode.isNewConversation
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
+        resolveOptimisticAgentIdentityIfNeeded()
+    }
+
+    /// Resolve the optimistic agent identity for the deep-link path, where
+    /// only a template id is known at creation time. The neutral placeholder
+    /// is already painted; this upgrades it in place once the resolver
+    /// returns the real name + emoji/photo.
+    private func resolveOptimisticAgentIdentityIfNeeded() {
+        guard resolvesOptimisticAgentIdentity, let templateId = pendingAgentTemplateId else { return }
+        let resolver = session.agentShareResolver()
+        optimisticAgentResolveTask = Task { [weak self] in
+            let info = await resolver.resolve(identifier: templateId)
+            guard let self, let info else { return }
+            self.optimisticAgentIdentity = info
+            self.conversationViewModel?.applyOptimisticAgentIdentity(info)
+        }
     }
 
     internal init(
@@ -290,6 +344,7 @@ class NewConversationViewModel: Identifiable {
         joinConversationTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
+        optimisticAgentResolveTask?.cancel()
     }
 
     func cleanUpIfNeeded() {
@@ -339,7 +394,7 @@ class NewConversationViewModel: Identifiable {
                     existingConversationId: existingConversationId
                 )
 
-            case .newConversationWithMembers(let initialMemberInboxIds):
+            case .newConversationWithMembers(let initialMemberInboxIds, _):
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -810,6 +865,19 @@ class NewConversationViewModel: Identifiable {
 /// `ConversationStateMachine` observation, the per-state UI handling, and
 /// the join / create error paths. Split into an extension purely to keep
 /// the type body within SwiftLint's `type_body_length` budget; every
+/// Identity-based `Hashable` so the model can drive a
+/// `navigationDestination(item:)` push (the Compose flow pushes the new
+/// conversation onto the picker's stack). Mirrors `ConversationViewModel`.
+extension NewConversationViewModel {
+    nonisolated static func == (lhs: NewConversationViewModel, rhs: NewConversationViewModel) -> Bool {
+        lhs === rhs
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(self))
+    }
+}
+
 /// member stays file-private and `@MainActor`-isolated (inherited from
 /// the type), so behavior is identical to when these lived inline.
 extension NewConversationViewModel {

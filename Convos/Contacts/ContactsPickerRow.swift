@@ -6,10 +6,14 @@ import SwiftUI
 struct ContactsPickerRow: View {
     let row: ContactsPickerViewModel.Row
     let isSelected: Bool
+    /// True when this row is an agent that can't be selected because
+    /// another agent is already selected (one agent per conversation).
+    var isAgentSelectionBlocked: Bool = false
     let onTap: () -> Void
 
     var body: some View {
-        let opacity: Double = row.isAlreadyInChat ? 0.45 : 1.0
+        let isDisabled: Bool = row.isAlreadyInChat || isAgentSelectionBlocked
+        let opacity: Double = isDisabled ? 0.45 : 1.0
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 ContactAvatarView(contact: row.contact)
@@ -18,6 +22,10 @@ struct ContactsPickerRow: View {
                 ContactsPickerRowText(contact: row.contact, subtitle: row.subtitle)
 
                 Spacer(minLength: 0.0)
+
+                if row.contact.isVerifiedAgent {
+                    RoleLabelPill(label: "Agent")
+                }
 
                 ContactsPickerRowAccessory(
                     isAlreadyInChat: row.isAlreadyInChat,
@@ -29,7 +37,7 @@ struct ContactsPickerRow: View {
         }
         .buttonStyle(.plain)
         .opacity(opacity)
-        .disabled(row.isAlreadyInChat)
+        .disabled(isDisabled)
         .accessibilityIdentifier("contacts-picker-row-\(row.contact.inboxId)")
     }
 }

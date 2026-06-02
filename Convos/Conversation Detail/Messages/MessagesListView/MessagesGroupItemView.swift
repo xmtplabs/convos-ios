@@ -16,6 +16,11 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
+    /// Namespace owned by `MessagesView` and threaded down via the cell
+    /// config; pairs the HTML bubble with the matched-geometry zoom on
+    /// the post-tap `AttachmentPreviewSheet`. nil outside the main
+    /// messages list path (reply parents, etc.).
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
     let onToggleReaction: (String, String) -> Void
@@ -24,6 +29,11 @@ struct MessagesGroupItemView: View {
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var parentAudioTranscriptText: String?
     var omitTrailingPadding: Bool = false
+
+    /// Tap handler for an agent-share card, delivered via the environment from
+    /// the cell (like `agentShareResolver`) rather than threaded through the
+    /// messages-view hierarchy. Opens the shared agent's template flow.
+    @Environment(\.onTapAgentShare) private var onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -109,6 +119,8 @@ struct MessagesGroupItemView: View {
             emojiBubble(text: text)
         case .invite(let invite):
             inviteBubble(invite: invite)
+        case .agentShare(let agentShare):
+            agentShareBubble(agentShare: agentShare)
         case .linkPreview(let preview):
             linkPreviewBubble(preview: preview)
         case .attachment(let attachment):
@@ -193,6 +205,39 @@ struct MessagesGroupItemView: View {
     }
 
     @ViewBuilder
+    private func agentShareBubble(agentShare: MessageAgentShare) -> some View {
+        let isOutgoing = message.sender.isCurrentUser
+        // The card sizes to its content but is capped at the same max width as
+        // text bubbles via a low-priority 50pt spacer (mirrors the in-convo
+        // `MessagesGroupView.contactCardRow`). The spacer sits opposite the
+        // sender so the card hugs the leading edge for incoming and the
+        // trailing edge for outgoing.
+        HStack(alignment: .bottom, spacing: 0.0) {
+            if isOutgoing {
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
+            }
+            AgentShareBubble(agentShare: agentShare)
+                .messageGesture(
+                    message: message,
+                    bubbleStyle: bubbleType,
+                    onSingleTap: { onTapAgentShare(agentShare) },
+                    onReply: onReply,
+                    onToggleReaction: onToggleReaction
+                )
+                .id("agent-share-\(message.messageId)")
+                .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+            if !isOutgoing {
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
+            }
+        }
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
     private func linkPreviewBubble(preview: LinkPreview) -> some View {
         let openAction: () -> Void = {
             if let url = preview.resolvedURL {
@@ -269,14 +314,18 @@ struct MessagesGroupItemView: View {
         } else if attachment.isHTMLFile {
             let htmlTapAction: () -> Void = { onOpenFile?(attachment, message) }
             let avatarTap: () -> Void = { onTapAvatar(message) }
-            let reactionsTap: () -> Void = { onTapReactions?(message) }
+            let isOutgoing: Bool = message.sender.isCurrentUser
+            // The HTML tile has its own chrome (no `MessageContainer`), so it
+            // doesn't inherit the outgoing right-alignment other bubbles get.
+            // Align the gestured tile to the sender's side; the frame only
+            // positions it, so the tap target stays on the 160pt tile.
+            // Reactions render underneath via `reactionRow`, not on the tile.
             HTMLAttachmentBubble(
                 attachment: attachment,
                 profile: message.sender.profile,
-                reactions: message.reactions,
                 agentVerification: message.sender.agentVerification,
                 onTapAvatar: avatarTap,
-                onTapReactions: reactionsTap
+                transitionNamespace: htmlAttachmentTransitionNamespace
             )
             .messageGesture(
                 message: message,
@@ -286,6 +335,8 @@ struct MessagesGroupItemView: View {
                 onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
+            .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0)
         } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment, message) }
             FileAttachmentBubble(

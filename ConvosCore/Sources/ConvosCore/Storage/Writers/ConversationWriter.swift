@@ -26,6 +26,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeThinking.authorityID
             && contentType.typeID == ContentTypeThinking.typeID
     }
+
+    var isBuilderBundleManifest: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
+            && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -45,8 +51,7 @@ protocol ConversationWriterProtocol: Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String?,
-        quarantinedAt: Date?
+        clientConversationId: String?
     ) async throws -> DBConversation
     func createPlaceholderConversation(
         draftConversationId: String?,
@@ -72,22 +77,7 @@ extension ConversationWriterProtocol {
         try await storeWithLatestMessages(
             conversation: conversation,
             inboxId: inboxId,
-            clientConversationId: nil,
-            quarantinedAt: nil
-        )
-    }
-
-    @discardableResult
-    func storeWithLatestMessages(
-        conversation: XMTPiOS.Group,
-        inboxId: String,
-        clientConversationId: String?
-    ) async throws -> DBConversation {
-        try await storeWithLatestMessages(
-            conversation: conversation,
-            inboxId: inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: nil
+            clientConversationId: nil
         )
     }
 }
@@ -147,15 +137,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         return try await _store(
             conversation: conversation,
             inboxId: inboxId,
             withLatestMessages: true,
-            clientConversationId: clientConversationId,
-            quarantinedAt: quarantinedAt
+            clientConversationId: clientConversationId
         )
     }
 
@@ -264,8 +252,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> PreparedConversation {
         try await conversation.sync()
         let metadata = try await extractConversationMetadata(from: conversation)
@@ -277,8 +264,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             metadata: metadata,
             inboxId: inboxId,
             clientConversationId: clientConversationId,
-            imageLastRenewed: nil,
-            quarantinedAt: quarantinedAt
+            imageLastRenewed: nil
         )
         return PreparedConversation(
             dbConversation: dbConversation,
@@ -387,21 +373,45 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// connection time forward, it does not replay historical backlog.
     func applyBacklogSupplementals(
         _ messages: [XMTPiOS.DecodedMessage],
-        for conversation: DBConversation
+        for conversation: DBConversation,
+        currentInboxId: String
     ) async {
         for message in messages {
-            guard !message.isProfileMessage, !message.isTypingIndicator else {
-                continue
-            }
-            if message.isReadReceipt {
-                await storeReadReceipt(message, conversationId: conversation.id)
-                continue
-            }
             do {
-                _ = try await messageWriter.store(message: message, for: conversation)
+                _ = try await applyCaughtUpMessage(message, for: conversation, currentInboxId: currentInboxId)
             } catch {
                 Log.error("Failed to apply backlog supplemental message \(message.id) in \(conversation.id): \(error)")
             }
+        }
+    }
+
+    /// Applies one caught-up (backlog) message via the correct handler and
+    /// returns its content type when it was stored as a regular message (so
+    /// the caller can evaluate the unread gate), or `nil` for read receipts,
+    /// thinking, or ignored messages. Single routing shared by
+    /// `fetchAndStoreLatestMessages` and `applyBacklogSupplementals` so the
+    /// two catch-up paths can't drift. Reactions flow through `store`, which
+    /// routes them to the reaction handlers.
+    private func applyCaughtUpMessage(
+        _ message: DecodedMessage,
+        for conversation: DBConversation,
+        currentInboxId: String
+    ) async throws -> MessageContentType? {
+        switch CaughtUpMessageKind.of(message) {
+        case .ignore:
+            return nil
+        case .readReceipt:
+            await storeReadReceipt(message, conversationId: conversation.id)
+            return nil
+        case .thinking:
+            await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
+            return nil
+        case .builderBundleManifest:
+            await storeBuilderBundleManifest(message, conversationId: conversation.id)
+            return nil
+        case .reaction, .regular:
+            let result = try await messageWriter.store(message: message, for: conversation)
+            return result.contentType
         }
     }
 
@@ -416,14 +426,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         conversation: XMTPiOS.Group,
         inboxId: String,
         withLatestMessages: Bool = false,
-        clientConversationId: String? = nil,
-        quarantinedAt: Date? = nil
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         let prepared = try await prepare(
             conversation: conversation,
             inboxId: inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: quarantinedAt
+            clientConversationId: clientConversationId
         )
 
         // Persist in a single transaction. Capture the actual clientConversationId
@@ -544,8 +552,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         metadata: ConversationMetadata,
         inboxId: String,
         clientConversationId: String? = nil,
-        imageLastRenewed: Date? = nil,
-        quarantinedAt: Date? = nil
+        imageLastRenewed: Date? = nil
     ) async throws -> DBConversation {
         // Assert the inbox exists locally even though the column no longer
         // lives on the conversation row — readers expect an inbox row for the
@@ -579,8 +586,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
-            quarantinedAt: quarantinedAt
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent
         )
     }
 
@@ -632,26 +638,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         // Preserve fields from the existing row that the caller did not
-        // explicitly carry forward:
-        //   - `hasHadVerifiedAgent` is sticky-on (once true, stays true).
-        //   - `quarantinedAt` / `quarantineReleasedAt`: sync paths
-        //     (`store(...)`, push-driven `storeWithLatestMessages`) pass
-        //     `quarantinedAt: nil`, and `createDBConversation` does not
-        //     thread `quarantineReleasedAt` at all. Without this merge a
-        //     refresh would silently un-quarantine a held conversation.
-        //     Explicit non-nil values come from the stream processor's
-        //     quarantine path; the sweeper writes release timestamps
-        //     directly to the DB and never flows through this writer.
+        // explicitly carry forward: `hasHadVerifiedAgent` is sticky-on
+        // (once true, stays true).
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
-            let preservedQuarantinedAt: Date? = dbConversation.quarantinedAt ?? existingConversation.quarantinedAt
-            let preservedQuarantineReleasedAt: Date? = dbConversation.quarantineReleasedAt ?? existingConversation.quarantineReleasedAt
-            conversationToSave = conversationToSave
-                .with(hasHadVerifiedAgent: mergedHasAgent)
-                .with(
-                    quarantinedAt: preservedQuarantinedAt,
-                    quarantineReleasedAt: preservedQuarantineReleasedAt
-                )
+            conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -687,19 +678,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if !localConversation.isUnused {
                 conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
             }
-            // Merge sticky fields from the by-tag match for the same
-            // reasons documented above: this row is replacing
-            // `localConversation`, so its sticky-on agent flag and
-            // quarantine timestamps must carry forward.
+            // This row is replacing `localConversation`, so its sticky-on
+            // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
-            let preservedQuarantinedAtByTag: Date? = conversationToSave.quarantinedAt ?? localConversation.quarantinedAt
-            let preservedQuarantineReleasedAtByTag: Date? = conversationToSave.quarantineReleasedAt ?? localConversation.quarantineReleasedAt
-            conversationToSave = conversationToSave
-                .with(hasHadVerifiedAgent: mergedHasAgentByTag)
-                .with(
-                    quarantinedAt: preservedQuarantinedAtByTag,
-                    quarantineReleasedAt: preservedQuarantineReleasedAtByTag
-                )
+            conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgentByTag)
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
@@ -850,23 +832,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         Log.debug("Found \(messages.count) new messages, catching up...")
 
-        // Store messages and track if conversation should be marked unread
+        // Store messages and track if conversation should be marked unread.
+        // `activeConversationId` is nil here: this path runs from conversation
+        // discovery and push handling, where there is no foreground
+        // conversation to exempt.
         var marksConversationAsUnread = false
         let myInboxId = currentInboxId
         for message in messages {
-            guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
-            if message.isReadReceipt {
-                await storeReadReceipt(message, conversationId: conversation.id)
-                continue
-            }
-            if message.isThinking {
-                await storeThinking(message, conversationId: conversation.id, currentInboxId: myInboxId)
-                continue
-            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
-            let result = try await messageWriter.store(message: message, for: dbConversation)
-            if result.contentType.marksConversationAsUnread,
-               message.senderInboxId != myInboxId {
+            guard let contentType = try await applyCaughtUpMessage(
+                message,
+                for: dbConversation,
+                currentInboxId: myInboxId
+            ) else { continue }
+            if marksConversationUnread(
+                contentType: contentType,
+                senderInboxId: message.senderInboxId,
+                currentInboxId: myInboxId,
+                conversationId: conversation.id,
+                activeConversationId: nil
+            ) {
                 marksConversationAsUnread = true
             }
             Log.debug("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
@@ -890,6 +875,28 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             senderInboxId: message.senderInboxId,
             sentAtNs: message.sentAtNs
         )
+    }
+
+    /// Persist the message ids a `BuilderBundleManifest` flagged as an
+    /// agent-builder bundle, so every client filters them out of the chat
+    /// (see `MessagesListProcessor`). Idempotent on (conversationId,
+    /// messageId).
+    private func storeBuilderBundleManifest(_ message: DecodedMessage, conversationId: String) async {
+        guard let manifest = try? BuilderBundleManifestCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode BuilderBundleManifest from message \(message.id)")
+            return
+        }
+        guard !manifest.messageIds.isEmpty else { return }
+        do {
+            try await databaseWriter.write { db in
+                for messageId in manifest.messageIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationId, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
+        }
     }
 
     private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {

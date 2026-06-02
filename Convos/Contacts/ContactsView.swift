@@ -17,7 +17,9 @@ struct ContactsView: View {
         session: (any SessionManagerProtocol)? = nil,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared
     ) {
-        _viewModel = State(initialValue: ContactsViewModel(contactsRepository: contactsRepository))
+        _viewModel = State(initialValue: ContactsViewModel(
+            contactsRepository: contactsRepository
+        ))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
         self.session = session
@@ -124,23 +126,8 @@ struct ContactsView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            Image(systemName: "person.2.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 56, height: 56)
-                .foregroundStyle(.colorTextTertiary)
-            Text("No contacts yet")
-                .font(.headline)
-                .foregroundStyle(.colorTextPrimary)
-            Text("People you message in groups will show up here.")
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step6x)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.colorBackgroundRaisedSecondary)
+        ContactsEmptyStateView()
+            .background(.colorBackgroundRaisedSecondary)
     }
 
     // MARK: - Toolbar
@@ -183,11 +170,14 @@ struct ContactsView: View {
     /// invite-cell-tap pattern (`presentingNewConversationForInvite` on
     /// `ConversationViewModel`) where the sheet is owned by the same view
     /// that hosted the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateId: String?) {
+        guard !memberInboxIds.isEmpty || agentTemplateId != nil, let session else { return }
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: Array(memberInboxIds),
+                agentTemplateId: agentTemplateId
+            )
         )
     }
 }

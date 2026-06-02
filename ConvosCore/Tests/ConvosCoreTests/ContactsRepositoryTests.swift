@@ -110,7 +110,7 @@ struct ContactsRepositoryTests {
         #expect(alice?.isBlocked == false)
     }
 
-    @Test("Contacts with nil displayName fall back to truncated inboxId in the sort key")
+    @Test("Contacts with nil displayName fall back to \"Somebody\" in the sort key")
     func testNilDisplayNameFallback() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
 
@@ -131,8 +131,9 @@ struct ContactsRepositoryTests {
 
         let repo = ContactsRepository(databaseReader: dbManager.dbReader)
         let names = try repo.fetchAll().map(\.resolvedDisplayName)
-        // "Mid" sorts before "zzzzzzzz" by case-insensitive compare
-        #expect(names == ["Mid", "zzzzzzzz"])
+        // The nil-name contact resolves to "Somebody", not its inboxId, so
+        // it sorts by "Somebody" - after "Mid" by case-insensitive compare.
+        #expect(names == ["Mid", "Somebody"])
     }
 
     @Test("sourceConversations returns the convo name + kind for each id, drops missing ids")
@@ -215,5 +216,154 @@ struct ContactsRepositoryTests {
         let sources = try repo.sourceConversations(forIds: [])
 
         #expect(sources.isEmpty)
+    }
+
+    @Test("fetchAll collapses agent instances of one template into a single canonical row")
+    func testAgentInstancesDedupedToCanonicalRow() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "agent-instance-1",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "Trip Helper",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-trip",
+                agentTemplateEmoji: "🧳"
+            ).save(db)
+            try DBContact(
+                inboxId: "agent-instance-2",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Vacation Buddy",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-trip",
+                agentTemplateEmoji: "🏖️"
+            ).save(db)
+            try DBContact(
+                inboxId: "human",
+                addedAt: Date(timeIntervalSince1970: 3),
+                addedViaConversationId: nil,
+                displayName: "Dana"
+            ).save(db)
+            try DBAgentTemplate(
+                templateId: "tmpl-trip",
+                agentName: "Travel Agent",
+                emoji: "✈️",
+                avatarURL: nil,
+                publishedURL: "https://convos.org/a/travel",
+                templateDescription: nil,
+                slug: nil,
+                fetchedAt: Date()
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let contacts = try repo.fetchAll()
+
+        let agents = contacts.filter { $0.agentTemplateId == "tmpl-trip" }
+        #expect(agents.count == 1)
+        // Canonical published identity overlays the per-instance profile.
+        #expect(agents.first?.displayName == "Travel Agent")
+        #expect(agents.first?.profileEmoji == "✈️")
+        #expect(agents.first?.agentTemplatePublishedURL == "https://convos.org/a/travel")
+        // Humans are never collapsed.
+        #expect(contacts.contains { $0.inboxId == "human" })
+    }
+
+    @Test("fetchAll still collapses instances when the template cache is cold, keeping instance identity")
+    func testAgentInstancesDedupedWithColdCache() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "agent-instance-1",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "First Instance",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-uncached"
+            ).save(db)
+            try DBContact(
+                inboxId: "agent-instance-2",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Second Instance",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-uncached"
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let contacts = try repo.fetchAll()
+
+        let agents = contacts.filter { $0.agentTemplateId == "tmpl-uncached" }
+        #expect(agents.count == 1)
+        // No cache row yet, so the representative keeps its instance name.
+        #expect(agents.first?.displayName == "First Instance")
+    }
+
+    @Test("Dedup representative is the earliest-added instance, and a block on any instance blocks the canonical row")
+    func testDedupDeterministicRepresentativeAndBlockOR() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            // Earliest-added instance is NOT blocked.
+            try DBContact(
+                inboxId: "agent-early",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "Early",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-x"
+            ).save(db)
+            // A later instance IS blocked.
+            try DBContact(
+                inboxId: "agent-late",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Late",
+                blockedAt: Date(),
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-x"
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let agents = try repo.fetchAll().filter { $0.agentTemplateId == "tmpl-x" }
+
+        #expect(agents.count == 1)
+        // Deterministic representative = earliest-added instance.
+        #expect(agents.first?.inboxId == "agent-early")
+        // A block on any instance blocks the collapsed canonical row, so
+        // dedup can't hide a block.
+        #expect(agents.first?.isBlocked == true)
+    }
+
+    @Test("A metadata-less profile update does not clear the contact's sticky agent-template identity")
+    func testStickyAgentTemplateIdentitySurvivesMetadataLessUpdate() {
+        let agent = DBContact(
+            inboxId: "agent-1",
+            addedAt: Date(timeIntervalSince1970: 1),
+            addedViaConversationId: nil,
+            displayName: "Old Name",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-keep",
+            agentTemplatePublishedURL: "https://convos.org/a/x",
+            agentTemplateEmoji: "🤖"
+        )
+        // The name-only ProfileUpdate `convos agent serve` publishes at startup
+        // carries no metadata, so every template field is nil.
+        let nameOnly = ContactProfileSnapshot(displayName: "New Name")
+        let updated = agent.replacingProfileFields(with: nameOnly, at: Date(timeIntervalSince1970: 100))
+
+        #expect(updated.displayName == "New Name")
+        // Sticky template identity survives the metadata-less overwrite.
+        #expect(updated.agentTemplateId == "tmpl-keep")
+        #expect(updated.agentTemplatePublishedURL == "https://convos.org/a/x")
+        #expect(updated.agentTemplateEmoji == "🤖")
+        // agentVerification is wholesale-replaced (not sticky).
+        #expect(updated.agentVerification == nil)
     }
 }

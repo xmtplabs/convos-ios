@@ -17,8 +17,10 @@ final class ProfileSettingsViewModelTests: XCTestCase {
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: "hasShownProfileEditor")
-        ProfileSettingsViewModel.shared.editingDisplayName = ""
-        ProfileSettingsViewModel.shared.profileImage = nil
+        MainActor.assumeIsolated {
+            ProfileSettingsViewModel.shared.editingDisplayName = ""
+            ProfileSettingsViewModel.shared.profileImage = nil
+        }
         super.tearDown()
     }
 

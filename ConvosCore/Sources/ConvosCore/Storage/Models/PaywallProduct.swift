@@ -8,6 +8,7 @@ public struct PaywallProduct: Identifiable, Equatable, Hashable, Sendable {
     public let tier: SubscriptionTier
     public let period: SubscriptionPeriod
     public let displayPrice: String
+    public let price: Decimal
     public let pricePerMonthDisplay: String?
     public let currencyCode: String
 
@@ -16,6 +17,7 @@ public struct PaywallProduct: Identifiable, Equatable, Hashable, Sendable {
         tier: SubscriptionTier,
         period: SubscriptionPeriod,
         displayPrice: String,
+        price: Decimal = 0,
         pricePerMonthDisplay: String?,
         currencyCode: String
     ) {
@@ -23,6 +25,7 @@ public struct PaywallProduct: Identifiable, Equatable, Hashable, Sendable {
         self.tier = tier
         self.period = period
         self.displayPrice = displayPrice
+        self.price = price
         self.pricePerMonthDisplay = pricePerMonthDisplay
         self.currencyCode = currencyCode
     }

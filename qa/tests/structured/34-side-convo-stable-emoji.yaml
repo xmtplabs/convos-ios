@@ -1,0 +1,394 @@
+id: "34"
+name: "Side Convo Invite and Stable Conversation Emoji (Two Simulators)"
+description: >
+  Verify that the Side convo flow creates a linked conversation with a stable
+  emoji across devices, that editing the side convo name does not change the
+  preview emoji, and that the sent invite preview preserves the side convo
+  metadata (name + emoji) for the receiver. Requires TWO simulators -
+  Device A (sender) and Device B (receiver).
+tags: [invites, side-convo, emoji, multi-device, core]
+depends_on: ["01"]
+estimated_duration_s: 360
+
+prerequisites:
+  two_simulators: true
+  app_installed_on_both: true
+  shared_conversation: true
+  screen: conversation_detail
+  note: >
+    Device A and Device B must already share at least one conversation, with
+    that conversation open on both devices. If no shared conversation exists,
+    create one: Device A creates a conversation (compose-button -> invite QR),
+    Device B joins it via the invite deep link (sim_open_url), and Device A
+    processes the join request (convos conversation process-join-requests
+    --watch --timeout 30). Then open the shared conversation on both devices so
+    message-text-field is visible.
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  shared_conversation_id: null
+  side_convo_name: "Stable Emoji QA"
+  composer_emoji_a: null
+  invite_url: null
+  invite_slug: null
+  linked_conversation_id: null
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: >
+      Device A is the branch's primary simulator. Create Device B per
+      qa/RULES.md "Multi-Simulator Tests" if it does not already exist, install
+      the same Convos.app build, and boot it.
+  - action: open_shared_conversation
+    note: >
+      Open the shared conversation on both devices. Verify message-text-field
+      is visible on each before starting.
+  - action: init_log_markers
+    note: >
+      Call sim_log_tail on both UDIDs to capture a starting marker for each
+      device. Reuse these markers for all sim_log_check_errors calls.
+
+steps:
+  # Create a side convo from Device A
+  - id: open_media_buttons_device_a
+    name: "Device A opens the media buttons bar"
+    device: A
+    actions:
+      - wait_for_element: { id: "message-text-field", timeout: 15 }
+      - find_elements: { pattern: "media-buttons" }
+    verify:
+      - element_exists: { id: "side-convo-button" }
+    criteria: side_convo_button_visible
+    note: >
+      The media buttons bar (media-buttons) holds the side-convo-button (a
+      viewfinder/branch glyph with accessibilityLabel "Side convo"). If the bar
+      is collapsed, tap the composer to expand it before searching. The
+      side-convo-button is disabled when media is already staged - clear any
+      staged attachment first.
+
+  - id: tap_side_convo_device_a
+    name: "Device A taps the Side convo button"
+    device: A
+    actions:
+      - tap: { id: "side-convo-button" }
+      - wait_for_element: { id: "side-convo-card", timeout: 20 }
+    verify:
+      - element_exists: { id: "side-convo-card" }
+      - element_exists: { id: "side-convo-avatar-preview" }
+      - element_exists: { id: "side-convo-name-field" }
+    criteria: side_convo_card_appears
+    note: >
+      Tapping the button drafts a linked conversation and generates an invite,
+      surfacing ComposerSideConvoCard (side-convo-card) inside the
+      invite-attachment-preview. The card may take a moment while the invite
+      URL is generated; wait_for_element handles the delay.
+
+  - id: record_composer_emoji_device_a
+    name: "Record the emoji shown in the side convo preview card"
+    device: A
+    actions:
+      - find_elements: { pattern: "side-convo-avatar-preview" }
+    verify:
+      - element_exists: { label_contains: "Side convo emoji" }
+    save:
+      composer_emoji_a: "emoji from side-convo-avatar-preview accessibilityLabel (format: 'Side convo emoji <emoji>')"
+    criteria: composer_emoji_recorded
+    note: >
+      The avatar preview's accessibilityLabel is "Side convo emoji <emoji>"
+      when an emoji is shown, "Side convo image <...>" when a photo is set, or
+      "Side convo placeholder" when neither. Extract the emoji character from
+      the label and persist it as composer_emoji_a. A screenshot can confirm
+      the rendered glyph visually if the label parse is ambiguous.
+
+  - id: enter_side_convo_name_device_a
+    name: "Device A enters a side convo name and confirms emoji is stable"
+    device: A
+    actions:
+      - type_in_field: { id: "side-convo-name-field", text: "$side_convo_name" }
+      - find_elements: { pattern: "side-convo-avatar-preview" }
+    verify:
+      - element_exists: { label_contains: "Side convo emoji" }
+    criteria: emoji_stable_after_name_edit
+    note: >
+      After typing the name, re-read the side-convo-avatar-preview label and
+      confirm the emoji character matches composer_emoji_a. The emoji is
+      derived deterministically from the linked conversation id (see
+      EmojiSelector / ensureConversationEmoji) and must not change when the
+      name field is edited. Do not dismiss the card.
+
+  # Send the side convo invite
+  - id: send_side_convo_invite_device_a
+    name: "Device A sends the side convo invite"
+    device: A
+    actions:
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { id: "invite-preview-card", timeout: 30 }
+    verify:
+      - element_exists: { id: "invite-preview-card" }
+      - element_exists: { id: "invite-preview-avatar" }
+      - element_exists: { label_contains: "$side_convo_name" }
+    criteria: invite_sent_device_a
+    expect_event: "message.sent"
+    note: >
+      Sending publishes the staged invite as a message. The sent invite renders
+      as MessageInviteContainerView (invite-preview-card) with avatar
+      (invite-preview-avatar) and title (invite-preview-title). The
+      message.sent event fires with type text for the invite URL message.
+
+  - id: verify_sent_cell_emoji_device_a
+    name: "Device A sent invite cell shows the recorded emoji"
+    device: A
+    actions:
+      - find_elements: { pattern: "invite-preview-avatar" }
+    verify:
+      - element_exists: { label_contains: "Invite emoji" }
+    criteria: sent_cell_emoji_matches_composer
+    note: >
+      The sent cell avatar accessibilityLabel is "Invite emoji <emoji>". Confirm
+      its emoji matches composer_emoji_a recorded in record_composer_emoji_device_a.
+      If labels are inconclusive, confirm visually with a screenshot.
+
+  - id: capture_invite_url_device_a
+    name: "Capture the side convo invite URL from Device A logs"
+    device: A
+    actions:
+      - sim_log_events: { event_filter: "invite.url_displayed" }
+    save:
+      invite_url: "url param from invite.url_displayed event (most recent)"
+      invite_slug: "the i=<slug> query value parsed from invite_url"
+    criteria: invite_url_captured
+    note: >
+      The composer invite QR / preview emits invite.url_displayed with the full
+      invite URL. Use the most recent event after sending. If the event is not
+      present, fall back to copying the invite link via the conversation top-bar
+      "Copy link" menu and reading the pasteboard (xcrun simctl pbpaste), per
+      qa/RULES.md "Invite URLs - Never Paste Manually".
+
+  - id: verify_invite_metadata_cli
+    name: "CLI inspect-invite confirms the side convo name and emoji"
+    actions:
+      - cli_inspect_invite: { invite: "$invite_url" }
+    verify:
+      - cli_output_contains: "$side_convo_name"
+      - cli_output_contains: "$composer_emoji_a"
+      - cli_output_contains: "signatureValid"
+    criteria: invite_metadata_preserved
+    note: >
+      Run: convos conversations inspect-invite "$invite_url" --json --env dev
+      The JSON includes name, emoji, and signatureValid. Assert name equals
+      "$side_convo_name" and emoji equals composer_emoji_a. This is the
+      authoritative check that the invite preview preserves the side convo
+      metadata for the receiver, independent of UI rendering.
+
+  - id: receive_invite_device_b
+    name: "Device B receives the side convo invite"
+    device: B
+    actions:
+      - wait_for_element: { id: "invite-preview-card", timeout: 30 }
+    verify:
+      - element_exists: { id: "invite-preview-card" }
+      - element_exists: { id: "invite-preview-avatar" }
+      - element_exists: { label_contains: "$side_convo_name" }
+    criteria: invite_received_device_b
+    expect_event: "message.received"
+    note: >
+      The shared conversation must be open on Device B. The received invite cell
+      renders the same MessageInviteContainerView. invite-preview-title shows
+      the side convo name. Poll via wait_for_element; the message arrives over
+      the network.
+
+  - id: verify_received_cell_emoji_device_b
+    name: "Device B received invite cell shows the same emoji as Device A"
+    device: B
+    actions:
+      - find_elements: { pattern: "invite-preview-avatar" }
+    verify:
+      - element_exists: { label_contains: "Invite emoji" }
+    criteria: received_cell_emoji_matches
+    note: >
+      The received cell avatar accessibilityLabel is "Invite emoji <emoji>".
+      Confirm its emoji matches composer_emoji_a (and therefore Device A's sent
+      cell). The emoji is carried in the invite payload, so both devices render
+      the identical glyph.
+
+  # Join and compare the created conversation across both devices
+  - id: open_linked_convo_device_b
+    name: "Device B taps the invite and enters the linked conversation"
+    device: B
+    actions:
+      - tap: { id: "invite-preview-card" }
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_exists: { label_contains: "$side_convo_name" }
+    criteria: device_b_enters_linked_convo
+    expect_event: "conversation.joined"
+    note: >
+      Tapping the invite cell opens NewConversationViewModel in joinInvite mode.
+      Device B may briefly show "Verifying" before entering the conversation.
+      Device A auto-processes the join request (it is the inviter and online).
+      If Device B stalls in Verifying, ensure Device A is foregrounded; the
+      member_accepted event on Device A confirms processing. Verify the linked
+      conversation name "$side_convo_name" appears in the header / info preview.
+
+  - id: record_linked_emoji_device_b
+    name: "Record the linked conversation emoji/avatar on Device B"
+    device: B
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: "Linked conversation shows an emoji avatar (no custom photo was set)"
+    save:
+      linked_emoji_b: "emoji rendered for the linked conversation avatar on Device B"
+    criteria: linked_emoji_recorded_device_b
+    note: >
+      The conversation-detail avatar (ConversationAvatarView) has no dedicated
+      accessibility identifier, so capture the rendered emoji visually. It
+      should match composer_emoji_a. Also capture the linked conversation id if
+      available via sim_log_events (conversation.joined includes id) and save as
+      linked_conversation_id for teardown.
+
+  - id: open_linked_convo_device_a
+    name: "Device A taps the sent invite to open the same linked conversation"
+    device: A
+    actions:
+      - tap: { id: "invite-preview-card" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_exists: { label_contains: "$side_convo_name" }
+    criteria: device_a_enters_linked_convo
+    note: >
+      Device A opens its own linked conversation by tapping its sent invite
+      cell. Verify the header / info preview shows "$side_convo_name".
+
+  - id: compare_linked_emoji_across_devices
+    name: "Linked conversation emoji matches across both devices and the composer"
+    device: A
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: "Device A linked conversation emoji avatar matches linked_emoji_b recorded on Device B"
+      - visual_check: "Device A linked conversation emoji avatar matches composer_emoji_a from the original preview"
+    criteria: linked_emoji_stable_across_devices
+    note: >
+      Compare the Device A linked-conversation emoji against linked_emoji_b and
+      composer_emoji_a. All three must be identical. Use side-by-side
+      screenshots. The CLI inspect-invite emoji (verify_invite_metadata_cli)
+      provides an exact-character cross-check if the visual comparison is
+      ambiguous.
+
+  # Verify the linked conversation is functional
+  - id: device_b_sends_in_linked
+    name: "Device B sends a message in the linked conversation"
+    actions:
+      - device_b_send: { text: "hello from device b in side convo" }
+      - device_a_wait: { label_contains: "hello from device b in side convo", timeout: 20 }
+    verify:
+      - device_a_has: { label_contains: "hello from device b in side convo" }
+    criteria: device_b_message_arrives_on_a
+    note: >
+      Send via the app on Device B (type_in_field message-text-field, tap
+      send-message-button) or via CLI. Then poll Device A's linked conversation
+      for the message text.
+
+  - id: device_a_replies_in_linked
+    name: "Device A replies in the linked conversation"
+    actions:
+      - device_a_send: { text: "hello from device a in side convo" }
+      - device_b_wait: { label_contains: "hello from device a in side convo", timeout: 20 }
+    verify:
+      - device_b_has: { label_contains: "hello from device a in side convo" }
+    criteria: device_a_reply_arrives_on_b
+    expect_event: "message.sent"
+
+  - id: back_to_list_both_devices
+    name: "Navigate back to the conversations list on both devices"
+    actions:
+      - device_a_tap: { id: "BackButton" }
+      - device_b_tap: { id: "BackButton" }
+      - device_a_wait: { id: "compose-button", timeout: 15 }
+      - device_b_wait: { id: "compose-button", timeout: 15 }
+    verify:
+      - device_a_has: { id: "compose-button" }
+      - device_b_has: { id: "compose-button" }
+    criteria: both_devices_on_list
+    note: >
+      Tap BackButton to leave the linked conversation. If a side-convo was
+      reached through the shared conversation, more than one Back may be needed
+      to reach the Chats tab (compose-button visible).
+
+  - id: verify_list_emoji_both_devices
+    name: "Conversations list shows the linked convo with the same emoji on both devices"
+    actions:
+      - device_a_find: { pattern: "conversation-list-item" }
+      - device_b_find: { pattern: "conversation-list-item" }
+      - screenshot: {}
+    verify:
+      - device_a_has: { label_contains: "$side_convo_name" }
+      - device_b_has: { label_contains: "$side_convo_name" }
+      - visual_check: "Both devices' conversation-list-item for the linked convo show the same emoji avatar matching composer_emoji_a"
+    criteria: list_emoji_matches_both_devices
+    note: >
+      The list row is conversation-list-item-<conversation.id> with an
+      accessibilityLabel that includes the conversation name. The avatar emoji
+      is rendered by ConversationAvatarView (no separate identifier), so confirm
+      the emoji visually on both devices. The linked conversation should appear
+      titled "$side_convo_name".
+
+teardown:
+  - action: explode_linked_conversation
+    optional: true
+    note: >
+      Explode the linked side convo from Device A (long-press the row in the
+      list -> context-menu-explode, or tap-and-hold the conversation per test
+      09) unless a later scenario needs it. Then return both devices to the
+      conversations list (compose-button visible) or the original shared
+      conversation.
+  - action: cleanup_device_b
+    optional: true
+    note: >
+      Per qa/RULES.md, shut down and delete Device B if it was created for this
+      test. Do not delete Device A (the branch's primary simulator).
+
+criteria:
+  side_convo_button_visible:
+    description: "The Side convo button is visible in the media buttons bar on Device A"
+  side_convo_card_appears:
+    description: "Tapping Side convo opens the composer preview card with avatar and name field"
+  composer_emoji_recorded:
+    description: "The emoji shown in the side convo preview card is recorded"
+  emoji_stable_after_name_edit:
+    description: "Editing the side convo name does not change the preview emoji on Device A"
+  invite_sent_device_a:
+    description: "The side convo invite appears immediately in Device A's message list after sending"
+  sent_cell_emoji_matches_composer:
+    description: "The sent invite cell on Device A shows the same emoji as the composer preview"
+  invite_url_captured:
+    description: "The side convo invite URL is captured from Device A"
+  invite_metadata_preserved:
+    description: "CLI inspect-invite confirms the invite carries the side convo name and the recorded emoji with a valid signature"
+  invite_received_device_b:
+    description: "The received invite cell on Device B shows the side convo name"
+  received_cell_emoji_matches:
+    description: "The received invite cell on Device B shows the same emoji as Device A"
+  device_b_enters_linked_convo:
+    description: "Device B joins/enters the linked conversation showing the side convo name in the header"
+  linked_emoji_recorded_device_b:
+    description: "The linked conversation emoji/avatar on Device B is recorded"
+  device_a_enters_linked_convo:
+    description: "Device A enters the same linked conversation showing the side convo name in the header"
+  linked_emoji_stable_across_devices:
+    description: "The linked conversation emoji matches across both devices and the original composer preview"
+  device_b_message_arrives_on_a:
+    description: "A message sent from Device B appears in the linked conversation on Device A"
+  device_a_reply_arrives_on_b:
+    description: "A reply sent from Device A appears in the linked conversation on Device B"
+  both_devices_on_list:
+    description: "Both devices return to the conversations list"
+  list_emoji_matches_both_devices:
+    description: "The conversations list shows the linked conversation with the same emoji/avatar on both devices"

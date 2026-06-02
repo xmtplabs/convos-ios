@@ -7,6 +7,9 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var sections: [MessagesCollectionSection] { get set }
     func prepare(with collectionView: UICollectionView)
     var onTapInvite: ((MessageInvite) -> Void)? { get set }
+    var inviteMembershipResolver: any InviteMembershipResolving { get set }
+    var agentShareResolver: any AgentShareResolving { get set }
+    var onTapAgentShare: ((MessageAgentShare) -> Void)? { get set }
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }
@@ -36,5 +39,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var isAgentJoinPending: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
+    var htmlAttachmentTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }
 }

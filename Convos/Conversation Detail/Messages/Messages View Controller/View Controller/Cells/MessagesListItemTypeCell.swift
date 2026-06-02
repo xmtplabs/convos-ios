@@ -68,29 +68,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     UpdateCellContent(update: update, config: config)
 
                 case .messages(let group):
-                    MessagesGroupView(
-                        group: group,
-                        conversationId: config.conversationId,
-                        shouldBlurPhotos: config.shouldBlurPhotos,
-                        onTapAvatar: config.onTapAvatar,
-                        onTapSender: config.onTapSender,
-                        onTapInvite: config.onTapInvite,
-                        onTapReactions: config.onTapReactions,
-                        onTapReadReceipts: config.onTapReadReceipts,
-                        onTapThinkingIndicator: config.onTapThinkingIndicator,
-                        onReaction: config.onReaction,
-                        onToggleReaction: config.onToggleReaction,
-                        onReply: config.onReply,
-                        onPhotoRevealed: config.onPhotoRevealed,
-                        onPhotoHidden: config.onPhotoHidden,
-                        onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
-                        onOpenFile: config.onOpenFile,
-                        onRetryMessage: config.onRetryMessage,
-                        onDeleteMessage: config.onDeleteMessage,
-                        onRetryTranscript: config.onRetryTranscript,
-                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
-                        creditsDepleted: config.creditsDepleted
-                    )
+                    MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
                 case .invite(let invite):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -118,12 +96,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case .agentOutOfCredits(let member):
-                    TextTitleContentView(
-                        title: "\(member.profile.displayName) is out of credits",
-                        profile: member.profile,
-                        agentVerification: member.agentVerification,
-                        onTap: config.onAgentOutOfCredits
+                case let .agentOutOfCredits(member, isCurrentUserCreator):
+                    AgentLostPowerStatus(
+                        agentName: member.profile.displayName,
+                        isCreator: isCurrentUserCreator,
+                        onUpgrade: config.onAgentOutOfCredits
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -160,6 +137,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
+            .environment(\.agentShareResolver, config.agentShareResolver)
+            .environment(\.inviteMembershipResolver, config.inviteMembershipResolver)
+            .environment(\.onTapAgentShare, config.onTapAgentShare)
         }
         .margins(.horizontal, 0.0)
         .margins(.vertical, 0.0)
@@ -167,6 +147,37 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
+    }
+
+    /// Extracted from the `setup(item:config:)` switch so the many-argument
+    /// `MessagesGroupView` construction doesn't push that switch over the
+    /// type-check-time limit.
+    @ViewBuilder
+    private static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
+        MessagesGroupView(
+            group: group,
+            conversationId: config.conversationId,
+            shouldBlurPhotos: config.shouldBlurPhotos,
+            onTapAvatar: config.onTapAvatar,
+            onTapSender: config.onTapSender,
+            onTapInvite: config.onTapInvite,
+            onTapReactions: config.onTapReactions,
+            onTapReadReceipts: config.onTapReadReceipts,
+            onTapThinkingIndicator: config.onTapThinkingIndicator,
+            onReaction: config.onReaction,
+            onToggleReaction: config.onToggleReaction,
+            onReply: config.onReply,
+            onPhotoRevealed: config.onPhotoRevealed,
+            onPhotoHidden: config.onPhotoHidden,
+            onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
+            onOpenFile: config.onOpenFile,
+            onRetryMessage: config.onRetryMessage,
+            onDeleteMessage: config.onDeleteMessage,
+            onRetryTranscript: config.onRetryTranscript,
+            allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
+            htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
+            creditsDepleted: config.creditsDepleted
+        )
     }
 
     @ViewBuilder

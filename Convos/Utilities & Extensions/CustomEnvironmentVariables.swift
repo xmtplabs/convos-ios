@@ -21,32 +21,44 @@ private struct SafeAreaEnvironmentModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.safeAreaInsets, currentInsets)
-            .onAppear {
-                // Get safe area insets from the window when the view appears
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
-                    currentInsets = EdgeInsets(
-                        top: window.safeAreaInsets.top,
-                        leading: window.safeAreaInsets.left,
-                        bottom: window.safeAreaInsets.bottom,
-                        trailing: window.safeAreaInsets.right
-                    )
-                }
+            // The window safe area can change without an orientation event —
+            // notably when an iPad app window is moved or resized in Stage
+            // Manager. Observing the live safe area keeps the value current;
+            // a stale value mispositions overlays like the app-indicator pill
+            // in a floating window. The observed proxy inset includes any
+            // `additionalTopSafeArea`, so the action re-reads the base window
+            // inset to preserve the existing positioning math.
+            .onGeometryChange(for: EdgeInsets.self) { proxy in
+                proxy.safeAreaInsets
+            } action: { _ in
+                updateInsets()
             }
+            .onAppear { updateInsets() }
             .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-                // Update insets when orientation changes
-                DispatchQueue.main.async {
-                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let window = windowScene.windows.first {
-                        currentInsets = EdgeInsets(
-                            top: window.safeAreaInsets.top,
-                            leading: window.safeAreaInsets.left,
-                            bottom: window.safeAreaInsets.bottom,
-                            trailing: window.safeAreaInsets.right
-                        )
-                    }
-                }
+                DispatchQueue.main.async { updateInsets() }
             }
+    }
+
+    private func updateInsets() {
+        guard let window = Self.activeWindow() else { return }
+        let insets = EdgeInsets(
+            top: window.safeAreaInsets.top,
+            leading: window.safeAreaInsets.left,
+            bottom: window.safeAreaInsets.bottom,
+            trailing: window.safeAreaInsets.right
+        )
+        if insets != currentInsets {
+            currentInsets = insets
+        }
+    }
+
+    /// The foreground-active scene's key window (falling back to the first
+    /// available), so we read the safe area of the window the app is
+    /// actually shown in rather than an arbitrary connected scene.
+    private static func activeWindow() -> UIWindow? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first
     }
 }
 
@@ -55,5 +67,23 @@ public extension View {
     /// so any descendant can access it via `@Environment(\.safeAreaInsets)`.
     func withSafeAreaEnvironment() -> some View {
         modifier(SafeAreaEnvironmentModifier())
+    }
+}
+
+// MARK: - Conversation Read-Only Environment Value
+
+private struct ConversationReadOnlyEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+public extension EnvironmentValues {
+    /// True when the active conversation is in a read-only state — currently
+    /// driven by `StaleDeviceObserver.isDeviceRemoved`. Descendant gesture
+    /// modifiers (double-tap-react, swipe-to-reply) and the long-press
+    /// context menu read this to suppress their interactive affordances
+    /// without every call site having to thread an explicit flag through.
+    var isConversationReadOnly: Bool {
+        get { self[ConversationReadOnlyEnvironmentKey.self] }
+        set { self[ConversationReadOnlyEnvironmentKey.self] = newValue }
     }
 }

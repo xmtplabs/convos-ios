@@ -76,7 +76,7 @@ struct DebugViewSection: View {
                 Text("Show Agents Info Sheet")
             }
             .selfSizingSheet(isPresented: $showingAgentsInfoSheet) {
-                AgentsInfoView(isConfirmation: true, onConfirm: {})
+                AgentsInfoView()
                     .padding(.top, 20)
             }
 
@@ -113,6 +113,13 @@ struct DebugViewSection: View {
                     MockCreditsService.shared.setPreset(newValue)
                     MockSubscriptionService.shared.setPreset(newValue)
                 }
+            }
+
+            NavigationLink {
+                SubscriptionSettingsView()
+            } label: {
+                Text("Credits & Subscription Details")
+                    .foregroundStyle(.colorTextPrimary)
             }
 
             let openPaywallAction = { presentingPaywall = true }
@@ -392,12 +399,29 @@ extension DebugViewSection {
         let apnsEnv = ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue
         Log.info("Debug: Force re-registering device (APNS env: \(apnsEnv))")
 
-        let platformProviders = PlatformProviders.iOS
-        DeviceRegistrationManager.clearRegistrationState(deviceInfo: platformProviders.deviceInfo)
+        // The original implementation called `PlatformProviders.iOS` here, which
+        // constructs a fresh `IOSPushNotificationRegistrar` whose in-memory token
+        // is nil. That made the debug button race against the real app's state
+        // and could register the device with `pushToken: nil` even when the
+        // device had a valid token. Reuse the already-configured singletons so
+        // the debug action sees the SAME APNS token, deviceId, and registrar
+        // state the app uses everywhere else.
+        //
+        // `ConvosCore.DeviceInfo` is fully qualified because the main app has
+        // its own `DeviceInfo` struct in Utilities & Extensions that shadows
+        // the ConvosCore enum at this call site.
+        let deviceInfo = ConvosCore.DeviceInfo.shared
+        let providersForDebug = PlatformProviders(
+            appLifecycle: MockAppLifecycleProvider(),
+            deviceInfo: deviceInfo,
+            pushNotificationRegistrar: PushNotificationRegistrar.shared,
+            notificationCenter: UNUserNotificationCenter.current()
+        )
+        DeviceRegistrationManager.clearRegistrationState(deviceInfo: deviceInfo)
 
         let manager = DeviceRegistrationManager(
             environment: ConfigManager.shared.currentEnvironment,
-            platformProviders: platformProviders
+            platformProviders: providersForDebug
         )
         await manager.registerDeviceIfNeeded()
     }

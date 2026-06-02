@@ -13,15 +13,25 @@ import Observation
 /// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
+    /// First step of the compose flow (`ComposeFlowView`): the picker is the
+    /// root of the host navigation stack and selecting contacts is optional
+    /// (the CTA reads "Skip" with an empty selection), then the new
+    /// conversation is pushed rather than presented.
+    case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
     var isAddToConversation: Bool {
         switch self {
-        case .newConversation:
+        case .newConversation, .compose:
             return false
         case .addToConversation:
             return true
         }
+    }
+
+    var isCompose: Bool {
+        if case .compose = self { return true }
+        return false
     }
 }
 
@@ -41,10 +51,11 @@ final class ContactsPickerViewModel {
         let id: String
         let contact: Contact
         let isAlreadyInChat: Bool
-        /// Caption rendered under the contact name. Resolves to the name of
-        /// the conversation that promoted the inbox to a contact, falling
-        /// back to the agent role label (for verified agents) or "DM" (no
-        /// group convo name available).
+        /// Caption rendered under the contact name: the name of the
+        /// conversation that promoted the inbox to a contact, "DM" for a 1:1,
+        /// or empty when there's no source name to show (the row hides the
+        /// line). Verified agents carry their role label in the trailing pill,
+        /// not here. See `Contact.listSubtitle(sources:)`.
         let subtitle: String
     }
 
@@ -94,12 +105,19 @@ final class ContactsPickerViewModel {
     }
 
     var canConfirm: Bool {
-        !selectedInboxIds.isEmpty
+        // Compose always allows proceeding (selection is optional - "Skip"
+        // creates an empty draft); other modes need at least one contact.
+        switch mode {
+        case .compose:
+            return true
+        case .newConversation, .addToConversation:
+            return !selectedInboxIds.isEmpty
+        }
     }
 
     var headerTitle: String {
         switch mode {
-        case .newConversation:
+        case .newConversation, .compose:
             return "New conversation"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -114,7 +132,7 @@ final class ContactsPickerViewModel {
     /// the picker is scoped to an existing chat.
     var pillTitle: String {
         switch mode {
-        case .newConversation:
+        case .newConversation, .compose:
             return "New Convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -136,7 +154,10 @@ final class ContactsPickerViewModel {
     }
 
     var confirmButtonTitle: String {
-        "Continue"
+        if case .compose = mode, selectedInboxIds.isEmpty {
+            return "Skip"
+        }
+        return "Continue"
     }
 
     // MARK: - Mutations
@@ -146,8 +167,24 @@ final class ContactsPickerViewModel {
         if selectedInboxIds.contains(inboxId) {
             selectedInboxIds.remove(inboxId)
         } else {
+            // At most one agent per conversation - agents are
+            // instance-per-conversation and can't share context. Once one
+            // is selected, other agent rows are disabled (see
+            // `isAgentSelectionBlocked`); selecting a second is a no-op.
+            // Humans are unrestricted.
+            if isAgent(inboxId), selectedAgentInboxId != nil {
+                return
+            }
             selectedInboxIds.insert(inboxId)
         }
+    }
+
+    /// True when `inboxId` is an unselected agent that can't be selected
+    /// because a different agent is already selected. The picker disables
+    /// these rows; the user deselects the current agent to pick another.
+    func isAgentSelectionBlocked(for inboxId: String) -> Bool {
+        guard isAgent(inboxId), !selectedInboxIds.contains(inboxId) else { return false }
+        return selectedAgentInboxId != nil
     }
 
     func deselect(inboxId: String) {
@@ -162,22 +199,59 @@ final class ContactsPickerViewModel {
         selectedInboxIds.contains(inboxId)
     }
 
+    /// `inboxId` of the currently selected agent, if any. At most one
+    /// agent may be selected (see `toggleSelection`).
+    var selectedAgentInboxId: String? {
+        selectedInboxIds.first { isAgent($0) }
+    }
+
+    /// `agentTemplateId` of the currently selected agent, threaded into
+    /// conversation creation so a fresh instance of that template is
+    /// spawned into the new (or existing) conversation.
+    var selectedAgentTemplateId: String? {
+        guard let agentInboxId = selectedAgentInboxId else { return nil }
+        return allContacts.first { $0.inboxId == agentInboxId }?.agentTemplateId
+    }
+
+    private func isAgent(_ inboxId: String) -> Bool {
+        allContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
+    }
+
+    /// Single source of truth for "is this contact a valid picker row".
+    /// A contact is pickable when it shows in the Contacts browse list
+    /// (`isVisibleInContactsList`: template-backed agents and named humans)
+    /// and the user hasn't blocked it. Blocked contacts stay in the browse
+    /// list so they can be unblocked, but they are never a valid picker
+    /// target. Template-backed agents are selectable in every mode, since
+    /// starting (or adding to) a conversation spawns a fresh instance.
+    static func isPickable(_ contact: Contact) -> Bool {
+        !contact.isBlocked && contact.isVisibleInContactsList
+    }
+
+    /// Contacts selectable in the picker, used by `ConversationsViewModel` to
+    /// size its compose entry point.
+    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
+        contacts.filter(isPickable)
+    }
+
     // MARK: - Section building
 
     private func applyContacts(_ contacts: [Contact]) {
         allContacts = contacts
-        // Prune selections that no longer exist in the contact list.
-        let known = Set(contacts.map(\.inboxId))
-        selectedInboxIds = selectedInboxIds.intersection(known)
+        // Prune selections to what's actually pickable. Pruning against the
+        // *visible* set (not just the known set) drops phantom selections --
+        // a preselected inboxId for a contact who's hidden because they're
+        // blocked / a verified agent / unnamed would otherwise stay in
+        // `selectedInboxIds`, counting toward `selectionCount` and passing
+        // `canConfirm` with no UI for the user to remove it.
+        let visibleInboxIds = Set(allContacts.filter(Self.isPickable).map(\.inboxId))
+        selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
         rebuildSections()
         isLoading = false
     }
 
     private func rebuildSections() {
-        // Verified agents are kept in `DBContact` so chat-side surfaces can
-        // resolve them, but are hidden from the picker so users only see
-        // human candidates when starting / adding to a conversation.
-        let visible = allContacts.filter { !$0.isBlocked && !$0.isVerifiedAgent }
+        let visible = allContacts.filter(Self.isPickable)
         let filtered = filterByQuery(visible)
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,

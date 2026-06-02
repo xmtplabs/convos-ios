@@ -11,6 +11,11 @@ struct ConversationShareOverlay: View {
     @State private var showCard: Bool = false
     @State private var isShareSheetPresented: Bool = false
     @State private var conversationImage: Image = Image("convosOrangeIcon")
+    /// Whether a real conversation image loaded. Drives the QR center: a real
+    /// image renders as-is; otherwise the convos placeholder is tinted to
+    /// contrast the dark center chip (it was previously template-tinted to
+    /// match it, so it was invisible in both light and dark mode).
+    @State private var hasConversationImage: Bool = false
     @State private var qrCodeImage: UIImage?
     @Environment(\.displayScale) private var displayScale: CGFloat
 
@@ -78,6 +83,7 @@ struct ConversationShareOverlay: View {
         .cachedImage(for: conversation) { image in
             if let image {
                 conversationImage = Image(uiImage: image)
+                hasConversationImage = true
             }
         }
         .task {
@@ -115,6 +121,7 @@ struct ConversationShareOverlay: View {
                 Image("convosOrangeIcon")
                     .renderingMode(.template)
                     .resizable()
+                    .scaledToFit()
                     .frame(width: 14.0, height: 14.0)
                     .foregroundStyle(.colorFillTertiary)
 
@@ -142,9 +149,18 @@ struct ConversationShareOverlay: View {
                         ZStack {
                             Rectangle()
                                 .fill(.colorTextPrimary)
-                            conversationImage
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
+                            if hasConversationImage {
+                                conversationImage
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                Image("convosOrangeIcon")
+                                    .renderingMode(.template)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .foregroundStyle(.colorTextPrimaryInverted)
+                                    .padding(centerImageSize * 0.2)
+                            }
                         }
                         .frame(width: centerImageSize, height: centerImageSize)
                         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
