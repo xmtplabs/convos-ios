@@ -593,10 +593,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
-        try await apiClient.publishAgentTemplate(id: id)
-    }
-
     public func agentShareResolver() -> any AgentShareResolving {
         ApiAgentShareResolver(
             apiClient: apiClient,

@@ -91,11 +91,6 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     ) async throws -> ConvosAPI.AgentJoinResponse
 
     // Agent templates
-    /// PATCH /api/v2/agent-templates/:id flipping status to "published" so
-    /// the backend hands back a non-null `publishedUrl`. The share flow on
-    /// builder-created templates calls this lazily on first tap.
-    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate
-
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
     /// agent-share card/chip resolver. Unauthenticated: the backend serves
@@ -759,74 +754,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     // MARK: - Agent templates
-
-    /// Publishes an agent template so the backend hands back a non-null
-    /// `publishedUrl`. Hits POST /:id/publish?status=published, which is
-    /// the documented first-publish path for a `draft` row and the
-    /// idempotent re-publish path for an already-first-published row
-    /// (`unlisted` / `published` / `archived`). Both branches return the
-    /// same serialized template shape with a populated `publishedUrl`, so
-    /// the caller doesn't care which branch the backend took.
-    ///
-    /// We don't PATCH the status here: PATCH is the only way to flip
-    /// `unlisted` -> `published`, but for the iOS share flow the share URL
-    /// works whether the row is `unlisted` or `published`. Promoting
-    /// unlisted to published is a directory-visibility change, not a
-    /// shareability change, and isn't part of the share button's intent.
-    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
-        let path: String = "v2/agent-templates/\(id)/publish"
-        var request: URLRequest
-        do {
-            request = try authenticatedRequest(
-                for: path,
-                method: "POST",
-                queryParameters: ["status": "published"]
-            )
-        } catch {
-            Log.error("publishAgentTemplate failed to build POST request for path=\(path), baseURL=\(baseURL.absoluteString): \(String(describing: error))")
-            throw error
-        }
-        // POST /publish takes no body; the backend reads `status` from the
-        // query string when present.
-        Log.info("publishAgentTemplate POST \(request.url?.absoluteString ?? "<nil>")")
-
-        let (data, httpResponse) = try await performAuthenticatedRequest(request)
-        return try decodeAgentTemplateResponse(
-            data: data,
-            httpResponse: httpResponse,
-            id: id
-        )
-    }
-
-    private func decodeAgentTemplateResponse(
-        data: Data,
-        httpResponse: HTTPURLResponse,
-        id: String
-    ) throws -> ConvosAPI.AgentTemplate {
-        switch httpResponse.statusCode {
-        case 200...299:
-            do {
-                return try JSONDecoder().decode(ConvosAPI.AgentTemplate.self, from: data)
-            } catch {
-                Log.error("publishAgentTemplate decode failed: \(String(describing: error)) body=\(data.prettyPrintedJSONString ?? "<nil>")")
-                throw error
-            }
-        case 400:
-            let message = parseErrorMessage(from: data)
-            Log.error("publishAgentTemplate 400 for id=\(id): \(message ?? "<no message>")")
-            throw APIError.badRequest(message)
-        case 403:
-            Log.error("publishAgentTemplate 403 for id=\(id) - caller is not the template owner")
-            throw APIError.forbidden
-        case 404:
-            Log.error("publishAgentTemplate 404 for id=\(id)")
-            throw APIError.notFound
-        default:
-            let message = parseErrorMessage(from: data)
-            Log.error("publishAgentTemplate status=\(httpResponse.statusCode) for id=\(id): \(message ?? "<no message>")")
-            throw APIError.serverError(message)
-        }
-    }
 
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         // Public, unauthenticated GET -- the detail endpoint serves published

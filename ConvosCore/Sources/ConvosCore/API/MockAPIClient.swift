@@ -104,14 +104,6 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, joined: true)
     }
 
-    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
-        .init(
-            id: id,
-            status: "published",
-            publishedUrl: "https://agents.example.com/mock.\(id.prefix(5))"
-        )
-    }
-
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         .init(
             id: UUID().uuidString,

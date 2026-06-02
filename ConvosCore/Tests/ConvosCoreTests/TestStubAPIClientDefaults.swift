@@ -44,18 +44,6 @@ extension ConvosAPIClientProtocol {
         ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
 
-    /// Default for the publish-on-share PATCH used by the agent-template
-    /// contact card. Returns a synthetic "published" template so fixtures
-    /// don't have to re-stub it. Tests that exercise this specifically
-    /// should override on their fixture.
-    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
-        ConvosAPI.AgentTemplate(
-            id: id,
-            status: "published",
-            publishedUrl: "https://agents.example.com/test.\(id.prefix(5))"
-        )
-    }
-
     /// Default for the public agent-template detail fetch used by the
     /// agent-share card/chip resolver. Tests that exercise it specifically
     /// should override on their fixture.

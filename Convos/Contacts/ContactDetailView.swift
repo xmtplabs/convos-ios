@@ -60,14 +60,7 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
-    /// Resolved share link for a template-backed agent, lazily populated by
-    /// the top-bar share action (seeded from the persisted published URL, or
-    /// fetched via the publish endpoint on first tap).
-    @State private var resolvedAgentShareURL: URL?
-    @State private var isPublishingAgentTemplate: Bool = false
     @State private var presentingAgentShareSheet: Bool = false
-    @State private var presentingPublishError: Bool = false
-    @State private var publishErrorMessage: String?
     /// Gates the "One agent, many convos" confirmation before the "Chat"
     /// button spawns a new conversation with this agent. `agentInfoConfirmed`
     /// distinguishes a "Got it" tap from a drag-to-cancel in the sheet's
@@ -112,10 +105,7 @@ struct ContactDetailView: View {
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
                 presentingAgentShareSheet: $presentingAgentShareSheet,
-                agentShareURL: resolvedAgentShareURL,
-                onAgentSharePresented: { isPublishingAgentTemplate = false },
-                presentingPublishError: $presentingPublishError,
-                publishErrorMessage: publishErrorMessage,
+                agentShareURL: agentTemplateShareURL,
                 presentingAgentInfo: $presentingAgentInfo,
                 onAgentInfoConfirm: { agentInfoConfirmed = true },
                 onAgentInfoDismiss: handleAgentInfoDismiss,
@@ -143,23 +133,20 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Share affordance for a template-backed agent: publishes the template
-    /// (if not already published) and presents the system share sheet with
-    /// the resulting link. Only shown for agent contacts when a session is
-    /// available to drive the publish call.
+    /// Share affordance for a template-backed agent. Shown only once the agent
+    /// carries a published share link (`agentTemplateShareURL`, from its
+    /// profile metadata or the persisted contact); tapping it presents the
+    /// system share sheet. An agent with no `publishedUrl` can't be shared, so
+    /// the button is hidden rather than offering an action that would fail -
+    /// the backend is expected to populate the link for every template.
     @ToolbarContentBuilder
     private var agentShareToolbarItem: some ToolbarContent {
-        if isAgentTemplate, session != nil {
+        if agentTemplateShareURL != nil {
             ToolbarItem(placement: .topBarTrailing) {
-                let action = { handlePublishAndShareAgentTemplate() }
+                let action = { presentingAgentShareSheet = true }
                 Button(action: action) {
-                    if isPublishingAgentTemplate {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                    }
+                    Image(systemName: "square.and.arrow.up")
                 }
-                .disabled(isPublishingAgentTemplate)
                 .accessibilityLabel("Share agent")
                 .accessibilityIdentifier("contact-detail-share-agent")
             }
@@ -501,47 +488,6 @@ struct ContactDetailView: View {
         guard agentInfoConfirmed else { return }
         agentInfoConfirmed = false
         confirmChatWithAgentTemplate()
-    }
-
-    /// Resolves a shareable template link and presents the share sheet. Uses
-    /// the already-published URL when present, otherwise publishes the
-    /// template via the backend on first tap. A publish failure (e.g. the
-    /// caller isn't the template owner) surfaces an alert.
-    private func handlePublishAndShareAgentTemplate() {
-        // Show the button's spinner from the moment of tap until the share sheet
-        // has finished presenting (cleared in the `.shareSheet` onPresented). This
-        // covers both the already-published path and the publish round-trip, plus
-        // the gap while the share sheet is preparing.
-        isPublishingAgentTemplate = true
-        if let url = resolvedAgentShareURL ?? agentTemplateShareURL {
-            resolvedAgentShareURL = url
-            presentingAgentShareSheet = true
-            return
-        }
-        guard let session, let templateId = contact.agentTemplateId else {
-            isPublishingAgentTemplate = false
-            return
-        }
-        Task {
-            do {
-                let template = try await session.publishAgentTemplate(id: templateId)
-                guard let urlString = template.publishedUrl, let url = URL(string: urlString) else {
-                    publishErrorMessage = "This agent can't be shared yet."
-                    presentingPublishError = true
-                    isPublishingAgentTemplate = false
-                    return
-                }
-                resolvedAgentShareURL = url
-                presentingAgentShareSheet = true
-            } catch {
-                // Surface the friendly DisplayError copy (e.g. APIError's
-                // "The requested resource was not found.") rather than the raw
-                // bridged NSError ("...ConvosCore.APIError error 6.").
-                publishErrorMessage = (error as? DisplayError)?.description ?? error.localizedDescription
-                presentingPublishError = true
-                isPublishingAgentTemplate = false
-            }
-        }
     }
 
     private func syncBlockedState() async {
@@ -946,9 +892,6 @@ private struct ContactDetailModalsModifier<
     let blockAlertMessage: String
     @Binding var presentingAgentShareSheet: Bool
     let agentShareURL: URL?
-    let onAgentSharePresented: () -> Void
-    @Binding var presentingPublishError: Bool
-    let publishErrorMessage: String?
     @Binding var presentingAgentInfo: Bool
     let onAgentInfoConfirm: () -> Void
     let onAgentInfoDismiss: () -> Void
@@ -971,22 +914,12 @@ private struct ContactDetailModalsModifier<
             } message: { message in
                 Text(message)
             }
-            .alert(
-                "Couldn't share agent",
-                isPresented: $presentingPublishError,
-                presenting: publishErrorMessage
-            ) { _ in
-                Button("OK", role: .cancel) {}
-            } message: { message in
-                Text(message)
-            }
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
             .shareSheet(
                 isPresented: $presentingAgentShareSheet,
-                items: agentShareItems,
-                onPresented: onAgentSharePresented
+                items: agentShareItems
             )
             .selfSizingSheet(isPresented: $presentingAgentInfo, onDismiss: onAgentInfoDismiss) {
                 OneAgentManyConvosInfoSheet(onConfirm: onAgentInfoConfirm)
@@ -1046,11 +979,13 @@ extension Contact {
     /// and non-contact members. The synthetic fallback is promoted to a
     /// real contact when the user taps "Chat".
     ///
-    /// The agent-template `templateId`, `publishedUrl`, and `instanceId`
-    /// live only in the per-conversation member profile metadata
-    /// (`DBContact` has no template column), so they are overlaid here
-    /// onto whichever contact is returned. Without the `templateId`
-    /// overlay `isAgentTemplate` is always false.
+    /// The agent-template `templateId`, `publishedUrl`, and `instanceId` are
+    /// overlaid here from the freshest per-conversation member profile
+    /// metadata onto whichever contact is returned. Without the `templateId`
+    /// overlay `isAgentTemplate` is always false. `publishedUrl` falls back to
+    /// the persisted contact value when the live metadata omits it - the agent
+    /// runtime doesn't always carry the link, and overwriting a known URL with
+    /// a nil would hide the Share button for an agent we already have a link for.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
@@ -1062,9 +997,10 @@ extension Contact {
         let instanceId: String? = member.profile.agentInstanceId
         let attestation: String? = member.profile.agentAttestation
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
+            let resolvedPublishedURL: String? = templatePublishedURL ?? stored.agentTemplatePublishedURL
             return stored
                 .with(agentTemplateId: templateId)
-                .with(agentTemplatePublishedURL: templatePublishedURL)
+                .with(agentTemplatePublishedURL: resolvedPublishedURL)
                 .with(profileEmoji: emoji)
                 .with(agentInstanceId: instanceId)
                 .with(agentVerification: member.agentVerification)
