@@ -43,6 +43,11 @@ public enum ConvosLog {
     /// Call this once at app startup before using any loggers
     /// Logging is enabled in every environment, including production, so
     /// production issues can be diagnosed from the on-device log file.
+    /// The handlers record .info and above in every environment: app-level
+    /// info logs are low-volume, app-authored messages (API failures,
+    /// lifecycle milestones) and are the signal needed to debug production
+    /// issues, unlike the libxmtp protocol firehose, which ConvosApp gates
+    /// to .warn in production.
     public static func configure(environment: AppEnvironment) {
         queue.sync {
             guard _logger == nil else { return }
