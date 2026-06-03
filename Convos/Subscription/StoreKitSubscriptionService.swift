@@ -24,6 +24,10 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// rules; no concurrent mutation happens past init.
     nonisolated(unsafe) private var updateListenerTask: Task<Void, Never>?
     private var lastFetchedAt: Date?
+    /// Transaction IDs we've already forwarded to `POST /subscription/verify`
+    /// in this process. See `refreshFromEntitlements()` for why per-launch
+    /// forwarding (not persisted) is the right granularity.
+    private var forwardedTransactionIds: Set<UInt64> = []
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -174,13 +178,19 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// payload itself, authenticates the caller via JWT, and refuses cross-
     /// account binding attempts — so the iOS side only needs to pass the JWS.
     ///
-    /// Failures are logged but do not fail the local purchase —
-    /// `Transaction.currentEntitlements` is still authoritative for UI state.
-    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async {
+    /// Returns `true` on success so callers that track forwarded transactions
+    /// (`refreshFromEntitlements`) can retry on the next refresh after a
+    /// transient failure instead of waiting for an app relaunch. Failures
+    /// are logged but never propagate — `Transaction.currentEntitlements`
+    /// is still authoritative for local UI state.
+    @discardableResult
+    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async -> Bool {
         do {
             _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
+            return true
         } catch {
             Log.error("Backend verify failed for transaction \(transactionId): \(error)")
+            return false
         }
     }
 
@@ -195,12 +205,51 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     private func refreshFromEntitlements() async {
         var latest: UserSubscription?
+        var forwardedAnyEntitlement: Bool = false
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? verifiedTransaction(result) else { continue }
+            // Forward each entitlement to the backend at most once per
+            // process. Covers entitlements iOS reads locally that the
+            // backend doesn't know about yet:
+            //   - App Store install carried over into TestFlight (different
+            //     backend than the original purchase landed against).
+            //   - `restorePurchases()`.
+            //   - Family Sharing / parental purchase flows.
+            //   - Fresh install signing in to an account that bought Plus
+            //     elsewhere.
+            //   - Any past purchase whose verify roundtrip lost the race
+            //     with a network blip or backend error.
+            // The verify endpoint is idempotent on `originalTransactionId`,
+            // so the server already deduplicates; the in-memory set just
+            // avoids hammering it every refresh (TTL is 15s).
+            if !forwardedTransactionIds.contains(transaction.id) {
+                let succeeded = await sendToBackendVerify(
+                    jwsRepresentation: result.jwsRepresentation,
+                    transactionId: transaction.id
+                )
+                // Only mark forwarded on success so a transient failure
+                // (network blip, transient 5xx, backend deploy in flight)
+                // retries on the next refresh tick rather than waiting for
+                // an app relaunch.
+                if succeeded {
+                    forwardedTransactionIds.insert(transaction.id)
+                    forwardedAnyEntitlement = true
+                }
+            }
             guard let sub = await userSubscription(from: transaction) else { continue }
             latest = sub
         }
         subscriptionSubject.send(latest)
+        // If the backend just learned about an entitlement it didn't
+        // previously have, its `GET /credits` answer changes (tier-based
+        // grant kicks in). Force-refresh credits so the local depleted
+        // state flips without waiting for the next TTL window or pull-to-
+        // refresh. Without this, App Store -> TestFlight users see Plus
+        // in the UI but agents stuck in "No Power" until they manually
+        // refresh.
+        if forwardedAnyEntitlement {
+            await CreditsServices.shared.refresh(force: true)
+        }
     }
 
     private func verifiedTransaction<T>(_ result: VerificationResult<T>) throws -> T {
