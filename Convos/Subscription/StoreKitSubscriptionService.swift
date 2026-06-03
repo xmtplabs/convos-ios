@@ -50,8 +50,34 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     public func availableProducts() async throws -> [PaywallProduct] {
         let storeProducts = try await Product.products(for: SubscriptionProductIDs.all)
+        await logStorefrontDiagnostics(for: storeProducts)
         return storeProducts.compactMap { paywallProduct(from: $0) }
             .sorted { lhs, rhs in lhs.id < rhs.id }
+    }
+
+    /// Diagnostic logging for the "paywall shows USD on a EUR account" class of
+    /// bug. In StoreKit 2, `Product.displayPrice` and
+    /// `priceFormatStyle.currencyCode` are pure renders of whatever storefront
+    /// StoreKit currently resolves for the App Store account in
+    /// Settings ▸ [name] ▸ Media & Purchases — they ignore device region and
+    /// the iCloud account. So when the wrong currency shows, the answer is
+    /// always "what storefront did StoreKit hand us?", which only
+    /// `Storefront.current` can tell us. We log it alongside each product's
+    /// currency so a TestFlight/prod log capture settles whether the cause is a
+    /// US storefront (wrong/stale Media & Purchases account) vs. anything in our
+    /// own formatting (it isn't — we pass StoreKit's values straight through).
+    private func logStorefrontDiagnostics(for products: [Product]) async {
+        if let storefront = await Storefront.current {
+            Log.info("StoreKit storefront: \(storefront.countryCode) (id=\(storefront.id))")
+        } else {
+            Log.info("StoreKit storefront: nil — no App Store account signed in, or not yet loaded")
+        }
+        for product in products {
+            Log.info(
+                "StoreKit product \(product.id): displayPrice=\(product.displayPrice) " +
+                "currency=\(product.priceFormatStyle.currencyCode) price=\(product.price)"
+            )
+        }
     }
 
     public func purchase(productId: String) async throws {
