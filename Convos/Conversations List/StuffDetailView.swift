@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosLogging
+import ConvosMetrics
 import SwiftUI
 
 /// Push-friendly companion to `AttachmentPreviewSheet`: shows the same
@@ -17,6 +18,16 @@ struct StuffDetailView: View {
     @State private var fileURL: URL?
     @State private var htmlBodyBackgroundColor: Color?
     @State private var loadError: String?
+    @State private var navState: StuffDetailNavigatorImpl = .init()
+    @State private var navigator: StuffDetailCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = StuffDetailCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         content
@@ -26,6 +37,13 @@ struct StuffDetailView: View {
             .toolbar { trailingShareButton }
             .task(id: item.attachmentKey) {
                 await loadFile()
+            }
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
             }
     }
 

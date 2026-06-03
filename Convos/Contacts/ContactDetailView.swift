@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 // MARK: - Module overview
@@ -74,6 +75,16 @@ struct ContactDetailView: View {
     /// The agent template's description, resolved on appear for template-backed
     /// agents (it isn't stored on the contact). Rendered under the name.
     @State private var agentDescription: String?
+    @State private var navState: ContactCardNavigatorImpl = .init()
+    @State private var navigator: ContactCardCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ContactCardCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     init(
         contact: Contact,
@@ -110,6 +121,13 @@ struct ContactDetailView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
     }
 
     /// `bodyContent` plus the modal / sheet / overlay presentation layer.

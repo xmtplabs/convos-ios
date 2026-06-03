@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import PhotosUI
 import SwiftUI
 
@@ -81,6 +82,30 @@ struct MainTabView: View {
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
+    /// Source tab captured at the moment the user taps the app-indicator
+    /// pill, so the metrics `present(appSettings:)` event can be routed
+    /// through the correct tab's overview navigator (preserving the
+    /// `source` field on the emitted event). Read by the
+    /// `presentingAppSettings` observer when the sheet opens; reset to
+    /// `nil` after the event fires.
+    @State private var appSettingsSource: ConvosTab?
+    /// Metrics-only state. The NavigatorImpls hold no behavior — every
+    /// protocol method is an empty stub. The wrapping `<Screen>Collector`
+    /// from the shared `ConvosMetrics` package intercepts each call and
+    /// fires the matching event on the PostHog `CollectorDelegate`.
+    /// `<State navigator>` boxes the collector so the weak refs the
+    /// shared package holds (`weak var instance`, `weak var delegate`)
+    /// stay valid for the lifetime of this view. Built lazily in
+    /// `ensureNavigators()`.
+    @State private var tabRootNavState: TabRootNavigatorImpl = .init()
+    @State private var tabRootNavigator: TabRootCollector?
+    @State private var conversationsNavState: ConversationsNavigatorImpl = .init()
+    @State private var conversationsNavigator: ConversationsCollector?
+    @State private var stuffOverviewNavState: StuffOverviewNavigatorImpl = .init()
+    @State private var stuffOverviewNavigator: StuffOverviewCollector?
+    @State private var contactsNavState: ContactsNavigatorImpl = .init()
+    @State private var contactsNavigator: ContactsCollector?
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
     /// Set when the inline builder (rendered inside the chats list's
     /// empty state) commits its first conversation. The shell presents
     /// the new conversation as a sheet, mirroring how the bottom-bar
@@ -150,7 +175,10 @@ struct MainTabView: View {
             transitionNamespace: namespace,
             transitionId: Constant.appSettingsTransitionId,
             sharedIndicatorNamespace: sharedIndicatorNamespace,
-            onTap: { presentingAppSettings = true }
+            onTap: {
+                appSettingsSource = activeTab
+                presentingAppSettings = true
+            }
         )
     }
 
@@ -247,6 +275,119 @@ struct MainTabView: View {
         contactsScrollTarget = SuggestedAgentsSection.id
     }
 
+    /// Lazily build the three Collectors the moment they're first needed.
+    /// Pulls the live PostHog delegate from `PostHogConfiguration`; falls
+    /// back to a no-op `CollectorDelegate` when PostHog is disabled (local
+    /// builds without an API key), which keeps the call sites identical
+    /// across environments.
+    private func ensureNavigators() {
+        let delegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        if tabRootNavigator == nil {
+            tabRootNavigator = TabRootCollector(instance: tabRootNavState, delegate: delegate)
+        }
+        if conversationsNavigator == nil {
+            conversationsNavigator = ConversationsCollector(instance: conversationsNavState, delegate: delegate)
+        }
+        if stuffOverviewNavigator == nil {
+            stuffOverviewNavigator = StuffOverviewCollector(instance: stuffOverviewNavState, delegate: delegate)
+        }
+        if contactsNavigator == nil {
+            contactsNavigator = ContactsCollector(instance: contactsNavState, delegate: delegate)
+        }
+    }
+
+    /// Returns the overview NavigatorImpl that owns the currently-active
+    /// tab content. Used by the scenePhase observer (to close / reopen
+    /// the right screen on background / foreground transitions) and by
+    /// the tab-change observer (to fire `closed` on the previous tab
+    /// and `markScreenAppeared()` on the new one — SwiftUI keeps both
+    /// tab contents alive so `.onAppear` / `.onDisappear` don't fire on
+    /// tab swap).
+    private func navStateForTab(_ tab: ConvosTab) -> any NavigatorLifecycle {
+        switch tab {
+        case .chats: return conversationsNavState
+        case .stuff: return stuffOverviewNavState
+        case .contacts: return contactsNavState
+        }
+    }
+
+    private func closeActiveTabNavigator(_ tab: ConvosTab, context: ScreenContext) {
+        switch tab {
+        case .chats: conversationsNavigator?.closed(context: context)
+        case .stuff: stuffOverviewNavigator?.closed(context: context)
+        case .contacts: contactsNavigator?.closed(context: context)
+        }
+    }
+
+    private func handleActiveTabChanged(from oldTab: ConvosTab, to newTab: ConvosTab) {
+        guard oldTab != newTab else { return }
+        let previous = navStateForTab(oldTab)
+        closeActiveTabNavigator(oldTab, context: previous.closeContext())
+        let next = navStateForTab(newTab)
+        next.markScreenAppeared()
+        switch newTab {
+        case .chats:
+            tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
+        case .stuff:
+            tabRootNavigator?.navigateTo(stuffOverview: StuffOverviewNavigatorArgs())
+        case .contacts:
+            tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
+        }
+    }
+
+    private func handleScenePhaseChanged(to newPhase: ScenePhase) {
+        let active = navStateForTab(activeTab)
+        switch newPhase {
+        case .background:
+            closeActiveTabNavigator(activeTab, context: active.closeContext())
+            tabRootNavigator?.closed(context: tabRootNavState.closeContext())
+        case .active:
+            tabRootNavState.markScreenAppeared()
+            active.markScreenAppeared()
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleStuffPushChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId, let item = stuffPushedItems.last, item.id == newId else { return }
+        stuffOverviewNavigator?.navigateTo(stuffDetail: StuffDetailNavigatorArgs(itemId: newId))
+    }
+
+    private func handleContactsPushChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, newId != nil else { return }
+        contactsNavigator?.navigateTo(contactCard: ContactCardNavigatorArgs())
+    }
+
+    private func handleAppSettingsPresented(_ isPresenting: Bool) {
+        guard isPresenting else { return }
+        let source = appSettingsSource ?? activeTab
+        appSettingsSource = nil
+        switch source {
+        case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        case .stuff: stuffOverviewNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        }
+    }
+
+    private func handleSelectedConversationChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId else { return }
+        conversationsNavigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
+    }
+
+    private func handleAgentBuilderPresented(_ isPresenting: Bool, wasPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        conversationsNavigator?.present(agentBuilder: AgentBuilderNavigatorArgs())
+    }
+
+    private func handleNewConversationPresented(_ isPresenting: Bool, wasPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        let mode: NewConversationMode = .create
+        conversationsNavigator?.present(newConversation: NewConversationNavigatorArgs(mode: mode))
+    }
+
     var body: some View {
         ZStack {
             tabView
@@ -282,6 +423,35 @@ struct MainTabView: View {
                 onCameraImageCaptured: handleCameraImageCaptured,
                 onCameraVideoCaptured: handleCameraVideoCaptured
             ))
+            .onAppear {
+                ensureNavigators()
+                tabRootNavState.markScreenAppeared()
+                navStateForTab(activeTab).markScreenAppeared()
+            }
+            .onChange(of: activeTab) { oldTab, newTab in
+                handleActiveTabChanged(from: oldTab, to: newTab)
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                handleScenePhaseChanged(to: newPhase)
+            }
+            .onChange(of: stuffPushedItems.last?.id) { oldId, newId in
+                handleStuffPushChanged(from: oldId, to: newId)
+            }
+            .onChange(of: contactsPath.last?.id) { oldId, newId in
+                handleContactsPushChanged(from: oldId, to: newId)
+            }
+            .onChange(of: presentingAppSettings) { _, newValue in
+                handleAppSettingsPresented(newValue)
+            }
+            .onChange(of: conversationsViewModel.selectedConversationId) { oldId, newId in
+                handleSelectedConversationChanged(from: oldId, to: newId)
+            }
+            .onChange(of: conversationsViewModel.agentBuilderViewModel != nil) { wasPresenting, isPresenting in
+                handleAgentBuilderPresented(isPresenting, wasPresenting: wasPresenting)
+            }
+            .onChange(of: conversationsViewModel.newConversationViewModel != nil) { wasPresenting, isPresenting in
+                handleNewConversationPresented(isPresenting, wasPresenting: wasPresenting)
+            }
     }
 
     @ViewBuilder
@@ -572,7 +742,10 @@ struct MainTabView: View {
             AppIndicatorPill(
                 profileImage: profileSettingsViewModel.profileImage,
                 subtitle: indicatorSubtitle,
-                action: { presentingAppSettings = true }
+                action: {
+                    appSettingsSource = activeTab
+                    presentingAppSettings = true
+                }
             )
             .hoverEffect(.lift)
             .matchedTransitionSource(id: Constant.appSettingsTransitionId, in: namespace)
