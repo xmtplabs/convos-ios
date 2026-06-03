@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import PhotosUI
 import SwiftUI
 
@@ -8,6 +9,16 @@ struct ConversationInfoEditView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isImagePickerPresented: Bool = false
+    @State private var navState: ConversationInfoEditNavigatorImpl = .init()
+    @State private var navigator: ConversationInfoEditCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConversationInfoEditCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -97,6 +108,13 @@ struct ConversationInfoEditView: View {
                     }
                     .tint(.colorBackgroundInverted)
                 }
+            }
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
             }
         }
     }

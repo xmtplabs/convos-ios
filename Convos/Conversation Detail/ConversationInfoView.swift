@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct FeatureRowItem<AccessoryView: View>: View {
@@ -94,6 +95,21 @@ struct ConversationInfoView: View {
     /// then opens the builder.
     @State private var presentingAgentsIntro: Bool = false
     @State private var pendingAgentBuilderAfterIntro: Bool = false
+    @State private var navState: ConversationInfoNavigatorImpl = .init()
+    @State private var navigator: ConversationInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConversationInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleEditViewChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.navigateTo(edit: ConversationInfoEditNavigatorArgs(conversationId: viewModel.conversation.id))
+    }
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -413,6 +429,16 @@ struct ConversationInfoView: View {
                 viewModel: viewModel,
                 isPresented: $presentingAddFromContactsPicker
             )
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: presentingEditView) { oldValue, newValue in
+                handleEditViewChanged(from: oldValue, to: newValue)
+            }
     }
 
     private var vanishSection: some View {
@@ -686,7 +712,8 @@ struct ConversationInfoView: View {
                             conversation: viewModel.conversation,
                             invite: viewModel.invite,
                             isPresented: $presentingShareView,
-                            topSafeAreaInset: 0
+                            topSafeAreaInset: 0,
+                            coreActions: viewModel.coreActions
                         )
                     }
                 }

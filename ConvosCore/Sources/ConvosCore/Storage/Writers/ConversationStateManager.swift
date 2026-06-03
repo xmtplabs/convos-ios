@@ -1,4 +1,5 @@
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 import os
@@ -94,7 +95,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         environment: AppEnvironment,
         conversationId: String? = nil,
         initialMemberInboxIds: [String] = [],
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.sessionStateManager = sessionStateManager
         self.initialMemberInboxIds = initialMemberInboxIds
@@ -102,7 +104,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
 
-        let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
+        let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter, coreActions: coreActions)
         // Pass the contact-sync coordinator so `addMembers(_:to:)` triggers
         // the membership-change hook and pulls newly added members into
         // the contacts table, matching `MessagingService.conversationMetadataWriter()`.
@@ -157,7 +159,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             environment: environment,
             clientConversationId: initialConversationId,
             backgroundUploadManager: backgroundUploadManager,
-            addMembersHook: addMembersHook
+            addMembersHook: addMembersHook,
+            coreActions: coreActions
         )
 
         setupStateObservation()

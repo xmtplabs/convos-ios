@@ -1,3 +1,4 @@
+import ConvosMetrics
 import SwiftUI
 
 struct SoonLabel: View {
@@ -18,6 +19,16 @@ struct SoonLabel: View {
 
 struct ExplodeInfoView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
+    @State private var navState: ExplodeInfoNavigatorImpl = .init()
+    @State private var navigator: ExplodeInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ExplodeInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         FeatureInfoSheet(
@@ -30,6 +41,13 @@ struct ExplodeInfoView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("explode-info-view")
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

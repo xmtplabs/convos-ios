@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import PhotosUI
 import SwiftUI
 
@@ -19,6 +20,16 @@ struct MyInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isImagePickerPresented: Bool = false
     @State private var didUseProfile: Bool = false
+    @State private var navState: MyInfoNavigatorImpl = .init()
+    @State private var navigator: MyInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = MyInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     private var headerSection: some View {
         Section {
@@ -78,10 +89,15 @@ struct MyInfoView: View {
                 .listSectionMargins(.all, 0.0)
                 .listRowInsets(.all, 0.0)
                 .listSectionSpacing(DesignConstants.Spacing.step6x)
+                .onAppear {
+                    ensureNavigator()
+                    navState.markScreenAppeared()
+                }
                 .onDisappear {
                     if canEditProfile {
                         profileSettingsViewModel.save()
                     }
+                    navigator?.closed(context: navState.closeContext())
                 }
                 .toolbar { toolbarContent }
         }

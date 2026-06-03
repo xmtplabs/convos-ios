@@ -50,6 +50,7 @@ struct ContactDetailView: View {
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
+    private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
 
@@ -92,6 +93,7 @@ struct ContactDetailView: View {
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
+        coreActions: any CoreActions = NoOpCoreActions(),
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         onRemove: (() -> Void)? = nil
@@ -101,6 +103,7 @@ struct ContactDetailView: View {
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
+        self.coreActions = coreActions
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsCloseButton = showsCloseButton
         self.onRemove = onRemove
@@ -449,7 +452,8 @@ struct ContactDetailView: View {
         if let session, let existing = findExistingOneToOne(session: session) {
             presentingNewConvo = NewConversationViewModel(
                 session: session,
-                mode: .existingConversation(conversationId: existing.id)
+                mode: .existingConversation(conversationId: existing.id),
+                coreActions: coreActions
             )
         } else {
             presentingPicker = true
@@ -553,7 +557,8 @@ struct ContactDetailView: View {
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
                 agentTemplateId: agentTemplateId
-            )
+            ),
+            coreActions: coreActions
         )
     }
 
@@ -584,7 +589,8 @@ struct ContactDetailView: View {
         )
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity),
+            coreActions: coreActions
         )
     }
 

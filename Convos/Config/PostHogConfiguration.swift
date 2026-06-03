@@ -9,7 +9,6 @@ enum PostHogConfiguration {
         info: Data("inbox-stable-id".utf8)
     )
 
-    nonisolated(unsafe) static var sharedCoreMetrics: CoreMetrics?
     nonisolated(unsafe) static var sharedMetricsDelegate: CollectorDelegate?
 
     static func configure() {

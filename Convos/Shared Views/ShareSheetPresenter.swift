@@ -15,14 +15,16 @@ extension View {
         isPresented: Binding<Bool>,
         items: [Any],
         onPresented: (() -> Void)? = nil,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        onCompletion: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil
     ) -> some View {
         background(
             ShareSheetPresenter(
                 isPresented: isPresented,
                 items: items,
                 onPresented: onPresented,
-                onDismiss: onDismiss
+                onDismiss: onDismiss,
+                onCompletion: onCompletion
             )
         )
     }
@@ -33,6 +35,7 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
     let items: [Any]
     let onPresented: (() -> Void)?
     let onDismiss: (() -> Void)?
+    let onCompletion: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     func makeUIViewController(context: Context) -> UIViewController {
         UIViewController()
@@ -66,8 +69,9 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
             )
             popover.permittedArrowDirections = .up
         }
-        activityViewController.completionWithItemsHandler = { _, _, _, _ in
+        activityViewController.completionWithItemsHandler = { activityType, completed, _, error in
             isPresented = false
+            onCompletion?(activityType, completed, error)
             onDismiss?()
         }
 

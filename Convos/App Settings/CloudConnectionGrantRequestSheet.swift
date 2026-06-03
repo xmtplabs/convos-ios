@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct PendingGrantRequest: Identifiable, Hashable {
@@ -147,6 +148,16 @@ enum GrantSheetError: LocalizedError {
 struct CloudConnectionGrantRequestSheet: View {
     @Bindable var viewModel: CloudConnectionGrantRequestSheetViewModel
     let onDismiss: () -> Void
+    @State private var navState: ConnectionGrantNavigatorImpl = .init()
+    @State private var navigator: ConnectionGrantCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConnectionGrantCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -180,6 +191,13 @@ struct CloudConnectionGrantRequestSheet: View {
         .padding(.vertical, DesignConstants.Spacing.step6x)
         .onChange(of: viewModel.didComplete) { _, didComplete in
             if didComplete { onDismiss() }
+        }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
         }
     }
 

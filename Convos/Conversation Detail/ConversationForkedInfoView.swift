@@ -1,8 +1,20 @@
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationForkedInfoView: View {
     let onDelete: () -> Void
     @Environment(\.openURL) private var openURL: OpenURLAction
+
+    @State private var navState: ConversationForkedInfoNavigatorImpl = .init()
+    @State private var navigator: ConversationForkedInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConversationForkedInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
@@ -49,6 +61,13 @@ struct ConversationForkedInfoView: View {
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : 0)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("conversation-forked-info")
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?

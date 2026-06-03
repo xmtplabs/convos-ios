@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosLogging
+import ConvosMetrics
 import QuickLook
 import SwiftUI
 import UIKit
@@ -20,6 +21,23 @@ struct AttachmentPreviewSheet: View {
     @State private var sharedImage: UIImage?
     @State private var sharedImageURL: URL?
     @State private var markdownHasContentThumbnail: Bool = false
+    @State private var navState: AttachmentPreviewNavigatorImpl = .init()
+    @State private var navigator: AttachmentPreviewCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = AttachmentPreviewCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleMemberSheetChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
+        guard oldMember == nil, let newMember else { return }
+        navigator?.navigateTo(
+            contactCard: ContactCardNavigatorArgs(inboxId: newMember.profile.inboxId)
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -61,6 +79,16 @@ struct AttachmentPreviewSheet: View {
         .task(id: attachment.key) {
             await resolveTitleIfNeeded()
             await resolveShareImageIfNeeded()
+        }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
+        .onChange(of: presentingProfileForMember) { oldMember, newMember in
+            handleMemberSheetChanged(from: oldMember, to: newMember)
         }
     }
 

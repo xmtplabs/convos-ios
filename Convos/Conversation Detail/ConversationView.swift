@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
@@ -40,7 +41,137 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
+    @State private var navState: ConversationNavigatorImpl = .init()
+    @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConversationCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private var conversationIdForMetrics: String {
+        viewModel.conversation.id
+    }
+
+    private func handleConversationSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    private func handleProfileSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(myInfo: MyInfoNavigatorArgs())
+    }
+
+    private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    private func handleConversationForkedChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    private func handleExplodedInviteInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
+    }
+
+    private func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    private func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
+    }
+
+    private func handleAgentsInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(agentInfo: AgentInfoNavigatorArgs())
+    }
+
+    private func handleLockedInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    private func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
+    }
+
+    private func handleRevealMediaInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(revealMediaInfo: RevealMediaInfoNavigatorArgs())
+    }
+
+    private func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
+    }
+
+    private func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
+    }
+
+    private func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
+    }
+
+    private func handleNewConvoAgentShareChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .create))
+    }
+
+    private func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
+        guard oldMember == nil, let newMember else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newMember.profile.inboxId
+            )
+        )
+    }
+
+    private func handleReactionsChanged(from oldMessage: AnyMessage?, to newMessage: AnyMessage?) {
+        guard oldMessage == nil, let newMessage else { return }
+        navigator?.present(
+            reactions: ReactionsNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                messageId: newMessage.id
+            )
+        )
+    }
+
+    private func handleThinkingDetailChanged(from oldValue: ThinkingSessionDescriptor?, to newValue: ThinkingSessionDescriptor?) {
+        guard oldValue == nil, let newValue else { return }
+        navigator?.present(
+            thinkingDetail: ThinkingDetailNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                senderInboxId: newValue.sender.profile.inboxId,
+                messageId: newValue.targetMessageId
+            )
+        )
+    }
+
+    private func handleAddFromContactsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(
+            addMembers: AddMembersNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                conversationTitle: viewModel.conversation.name
+            )
+        )
+    }
 
     /// Substitutes the user's contact (name + avatar) for any member's
     /// per-conversation profile when the inbox is a known contact. The
@@ -202,7 +333,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                     viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                                 },
                                 onUseProfile: viewModel.onUseProfile(_:_:),
-                                onPresentProfileSettings: viewModel.onProfileSettings
+                                onPresentProfileSettings: viewModel.onProfileSettings,
+                                coreActions: viewModel.coreActions
                             )
                             .transition(.blurReplace)
                         }
@@ -328,6 +460,59 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    private var metricsObserversPart1: MetricsObserversPart1 {
+        MetricsObserversPart1(
+            presentingConversationSettings: viewModel.presentingConversationSettings,
+            presentingProfileSettings: viewModel.presentingProfileSettings,
+            presentingShareView: viewModel.presentingShareView,
+            presentingConversationForked: viewModel.presentingConversationForked,
+            presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
+            presentingAgentsIntro: viewModel.presentingAgentsIntro,
+            presentingPaywall: viewModel.presentingPaywall,
+            showingAgentsInfo: showingAgentsInfo,
+            showingLockedInfo: showingLockedInfo,
+            onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
+            onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
+            onShareViewChanged: handleShareViewChanged(from:to:),
+            onConversationForkedChanged: handleConversationForkedChanged(from:to:),
+            onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
+            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
+            onPaywallChanged: handlePaywallChanged(from:to:),
+            onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
+            onLockedInfoChanged: handleLockedInfoChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart3: MetricsObserversPart3 {
+        MetricsObserversPart3(
+            presentingProfileForMember: viewModel.presentingProfileForMember,
+            presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
+            presentingThinkingDetail: viewModel.presentingThinkingDetail,
+            onMemberProfileChanged: handleMemberProfileChanged(from:to:),
+            onReactionsChanged: handleReactionsChanged(from:to:),
+            onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart2: MetricsObserversPart2 {
+        MetricsObserversPart2(
+            showingFullInfo: showingFullInfo,
+            presentingRevealMediaInfo: viewModel.presentingRevealMediaInfoSheet,
+            presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
+            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
+            presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
+            presentingNewConvoForAgentShare: viewModel.presentingNewConversationForAgentShare != nil,
+            presentingAddFromContactsPicker: presentingAddFromContactsPicker,
+            onFullInfoChanged: handleFullInfoChanged(from:to:),
+            onRevealMediaInfoChanged: handleRevealMediaInfoChanged(from:to:),
+            onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
+            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
+            onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
+            onNewConvoAgentShareChanged: handleNewConvoAgentShareChanged(from:to:),
+            onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
+        )
+    }
+
     var body: some View {
         let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
@@ -356,11 +541,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .onAppear { viewModel.onConversationAppeared() }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+            viewModel.onConversationAppeared()
+        }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()
+            navigator?.closed(context: navState.closeContext())
         }
+        .modifier(metricsObserversPart1)
+        .modifier(metricsObserversPart2)
+        .modifier(metricsObserversPart3)
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
@@ -421,7 +614,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.top, 20)
         })
         .sheet(isPresented: $viewModel.presentingPaywall) {
-            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let paywallViewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                paywallSource: .lowBalanceBanner,
+                coreActions: viewModel.coreActions
+            )
             PaywallView(viewModel: paywallViewModel)
         }
         .selfSizingSheet(isPresented: $showingAgentsInfo) {
@@ -548,5 +745,83 @@ struct MemberContactDetailSheetContent: View {
             messagesTextFieldEnabled: true,
             bottomBarContent: { EmptyView() }
         )
+    }
+}
+
+private struct MetricsObserversPart1: ViewModifier {
+    let presentingConversationSettings: Bool
+    let presentingProfileSettings: Bool
+    let presentingShareView: Bool
+    let presentingConversationForked: Bool
+    let presentingExplodedInviteInfo: Bool
+    let presentingAgentsIntro: Bool
+    let presentingPaywall: Bool
+    let showingAgentsInfo: Bool
+    let showingLockedInfo: Bool
+    let onConversationSettingsChanged: (Bool, Bool) -> Void
+    let onProfileSettingsChanged: (Bool, Bool) -> Void
+    let onShareViewChanged: (Bool, Bool) -> Void
+    let onConversationForkedChanged: (Bool, Bool) -> Void
+    let onExplodedInviteInfoChanged: (Bool, Bool) -> Void
+    let onAgentsIntroChanged: (Bool, Bool) -> Void
+    let onPaywallChanged: (Bool, Bool) -> Void
+    let onAgentsInfoChanged: (Bool, Bool) -> Void
+    let onLockedInfoChanged: (Bool, Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: presentingConversationSettings) { o, n in onConversationSettingsChanged(o, n) }
+            .onChange(of: presentingProfileSettings) { o, n in onProfileSettingsChanged(o, n) }
+            .onChange(of: presentingShareView) { o, n in onShareViewChanged(o, n) }
+            .onChange(of: presentingConversationForked) { o, n in onConversationForkedChanged(o, n) }
+            .onChange(of: presentingExplodedInviteInfo) { o, n in onExplodedInviteInfoChanged(o, n) }
+            .onChange(of: presentingAgentsIntro) { o, n in onAgentsIntroChanged(o, n) }
+            .onChange(of: presentingPaywall) { o, n in onPaywallChanged(o, n) }
+            .onChange(of: showingAgentsInfo) { o, n in onAgentsInfoChanged(o, n) }
+            .onChange(of: showingLockedInfo) { o, n in onLockedInfoChanged(o, n) }
+    }
+}
+
+private struct MetricsObserversPart2: ViewModifier {
+    let showingFullInfo: Bool
+    let presentingRevealMediaInfo: Bool
+    let presentingPhotosInfo: Bool
+    let presentingAgentBuilder: Bool
+    let presentingNewConvoForInvite: Bool
+    let presentingNewConvoForAgentShare: Bool
+    let presentingAddFromContactsPicker: Bool
+    let onFullInfoChanged: (Bool, Bool) -> Void
+    let onRevealMediaInfoChanged: (Bool, Bool) -> Void
+    let onPhotosInfoChanged: (Bool, Bool) -> Void
+    let onAgentBuilderChanged: (Bool, Bool) -> Void
+    let onNewConvoInviteChanged: (Bool, Bool) -> Void
+    let onNewConvoAgentShareChanged: (Bool, Bool) -> Void
+    let onAddFromContactsChanged: (Bool, Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: showingFullInfo) { o, n in onFullInfoChanged(o, n) }
+            .onChange(of: presentingRevealMediaInfo) { o, n in onRevealMediaInfoChanged(o, n) }
+            .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
+            .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
+            .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }
+            .onChange(of: presentingNewConvoForAgentShare) { o, n in onNewConvoAgentShareChanged(o, n) }
+            .onChange(of: presentingAddFromContactsPicker) { o, n in onAddFromContactsChanged(o, n) }
+    }
+}
+
+private struct MetricsObserversPart3: ViewModifier {
+    let presentingProfileForMember: ConversationMember?
+    let presentingReactionsForMessage: AnyMessage?
+    let presentingThinkingDetail: ThinkingSessionDescriptor?
+    let onMemberProfileChanged: (ConversationMember?, ConversationMember?) -> Void
+    let onReactionsChanged: (AnyMessage?, AnyMessage?) -> Void
+    let onThinkingDetailChanged: (ThinkingSessionDescriptor?, ThinkingSessionDescriptor?) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: presentingProfileForMember) { o, n in onMemberProfileChanged(o, n) }
+            .onChange(of: presentingReactionsForMessage) { o, n in onReactionsChanged(o, n) }
+            .onChange(of: presentingThinkingDetail) { o, n in onThinkingDetailChanged(o, n) }
     }
 }

@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import CoreHaptics
 import SwiftUI
 
@@ -17,6 +18,16 @@ struct ExplodeConvoSheet: View {
     @State private var appeared: Bool = false
     @State private var highlightedMenuIndex: Int?
     @State private var explosionTrigger: Int = 0
+    @State private var navState: ExplodeConfirmationNavigatorImpl = .init()
+    @State private var navigator: ExplodeConfirmationCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ExplodeConfirmationCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -42,7 +53,14 @@ struct ExplodeConvoSheet: View {
                 .opacity(appeared ? 1.0 : 0.0)
         }
         .animation(.spring(response: 0.36, dampingFraction: 0.78), value: appeared)
-        .onAppear { appeared = true }
+        .onAppear {
+            appeared = true
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
         .alert(
             "Light the fuse?",
             isPresented: $showingConfirmation

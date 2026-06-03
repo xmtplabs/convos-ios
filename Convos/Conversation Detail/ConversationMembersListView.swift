@@ -1,10 +1,30 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
     @State private var presentingAddFromContactsPicker: Bool = false
+    @State private var navState: MembersListNavigatorImpl = .init()
+    @State private var navigator: MembersListCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = MembersListCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func reportMemberProfileTap(_ member: ConversationMember) {
+        navigator?.navigateTo(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: viewModel.conversation.id,
+                memberId: member.profile.inboxId
+            )
+        )
+    }
     /// "New Agent" builder, presented from here so it stacks on top of the
     /// Members list (itself inside the Info sheet) rather than racing the
     /// chat view's own builder sheet.
@@ -45,6 +65,13 @@ struct ConversationMembersListView: View {
                 AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
                     .padding(.top, 20)
             })
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
     }
 
     private var membersList: some View {
@@ -119,6 +146,7 @@ struct ConversationMembersListView: View {
             } label: {
                 row
             }
+            .simultaneousGesture(TapGesture().onEnded { reportMemberProfileTap(member) })
         }
     }
 

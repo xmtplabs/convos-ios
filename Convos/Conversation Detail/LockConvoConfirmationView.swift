@@ -1,8 +1,20 @@
+import ConvosMetrics
 import SwiftUI
 
 struct LockConvoConfirmationView: View {
     let onLock: () -> Void
     let onCancel: () -> Void
+
+    @State private var navState: LockConvoConfirmationNavigatorImpl = .init()
+    @State private var navigator: LockConvoConfirmationCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = LockConvoConfirmationCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -39,6 +51,13 @@ struct LockConvoConfirmationView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

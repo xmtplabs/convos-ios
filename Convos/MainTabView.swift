@@ -19,6 +19,7 @@ import SwiftUI
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
+    let coreActions: any CoreActions
 
     /// Tracks which tab is currently active and drives the standard
     /// `TabView` selection. The system tab bar is hidden only while a
@@ -88,7 +89,7 @@ struct MainTabView: View {
     /// `source` field on the emitted event). Read by the
     /// `presentingAppSettings` observer when the sheet opens; reset to
     /// `nil` after the event fires.
-    @State private var appSettingsSource: ConvosTab?
+    @State var appSettingsSource: ConvosTab?
     /// Metrics-only state. The NavigatorImpls hold no behavior — every
     /// protocol method is an empty stub. The wrapping `<Screen>Collector`
     /// from the shared `ConvosMetrics` package intercepts each call and
@@ -97,14 +98,14 @@ struct MainTabView: View {
     /// shared package holds (`weak var instance`, `weak var delegate`)
     /// stay valid for the lifetime of this view. Built lazily in
     /// `ensureNavigators()`.
-    @State private var tabRootNavState: TabRootNavigatorImpl = .init()
-    @State private var tabRootNavigator: TabRootCollector?
-    @State private var conversationsNavState: ConversationsNavigatorImpl = .init()
-    @State private var conversationsNavigator: ConversationsCollector?
-    @State private var stuffOverviewNavState: StuffOverviewNavigatorImpl = .init()
-    @State private var stuffOverviewNavigator: StuffOverviewCollector?
-    @State private var contactsNavState: ContactsNavigatorImpl = .init()
-    @State private var contactsNavigator: ContactsCollector?
+    @State var tabRootNavState: TabRootNavigatorImpl = .init()
+    @State var tabRootNavigator: TabRootCollector?
+    @State var conversationsNavState: ConversationsNavigatorImpl = .init()
+    @State var conversationsNavigator: ConversationsCollector?
+    @State var stuffOverviewNavState: StuffOverviewNavigatorImpl = .init()
+    @State var stuffOverviewNavigator: StuffOverviewCollector?
+    @State var contactsNavState: ContactsNavigatorImpl = .init()
+    @State var contactsNavigator: ContactsCollector?
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
     /// Set when the inline builder (rendered inside the chats list's
     /// empty state) commits its first conversation. The shell presents
@@ -275,183 +276,14 @@ struct MainTabView: View {
         contactsScrollTarget = SuggestedAgentsSection.id
     }
 
-    /// Lazily build the three Collectors the moment they're first needed.
-    /// Pulls the live PostHog delegate from `PostHogConfiguration`; falls
-    /// back to a no-op `CollectorDelegate` when PostHog is disabled (local
-    /// builds without an API key), which keeps the call sites identical
-    /// across environments.
-    private func ensureNavigators() {
-        let delegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
-        if tabRootNavigator == nil {
-            tabRootNavigator = TabRootCollector(instance: tabRootNavState, delegate: delegate)
-        }
-        if conversationsNavigator == nil {
-            conversationsNavigator = ConversationsCollector(instance: conversationsNavState, delegate: delegate)
-        }
-        if stuffOverviewNavigator == nil {
-            stuffOverviewNavigator = StuffOverviewCollector(instance: stuffOverviewNavState, delegate: delegate)
-        }
-        if contactsNavigator == nil {
-            contactsNavigator = ContactsCollector(instance: contactsNavState, delegate: delegate)
-        }
-    }
-
-    /// Returns the overview NavigatorImpl that owns the currently-active
-    /// tab content. Used by the scenePhase observer (to close / reopen
-    /// the right screen on background / foreground transitions) and by
-    /// the tab-change observer (to fire `closed` on the previous tab
-    /// and `markScreenAppeared()` on the new one — SwiftUI keeps both
-    /// tab contents alive so `.onAppear` / `.onDisappear` don't fire on
-    /// tab swap).
-    private func navStateForTab(_ tab: ConvosTab) -> any NavigatorLifecycle {
-        switch tab {
-        case .chats: return conversationsNavState
-        case .stuff: return stuffOverviewNavState
-        case .contacts: return contactsNavState
-        }
-    }
-
-    private func closeActiveTabNavigator(_ tab: ConvosTab, context: ScreenContext) {
-        switch tab {
-        case .chats: conversationsNavigator?.closed(context: context)
-        case .stuff: stuffOverviewNavigator?.closed(context: context)
-        case .contacts: contactsNavigator?.closed(context: context)
-        }
-    }
-
-    private func handleActiveTabChanged(from oldTab: ConvosTab, to newTab: ConvosTab) {
-        guard oldTab != newTab else { return }
-        let previous = navStateForTab(oldTab)
-        closeActiveTabNavigator(oldTab, context: previous.closeContext())
-        let next = navStateForTab(newTab)
-        next.markScreenAppeared()
-        switch newTab {
-        case .chats:
-            tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
-        case .stuff:
-            tabRootNavigator?.navigateTo(stuffOverview: StuffOverviewNavigatorArgs())
-        case .contacts:
-            tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
-        }
-    }
-
-    private func handleScenePhaseChanged(to newPhase: ScenePhase) {
-        let active = navStateForTab(activeTab)
-        switch newPhase {
-        case .background:
-            closeActiveTabNavigator(activeTab, context: active.closeContext())
-            tabRootNavigator?.closed(context: tabRootNavState.closeContext())
-        case .active:
-            tabRootNavState.markScreenAppeared()
-            active.markScreenAppeared()
-        case .inactive:
-            break
-        @unknown default:
-            break
-        }
-    }
-
-    private func handleStuffPushChanged(from oldId: String?, to newId: String?) {
-        guard oldId == nil, let newId, let item = stuffPushedItems.last, item.id == newId else { return }
-        stuffOverviewNavigator?.navigateTo(stuffDetail: StuffDetailNavigatorArgs(itemId: newId))
-    }
-
-    private func handleContactsPushChanged(from oldId: String?, to newId: String?) {
-        guard oldId == nil, newId != nil else { return }
-        contactsNavigator?.navigateTo(contactCard: ContactCardNavigatorArgs())
-    }
-
-    private func handleAppSettingsPresented(_ isPresenting: Bool) {
-        guard isPresenting else { return }
-        let source = appSettingsSource ?? activeTab
-        appSettingsSource = nil
-        switch source {
-        case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
-        case .stuff: stuffOverviewNavigator?.present(appSettings: AppSettingsNavigatorArgs())
-        case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
-        }
-    }
-
-    private func handleSelectedConversationChanged(from oldId: String?, to newId: String?) {
-        guard oldId == nil, let newId else { return }
-        conversationsNavigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
-    }
-
-    private func handleAgentBuilderPresented(_ isPresenting: Bool, wasPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        conversationsNavigator?.present(agentBuilder: AgentBuilderNavigatorArgs())
-    }
-
-    private func handleNewConversationPresented(_ isPresenting: Bool, wasPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        let mode: NewConversationMode = .create
-        conversationsNavigator?.present(newConversation: NewConversationNavigatorArgs(mode: mode))
-    }
-
     var body: some View {
-        ZStack {
-            tabView
-
-            sharedAppIndicatorOverlay
-        }
-        .animation(.smooth(duration: 0.35), value: isConversationSelected)
-        .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
-            .onChange(of: stuffPushedItems) { _, newItems in
-                syncStuffPushedConvoVM(with: newItems)
-            }
-            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
-                userSubscription = newSubscription
-            }
-            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
-                creditBalance = newBalance
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
-                handleConversationNotificationTapped()
-            }
-            .sheet(item: $presentingCommittedConversation) { convoVM in
-                committedConversationSheetContent(viewModel: convoVM)
-            }
-            .modifier(MainTabSheetsModifier(
-                conversationsViewModel: conversationsViewModel,
-                profileSettingsViewModel: profileSettingsViewModel,
-                presentingAppSettings: $presentingAppSettings,
-                isPhotoPickerPresented: $isPhotoPickerPresented,
-                isCameraPresented: $isCameraPresented,
-                selectedPhotos: $selectedPhotos,
-                namespace: namespace,
-                onPhotosChanged: handleSelectedPhotosChanged(to:),
-                onCameraImageCaptured: handleCameraImageCaptured,
-                onCameraVideoCaptured: handleCameraVideoCaptured
-            ))
+        bodyCore
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
             }
-            .onChange(of: activeTab) { oldTab, newTab in
-                handleActiveTabChanged(from: oldTab, to: newTab)
-            }
-            .onChange(of: scenePhase) { _, newPhase in
-                handleScenePhaseChanged(to: newPhase)
-            }
-            .onChange(of: stuffPushedItems.last?.id) { oldId, newId in
-                handleStuffPushChanged(from: oldId, to: newId)
-            }
-            .onChange(of: contactsPath.last?.id) { oldId, newId in
-                handleContactsPushChanged(from: oldId, to: newId)
-            }
-            .onChange(of: presentingAppSettings) { _, newValue in
-                handleAppSettingsPresented(newValue)
-            }
-            .onChange(of: conversationsViewModel.selectedConversationId) { oldId, newId in
-                handleSelectedConversationChanged(from: oldId, to: newId)
-            }
-            .onChange(of: conversationsViewModel.agentBuilderViewModel != nil) { wasPresenting, isPresenting in
-                handleAgentBuilderPresented(isPresenting, wasPresenting: wasPresenting)
-            }
-            .onChange(of: conversationsViewModel.newConversationViewModel != nil) { wasPresenting, isPresenting in
-                handleNewConversationPresented(isPresenting, wasPresenting: wasPresenting)
-            }
+            .modifier(metricsObserversModifier)
     }
 
     @ViewBuilder
@@ -553,6 +385,7 @@ struct MainTabView: View {
             contactsRepository: messagingService.contactsRepository(),
             contactsWriter: messagingService.contactsWriter(),
             session: conversationsViewModel.session,
+            coreActions: coreActions,
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
             suggestedAgentsService: SuggestedAgentsService.live(),
@@ -956,6 +789,127 @@ struct MainTabView: View {
     }
 }
 
+/// Metrics dispatch helpers, defined as an extension so they sit outside
+/// `MainTabView`'s primary declaration and don't push the struct over
+/// SwiftLint's `type_body_length` ceiling. Same-file extensions retain
+/// access to the struct's `private` `@State` properties.
+extension MainTabView {
+    /// Lazily build the four Collectors the moment they're first needed.
+    /// Pulls the live PostHog delegate from `PostHogConfiguration`; falls
+    /// back to a no-op `CollectorDelegate` when PostHog is disabled (local
+    /// builds without an API key), which keeps the call sites identical
+    /// across environments.
+    func ensureNavigators() {
+        let delegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        if tabRootNavigator == nil {
+            tabRootNavigator = TabRootCollector(instance: tabRootNavState, delegate: delegate)
+        }
+        if conversationsNavigator == nil {
+            conversationsNavigator = ConversationsCollector(instance: conversationsNavState, delegate: delegate)
+        }
+        if stuffOverviewNavigator == nil {
+            stuffOverviewNavigator = StuffOverviewCollector(instance: stuffOverviewNavState, delegate: delegate)
+        }
+        if contactsNavigator == nil {
+            contactsNavigator = ContactsCollector(instance: contactsNavState, delegate: delegate)
+        }
+    }
+
+    /// Returns the overview NavigatorImpl that owns the currently-active
+    /// tab content. SwiftUI keeps both tab contents alive so
+    /// `.onAppear` / `.onDisappear` don't fire on tab swap — the
+    /// scenePhase and tab-change observers use this to dispatch
+    /// `closed` / `markScreenAppeared` explicitly.
+    func navStateForTab(_ tab: ConvosTab) -> any NavigatorLifecycle {
+        switch tab {
+        case .chats: return conversationsNavState
+        case .stuff: return stuffOverviewNavState
+        case .contacts: return contactsNavState
+        }
+    }
+
+    func closeActiveTabNavigator(_ tab: ConvosTab, context: ScreenContext) {
+        switch tab {
+        case .chats: conversationsNavigator?.closed(context: context)
+        case .stuff: stuffOverviewNavigator?.closed(context: context)
+        case .contacts: contactsNavigator?.closed(context: context)
+        }
+    }
+
+    func handleActiveTabChanged(from oldTab: ConvosTab, to newTab: ConvosTab) {
+        guard oldTab != newTab else { return }
+        let previous = navStateForTab(oldTab)
+        closeActiveTabNavigator(oldTab, context: previous.closeContext())
+        let next = navStateForTab(newTab)
+        next.markScreenAppeared()
+        switch newTab {
+        case .chats:
+            tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
+        case .stuff:
+            tabRootNavigator?.navigateTo(stuffOverview: StuffOverviewNavigatorArgs())
+        case .contacts:
+            tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
+        }
+    }
+
+    func handleScenePhaseChanged(to newPhase: ScenePhase) {
+        let active = navStateForTab(activeTab)
+        switch newPhase {
+        case .background:
+            closeActiveTabNavigator(activeTab, context: active.closeContext())
+            tabRootNavigator?.closed(context: tabRootNavState.closeContext())
+        case .active:
+            tabRootNavState.markScreenAppeared()
+            active.markScreenAppeared()
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    func handleStuffPushChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId, let item = stuffPushedItems.last, item.id == newId else { return }
+        stuffOverviewNavigator?.navigateTo(stuffDetail: StuffDetailNavigatorArgs(itemId: newId))
+    }
+
+    func handleContactsPushChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId else { return }
+        contactsNavigator?.navigateTo(contactCard: ContactCardNavigatorArgs(inboxId: newId))
+    }
+
+    func handleAppSettingsPresented(_ isPresenting: Bool) {
+        guard isPresenting else { return }
+        let source = appSettingsSource ?? activeTab
+        appSettingsSource = nil
+        switch source {
+        case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        case .stuff: stuffOverviewNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        }
+    }
+
+    func handleSelectedConversationChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId else { return }
+        conversationsNavigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
+    }
+
+    func handleAgentBuilderPresented(_ isPresenting: Bool, wasPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        let conversationId: String = conversationsViewModel.agentBuilderViewModel?.newConversationViewModel.conversationViewModel?.conversation.id ?? ""
+        conversationsNavigator?.present(agentBuilder: AgentBuilderNavigatorArgs(
+            conversationId: conversationId,
+            entryMode: .sheet
+        ))
+    }
+
+    func handleNewConversationPresented(_ isPresenting: Bool, wasPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        let mode: ConvosMetrics.NewConversationMode = .create
+        conversationsNavigator?.present(newConversation: NewConversationNavigatorArgs(mode: mode))
+    }
+}
+
 /// Carries the measured height of `MainTabView.builderBar` up via the
 /// SwiftUI preference system so the host can plumb it into UIKit-hosted
 /// scroll views that don't see SwiftUI's safe-area inset.
@@ -969,9 +923,10 @@ private struct BuilderBarHeightKey: PreferenceKey {
 /// All the sheets / covers / pickers that the `MainTabView` shell hosts,
 /// extracted into a `ViewModifier` so the host's `body` stays within the
 /// `warn-long-expression-type-checking` budget.
-private struct MainTabSheetsModifier: ViewModifier {
+struct MainTabSheetsModifier: ViewModifier {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
+    let coreActions: any CoreActions
     @Binding var presentingAppSettings: Bool
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
@@ -1015,6 +970,7 @@ private struct MainTabSheetsModifier: ViewModifier {
                     viewModel: conversationsViewModel.appSettingsViewModel,
                     profileSettingsViewModel: profileSettingsViewModel,
                     session: conversationsViewModel.session,
+                    coreActions: coreActions,
                     onDeleteAllData: conversationsViewModel.deleteAllData
                 )
                 .navigationTransition(
@@ -1050,5 +1006,73 @@ private struct MainTabSheetsModifier: ViewModifier {
                     )
                 }
             })
+    }
+}
+
+extension MainTabView {
+    @ViewBuilder
+    var bodyCore: some View {
+        ZStack {
+            tabView
+
+            sharedAppIndicatorOverlay
+        }
+        .animation(.smooth(duration: 0.35), value: isConversationSelected)
+        .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
+        .onChange(of: stuffPushedItems) { _, newItems in
+            syncStuffPushedConvoVM(with: newItems)
+        }
+        .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
+            userSubscription = newSubscription
+        }
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+            creditBalance = newBalance
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
+            handleConversationNotificationTapped()
+        }
+        .sheet(item: $presentingCommittedConversation) { convoVM in
+            committedConversationSheetContent(viewModel: convoVM)
+        }
+        .modifier(mainTabSheetsModifier)
+    }
+
+    var metricsObserversModifier: MetricsObservers {
+        MetricsObservers(
+            activeTab: activeTab,
+            scenePhase: scenePhase,
+            stuffPushedItemId: stuffPushedItems.last?.id,
+            contactsPushedItemId: contactsPath.last?.id,
+            presentingAppSettings: presentingAppSettings,
+            selectedConversationId: conversationsViewModel.selectedConversationId,
+            agentBuilderPresenting: conversationsViewModel.agentBuilderViewModel != nil,
+            newConversationPresenting: conversationsViewModel.newConversationViewModel != nil,
+            onActiveTabChanged: handleActiveTabChanged(from:to:),
+            onScenePhaseChanged: handleScenePhaseChanged(to:),
+            onStuffPushChanged: handleStuffPushChanged(from:to:),
+            onContactsPushChanged: handleContactsPushChanged(from:to:),
+            onAppSettingsPresented: handleAppSettingsPresented(_:),
+            onSelectedConversationChanged: handleSelectedConversationChanged(from:to:),
+            onAgentBuilderPresented: handleAgentBuilderPresented(_:wasPresenting:),
+            onNewConversationPresented: handleNewConversationPresented(_:wasPresenting:)
+        )
+    }
+}
+
+extension MainTabView {
+    var mainTabSheetsModifier: MainTabSheetsModifier {
+        MainTabSheetsModifier(
+            conversationsViewModel: conversationsViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            coreActions: coreActions,
+            presentingAppSettings: $presentingAppSettings,
+            isPhotoPickerPresented: $isPhotoPickerPresented,
+            isCameraPresented: $isCameraPresented,
+            selectedPhotos: $selectedPhotos,
+            namespace: namespace,
+            onPhotosChanged: handleSelectedPhotosChanged(to:),
+            onCameraImageCaptured: handleCameraImageCaptured,
+            onCameraVideoCaptured: handleCameraVideoCaptured
+        )
     }
 }

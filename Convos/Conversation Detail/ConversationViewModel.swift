@@ -3,6 +3,7 @@ import Combine
 import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 import Observation
 import SwiftUI
 import UIKit
@@ -224,6 +225,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     let session: any SessionManagerProtocol
     let messagingService: any MessagingServiceProtocol
+    let coreActions: any CoreActions
     private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
@@ -867,7 +869,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// Info sheet, Members list) present this from their own `.sheet` so it
     /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
     func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
-        AgentBuilderViewModel(session: session, existingConversationId: conversation.id)
+        AgentBuilderViewModel(session: session, existingConversationId: conversation.id, coreActions: coreActions)
     }
 
     private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
@@ -953,26 +955,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     static func create(
         conversation: Conversation,
         session: any SessionManagerProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) async throws -> ConversationViewModel {
         let messagingService = session.messagingService()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
             messagingService: messagingService,
-            backgroundUploadManager: backgroundUploadManager
+            backgroundUploadManager: backgroundUploadManager,
+            coreActions: coreActions
         )
     }
 
     static func createSync(
         conversation: Conversation,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) -> ConversationViewModel {
         let messagingService = session.messagingServiceSync()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
-            messagingService: messagingService
+            messagingService: messagingService,
+            coreActions: coreActions
         )
     }
 
@@ -981,12 +987,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
+        self.coreActions = coreActions
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
@@ -1077,11 +1085,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
+        self.coreActions = coreActions
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
@@ -2805,7 +2815,8 @@ extension ConversationViewModel {
         }
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
-            mode: .joinInvite(code: invite.inviteSlug)
+            mode: .joinInvite(code: invite.inviteSlug),
+            coreActions: coreActions
         )
     }
 
@@ -2866,7 +2877,8 @@ extension ConversationViewModel {
     private func openAgentTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
         presentingNewConversationForAgentShare = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity),
+            coreActions: coreActions
         )
     }
 
@@ -2983,6 +2995,7 @@ extension ConversationViewModel {
         let requestId = UUID().uuidString
         let taskId = requestId
         let session = self.session
+        let actions: any CoreActions = coreActions
         agentJoinTask = Task { [weak self] in
             let success = await Self.performAgentJoinCall(
                 templateId: templateId,
@@ -2992,10 +3005,14 @@ extension ConversationViewModel {
                 forceErrorCode: forceErrorCode,
                 session: session
             )
+            let memberCount: Int = await MainActor.run { self?.conversation.members.count ?? 0 }
             await MainActor.run {
                 guard let self else { return }
                 if !success { self.onAgentJoinError() }
                 self.clearAgentJoinTask(id: taskId)
+            }
+            if success {
+                await actions.addedAssistant(memberCount: memberCount)
             }
         }
         agentJoinTaskId = taskId

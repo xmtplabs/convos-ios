@@ -1,6 +1,7 @@
 import Combine
 import ConvosCore
 import ConvosInvites
+import ConvosMetrics
 import SwiftUI
 
 // MARK: - Error Types
@@ -68,6 +69,16 @@ class NewConversationViewModel: Identifiable, Hashable {
     // MARK: - Public
 
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
+
+    /// Set by callers when entering the join flow from a specific source so
+    /// `handleJoinSuccess()` can emit the right `joinedConversation` source.
+    var joinSource: ConversationSource = .url
+
+    /// Captured when the user first sees the consent / verification UI for an
+    /// invite. Difference between now and this becomes the metric's
+    /// `verificationDuration` on join success.
+    var verificationStartedAt: CFAbsoluteTime?
     private(set) var conversationViewModel: ConversationViewModel? {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
@@ -242,10 +253,20 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     init(
         session: any SessionManagerProtocol,
-        mode: NewConversationMode
+        mode: NewConversationMode,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
+        self.coreActions = coreActions
         self.qrScannerViewModel = QRScannerViewModel()
+        switch mode {
+        case .scanner:
+            self.joinSource = .scan
+        case .joinInvite:
+            self.joinSource = .url
+        default:
+            self.joinSource = .url
+        }
 
         if case .newConversationWithTemplate(let templateId, let optimisticIdentity) = mode {
             self.pendingAgentTemplateId = templateId
@@ -318,8 +339,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
+        self.coreActions = coreActions
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -441,7 +464,8 @@ class NewConversationViewModel: Identifiable, Hashable {
             session: session,
             messagingService: mockService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: false
+            applyGlobalDefaultsForNewConversation: false,
+            coreActions: coreActions
         )
         convoVM.showsInfoView = !startedWithFullscreenScanner
         convoVM.allowsContactCard = !suppressesContactCard
@@ -532,7 +556,8 @@ class NewConversationViewModel: Identifiable, Hashable {
             session: session,
             messagingService: messagingService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: autoCreateConversation
+            applyGlobalDefaultsForNewConversation: autoCreateConversation,
+            coreActions: coreActions
         )
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
@@ -554,11 +579,13 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
 
         if autoCreateConversation && existingConversationId == nil {
+            let actions: any CoreActions = coreActions
             newConversationTask = Task { [weak self, stateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
                 do {
                     try await stateManager.createConversation()
+                    Task { await actions.startedConversation() }
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: stateManager)
                     await self?.persistHidesInviteCardIfNeeded(stateManager: stateManager)
                 } catch {
@@ -631,11 +658,13 @@ class NewConversationViewModel: Identifiable, Hashable {
     private func createConversationForAgentTemplate() {
         guard let conversationStateManager else { return }
         newConversationTask?.cancel()
+        let actions: any CoreActions = coreActions
         newConversationTask = Task { [weak self, conversationStateManager] in
             guard self != nil else { return }
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.createConversation()
+                Task { await actions.startedConversation() }
                 await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
             } catch {
                 Log.error("Error creating conversation for agent template: \(error.localizedDescription)")
@@ -649,6 +678,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     func joinConversation(inviteCode: String) {
         cachedInviteCode = inviteCode
+        verificationStartedAt = CFAbsoluteTimeGetCurrent()
 
         guard let conversationStateManager else {
             pendingInviteCode = inviteCode
@@ -731,6 +761,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         case .createConversation:
             guard let conversationStateManager else { return }
             newConversationTask?.cancel()
+            let actions: any CoreActions = coreActions
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
@@ -740,6 +771,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                 }
                 do {
                     try await conversationStateManager.createConversation()
+                    Task { await actions.startedConversation() }
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 } catch {
                     Log.error("Error retrying conversation creation: \(error.localizedDescription)")
@@ -780,6 +812,21 @@ class NewConversationViewModel: Identifiable, Hashable {
     private func handleJoinSuccess() {
         presentingJoinConversationSheet = false
         displayError = nil
+
+        let actions: any CoreActions = coreActions
+        let source: ConversationSource = joinSource
+        let duration: Float = verificationStartedAt.map { Float(CFAbsoluteTimeGetCurrent() - $0) } ?? 0
+        verificationStartedAt = nil
+        let memberCount: Int = conversationViewModel?.conversation.members.count ?? 0
+        let hasAssistant: Bool = conversationViewModel?.conversation.members.contains { $0.isAgent } ?? false
+        Task {
+            await actions.joinedConversation(
+                verificationDuration: duration,
+                memberCount: memberCount,
+                hasAssistant: hasAssistant,
+                source: source
+            )
+        }
     }
 
     @MainActor

@@ -1,10 +1,21 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct DeleteAllDataView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
     @Bindable var viewModel: AppSettingsViewModel
     let onComplete: () -> Void
+    @State private var navState: DeleteAllDataNavigatorImpl = .init()
+    @State private var navigator: DeleteAllDataCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = DeleteAllDataCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var title: String {
         "Delete everything?"
@@ -50,6 +61,13 @@ struct DeleteAllDataView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     private func deleteAllData() {

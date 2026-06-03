@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ContactsView: View {
@@ -9,6 +10,7 @@ struct ContactsView: View {
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
+    private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
     /// Whether to render the contacts-scoped compose button. The Contacts
     /// tab hides it because the shell's shared toolbar already provides a
@@ -24,6 +26,7 @@ struct ContactsView: View {
         contactsRepository: any ContactsRepositoryProtocol,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
+        coreActions: any CoreActions = NoOpCoreActions(),
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsComposeButton: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
@@ -36,6 +39,7 @@ struct ContactsView: View {
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
         self.session = session
+        self.coreActions = coreActions
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsComposeButton = showsComposeButton
         self.scrollTarget = scrollTarget
@@ -297,7 +301,8 @@ struct ContactsView: View {
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
                 agentTemplateId: agentTemplateId
-            )
+            ),
+            coreActions: coreActions
         )
     }
 }

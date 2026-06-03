@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 /// A view that displays the appropriate onboarding content based on the coordinator's state
@@ -8,6 +9,7 @@ struct ConversationOnboardingView: View {
     let onTapSetupProfile: () -> Void
     let onUseProfile: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
+    let coreActions: any CoreActions
 
     private var permissionState: NotificationPermissionState? {
         switch coordinator.state {
@@ -91,7 +93,11 @@ struct ConversationOnboardingView: View {
 
     @ViewBuilder
     private var nuxPaywallSheetContent: some View {
-        let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+        let paywallViewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            paywallSource: .onboarding,
+            coreActions: coreActions
+        )
         let onPurchaseSucceeded: () -> Void = {
             Task { await coordinator.userDidCompleteNUXPaywall() }
         }
@@ -155,7 +161,8 @@ struct ConversationOnboardingView: View {
             focusCoordinator: focusCoordinator,
             onTapSetupProfile: {},
             onUseProfile: { _, _ in },
-            onPresentProfileSettings: {}
+            onPresentProfileSettings: {},
+            coreActions: NoOpCoreActions()
         )
         .onAppear {
             coordinator.state = .setupProfile
@@ -172,7 +179,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .setupProfile
@@ -188,7 +196,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .setupProfile
@@ -204,7 +213,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .requestNotifications
@@ -220,7 +230,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsEnabled
@@ -236,7 +247,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsDenied
@@ -252,7 +264,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.isWaitingForInviteAcceptance = true

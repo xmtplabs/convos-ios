@@ -1,3 +1,4 @@
+import ConvosMetrics
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -258,7 +259,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
             let inviteWriter = InviteWriter(
                 identityStore: identityStore,
-                databaseWriter: databaseWriter
+                databaseWriter: databaseWriter,
+                coreActions: NoOpCoreActions()
             )
             _ = try await inviteWriter.generate(for: dbConversation)
 

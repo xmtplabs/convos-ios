@@ -57,6 +57,7 @@ struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -70,6 +71,16 @@ struct AppSettingsView: View {
             instance: navState,
             delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
         )
+    }
+
+    private func handlePaywallPresented(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .settings))
+    }
+
+    private func handleDeleteAllDataPresented(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.navigateTo(deleteAllData: DeleteAllDataNavigatorArgs())
     }
 
     var body: some View {
@@ -98,6 +109,12 @@ struct AppSettingsView: View {
             }
             .onDisappear {
                 navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: presentingPaywall) { oldValue, newValue in
+                handlePaywallPresented(from: oldValue, to: newValue)
+            }
+            .onChange(of: showingDeleteAllDataConfirmation) { oldValue, newValue in
+                handleDeleteAllDataPresented(from: oldValue, to: newValue)
             }
         }
     }
@@ -138,6 +155,9 @@ struct AppSettingsView: View {
             } label: {
                 myInfoRowLabel
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator?.navigateTo(myInfo: MyInfoNavigatorArgs())
+            })
             .accessibilityIdentifier("my-info-row")
         }
     }
@@ -164,6 +184,9 @@ struct AppSettingsView: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator?.navigateTo(devices: DevicesNavigatorArgs())
+            })
             .accessibilityIdentifier("devices-row")
         } footer: {
             Text("Manage and pair other devices")
@@ -204,6 +227,9 @@ struct AppSettingsView: View {
             } label: {
                 connectionsRowLabel
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator?.navigateTo(connections: ConnectionsNavigatorArgs())
+            })
             .accessibilityIdentifier("connections-row")
         } footer: {
             Text("Apps and info agents can use")
@@ -253,7 +279,11 @@ struct AppSettingsView: View {
             }
             .accessibilityIdentifier("subscription-row")
             .sheet(isPresented: $presentingPaywall) {
-                let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+                let viewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    paywallSource: .settings,
+                    coreActions: coreActions
+                )
                 PaywallView(viewModel: viewModel)
             }
         } footer: {
@@ -289,6 +319,9 @@ struct AppSettingsView: View {
                 Text("Customize")
                     .foregroundStyle(.colorTextPrimary)
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator?.navigateTo(customize: CustomizeSettingsNavigatorArgs())
+            })
         }
         .listRowSeparatorTint(.colorBorderSubtle)
     }
@@ -330,7 +363,7 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var debugRow: some View {
         NavigationLink {
-            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session, coreActions: coreActions)
         } label: {
             Text("Debug")
         }
@@ -404,6 +437,7 @@ struct AppSettingsView: View {
             viewModel: .mock,
             profileSettingsViewModel: profileSettingsViewModel,
             session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
             onDeleteAllData: {}
         )
     }

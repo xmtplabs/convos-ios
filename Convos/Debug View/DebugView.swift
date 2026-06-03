@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 
 private struct SafariTestSheet: View {
     @State private var safariURL: URL?
@@ -32,6 +33,7 @@ import UIKit
 struct DebugViewSection: View {
     let environment: AppEnvironment
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
@@ -116,7 +118,7 @@ struct DebugViewSection: View {
             }
 
             NavigationLink {
-                SubscriptionSettingsView()
+                SubscriptionSettingsView(coreActions: coreActions)
             } label: {
                 Text("Credits & Subscription Details")
                     .foregroundStyle(.colorTextPrimary)
@@ -128,7 +130,11 @@ struct DebugViewSection: View {
                     .foregroundStyle(.colorTextPrimary)
             }
             .sheet(isPresented: $presentingPaywall) {
-                let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+                let viewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    paywallSource: .debug,
+                    coreActions: coreActions
+                )
                 PaywallView(viewModel: viewModel)
             }
         }
@@ -358,7 +364,7 @@ struct DebugViewSection: View {
 
 #Preview {
     List {
-        DebugViewSection(environment: .tests, session: MockInboxesService())
+        DebugViewSection(environment: .tests, session: MockInboxesService(), coreActions: NoOpCoreActions())
     }
 }
 

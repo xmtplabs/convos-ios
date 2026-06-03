@@ -1,5 +1,6 @@
 import Combine
 import ConvosConnections
+import ConvosMetrics
 import Foundation
 import GRDB
 import os
@@ -48,6 +49,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
+    private let coreActions: any CoreActions
     private var initializationTask: Task<Void, Never>?
     private let voiceMemoTranscriptionServiceLock: NSLock = NSLock()
     private var _voiceMemoTranscriptionService: (any VoiceMemoTranscriptionServicing)?
@@ -98,11 +100,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          identityStore: any KeychainIdentityStoreProtocol,
          unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
          platformProviders: PlatformProviders,
-         mode: Mode = .fullApp) {
+         mode: Mode = .fullApp,
+         coreActions: any CoreActions = NoOpCoreActions()) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
+        self.coreActions = coreActions
         self.platformProviders = platformProviders
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
@@ -327,7 +331,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     identityStore: identityStore,
                     environment: environment,
                     deviceInfoProvider: platformProviders.deviceInfo,
-                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                    backgroundUploadManager: platformProviders.backgroundUploadManager,
+                    coreActions: coreActions
                 )
                 cached = errored
                 return errored
@@ -376,7 +381,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             identityStore: identityStore,
             environment: environment,
             deviceInfoProvider: platformProviders.deviceInfo,
-            backgroundUploadManager: platformProviders.backgroundUploadManager
+            backgroundUploadManager: platformProviders.backgroundUploadManager,
+            coreActions: coreActions
         )
     }
 

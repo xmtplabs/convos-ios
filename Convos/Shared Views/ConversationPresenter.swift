@@ -90,7 +90,8 @@ struct ConversationPresenter<Content: View>: View {
                         get: { viewModel.presentingShareView },
                         set: { viewModel.presentingShareView = $0 }
                     ),
-                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x
+                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
+                    coreActions: viewModel.coreActions
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)

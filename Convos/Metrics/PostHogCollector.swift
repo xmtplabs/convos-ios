@@ -1,9 +1,12 @@
+import Combine
 import ConvosCore
 import ConvosMetrics
 import Foundation
 import PostHog
 
 final class PostHogCollector: CollectorDelegate {
+    var userPropertiesCancellable: AnyCancellable?
+
     override func navigatedTo(source: String, target: String) {
         Log.info("nav: \(source) -> \(target)")
         PostHogSDK.shared.capture("$screen", properties: [

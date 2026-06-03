@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import StoreKit
 import SwiftUI
 
@@ -7,6 +8,16 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     private let onSkip: (() -> Void)?
+    @State private var navState: PaywallNavigatorImpl = .init()
+    @State private var navigator: PaywallCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = PaywallCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     init(
         viewModel: PaywallViewModel,
@@ -45,6 +56,13 @@ struct PaywallView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .task { await viewModel.loadProducts() }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
         .alert(
             viewModel.alertTitle,
             isPresented: $viewModel.isShowingAlert,
@@ -445,19 +463,19 @@ struct PaywallView: View {
 
 #Preview("Basic") {
     let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
-    let viewModel = PaywallViewModel(subscriptionService: service)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
     viewModel.selectedPlan = .basic
     return PaywallView(viewModel: viewModel)
 }
 
 #Preview("Plus - Upgrade Path") {
     let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
-    let viewModel = PaywallViewModel(subscriptionService: service)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
     return PaywallView(viewModel: viewModel)
 }
 
 #Preview("Plus - Subscribed") {
     let service = MockSubscriptionService(initialPreset: .plusAmple)
-    let viewModel = PaywallViewModel(subscriptionService: service)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
     return PaywallView(viewModel: viewModel)
 }

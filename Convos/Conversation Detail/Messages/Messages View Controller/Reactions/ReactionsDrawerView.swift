@@ -1,13 +1,25 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ReactionsDrawerView: View {
     let message: AnyMessage
     let onRemoveReaction: ((MessageReaction) -> Void)?
 
+    @State private var navState: ReactionsNavigatorImpl = .init()
+    @State private var navigator: ReactionsCollector?
+
     init(message: AnyMessage, onRemoveReaction: ((MessageReaction) -> Void)? = nil) {
         self.message = message
         self.onRemoveReaction = onRemoveReaction
+    }
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ReactionsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
     }
 
     private var sortedReactions: [MessageReaction] {
@@ -42,6 +54,13 @@ struct ReactionsDrawerView: View {
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

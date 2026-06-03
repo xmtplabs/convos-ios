@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import Foundation
 import Observation
 import SwiftUI
@@ -54,7 +55,8 @@ final class ConversationsViewModel {
                 updateSelectionTask?.cancel()
                 let viewModel = ConversationViewModel.createSync(
                     conversation: conversation,
-                    session: session
+                    session: session,
+                    coreActions: coreActions
                 )
                 selectedConversationViewModel = viewModel
                 markConversationAsRead(conversation)
@@ -234,6 +236,7 @@ final class ConversationsViewModel {
     // MARK: - Private
 
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -247,9 +250,11 @@ final class ConversationsViewModel {
 
     init(
         session: any SessionManagerProtocol,
-        horizontalSizeClass: UserInterfaceSizeClass? = nil
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
+        self.coreActions = coreActions
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
@@ -418,7 +423,8 @@ final class ConversationsViewModel {
         guard !pickable.isEmpty else {
             newConversationViewModel = NewConversationViewModel(
                 session: session,
-                mode: .newConversation
+                mode: .newConversation,
+                coreActions: coreActions
             )
             return
         }
@@ -441,18 +447,20 @@ final class ConversationsViewModel {
     func onJoinConvo() {
         newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .scanner
+            mode: .scanner,
+            coreActions: coreActions
         )
     }
 
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode)
+        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }
 
     private func join(from inviteCode: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .joinInvite(code: inviteCode)
+            mode: .joinInvite(code: inviteCode),
+            coreActions: coreActions
         )
     }
 
@@ -464,7 +472,8 @@ final class ConversationsViewModel {
             session: session,
             // Deep link knows only the template id; the optimistic identity is
             // resolved asynchronously inside NewConversationViewModel.
-            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: nil)
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: nil),
+            coreActions: coreActions
         )
     }
 

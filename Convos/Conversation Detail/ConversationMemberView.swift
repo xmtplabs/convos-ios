@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationMemberView: View {
@@ -34,7 +35,11 @@ struct ConversationMemberView: View {
             await CreditsServices.shared.refresh()
         }
         .sheet(isPresented: $presentingPaywall) {
-            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let paywallViewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                paywallSource: .memberCard,
+                coreActions: viewModel.coreActions
+            )
             PaywallView(viewModel: paywallViewModel)
         }
         .alert(

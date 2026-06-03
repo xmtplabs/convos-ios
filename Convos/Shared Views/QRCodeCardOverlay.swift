@@ -19,6 +19,10 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
     /// measured from the screen's top edge. Lets a caller pull the card up out
     /// of the safe-area band so a tall card clears the share sheet below it.
     var ignoresTopSafeArea: Bool = false
+    /// Optional hook fired from the native share sheet's completion handler
+    /// so callers can record a metric (e.g. `sharedConversation`) keyed off
+    /// the selected `UIActivity.ActivityType` and success flag.
+    var onShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     @ViewBuilder let header: () -> Header
     @ViewBuilder let center: () -> Center
 
@@ -84,7 +88,8 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
                         items: [encodedURLString],
                         onDismiss: {
                             dismissFlow()
-                        }
+                        },
+                        onCompletion: onShareCompleted
                     )
             }
             .task {

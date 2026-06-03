@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 /// Full-height sheet that renders the per-session thinking history for one
@@ -43,6 +44,16 @@ struct ThinkingDetailView: View {
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var topBarHeight: CGFloat = 0.0
     @State private var presentingAgentProfile: Bool = false
+    @State private var navState: ThinkingDetailNavigatorImpl = .init()
+    @State private var navigator: ThinkingDetailCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ThinkingDetailCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     /// Resolved descriptor for this render: prefers the matching session in
     /// the VM's live `thinkingSessions` feed so new moments propagate, falls
@@ -96,6 +107,13 @@ struct ThinkingDetailView: View {
         .presentationBackground(.colorBackgroundRaisedSecondary)
         .sheet(isPresented: $presentingAgentProfile) {
             profileSheetForMember(descriptor.sender)
+        }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
         }
     }
 

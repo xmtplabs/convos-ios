@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
@@ -248,6 +249,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         case eagerVideo(QueuedEagerVideo)
     }
 
+    private struct SendMetricData {
+        let startTime: CFAbsoluteTime
+        let attachmentMimeTypes: [String]
+        let hasText: Bool
+    }
+
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let conversationId: String
@@ -256,6 +263,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
+    private let coreActions: any CoreActions
 
     private var messageQueue: [QueuedMessage] = []
     private var isProcessingQueue: Bool = false
@@ -263,6 +271,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private var eagerVideoUploads: [String: EagerVideoUploadState] = [:]
     private var publishedPhotoKeys: Set<String> = []
     private var pendingTexts: [QueuedTextMessage] = []
+    private var sendMetricData: [String: SendMetricData] = [:]
 
     nonisolated(unsafe) private let sentMessageSubject: PassthroughSubject<String, Never> = .init()
 
@@ -278,7 +287,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         pendingUploadWriter: any PendingPhotoUploadWriterProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol,
         attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol,
-        contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil
+        contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil,
+        coreActions: any CoreActions
     ) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
@@ -288,6 +298,40 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         self.backgroundUploadManager = backgroundUploadManager
         self.attachmentLocalStateWriter = attachmentLocalStateWriter
         self.contactSyncCoordinator = contactSyncCoordinator
+        self.coreActions = coreActions
+    }
+
+    private func trackSendMetric(clientMessageId: String, hasText: Bool, attachmentMimeTypes: [String]) {
+        sendMetricData[clientMessageId] = SendMetricData(
+            startTime: CFAbsoluteTimeGetCurrent(),
+            attachmentMimeTypes: attachmentMimeTypes,
+            hasText: hasText
+        )
+    }
+
+    private func emitSentMessage(clientMessageId: String, isSuccess: Bool) async {
+        guard let data = sendMetricData.removeValue(forKey: clientMessageId) else { return }
+        let sendingTime: Float = Float(CFAbsoluteTimeGetCurrent() - data.startTime)
+        let convoId: String = conversationId
+        let actions: any CoreActions = coreActions
+        let (memberCount, hasAssistant): (Int, Bool) = (try? await databaseWriter.read { db in
+            let count: Int = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == convoId)
+                .fetchCount(db)
+            let agent: DBMemberProfile? = try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == convoId)
+                .filter(DBMemberProfile.Columns.memberKind != nil)
+                .fetchOne(db)
+            return (count, agent?.isAgent ?? false)
+        }) ?? (0, false)
+        await actions.sentMessage(
+            sendingTime: sendingTime,
+            memberCount: memberCount,
+            attachmentTypes: data.attachmentMimeTypes,
+            hasText: data.hasText,
+            hasAssistant: hasAssistant,
+            isSuccess: isSuccess
+        )
     }
 
     /// Fires the contact-sync coordinator on first outbound persist for the
@@ -340,6 +384,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             Log.warning("Skipping finalizeInvite queueing for missing message: \(clientMessageId)")
             return
         }
+        trackSendMetric(clientMessageId: clientMessageId, hasText: !finalText.isEmpty, attachmentMimeTypes: [])
         let queued = QueuedTextMessage(
             clientMessageId: clientMessageId,
             text: finalText,
@@ -351,8 +396,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         startProcessingIfNeeded()
     }
 
-    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?, clientMessageId: String? = nil) async throws {
+    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?, clientMessageId: String? = nil, recordsMetric: Bool = true) async throws {
         let clientMessageId: String = clientMessageId ?? UUID().uuidString
+        if recordsMetric {
+            trackSendMetric(clientMessageId: clientMessageId, hasText: !text.isEmpty, attachmentMimeTypes: [])
+        }
         try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext)
 
         let queued = QueuedTextMessage(
@@ -375,6 +423,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     func send(image: ImageType) async throws {
         let clientMessageId = UUID().uuidString
+        trackSendMetric(clientMessageId: clientMessageId, hasText: false, attachmentMimeTypes: ["image/jpeg"])
         let filename = photoService.generateFilename()
         let localCacheURL = try photoService.localCacheURL(for: filename)
 
@@ -540,6 +589,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard let state = eagerUploads[trackingKey] else {
             throw OutgoingMessageWriterError.eagerUploadNotFound
         }
+        trackSendMetric(clientMessageId: state.clientMessageId, hasText: false, attachmentMimeTypes: ["image/jpeg"])
 
         // Save dimensions FIRST so they're available when the UI observes the message
         try await attachmentLocalStateWriter.saveWithDimensions(
@@ -703,6 +753,26 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard !items.isEmpty else {
             throw OutgoingMessageWriterError.eagerUploadNotFound
         }
+        let mimeTypes: [String] = items.map { item -> String in
+            switch item {
+            case .eagerPhoto: return "image/jpeg"
+            case .eagerVideo: return "video/mp4"
+            case .voiceMemo: return "audio/m4a"
+            case .file(_, _, let mimeType): return mimeType
+            }
+        }
+        trackSendMetric(clientMessageId: clientMessageId, hasText: false, attachmentMimeTypes: mimeTypes)
+        do {
+            let messageId = try await sendMultiRemoteAttachmentImpl(items: items, clientMessageId: clientMessageId)
+            await emitSentMessage(clientMessageId: clientMessageId, isSuccess: true)
+            return messageId
+        } catch {
+            await emitSentMessage(clientMessageId: clientMessageId, isSuccess: false)
+            throw error
+        }
+    }
+
+    private func sendMultiRemoteAttachmentImpl(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let conversationIdLocal = self.conversationId
         let perfStart = CFAbsoluteTimeGetCurrent()
@@ -782,6 +852,36 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws {
+        let mimeTypes: [String] = bundleItems.map { item -> String in
+            switch item {
+            case .eagerPhoto: return "image/jpeg"
+            case .eagerVideo: return "video/mp4"
+            case .voiceMemo: return "audio/m4a"
+            case .file(_, _, let mimeType): return mimeType
+            }
+        }
+        let metricKey: String = text.isEmpty ? bundleClientMessageId : textClientMessageId
+        trackSendMetric(clientMessageId: metricKey, hasText: !text.isEmpty, attachmentMimeTypes: mimeTypes)
+        do {
+            try await sendBuilderBundleImpl(
+                text: text,
+                bundleItems: bundleItems,
+                textClientMessageId: textClientMessageId,
+                bundleClientMessageId: bundleClientMessageId
+            )
+            await emitSentMessage(clientMessageId: metricKey, isSuccess: true)
+        } catch {
+            await emitSentMessage(clientMessageId: metricKey, isSuccess: false)
+            throw error
+        }
+    }
+
+    private func sendBuilderBundleImpl(
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
@@ -1532,6 +1632,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard let state = eagerVideoUploads[trackingKey] else {
             throw OutgoingMessageWriterError.eagerUploadNotFound
         }
+        trackSendMetric(clientMessageId: state.clientMessageId, hasText: false, attachmentMimeTypes: ["video/mp4"])
 
         // saveWithDimensions is idempotent — call it here too in case Send
         // happened before the pipeline got far enough to write it.
@@ -1648,6 +1749,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         replyToMessageId: String?
     ) async throws -> String {
         let clientMessageId = UUID().uuidString
+        trackSendMetric(clientMessageId: clientMessageId, hasText: false, attachmentMimeTypes: [params.mimeType])
         let localCacheURL = try photoService.localCacheURL(for: params.cacheFilename ?? params.filename)
 
         try FileManager.default.createDirectory(
@@ -1761,10 +1863,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": params.mediaTypeLabel])
 
+            await emitSentMessage(clientMessageId: clientMessageId, isSuccess: true)
             return trackingKey
         } catch {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
+            await emitSentMessage(clientMessageId: clientMessageId, isSuccess: false)
             throw error
         }
     }
@@ -1976,31 +2080,46 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 switch message {
                 case .text(let queued):
                     try await publishText(queued)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: true)
                 case .photo(let queued):
                     try await publishPhoto(queued)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: true)
                 case .video(let queued):
                     try await publishVideo(queued)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: true)
                 case .audio(let queued):
                     try await publishAudio(queued)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: true)
                 case .eagerPhoto(let queued):
+                    let cmid: String? = eagerUploads[queued.trackingKey]?.clientMessageId
                     try await processEagerPhoto(trackingKey: queued.trackingKey)
+                    if let cmid { await emitSentMessage(clientMessageId: cmid, isSuccess: true) }
                 case .eagerVideo(let queued):
+                    let cmid: String? = eagerVideoUploads[queued.trackingKey]?.clientMessageId
                     try await processEagerVideo(trackingKey: queued.trackingKey)
+                    if let cmid { await emitSentMessage(clientMessageId: cmid, isSuccess: true) }
                 }
             } catch {
                 switch message {
+                case .text(let queued):
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: false)
                 case .photo(let queued):
                     await markPhotoFailed(trackingKey: queued.localCacheURL.absoluteString)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: false)
                 case .video(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: false)
                 case .audio(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
+                    await emitSentMessage(clientMessageId: queued.clientMessageId, isSuccess: false)
                 case .eagerPhoto(let queued):
+                    let cmid: String? = eagerUploads[queued.trackingKey]?.clientMessageId
                     await markPhotoFailed(trackingKey: queued.trackingKey)
+                    if let cmid { await emitSentMessage(clientMessageId: cmid, isSuccess: false) }
                 case .eagerVideo(let queued):
+                    let cmid: String? = eagerVideoUploads[queued.trackingKey]?.clientMessageId
                     await markPhotoFailed(trackingKey: queued.trackingKey)
-                case .text:
-                    break
+                    if let cmid { await emitSentMessage(clientMessageId: cmid, isSuccess: false) }
                 }
                 Log.error("Failed to publish message: \(error)")
             }
@@ -2589,13 +2708,20 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard !text.isEmpty else { return }
 
         let wasPrepared = message.id != message.clientMessageId
+        trackSendMetric(clientMessageId: message.clientMessageId, hasText: true, attachmentMimeTypes: [])
 
         if wasPrepared {
             Log.debug("Message \(message.id) already prepared, publishing directly")
             try await databaseWriter.write { db in
                 try message.with(status: .unpublished).save(db)
             }
-            try await publishPreparedMessage(messageId: message.id, sentContent: text)
+            do {
+                try await publishPreparedMessage(messageId: message.id, sentContent: text)
+                await emitSentMessage(clientMessageId: message.clientMessageId, isSuccess: true)
+            } catch {
+                await emitSentMessage(clientMessageId: message.clientMessageId, isSuccess: false)
+                throw error
+            }
         } else {
             try await databaseWriter.write { db in
                 try message.with(status: .unpublished).save(db)
@@ -2639,10 +2765,17 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let wasPrepared = message.id != message.clientMessageId
         if wasPrepared {
             Log.debug("Photo \(message.id) already prepared, publishing directly")
+            trackSendMetric(clientMessageId: message.clientMessageId, hasText: false, attachmentMimeTypes: ["image/jpeg"])
             try await databaseWriter.write { db in
                 try message.with(status: .unpublished).save(db)
             }
-            try await publishPreparedMessage(messageId: message.id, sentContent: message.attachmentUrls.first)
+            do {
+                try await publishPreparedMessage(messageId: message.id, sentContent: message.attachmentUrls.first)
+                await emitSentMessage(clientMessageId: message.clientMessageId, isSuccess: true)
+            } catch {
+                await emitSentMessage(clientMessageId: message.clientMessageId, isSuccess: false)
+                throw error
+            }
             return
         }
 
@@ -2690,6 +2823,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         switch mediaType {
         case .video:
+            trackSendMetric(clientMessageId: message.clientMessageId, hasText: false, attachmentMimeTypes: ["video/mp4"])
             let queued = QueuedVideoMessage(
                 clientMessageId: message.clientMessageId,
                 localCacheURL: localFileURL,
@@ -2699,12 +2833,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             )
             messageQueue.append(.video(queued))
         case .audio:
+            let audioMime: String = localState?.mimeType ?? "audio/m4a"
+            trackSendMetric(clientMessageId: message.clientMessageId, hasText: false, attachmentMimeTypes: [audioMime])
             let queued = QueuedAudioMessage(
                 clientMessageId: message.clientMessageId,
                 localCacheURL: localFileURL,
                 filename: filename,
                 trackingKey: trackingKey,
-                mimeType: localState?.mimeType ?? "audio/m4a",
+                mimeType: audioMime,
                 duration: localState?.duration,
                 replyContext: replyContext
             )
@@ -2715,6 +2851,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
                 return
             }
+            trackSendMetric(clientMessageId: message.clientMessageId, hasText: false, attachmentMimeTypes: ["image/jpeg"])
 
             let queued = QueuedPhotoMessage(
                 clientMessageId: message.clientMessageId,

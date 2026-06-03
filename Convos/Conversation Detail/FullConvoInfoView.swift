@@ -1,8 +1,20 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct FullConvoInfoView: View {
     let onDismiss: () -> Void
+
+    @State private var navState: FullConvoInfoNavigatorImpl = .init()
+    @State private var navigator: FullConvoInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = FullConvoInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         FeatureInfoSheet(
@@ -15,6 +27,13 @@ struct FullConvoInfoView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("full-convo-info-view")
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

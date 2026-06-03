@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMetrics
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -94,11 +95,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
          messageWriter: any IncomingMessageWriterProtocol,
-         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil) {
+         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil,
+         coreActions: any CoreActions = NoOpCoreActions()) {
         self.databaseWriter = databaseWriter
         self.inviteWriter = InviteWriter(
             identityStore: identityStore,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            coreActions: coreActions
         )
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)

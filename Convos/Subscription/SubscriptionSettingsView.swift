@@ -1,8 +1,11 @@
 import ConvosCore
+import ConvosMetrics
 import StoreKit
 import SwiftUI
 
 struct SubscriptionSettingsView: View {
+    let coreActions: any CoreActions
+
     // Seed @State synchronously from whatever the services have cached so the
     // first render shows real data instead of nil for one runloop tick.
     // `.onReceive` still drives updates on subsequent fetches.
@@ -10,6 +13,21 @@ struct SubscriptionSettingsView: View {
     @State private var subscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var presentingPaywall: Bool = false
     @State private var presentingManageSubscriptions: Bool = false
+    @State private var navState: SubscriptionSettingsNavigatorImpl = .init()
+    @State private var navigator: SubscriptionSettingsCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = SubscriptionSettingsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handlePaywallPresented(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .settings))
+    }
 
     var body: some View {
         List {
@@ -41,10 +59,24 @@ struct SubscriptionSettingsView: View {
             await SubscriptionServices.shared.refresh(force: true)
         }
         .sheet(isPresented: $presentingPaywall) {
-            let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let viewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                paywallSource: .settings,
+                coreActions: coreActions
+            )
             PaywallView(viewModel: viewModel)
         }
         .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
+        .onChange(of: presentingPaywall) { oldValue, newValue in
+            handlePaywallPresented(from: oldValue, to: newValue)
+        }
     }
 
     @ViewBuilder
@@ -150,7 +182,7 @@ struct SubscriptionSettingsView: View {
 
 #Preview("Builder active") {
     NavigationStack {
-        SubscriptionSettingsView()
+        SubscriptionSettingsView(coreActions: NoOpCoreActions())
             .onAppear {
                 MockCreditsService.shared.setPreset(.plusAmple)
                 MockSubscriptionService.shared.setPreset(.plusAmple)
@@ -160,7 +192,7 @@ struct SubscriptionSettingsView: View {
 
 #Preview("No subscription") {
     NavigationStack {
-        SubscriptionSettingsView()
+        SubscriptionSettingsView(coreActions: NoOpCoreActions())
             .onAppear {
                 MockCreditsService.shared.setPreset(.noSubNoTrial)
                 MockSubscriptionService.shared.setPreset(.noSubNoTrial)

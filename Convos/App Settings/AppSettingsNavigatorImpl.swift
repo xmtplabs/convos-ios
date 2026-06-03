@@ -4,7 +4,7 @@ import Observation
 
 @MainActor
 @Observable
-final class AppSettingsNavigatorImpl: @preconcurrency AppSettingsNavigator {
+final class AppSettingsNavigatorImpl: @preconcurrency AppSettingsNavigator, NavigatorLifecycle {
     @ObservationIgnored
     private(set) var screenAppearAt: Date?
 

@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct NewConversationView: View {
@@ -18,9 +19,24 @@ struct NewConversationView: View {
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
+    @State private var navState: NewConversationNavigatorImpl = .init()
+    @State private var navigator: NewConversationCollector?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = NewConversationCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleConversationIdChanged(from oldId: String?, to newId: String?) {
+        guard oldId == nil, let newId else { return }
+        navigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
+    }
 
     var body: some View {
         ConversationPresenter(
@@ -106,9 +122,17 @@ struct NewConversationView: View {
         .onAppear {
             focusCoordinator.horizontalSizeClass = horizontalSizeClass
             viewModel.setDismissAction(dismiss)
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass
+        }
+        .onChange(of: viewModel.conversationViewModel?.conversation.id) { oldId, newId in
+            handleConversationIdChanged(from: oldId, to: newId)
         }
     }
 }

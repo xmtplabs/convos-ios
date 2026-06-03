@@ -121,7 +121,7 @@ struct ConversationsView: View {
             || inlineBuilderViewModel?.hasCommitted == true
             || inlineBuilderViewModel?.didDiscard == true
         if needsFresh {
-            inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
+            inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session, coreActions: viewModel.coreActions)
         }
     }
 
@@ -188,7 +188,7 @@ struct ConversationsView: View {
 
     private func handleCommittedSheetDidDismiss() {
         guard viewModel.isEmptyCTAActive else { return }
-        inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
+        inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session, coreActions: viewModel.coreActions)
     }
 
     var filteredEmptyStateView: some View {

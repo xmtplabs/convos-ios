@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct AgentPowerInfoView: View {
@@ -7,6 +8,17 @@ struct AgentPowerInfoView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
+    @State private var navState: AgentPowerInfoNavigatorImpl = .init()
+    @State private var navigator: AgentPowerInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = AgentPowerInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -49,6 +61,13 @@ struct AgentPowerInfoView: View {
             : DesignConstants.Spacing.step6x)
         .presentationBackground(.colorBackgroundRaised)
         .sheetDragIndicator(.hidden)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

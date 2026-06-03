@@ -1,9 +1,20 @@
 import ConvosConnections
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConnectionsListView: View {
     @Bindable var viewModel: ConnectionsListViewModel
+    @State private var navState: ConnectionsNavigatorImpl = .init()
+    @State private var navigator: ConnectionsCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConnectionsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         List {
@@ -15,6 +26,13 @@ struct ConnectionsListView: View {
         .background(.colorBackgroundRaisedSecondary)
         .task {
             viewModel.refresh()
+        }
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
         }
     }
 

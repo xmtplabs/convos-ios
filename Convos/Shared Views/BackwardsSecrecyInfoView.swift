@@ -1,7 +1,19 @@
+import ConvosMetrics
 import SwiftUI
 
 struct BackwardsSecrecyInfoView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
+
+    @State private var navState: BackwardsSecrecyInfoNavigatorImpl = .init()
+    @State private var navigator: BackwardsSecrecyInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = BackwardsSecrecyInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         FeatureInfoSheet(
@@ -15,6 +27,13 @@ struct BackwardsSecrecyInfoView: View {
             primaryButtonAction: { dismiss() },
             showDragIndicator: true
         )
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

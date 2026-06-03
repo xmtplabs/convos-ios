@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -147,6 +148,26 @@ struct AgentFilesLinksView: View {
 
     @State private var viewModel: AgentFilesLinksViewModel = .init()
     @State private var presentingPreview: AttachmentPreviewPresentation?
+    @State private var navState: AgentFilesLinksNavigatorImpl = .init()
+    @State private var navigator: AgentFilesLinksCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = AgentFilesLinksCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleAttachmentPreviewChanged(from oldValue: AttachmentPreviewPresentation?, to newValue: AttachmentPreviewPresentation?) {
+        guard oldValue == nil, let newValue else { return }
+        navigator?.present(
+            attachmentPreview: AttachmentPreviewNavigatorArgs(
+                conversationId: conversationId,
+                senderInboxId: newValue.sender?.profile.inboxId
+            )
+        )
+    }
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
         members.first { $0.profile.inboxId == inboxId }
@@ -190,6 +211,17 @@ struct AgentFilesLinksView: View {
             .onChange(of: conversationId, initial: true) {
                 viewModel.observe(repository)
                 presentingPreview = nil
+            }
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: presentingPreview?.id) { oldId, newId in
+                guard oldId == nil, newId != nil else { return }
+                handleAttachmentPreviewChanged(from: nil, to: presentingPreview)
             }
     }
 

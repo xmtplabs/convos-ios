@@ -6,10 +6,32 @@
 // initiator pairing sheet.
 
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct DevicesView: View {
     @State var viewModel: DevicesViewModel
+    @State private var navState: DevicesNavigatorImpl = .init()
+    @State private var navigator: DevicesCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = DevicesCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handlePairSheetChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(pairDevice: PairDeviceNavigatorArgs())
+    }
+
+    private func handleRemoveSheetChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        let deviceId: String = viewModel.devicePendingRemoval?.id ?? ""
+        navigator?.present(removeDevice: RemoveDeviceNavigatorArgs(deviceId: deviceId))
+    }
 
     var body: some View {
         devicesList
@@ -17,6 +39,17 @@ struct DevicesView: View {
             .toolbarTitleDisplayMode(.inline)
             .onAppear {
                 viewModel.startObserving()
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: viewModel.showPairingSheet) { oldValue, newValue in
+                handlePairSheetChanged(from: oldValue, to: newValue)
+            }
+            .onChange(of: viewModel.showRemoveDeviceSheet) { oldValue, newValue in
+                handleRemoveSheetChanged(from: oldValue, to: newValue)
             }
             .selfSizingSheet(
                 isPresented: $viewModel.showPairingSheet,

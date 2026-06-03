@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 import SwiftUI
 
 /// Where the [[AgentBuilderView]] is being rendered. Drives whether it
@@ -43,6 +44,27 @@ struct AgentBuilderView: View {
     /// glassEffectTransition(.matchedGeometry)`, letting the OS-level glass
     /// compositor handle the cross-tree geometry match.
     @Namespace private var transitionNamespace: Namespace.ID
+    @State private var navState: AgentBuilderNavigatorImpl = .init()
+    @State private var navigator: AgentBuilderCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = AgentBuilderCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleHasCommittedChanged(from wasCommitted: Bool, to committed: Bool) {
+        if mode == .inline, committed, !didFireInlineCommit {
+            guard let convoVM = viewModel.newConversationViewModel.conversationViewModel else { return }
+            didFireInlineCommit = true
+            onCommitted?(convoVM)
+        }
+        guard !wasCommitted, committed else { return }
+        guard let convoId = viewModel.newConversationViewModel.conversationViewModel?.conversation.id else { return }
+        navigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: convoId))
+    }
 
     /// The existing-conversation builder dismisses on Make and lands the user
     /// back on the chat they triggered it from, rather than morphing to reveal
@@ -96,21 +118,21 @@ struct AgentBuilderView: View {
             // inline like a normal agent convo.
             viewModel.newConversationViewModel.isInAgentBuilderFlow = true
             startVoiceMemoIfNeeded()
+            ensureNavigator()
+            navState.markScreenAppeared()
         }
         .onDisappear {
             viewModel.newConversationViewModel.isInAgentBuilderFlow = false
             if !viewModel.hasCommitted && !viewModel.isCommitting {
                 viewModel.discard()
             }
+            navigator?.closed(context: navState.closeContext())
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass
         }
-        .onChange(of: viewModel.hasCommitted) { _, committed in
-            guard mode == .inline, committed, !didFireInlineCommit else { return }
-            guard let convoVM = viewModel.newConversationViewModel.conversationViewModel else { return }
-            didFireInlineCommit = true
-            onCommitted?(convoVM)
+        .onChange(of: viewModel.hasCommitted) { wasCommitted, committed in
+            handleHasCommittedChanged(from: wasCommitted, to: committed)
         }
     }
 
