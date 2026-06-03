@@ -165,7 +165,10 @@ struct StuffTabView: View {
             if let onSeeSuggestedAgents {
                 let action = { onSeeSuggestedAgents() }
                 Button(action: action) {
-                    Text("See suggested agents")
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Text("See suggested agents")
+                        Image(systemName: "chevron.right")
+                    }
                 }
                 .convosButtonStyle(.rounded(fullWidth: false))
                 .padding(.top, DesignConstants.Spacing.step2x)
