@@ -82,6 +82,13 @@ struct ReplyReferenceView: View {
         return nil
     }
 
+    private var parentAgentShare: MessageAgentShare? {
+        if case .agentShare(let share) = parentMessage.content {
+            return share
+        }
+        return nil
+    }
+
     private var shouldBlurAttachment: Bool {
         guard let parentAttachment else { return false }
         if parentAttachment.isHiddenByOwner { return true }
@@ -155,6 +162,11 @@ struct ReplyReferenceView: View {
             } else if let preview = parentLinkPreview {
                 ReplyReferenceLinkPreview(preview: preview)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+            } else if let agentShare = parentAgentShare {
+                AgentShareBubble(agentShare: agentShare)
+                    .frame(maxWidth: C.agentShareReferenceMaxWidth, alignment: isOutgoing ? .trailing : .leading)
+                    .allowsHitTesting(false)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 HStack(spacing: 0) {
                     if isOutgoing {
@@ -193,6 +205,7 @@ struct ReplyReferenceView: View {
 
     private enum C {
         static let maxReplyPreviewTextWidth: CGFloat = 220
+        static let agentShareReferenceMaxWidth: CGFloat = 240
     }
 }
 
@@ -234,6 +247,22 @@ struct ReplyReferenceView: View {
         sender: .mock(isCurrentUser: true),
         parentText: "I was thinking we could implement a new feature that allows users to customize their profile with different themes and colors",
         parentSender: .mock(isCurrentUser: false, name: "Sam")
+    )
+    ReplyReferenceView(
+        replySender: reply.sender,
+        parentMessage: reply.parentMessage,
+        isOutgoing: true,
+        shouldBlurPhotos: false
+    )
+    .padding()
+}
+
+#Preview("Reply - Agent Share") {
+    let reply = MessageReply.mock(
+        text: "Nice",
+        sender: .mock(isCurrentUser: true),
+        parentContent: .agentShare(.mock),
+        parentSender: .mock(isCurrentUser: false, name: "Louis")
     )
     ReplyReferenceView(
         replySender: reply.sender,
