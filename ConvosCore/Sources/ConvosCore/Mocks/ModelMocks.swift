@@ -281,7 +281,8 @@ public extension ConversationUpdate {
 
 /// Resolves a member's rendered display name with the precedence:
 /// contact-list override, then per-conversation profile name, then
-/// "Somebody". `isCurrentUser` always renders as "You" for system messages.
+/// "Agent" for known agents or "Somebody" for unnamed humans.
+/// `isCurrentUser` always renders as "You" for system messages.
 ///
 /// Hoisted to file scope so its branches don't count against
 /// `ConversationUpdate.summary(memberNameOverride:)`'s cyclomatic
@@ -298,7 +299,9 @@ private func resolvedMemberDisplayName(
         return overridden
     }
     if let name = member.profile.name, !name.isEmpty { return name }
-    return "Somebody"
+    // Mirror `Profile.displayName`: known agents read as "Agent",
+    // unknown / human profiles read as "Somebody".
+    return member.isAgent ? "Agent" : "Somebody"
 }
 
 private func summaryFromFirstMetadataChange(

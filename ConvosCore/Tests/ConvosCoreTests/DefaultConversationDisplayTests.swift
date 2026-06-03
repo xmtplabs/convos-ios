@@ -130,6 +130,97 @@ struct DefaultConversationDisplayTests {
         #expect(profiles.formattedNamesString == "Alice & Somebody")
     }
 
+    // MARK: - Agent fallback labels
+
+    @Test("Single anonymous agent returns Agent")
+    func singleAnonymousAgent() {
+        let profiles = [Self.anonymousAgent(inboxId: "agent-1")]
+        #expect(profiles.formattedNamesString == "Agent")
+    }
+
+    @Test("Two anonymous agents return Agents")
+    func twoAnonymousAgents() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Self.anonymousAgent(inboxId: "agent-2")
+        ]
+        #expect(profiles.formattedNamesString == "Agents")
+    }
+
+    @Test("Anonymous agent and anonymous human read as \"Agent & Somebody\"")
+    func anonymousAgentAndAnonymousHuman() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Profile.empty(inboxId: "human-1")
+        ]
+        #expect(profiles.formattedNamesString == "Agent & Somebody")
+    }
+
+    @Test("Plural agent + plural human read as \"Agents & Somebodies\"")
+    func pluralAgentsAndPluralHumans() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Self.anonymousAgent(inboxId: "agent-2"),
+            Profile.empty(inboxId: "human-1"),
+            Profile.empty(inboxId: "human-2")
+        ]
+        // Three buckets total (named, agents, humans), but only two
+        // anonymous labels: rendered as "Agents & Somebodies".
+        #expect(profiles.formattedNamesString == "Agents & Somebodies")
+    }
+
+    @Test("Named + anonymous agent within limit reads as \"Alice & Agent\"")
+    func namedAndAnonymousAgentWithinLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Self.anonymousAgent(inboxId: "agent-1")
+        ]
+        #expect(profiles.formattedNamesString == "Alice & Agent")
+    }
+
+    @Test("Named + agent + human within limit reads as \"Alice, Agent, Somebody\"")
+    func namedPlusAgentPlusHumanWithinLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Profile.empty(inboxId: "human-1")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Agent, Somebody")
+    }
+
+    /// Builds an anonymous agent profile -- name unset, `isAgent` flipped on.
+    /// Mirrors `Profile.empty` but with the agent flag, so test sites stay
+    /// readable.
+    private static func anonymousAgent(inboxId: String) -> Profile {
+        Profile(
+            inboxId: inboxId,
+            conversationId: "mock-conversation",
+            name: nil,
+            avatar: nil,
+            isAgent: true
+        )
+    }
+
+    // MARK: - Profile.displayName
+
+    @Test("Profile.displayName uses the name when set")
+    func profileDisplayNameUsesName() {
+        let p = Profile.mock(name: "Alice")
+        #expect(p.displayName == "Alice")
+    }
+
+    @Test("Profile.displayName falls back to Somebody for unnamed humans")
+    func profileDisplayNameFallsBackToSomebody() {
+        let p = Profile.empty(inboxId: "human-1")
+        #expect(p.displayName == "Somebody")
+    }
+
+    @Test("Profile.displayName falls back to Agent for unnamed agents")
+    func profileDisplayNameFallsBackToAgent() {
+        let agent = Self.anonymousAgent(inboxId: "agent-1")
+        #expect(agent.displayName == "Agent")
+    }
+
     // MARK: - Profile Array Helper Tests
 
     @Test("hasAnyNamedProfile returns true when named profile exists")

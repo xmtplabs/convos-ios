@@ -84,7 +84,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     public var displayName: String {
         if let name, !name.isEmpty { return name }
-        return "Somebody"
+        return isAgent ? "Agent" : "Somebody"
     }
 
     public var profileEmoji: String? {
@@ -283,30 +283,53 @@ public extension Array where Element == Profile {
     /// and should appear consistently across every surface that renders a
     /// member, regardless of what the per-conversation profile snapshot
     /// happens to say. The per-conversation profile name is the next
-    /// fallback, and the "Somebody / Somebodies" bucketing remains the
-    /// final fallback for nameless members. Pass `{ _ in nil }` for the
-    /// legacy behavior (no override).
+    /// fallback, and the "Agent / Agents" or "Somebody / Somebodies"
+    /// bucketing (keyed on `profile.isAgent`) remains the final fallback
+    /// for nameless members. Pass `{ _ in nil }` for the legacy behavior
+    /// (no override).
     func formattedNamesString(
         memberNameOverride: (String) -> String?
     ) -> String {
-        let resolved: [String?] = map { profile -> String? in
+        let resolved: [(name: String?, isAgent: Bool)] = map { profile in
             if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
-                return overridden
+                return (overridden, profile.isAgent)
             }
-            if let name = profile.name, !name.isEmpty { return name }
-            return nil
+            if let name = profile.name, !name.isEmpty {
+                return (name, profile.isAgent)
+            }
+            return (nil, profile.isAgent)
         }
-        let namedProfiles: [String] = resolved.compactMap { $0 }.sorted()
-        let anonymousCount: Int = resolved.filter { $0 == nil }.count
+        let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+        let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+        let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
+        let anonymousCount: Int = anonymousAgentCount + anonymousHumanCount
         let totalCount: Int = namedProfiles.count + anonymousCount
 
+        // Anonymous bucket labels, agents before humans so "Agent & Somebody"
+        // reads naturally. Pluralized independently: a group with two unnamed
+        // agents and one unnamed human reads "Agents & Somebody".
+        var anonymousLabels: [String] = []
+        if anonymousAgentCount == 1 {
+            anonymousLabels.append("Agent")
+        } else if anonymousAgentCount > 1 {
+            anonymousLabels.append("Agents")
+        }
+        if anonymousHumanCount == 1 {
+            anonymousLabels.append("Somebody")
+        } else if anonymousHumanCount > 1 {
+            anonymousLabels.append("Somebodies")
+        }
+
         if namedProfiles.isEmpty {
-            if anonymousCount == 0 {
+            switch anonymousLabels.count {
+            case 0:
                 return ""
-            } else if anonymousCount == 1 {
-                return "Somebody"
-            } else {
-                return "Somebodies"
+            case 1:
+                return anonymousLabels[0]
+            case 2:
+                return anonymousLabels.joined(separator: " & ")
+            default:
+                return anonymousLabels.joined(separator: ", ")
             }
         }
 
@@ -314,11 +337,7 @@ public extension Array where Element == Profile {
 
         if totalCount <= maxNames {
             var allNames = namedProfiles
-            if anonymousCount > 1 {
-                allNames.append("Somebodies")
-            } else if anonymousCount == 1 {
-                allNames.append("Somebody")
-            }
+            allNames.append(contentsOf: anonymousLabels)
 
             switch allNames.count {
             case 1:
