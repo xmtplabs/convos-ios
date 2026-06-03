@@ -465,7 +465,10 @@ extension MessagingService {
     ) async throws -> String {
         try await databaseReader.read { db in
             let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
-            return profile?.name ?? "Somebody"
+            if let name = profile?.name, !name.isEmpty { return name }
+            // Mirror `Profile.displayName`: known agents read as "Agent",
+            // unknown / human profiles read as "Somebody".
+            return profile?.isAgent == true ? "Agent" : "Somebody"
         }
     }
 
@@ -937,13 +940,24 @@ extension MessagingService {
             }
 
             let namedProfiles = memberProfiles.compactMap { $0.name }.filter { !$0.isEmpty }.sorted()
-            let anonymousCount = memberProfiles.count - namedProfiles.count
+            // Bucket unnamed members by agent vs. human so the rendered title
+            // matches `Profile.formattedNamesString`: anonymous agents read
+            // as "Agent" / "Agents", anonymous humans as "Somebody" /
+            // "Somebodies".
+            let anonymousProfiles = memberProfiles.filter { ($0.name ?? "").isEmpty }
+            let anonymousAgentCount = anonymousProfiles.filter { $0.isAgent }.count
+            let anonymousHumanCount = anonymousProfiles.count - anonymousAgentCount
 
             var allNames = namedProfiles
-            if anonymousCount > 1 {
-                allNames.append("Somebodies")
-            } else if anonymousCount == 1 {
+            if anonymousAgentCount == 1 {
+                allNames.append("Agent")
+            } else if anonymousAgentCount > 1 {
+                allNames.append("Agents")
+            }
+            if anonymousHumanCount == 1 {
                 allNames.append("Somebody")
+            } else if anonymousHumanCount > 1 {
+                allNames.append("Somebodies")
             }
 
             if allNames.isEmpty {
@@ -960,7 +974,10 @@ extension MessagingService {
     ) async throws -> String {
         try await databaseReader.read { db in
             let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-            return profile?.name ?? "Somebody"
+            if let name = profile?.name, !name.isEmpty { return name }
+            // Mirror `Profile.displayName`: known agents read as "Agent",
+            // unknown / human profiles read as "Somebody".
+            return profile?.isAgent == true ? "Agent" : "Somebody"
         }
     }
 

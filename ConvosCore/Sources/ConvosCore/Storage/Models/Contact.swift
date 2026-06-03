@@ -113,16 +113,27 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentVerification?.isVerified == true
     }
 
+    /// True when we have any signal that this contact is an agent - any
+    /// stored `agentVerification` (verified or unverified) or a known
+    /// `agentTemplateId` from a template-backed provisioning. Used by
+    /// `resolvedDisplayName` to swap the unnamed-contact placeholder from
+    /// "Somebody" to "Agent" so the contact card doesn't read as a human
+    /// when the agent badge or instance id is already on screen.
+    public var isAgent: Bool {
+        agentVerification != nil || agentTemplateId != nil
+    }
+
     /// Display label that always returns something printable. Falls back
-    /// to "Somebody" rather than a truncated inboxId -- exposing a hex
-    /// prefix in any user-facing surface reads as a bug. Same placeholder
-    /// the message-input and profile-settings surfaces use for unnamed
-    /// participants.
+    /// to "Agent" for unnamed agent contacts (matches the role pill shown
+    /// on the contact card) and "Somebody" otherwise -- exposing a hex
+    /// inboxId prefix in any user-facing surface reads as a bug. Same
+    /// placeholder convention the message-input and profile-settings
+    /// surfaces use for unnamed participants.
     public var resolvedDisplayName: String {
         if let name = displayName, !name.isEmpty {
             return name
         }
-        return "Somebody"
+        return isAgent ? "Agent" : "Somebody"
     }
 
     /// Used for alphabetical sectioning. Returns "#" for contacts whose

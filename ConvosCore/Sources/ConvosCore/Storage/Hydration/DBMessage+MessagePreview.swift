@@ -19,7 +19,13 @@ extension DBLastMessageWithSource {
         let text: String
         let isCurrentUser = senderId == currentInboxId
         let senderProfile = members.first { $0.memberProfile.inboxId == senderId }
-        let senderName = isCurrentUser ? "You" : (senderProfile?.memberProfile.name ?? "Somebody")
+        // Hoisted to a static helper so its branches don't count against
+        // this function's cyclomatic complexity score, mirroring the same
+        // pattern `resolvedMemberDisplayName` uses in ModelMocks.swift.
+        let senderName = Self.resolveSenderName(
+            isCurrentUser: isCurrentUser,
+            profile: senderProfile?.memberProfile
+        )
         let attachmentsCount = attachmentUrls.count
         let attachmentsString = Self.attachmentsPreviewString(attachmentUrls: attachmentUrls, count: attachmentsCount)
 
@@ -134,6 +140,21 @@ extension DBLastMessageWithSource {
             }
         }
         return .init(text: text, createdAt: date)
+    }
+
+    /// Resolves the sender's rendered name for a message preview row.
+    /// Precedence: "You" for the local user, the per-conversation profile
+    /// name when set, then "Agent" / "Somebody" keyed on the profile's
+    /// `isAgent` (mirrors `Profile.displayName`). Hoisted out of
+    /// `hydrateMessagePreview` so the agent-aware branch doesn't push that
+    /// function past the cyclomatic complexity threshold.
+    private static func resolveSenderName(
+        isCurrentUser: Bool,
+        profile: DBMemberProfile?
+    ) -> String {
+        if isCurrentUser { return "You" }
+        if let name = profile?.name, !name.isEmpty { return name }
+        return profile?.isAgent == true ? "Agent" : "Somebody"
     }
 
     static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {

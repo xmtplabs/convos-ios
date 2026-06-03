@@ -136,6 +136,39 @@ struct ContactsRepositoryTests {
         #expect(names == ["Mid", "Somebody"])
     }
 
+    @Test("Agent contacts with nil displayName fall back to \"Agent\"")
+    func testNilDisplayNameAgentFallback() throws {
+        // Verified-agent signal: badge would render; placeholder should
+        // match the badge by reading "Agent" instead of "Somebody".
+        let verifiedAgent = Contact.mock(
+            displayName: nil,
+            agentVerification: .verified(.convos)
+        )
+        #expect(verifiedAgent.resolvedDisplayName == "Agent")
+
+        // Template-backed agent with no verification snapshot yet still
+        // reads as an agent - covers the brief window where templateId has
+        // mirrored from the member profile before verification propagates.
+        let templateAgent = Contact.mock(
+            displayName: nil,
+            agentTemplateId: "tpl-1"
+        )
+        #expect(templateAgent.resolvedDisplayName == "Agent")
+
+        // Unverified-but-known agent (we have an agentVerification of
+        // .unverified) is still an agent; calling it "Somebody" reads as
+        // a bug.
+        let unverifiedAgent = Contact.mock(
+            displayName: nil,
+            agentVerification: .unverified
+        )
+        #expect(unverifiedAgent.resolvedDisplayName == "Agent")
+
+        // Sanity: no agent signal at all still resolves to "Somebody".
+        let unnamedHuman = Contact.mock(displayName: nil)
+        #expect(unnamedHuman.resolvedDisplayName == "Somebody")
+    }
+
     @Test("sourceConversations returns the convo name + kind for each id, drops missing ids")
     func testSourceConversationsBatched() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
