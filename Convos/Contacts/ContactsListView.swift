@@ -59,6 +59,7 @@ struct ContactsListView<Row: Identifiable, RowContent: View, SectionHeader: View
                             .listRowSeparator(.hidden)
                     }
                 }
+                .id(section.id)
             }
         }
         .listStyle(.plain)

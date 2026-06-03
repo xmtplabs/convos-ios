@@ -15,6 +15,10 @@ struct ContactsView: View {
     /// compose button (whose `onStartConvo` opens the same contacts picker),
     /// so the tab's top bar matches Chats and Stuff exactly.
     private let showsComposeButton: Bool
+    /// Optional request from the shell to scroll the list to a given section
+    /// id once it appears. Used by the "See suggested agents" button in the
+    /// empty Stuff state; consumed (set back to nil) after the scroll lands.
+    private let scrollTarget: Binding<String?>?
 
     init(
         contactsRepository: any ContactsRepositoryProtocol,
@@ -22,7 +26,8 @@ struct ContactsView: View {
         session: (any SessionManagerProtocol)? = nil,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsComposeButton: Bool = true,
-        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil
+        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
+        scrollTarget: Binding<String?>? = nil
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
             contactsRepository: contactsRepository,
@@ -33,6 +38,7 @@ struct ContactsView: View {
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsComposeButton = showsComposeButton
+        self.scrollTarget = scrollTarget
     }
 
     var body: some View {
@@ -82,19 +88,28 @@ struct ContactsView: View {
     /// Same `safeAreaBar` treatment the contacts picker and chat
     /// composer use. The search bar floats at the top with iOS 26 glass
     /// blur, and the underlying list's scroll inset is auto-adjusted so
-    /// rows scroll cleanly under the bar.
+    /// rows scroll cleanly under the bar. Wrapped in a `ScrollViewReader`
+    /// so the shell can scroll the list to a section (see `scrollTarget`).
     @ViewBuilder
     private var contactsContent: some View {
-        listOrFilteredEmptyState
-            .background(.colorBackgroundRaisedSecondary)
-            .safeAreaBar(edge: .top) {
-                ContactsSearchBar(
-                    query: $viewModel.searchQuery,
-                    placeholder: "Search contacts",
-                    accessibilityIdentifier: "contacts-search-field",
-                    filter: $viewModel.filter
-                )
-            }
+        ScrollViewReader { proxy in
+            listOrFilteredEmptyState
+                .background(.colorBackgroundRaisedSecondary)
+                .safeAreaBar(edge: .top) {
+                    ContactsSearchBar(
+                        query: $viewModel.searchQuery,
+                        placeholder: "Search contacts",
+                        accessibilityIdentifier: "contacts-search-field",
+                        filter: $viewModel.filter
+                    )
+                }
+                .onChange(of: incomingScrollTarget) { _, target in
+                    handleScrollTargetChange(target, proxy: proxy)
+                }
+                .onChange(of: sectionIDs, initial: true) { _, _ in
+                    scrollToTargetIfPresent(incomingScrollTarget, proxy: proxy)
+                }
+        }
     }
 
     /// Shows the filtered empty state when a search or filter matches nothing,
@@ -123,6 +138,43 @@ struct ContactsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Scroll to section
+
+    /// The section id the shell has asked us to scroll to, if any.
+    private var incomingScrollTarget: String? {
+        scrollTarget.flatMap(\.wrappedValue)
+    }
+
+    /// Section ids in render order. Watched so a pending scroll request can
+    /// fire once an async-loaded section (e.g. suggested agents) appears.
+    private var sectionIDs: [String] {
+        viewModel.sections.map(\.id)
+    }
+
+    /// Reacts to a new scroll request from the shell. For the suggested-agents
+    /// target, first clears any filter/search that would keep the section
+    /// hidden, then scrolls if it's already present; otherwise the `sectionIDs`
+    /// handler scrolls once the section loads.
+    private func handleScrollTargetChange(_ target: String?, proxy: ScrollViewProxy) {
+        guard let target else { return }
+        if target == SuggestedAgentsSection.id {
+            if !viewModel.filter.includesAgents { viewModel.filter = .all }
+            if !viewModel.searchQuery.isEmpty { viewModel.searchQuery = "" }
+        }
+        scrollToTargetIfPresent(target, proxy: proxy)
+    }
+
+    /// Scrolls to `target` when a matching section exists, then clears the
+    /// request. Deferred one runloop hop so a freshly-inserted section is laid
+    /// out before the scroll.
+    private func scrollToTargetIfPresent(_ target: String?, proxy: ScrollViewProxy) {
+        guard let target, viewModel.sections.contains(where: { $0.id == target }) else { return }
+        Task { @MainActor in
+            withAnimation { proxy.scrollTo(target, anchor: .top) }
+            scrollTarget?.wrappedValue = nil
+        }
     }
 
     @ViewBuilder

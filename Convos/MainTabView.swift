@@ -39,6 +39,11 @@ struct MainTabView: View {
     /// re-center the pill (mirrors how `stuffPushedItems` lifts the Stuff
     /// path). `ContactsView` pushes onto it via value-based `NavigationLink`s.
     @State private var contactsPath: [Contact] = []
+    /// Section the Contacts tab should scroll to once it appears. Set when the
+    /// user taps "See suggested agents" in the empty Stuff state; `ContactsView`
+    /// consumes it (scrolling to the suggested-agents section once it has
+    /// loaded) and clears it back to nil.
+    @State private var contactsScrollTarget: String?
     /// Whether the top `AgentBuilderBar` is revealed (shown under the nav
     /// bar) versus faded out. Held in state with hysteresis thresholds
     /// rather than derived purely from scroll offset so a bouncy scroll
@@ -234,6 +239,14 @@ struct MainTabView: View {
         presentingCommittedConversation = nil
     }
 
+    /// "See suggested agents" from the empty Stuff state: jump to the Contacts
+    /// tab and ask it to scroll to the suggested-agents section. `ContactsView`
+    /// performs the scroll once the section has loaded, then clears the target.
+    private func showSuggestedAgents() {
+        activeTab = .contacts
+        contactsScrollTarget = SuggestedAgentsSection.id
+    }
+
     var body: some View {
         ZStack {
             tabView
@@ -342,7 +355,8 @@ struct MainTabView: View {
                             if activeTab == .stuff {
                                 updateBuilderBarReveal(forOffset: offset)
                             }
-                        }
+                        },
+                        onSeeSuggestedAgents: showSuggestedAgents
                     )
                 }
             }
@@ -371,7 +385,8 @@ struct MainTabView: View {
             session: conversationsViewModel.session,
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
-            suggestedAgentsService: SuggestedAgentsService.live()
+            suggestedAgentsService: SuggestedAgentsService.live(),
+            scrollTarget: $contactsScrollTarget
         )
     }
 

@@ -32,6 +32,10 @@ struct StuffTabView: View {
     /// `MainTabView` aggregates this with the Chats tab's offset to drive
     /// the builder bar's expand/collapse state.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Invoked when the user taps "See suggested agents" in the empty state.
+    /// The shell switches to the Contacts tab and scrolls it to the
+    /// "Suggested agents" section. Nil hides the button (e.g. previews).
+    var onSeeSuggestedAgents: (() -> Void)?
     @State private var viewModel: StuffOverviewViewModel
     @State private var pushedConvoVM: ConversationViewModel?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -44,12 +48,14 @@ struct StuffTabView: View {
         appIndicatorContext: AppIndicatorContext,
         conversationsViewModel: ConversationsViewModel,
         pushedItems: Binding<[StuffOverviewItem]>,
-        onScrollOffsetChange: ((CGFloat) -> Void)? = nil
+        onScrollOffsetChange: ((CGFloat) -> Void)? = nil,
+        onSeeSuggestedAgents: (() -> Void)? = nil
     ) {
         self.appIndicatorContext = appIndicatorContext
         self.conversationsViewModel = conversationsViewModel
         _pushedItems = pushedItems
         self.onScrollOffsetChange = onScrollOffsetChange
+        self.onSeeSuggestedAgents = onSeeSuggestedAgents
         _viewModel = State(initialValue: StuffOverviewViewModel(session: conversationsViewModel.session))
     }
 
@@ -156,6 +162,15 @@ struct StuffTabView: View {
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step8x)
+            if let onSeeSuggestedAgents {
+                let action = { onSeeSuggestedAgents() }
+                Button(action: action) {
+                    Text("See suggested agents")
+                }
+                .convosButtonStyle(.rounded(fullWidth: false))
+                .padding(.top, DesignConstants.Spacing.step2x)
+                .accessibilityIdentifier("see-suggested-agents-button")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.colorBackgroundSurfaceless)
