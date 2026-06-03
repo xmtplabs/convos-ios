@@ -21,6 +21,10 @@ final class ContactsViewModel {
         /// Same resolver as the picker — convo name, then "DM" for 1:1
         /// source, then agent role label, then empty (caller hides line).
         let subtitle: String
+        /// True for rows in the trailing "Suggested agents" section (featured
+        /// agent templates, not the user's own contacts). Drives the load-more
+        /// trigger when the last such row appears.
+        var isSuggestedAgent: Bool = false
     }
 
     var sections: [Section] = []
@@ -29,13 +33,32 @@ final class ContactsViewModel {
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
+    /// True while the initial suggested-agents page request is in flight.
+    var isLoadingSuggestedAgents: Bool {
+        suggestedAgentsModel.isLoading
+    }
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private var cancellable: AnyCancellable?
     private var allContacts: [Contact] = []
 
-    init(contactsRepository: any ContactsRepositoryProtocol) {
+    /// Shared suggested-agents fetch/pagination state. A nil service yields no
+    /// section (e.g. previews that don't wire one).
+    private let suggestedAgentsModel: SuggestedAgentsModel
+    /// Synthetic contacts for the visible suggested agents, kept so the
+    /// load-more trigger can recognize the last suggested row.
+    private var suggestedAgentContacts: [Contact] = []
+
+    init(
+        contactsRepository: any ContactsRepositoryProtocol,
+        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil
+    ) {
         self.contactsRepository = contactsRepository
+        self.suggestedAgentsModel = SuggestedAgentsModel(service: suggestedAgentsService)
+
+        suggestedAgentsModel.onAgentsChanged = { [weak self] in
+            self?.rebuildSections()
+        }
 
         cancellable = contactsRepository.contactsPublisher
             .receive(on: DispatchQueue.main)
@@ -99,12 +122,41 @@ final class ContactsViewModel {
         }
         let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
         let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
-        sections = sortedKeys.map { key in
+        var rebuilt: [Section] = sortedKeys.map { key in
             let rows = (grouped[key] ?? []).map { contact in
                 Row(id: contact.inboxId, contact: contact, subtitle: contact.listSubtitle(sources: sources))
             }
             return Section(id: key, title: key, rows: rows)
         }
+
+        if let suggested = buildSuggestedAgentsSection() {
+            rebuilt.append(suggested)
+        }
+        sections = rebuilt
+    }
+
+    /// Builds the trailing "Suggested agents" section (and refreshes
+    /// `suggestedAgentContacts`). Returns nil when there's nothing to show, or
+    /// while a search is active -- suggestions are a browse affordance and the
+    /// server-paged list can't be filtered against a partial set on the client.
+    private func buildSuggestedAgentsSection() -> Section? {
+        let existingAgentTemplateIds = Set(allContacts.compactMap { $0.agentTemplateId })
+        let visibleSuggested = suggestedAgentsModel.visibleAgents(excludingTemplateIds: existingAgentTemplateIds)
+
+        let rows: [Row] = visibleSuggested.map { agent in
+            let contact = Contact.suggestedAgent(agent)
+            return Row(
+                id: contact.inboxId,
+                contact: contact,
+                subtitle: agent.description ?? "",
+                isSuggestedAgent: true
+            )
+        }
+        suggestedAgentContacts = rows.map(\.contact)
+
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.isEmpty, !rows.isEmpty else { return nil }
+        return Section(id: SuggestedAgentsSection.id, title: SuggestedAgentsSection.title, rows: rows)
     }
 
     private func filterByQuery(_ contacts: [Contact]) -> [Contact] {
@@ -113,5 +165,19 @@ final class ContactsViewModel {
         return contacts.filter { contact in
             contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    // MARK: - Suggested agents
+
+    /// Loads the first page of suggested agents the first time the list
+    /// appears. Idempotent: safe to call from `.task` on every appear.
+    func loadSuggestedAgentsIfNeeded() async {
+        await suggestedAgentsModel.loadIfNeeded()
+    }
+
+    /// Loads the next page when the last suggested row scrolls into view.
+    func suggestedAgentRowAppeared(id rowId: String) async {
+        guard rowId == suggestedAgentContacts.last?.inboxId else { return }
+        await suggestedAgentsModel.loadMore()
     }
 }

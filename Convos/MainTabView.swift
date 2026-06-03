@@ -369,7 +369,8 @@ struct MainTabView: View {
             contactsWriter: messagingService.contactsWriter(),
             session: conversationsViewModel.session,
             profileSettingsViewModel: profileSettingsViewModel,
-            showsComposeButton: false
+            showsComposeButton: false,
+            suggestedAgentsService: SuggestedAgentsService.live()
         )
     }
 

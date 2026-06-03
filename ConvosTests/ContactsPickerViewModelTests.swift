@@ -349,4 +349,155 @@ final class ContactsPickerViewModelTests: XCTestCase {
         let unnamed = Contact.mock(displayName: nil)
         XCTAssertTrue(ContactsPickerViewModel.pickableContacts([agent, blocked, unnamed]).isEmpty)
     }
+
+    // MARK: - Suggested agents
+
+    private func suggestedSection(_ viewModel: ContactsPickerViewModel) -> ContactsPickerViewModel.Section? {
+        viewModel.sections.first { $0.id == SuggestedAgentsSection.id }
+    }
+
+    private func suggestedTemplateIds(_ viewModel: ContactsPickerViewModel) -> [String] {
+        suggestedSection(viewModel)?.rows.compactMap { $0.contact.agentTemplateId } ?? []
+    }
+
+    /// With no service wired, the picker behaves exactly as before -- no
+    /// suggested section and no extra rows.
+    func testNoSuggestedSectionWithoutService() async {
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository()
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertNil(suggestedSection(viewModel))
+    }
+
+    /// The suggested section is appended after the alphabetical contact
+    /// sections, with its sentinel id and "Suggested agents" title.
+    func testSuggestedSectionAppearsAfterContacts() async {
+        let service = MockSuggestedAgentsService(agents: [
+            .mock(templateId: "trip", name: "Trip"),
+            .mock(templateId: "chef", name: "Chef"),
+        ])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+
+        XCTAssertEqual(viewModel.sections.last?.id, SuggestedAgentsSection.id)
+        XCTAssertEqual(viewModel.sections.last?.title, "Suggested agents")
+        XCTAssertEqual(suggestedTemplateIds(viewModel), ["trip", "chef"])
+        XCTAssertTrue(suggestedSection(viewModel)?.rows.allSatisfy(\.isSuggestedAgent) == true)
+    }
+
+    /// Always fetches a full page of 20 featured agents, whether or not the
+    /// user already has contacts.
+    func testInitialLimitIsTwentyWhenUserHasContacts() async {
+        let service = MockSuggestedAgentsService(agents: [.mock(templateId: "a", name: "A")])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertEqual(service.requestedLimits.first, 20)
+    }
+
+    func testInitialLimitIsTwentyWhenUserHasNoContacts() async {
+        let service = MockSuggestedAgentsService(agents: [.mock(templateId: "a", name: "A")])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: []),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertEqual(service.requestedLimits.first, 20)
+    }
+
+    /// Scrolling to the bottom loads the next page (threading the cursor) and
+    /// appends it, until the backend reports no more.
+    func testPaginationAppendsNextPage() async {
+        let service = MockSuggestedAgentsService(pages: [
+            SuggestedAgentsPage(agents: [.mock(templateId: "a", name: "A"), .mock(templateId: "b", name: "B")], nextCursor: "cursor-1"),
+            SuggestedAgentsPage(agents: [.mock(templateId: "c", name: "C")], nextCursor: nil),
+        ])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: []),
+            suggestedAgentsService: service
+        )
+
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertEqual(suggestedTemplateIds(viewModel), ["a", "b"])
+
+        await viewModel.loadMoreSuggestedAgents()
+        XCTAssertEqual(suggestedTemplateIds(viewModel), ["a", "b", "c"])
+        XCTAssertEqual(service.requestedCursors, [nil, "cursor-1"])
+
+        // No further cursor -> a subsequent load-more is a no-op.
+        await viewModel.loadMoreSuggestedAgents()
+        XCTAssertEqual(service.requestedLimits.count, 2)
+    }
+
+    /// Selecting a suggested agent makes it the conversation's single agent
+    /// (resolved by template id) and follows the one-agent rule.
+    func testSelectingSuggestedAgentSetsTemplateId() async {
+        let service = MockSuggestedAgentsService(agents: [.mock(templateId: "trip", name: "Trip")])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: []),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+
+        let row = try? XCTUnwrap(suggestedSection(viewModel)?.rows.first)
+        let rowId = row?.id ?? ""
+        viewModel.toggleSelection(for: rowId)
+
+        XCTAssertTrue(viewModel.isSelected(inboxId: rowId))
+        XCTAssertEqual(viewModel.selectedAgentTemplateId, "trip")
+        XCTAssertEqual(viewModel.selectedAgentInboxId, rowId)
+        XCTAssertEqual(viewModel.selectedContacts.map(\.inboxId), [rowId])
+    }
+
+    /// A suggested agent the user already has as a (template-backed) contact is
+    /// dropped from the suggested section so it never appears twice.
+    func testSuggestedAgentsDedupedAgainstExistingContacts() async {
+        let existing = Contact.mock(
+            displayName: "Trip",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "trip"
+        )
+        let service = MockSuggestedAgentsService(agents: [
+            .mock(templateId: "trip", name: "Trip"),
+            .mock(templateId: "chef", name: "Chef"),
+        ])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: [existing]),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertEqual(suggestedTemplateIds(viewModel), ["chef"])
+    }
+
+    /// The suggested section is a browse affordance: an active search hides it
+    /// (the server-paged list can't be filtered against a partial set).
+    func testSuggestedSectionHiddenWhileSearching() async {
+        let service = MockSuggestedAgentsService(agents: [.mock(templateId: "trip", name: "Trip")])
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(),
+            suggestedAgentsService: service
+        )
+        await viewModel.loadSuggestedAgentsIfNeeded()
+        XCTAssertNotNil(suggestedSection(viewModel))
+
+        viewModel.searchQuery = "zzz-no-match"
+        XCTAssertNil(suggestedSection(viewModel))
+
+        viewModel.searchQuery = ""
+        XCTAssertNotNil(suggestedSection(viewModel))
+    }
 }

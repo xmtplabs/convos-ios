@@ -59,6 +59,13 @@ extension ConvosAPIClientProtocol {
             avatarUrl: nil
         )
     }
+
+    /// Default for the featured agent-templates list backing the contacts
+    /// picker's suggested section. Tests that exercise it specifically should
+    /// override on their fixture.
+    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
+        ConvosAPI.AgentTemplatesPage(data: [], hasMore: false, nextCursor: nil)
+    }
 }
 
 /// Open, fully-conforming `ConvosAPIClientProtocol` base for test fixtures that

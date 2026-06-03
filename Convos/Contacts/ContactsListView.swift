@@ -27,26 +27,32 @@ struct ContactsListSection<Row: Identifiable>: Identifiable {
 }
 
 /// Sectioned contacts list shared by the contacts browser and the picker.
-/// Generic over the caller's row type and the row's rendered content view.
-struct ContactsListView<Row: Identifiable, RowContent: View, ListBackground: View>: View {
+/// Generic over the caller's row type, the row's rendered content view, and
+/// the per-section header. Most callers want the canonical letter header and
+/// reach for the convenience initializer below; the picker supplies a custom
+/// builder so its "Suggested agents" section can render a richer header.
+struct ContactsListView<Row: Identifiable, RowContent: View, SectionHeader: View, ListBackground: View>: View {
     let sections: [ContactsListSection<Row>]
     private let rowContent: (Row) -> RowContent
+    private let sectionHeader: (ContactsListSection<Row>) -> SectionHeader
     private let listBackground: ListBackground
 
     init(
         sections: [ContactsListSection<Row>],
         @ViewBuilder rowContent: @escaping (Row) -> RowContent,
+        @ViewBuilder sectionHeader: @escaping (ContactsListSection<Row>) -> SectionHeader,
         @ViewBuilder listBackground: () -> ListBackground
     ) {
         self.sections = sections
         self.rowContent = rowContent
+        self.sectionHeader = sectionHeader
         self.listBackground = listBackground()
     }
 
     var body: some View {
         List {
             ForEach(sections) { section in
-                SwiftUI.Section(header: ContactsListSectionHeader(title: section.title)) {
+                SwiftUI.Section(header: sectionHeader(section)) {
                     ForEach(section.rows) { row in
                         rowContent(row)
                             .listRowBackground(listBackground)
@@ -58,6 +64,22 @@ struct ContactsListView<Row: Identifiable, RowContent: View, ListBackground: Vie
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(listBackground)
+    }
+}
+
+extension ContactsListView where SectionHeader == ContactsListSectionHeader {
+    /// Convenience for callers that just want the canonical letter header.
+    init(
+        sections: [ContactsListSection<Row>],
+        @ViewBuilder rowContent: @escaping (Row) -> RowContent,
+        @ViewBuilder listBackground: () -> ListBackground
+    ) {
+        self.init(
+            sections: sections,
+            rowContent: rowContent,
+            sectionHeader: { ContactsListSectionHeader(title: $0.title) },
+            listBackground: listBackground
+        )
     }
 }
 
@@ -73,6 +95,26 @@ struct ContactsListSectionHeader: View {
             .textCase(nil)
             .padding(.leading, DesignConstants.Spacing.step2x)
             .listRowBackground(Color.colorBackgroundRaisedSecondary)
+    }
+}
+
+/// Header for the trailing "Suggested agents" section, shared by the contacts
+/// browser and the picker. A single caption line that aligns with the
+/// alphabetical letter headers: the title in `.colorTextSecondary` followed by
+/// a "Chat to customize" hint in `.colorTextTertiary`.
+struct SuggestedAgentsSectionHeader: View {
+    var body: some View {
+        HStack(spacing: 0.0) {
+            Text(SuggestedAgentsSection.title)
+                .foregroundStyle(.colorTextSecondary)
+            Text(" · Chat to customize")
+                .foregroundStyle(.colorTextTertiary)
+        }
+        .font(.caption)
+        .textCase(nil)
+        .padding(.leading, DesignConstants.Spacing.step2x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+        .listRowBackground(Color.colorBackgroundRaisedSecondary)
     }
 }
 

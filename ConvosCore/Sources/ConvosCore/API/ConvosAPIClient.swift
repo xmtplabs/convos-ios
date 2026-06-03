@@ -97,6 +97,14 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// published templates to anonymous callers.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
+    /// Lists featured (curated) published agent templates, cursor-paginated.
+    /// Backs the contacts picker's "Suggested agents" section. Pass `nil`
+    /// `cursor` for the first page, then thread `AgentTemplatesPage.nextCursor`
+    /// back for each following page until `hasMore` is `false`.
+    /// Unauthenticated: featured templates are published, so the backend
+    /// serves them to anonymous callers (mirrors `getAgentTemplate`).
+    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
+
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse
@@ -761,6 +769,21 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // (no auth header) and `performRequest` maps 404 -> APIError.notFound.
         let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
         let request = try request(for: "v2/agent-templates/\(encoded)")
+        return try await performRequest(request)
+    }
+
+    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
+        // Public, unauthenticated GET -- featured templates are published, so
+        // the list endpoint serves them to anonymous callers. `request(for:)`
+        // builds a bare GET (no auth header).
+        var queryParameters: [String: String] = [
+            "featured": "true",
+            "limit": String(limit),
+        ]
+        if let cursor, !cursor.isEmpty {
+            queryParameters["cursor"] = cursor
+        }
+        let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
     }
 

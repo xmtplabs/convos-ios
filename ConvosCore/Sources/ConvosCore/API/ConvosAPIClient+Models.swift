@@ -246,6 +246,23 @@ public enum ConvosAPI {
         }
     }
 
+    /// One page of the agent-templates list endpoint
+    /// (`GET /v2/agent-templates/`). The backend returns a cursor-paginated
+    /// envelope: `data` is the page, `hasMore` signals another page exists,
+    /// and `nextCursor` is the opaque base64url cursor to pass back as
+    /// `&cursor=` for the following page (`nil` on the last page).
+    public struct AgentTemplatesPage: Codable, Sendable {
+        public let data: [AgentTemplate]
+        public let hasMore: Bool
+        public let nextCursor: String?
+
+        public init(data: [AgentTemplate], hasMore: Bool, nextCursor: String?) {
+            self.data = data
+            self.hasMore = hasMore
+            self.nextCursor = nextCursor
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {

@@ -66,13 +66,15 @@ struct ContactsPickerView: View {
         preselectedInboxIds: Set<String> = [],
         pillConversation: Conversation? = nil,
         embedsNavigationStack: Bool = true,
+        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
         onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
             mode: mode,
             contactsRepository: contactsRepository,
             alreadyInChatInboxIds: alreadyInChatInboxIds,
-            preselectedInboxIds: preselectedInboxIds
+            preselectedInboxIds: preselectedInboxIds,
+            suggestedAgentsService: suggestedAgentsService
         ))
         self.pillConversation = pillConversation
         self.embedsNavigationStack = embedsNavigationStack
@@ -288,28 +290,70 @@ private struct ContactsPickerList: View {
     let onToggle: (String) -> Void
 
     var body: some View {
+        content
+            .task { await viewModel.loadSuggestedAgentsIfNeeded() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if viewModel.sections.isEmpty {
-            emptyState
+            if viewModel.isLoadingSuggestedAgents {
+                loadingState
+            } else {
+                emptyState
+            }
         } else {
-            ContactsListView(
-                sections: viewModel.sections.map { section in
-                    ContactsListSection(
-                        id: section.id,
-                        title: section.title,
-                        rows: section.rows
-                    )
-                },
-                rowContent: { (row: ContactsPickerViewModel.Row) in
-                    ContactsPickerRow(
-                        row: row,
-                        isSelected: viewModel.isSelected(inboxId: row.id),
-                        isAgentSelectionBlocked: viewModel.isAgentSelectionBlocked(for: row.id),
-                        onTap: rowTapAction(for: row)
-                    )
-                },
-                listBackground: { Color.colorBackgroundRaisedSecondary }
-            )
+            list
         }
+    }
+
+    private var list: some View {
+        ContactsListView(
+            sections: viewModel.sections.map { section in
+                ContactsListSection(
+                    id: section.id,
+                    title: section.title,
+                    rows: section.rows
+                )
+            },
+            rowContent: { (row: ContactsPickerViewModel.Row) in
+                rowView(for: row)
+            },
+            sectionHeader: { (section: ContactsListSection<ContactsPickerViewModel.Row>) in
+                sectionHeader(for: section)
+            },
+            listBackground: { Color.colorBackgroundRaisedSecondary }
+        )
+    }
+
+    @ViewBuilder
+    private func rowView(for row: ContactsPickerViewModel.Row) -> some View {
+        ContactsPickerRow(
+            row: row,
+            isSelected: viewModel.isSelected(inboxId: row.id),
+            isAgentSelectionBlocked: viewModel.isAgentSelectionBlocked(for: row.id),
+            onTap: rowTapAction(for: row)
+        )
+        .onAppear {
+            guard row.isSuggestedAgent else { return }
+            let rowId = row.id
+            Task { await viewModel.suggestedAgentRowAppeared(id: rowId) }
+        }
+    }
+
+    @ViewBuilder
+    private func sectionHeader(for section: ContactsListSection<ContactsPickerViewModel.Row>) -> some View {
+        if section.id == SuggestedAgentsSection.id {
+            SuggestedAgentsSectionHeader()
+        } else {
+            ContactsListSectionHeader(title: section.title)
+        }
+    }
+
+    private var loadingState: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(DesignConstants.Spacing.step6x)
     }
 
     private var emptyState: some View {
@@ -370,6 +414,35 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(),
+        onConfirm: { _, _ in }
+    )
+}
+
+#Preview("Suggested agents") {
+    let suggested: [SuggestedAgent] = [
+        .mock(templateId: "trip", name: "Trip", description: "Travel agent", emoji: "🧳"),
+        .mock(templateId: "champ", name: "Champ", description: "Team manager", emoji: "🏆"),
+        .mock(templateId: "chef", name: "Chef", description: "Meal and nutrition partner", emoji: "🍽️"),
+        .mock(templateId: "scoop", name: "Scoop", description: "Neighborhood expert", emoji: "🗞️"),
+    ]
+    return ContactsPickerView(
+        mode: .newConversation,
+        contactsRepository: MockContactsRepository(),
+        suggestedAgentsService: MockSuggestedAgentsService(agents: suggested),
+        onConfirm: { _, _ in }
+    )
+}
+
+#Preview("Suggested agents, no contacts") {
+    let suggested: [SuggestedAgent] = [
+        .mock(templateId: "trip", name: "Trip", description: "Travel agent", emoji: "🧳"),
+        .mock(templateId: "champ", name: "Champ", description: "Team manager", emoji: "🏆"),
+        .mock(templateId: "chef", name: "Chef", description: "Meal and nutrition partner", emoji: "🍽️"),
+    ]
+    return ContactsPickerView(
+        mode: .newConversation,
+        contactsRepository: MockContactsRepository(contacts: []),
+        suggestedAgentsService: MockSuggestedAgentsService(agents: suggested),
         onConfirm: { _, _ in }
     )
 }

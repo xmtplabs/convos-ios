@@ -21,10 +21,12 @@ struct ContactsView: View {
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
-        showsComposeButton: Bool = true
+        showsComposeButton: Bool = true,
+        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
-            contactsRepository: contactsRepository
+            contactsRepository: contactsRepository,
+            suggestedAgentsService: suggestedAgentsService
         ))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
@@ -35,12 +37,13 @@ struct ContactsView: View {
 
     var body: some View {
         Group {
-            if viewModel.contactCount == 0 {
+            if viewModel.sections.isEmpty {
                 emptyState
             } else {
                 contactsContent
             }
         }
+        .task { await viewModel.loadSuggestedAgentsIfNeeded() }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             Color.colorBackgroundRaisedSecondary
@@ -96,12 +99,34 @@ struct ContactsView: View {
                 )
             },
             rowContent: { (row: ContactsViewModel.Row) in
-                NavigationLink(value: row.contact) {
-                    ContactRowView(contact: row.contact, subtitle: row.subtitle)
-                }
+                contactRow(for: row)
+            },
+            sectionHeader: { (section: ContactsListSection<ContactsViewModel.Row>) in
+                contactsSectionHeader(for: section)
             },
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
+    }
+
+    @ViewBuilder
+    private func contactRow(for row: ContactsViewModel.Row) -> some View {
+        NavigationLink(value: row.contact) {
+            ContactRowView(contact: row.contact, subtitle: row.subtitle)
+        }
+        .onAppear {
+            guard row.isSuggestedAgent else { return }
+            let rowId = row.id
+            Task { await viewModel.suggestedAgentRowAppeared(id: rowId) }
+        }
+    }
+
+    @ViewBuilder
+    private func contactsSectionHeader(for section: ContactsListSection<ContactsViewModel.Row>) -> some View {
+        if section.id == SuggestedAgentsSection.id {
+            SuggestedAgentsSectionHeader()
+        } else {
+            ContactsListSectionHeader(title: section.title)
+        }
     }
 
     /// Detail pushed when a contact row is tapped. Built here (rather than
@@ -148,6 +173,7 @@ struct ContactsView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
+            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
     }

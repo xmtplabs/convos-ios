@@ -71,6 +71,9 @@ struct ContactDetailView: View {
     /// `onDismiss`.
     @State private var presentingAgentInfo: Bool = false
     @State private var agentInfoConfirmed: Bool = false
+    /// The agent template's description, resolved on appear for template-backed
+    /// agents (it isn't stored on the contact). Rendered under the name.
+    @State private var agentDescription: String?
 
     init(
         contact: Contact,
@@ -91,6 +94,9 @@ struct ContactDetailView: View {
         self.showsCloseButton = showsCloseButton
         self.onRemove = onRemove
         _isBlocked = State(initialValue: contact.isBlocked)
+        // Suggested-agent contacts carry the description, so it renders
+        // immediately; saved agent contacts seed nil and resolve it on appear.
+        _agentDescription = State(initialValue: contact.agentDescription)
     }
 
     var body: some View {
@@ -103,6 +109,7 @@ struct ContactDetailView: View {
             .toolbar { agentShareToolbarItem }
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
+            .task(id: contact.agentTemplateId) { await loadAgentDescription() }
     }
 
     /// `bodyContent` plus the modal / sheet / overlay presentation layer.
@@ -148,6 +155,16 @@ struct ContactDetailView: View {
             Log.error("Failed to load agent template conversations for \(templateId): \(error.localizedDescription)")
             agentTemplateConversations = .empty
         }
+    }
+
+    /// Resolves the agent template's description (id or slug) so the card can
+    /// show it under the name. `nil` for humans and when resolution fails.
+    private func loadAgentDescription() async {
+        // Suggested-agent contacts already carry the description (seeded in
+        // init), so skip the round-trip; only saved agent contacts resolve it.
+        guard agentDescription == nil, let session, let templateId = contact.agentTemplateId else { return }
+        let info = await session.agentShareResolver().resolve(identifier: templateId)
+        agentDescription = info?.descriptionText
     }
 
     /// Agent "code card" share flow: a QR encoding the template's published
@@ -222,13 +239,26 @@ struct ContactDetailView: View {
             // view, inflating the gap between subtitle and actions.
             VStack(spacing: 0.0) {
                 ContactDetailHeader(contact: contact)
-                ContactDetailSubtitle(
-                    contact: contact,
-                    invitedBy: mode.invitedBy,
-                    joinedAt: mode.joinedAt,
-                    isBlocked: isBlocked
-                )
-                .padding(.top, DesignConstants.Spacing.step2x)
+                if let agentDescription, !agentDescription.isEmpty {
+                    Text(agentDescription)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, DesignConstants.Spacing.step2x)
+                        .padding(.horizontal, DesignConstants.Spacing.step6x)
+                }
+                // Suggested-agent placeholders aren't saved contacts, so the
+                // "Added X ago" line (and Block, below) don't apply.
+                if !contact.isSuggestedAgentPlaceholder {
+                    ContactDetailSubtitle(
+                        contact: contact,
+                        invitedBy: mode.invitedBy,
+                        joinedAt: mode.joinedAt,
+                        isBlocked: isBlocked
+                    )
+                    .padding(.top, DesignConstants.Spacing.step2x)
+                }
                 headerBadge
                 ContactDetailActions(
                     isBlocked: isBlocked,
@@ -246,7 +276,7 @@ struct ContactDetailView: View {
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
-                    showBlock: !mode.isCurrentUser,
+                    showBlock: !mode.isCurrentUser && !contact.isSuggestedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
@@ -325,6 +355,7 @@ struct ContactDetailView: View {
             mode: .newConversation,
             contactsRepository: contactsRepository,
             preselectedInboxIds: [contact.inboxId],
+            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
     }
@@ -587,8 +618,12 @@ private struct ContactDetailSubtitle: View {
     let isBlocked: Bool
 
     var body: some View {
+        // The scoped-mode "Invited X ago by Y" line reads as a footnote; the
+        // standalone "Added X ago" keeps the subheadline size.
+        let subtitleFont: Font = joinedAt != nil ? .footnote : .subheadline
         VStack(spacing: DesignConstants.Spacing.stepX) {
             Text(subtitleText)
+                .font(subtitleFont)
                 .foregroundStyle(.colorTextSecondary)
             if isBlocked {
                 blockedRow

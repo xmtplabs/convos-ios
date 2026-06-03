@@ -58,6 +58,11 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// agent reads as verified or unverified. Overlaid via
     /// `with(agentAttestation:)`, applied last in `resolved(member:...)`.
     public let agentAttestation: String?
+    /// The agent template's description (tagline). Carried on the synthetic
+    /// "Suggested agents" contacts so the contact card renders it immediately
+    /// without a network round-trip. `nil` for humans and for saved agent
+    /// contacts (which don't persist it); those resolve it on demand.
+    public let agentDescription: String?
 
     public init(
         inboxId: String,
@@ -74,7 +79,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentTemplatePublishedURL: String? = nil,
         profileEmoji: String? = nil,
         agentInstanceId: String? = nil,
-        agentAttestation: String? = nil
+        agentAttestation: String? = nil,
+        agentDescription: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -91,6 +97,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.profileEmoji = profileEmoji
         self.agentInstanceId = agentInstanceId
         self.agentAttestation = agentAttestation
+        self.agentDescription = agentDescription
     }
 
     /// True when this contact has the full set of AES-256-GCM material

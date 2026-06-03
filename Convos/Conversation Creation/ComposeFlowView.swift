@@ -42,6 +42,7 @@ struct ComposeFlowView: View {
                 mode: .compose,
                 contactsRepository: contactsRepository,
                 embedsNavigationStack: false,
+                suggestedAgentsService: SuggestedAgentsService.live(),
                 onConfirm: handleProceed
             )
             .navigationDestination(item: $pushedConversation) { conversationViewModel in
