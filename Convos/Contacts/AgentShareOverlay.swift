@@ -17,7 +17,7 @@ struct AgentShareOverlay: View {
             encodedURLString: publishedURLString,
             isPresented: $isPresented,
             topPadding: DesignConstants.Spacing.step6x,
-            ignoresTopSafeArea: true,
+            ignoresToolbarSafeArea: true,
             header: {
                 Text(displayName)
                     .kerning(1.0)

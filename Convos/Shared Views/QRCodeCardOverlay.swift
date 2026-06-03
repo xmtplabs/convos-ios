@@ -11,14 +11,16 @@ import SwiftUI
 struct QRCodeCardOverlay<Header: View, Center: View>: View {
     let encodedURLString: String
     @Binding var isPresented: Bool
-    /// Flat top padding above the card, measured from the top of whatever
-    /// region the card occupies (the safe area, or the screen top when
-    /// `ignoresTopSafeArea` is set).
+    /// Flat top padding above the card, measured from the top of the region
+    /// the card occupies (the container safe area, or the device safe-area
+    /// top when `ignoresToolbarSafeArea` is set).
     let topPadding: CGFloat
-    /// When set, the card extends into the top safe area so `topPadding` is
-    /// measured from the screen's top edge. Lets a caller pull the card up out
-    /// of the safe-area band so a tall card clears the share sheet below it.
-    var ignoresTopSafeArea: Bool = false
+    /// When set, the card extends up into the toolbar band of the top safe
+    /// area while still respecting the window's device safe area (status bar
+    /// and Dynamic Island). Lets a caller pull a tall card up out of the
+    /// toolbar band so it clears the share sheet below it without sliding
+    /// under the status bar.
+    var ignoresToolbarSafeArea: Bool = false
     @ViewBuilder let header: () -> Header
     @ViewBuilder let center: () -> Center
 
@@ -29,27 +31,59 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
     /// Tracked so dismissing during the gap cancels the pending present.
     @State private var sharePresentTask: Task<Void, Never>?
     @Environment(\.displayScale) private var displayScale: CGFloat
+    /// Window-level safe area (device bezel only, no toolbar contribution),
+    /// used to keep the card below the status bar while it ignores the
+    /// toolbar's safe-area band.
+    @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
 
     private static var headerHeight: CGFloat { 40.0 }
     private static var cardPadding: CGFloat { 40.0 }
     private static var maxQRSize: CGFloat { 220.0 }
     private static var shareSheetFraction: CGFloat { 0.55 }
 
-    private func qrDisplaySize(in size: CGSize) -> CGFloat {
-        let availableHeight = size.height * (1.0 - Self.shareSheetFraction)
-            - topPadding
+    /// Sizes the QR so the card fits between its top position and the share
+    /// sheet, which covers the bottom `shareSheetFraction` of the screen.
+    /// Measured in window coordinates: the overlay's container is shorter
+    /// than the screen when the contact card is presented inside a sheet, so
+    /// container-local math would over-estimate the available height and the
+    /// card would render larger there than on a navigation stack.
+    private func qrDisplaySize(in geometry: GeometryProxy, cardTopPadding: CGFloat) -> CGFloat {
+        let globalFrame: CGRect = geometry.frame(in: .global)
+        let shareSheetTop: CGFloat = globalFrame.maxY * (1.0 - Self.shareSheetFraction)
+        let cardTop: CGFloat = globalFrame.minY + cardTopPadding
+        let availableHeight = shareSheetTop
+            - cardTop
             - Self.headerHeight
             - Self.cardPadding
             - DesignConstants.Spacing.step10x
-        let availableWidth = size.width
+        let availableWidth = geometry.size.width
             - DesignConstants.Spacing.step10x * 2
             - Self.cardPadding * 2
         let maxFit = min(availableHeight, availableWidth)
         return min(max(maxFit, 120.0), Self.maxQRSize)
     }
 
+    /// The edges the overlay's container extends past; hoisted so the
+    /// modifier argument in `body` stays ternary-free.
+    private var ignoredEdges: Edge.Set {
+        ignoresToolbarSafeArea ? .top : []
+    }
+
+    /// The card's top padding resolved against the (possibly expanded)
+    /// container. When the card ignores the toolbar safe area, the
+    /// container's top edge can sit above the device safe area (navigation
+    /// stack) or already below it (sheet); clamp so the card never rises
+    /// above the window's safe area.
+    private func resolvedTopPadding(in geometry: GeometryProxy) -> CGFloat {
+        guard ignoresToolbarSafeArea else { return topPadding }
+        let containerTop: CGFloat = geometry.frame(in: .global).minY
+        let deviceInset: CGFloat = max(windowSafeAreaInsets.top - containerTop, 0.0)
+        return deviceInset + topPadding
+    }
+
     var body: some View {
         GeometryReader { geometry in
+            let cardTopPadding: CGFloat = resolvedTopPadding(in: geometry)
             ZStack {
                 if showCard {
                     Color.black.opacity(0.5)
@@ -62,13 +96,11 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
                 }
 
                 if showCard {
-                    let ignoredEdges: Edge.Set = ignoresTopSafeArea ? .top : []
                     VStack(spacing: 0.0) {
-                        codeCard(qrSize: qrDisplaySize(in: geometry.size))
+                        codeCard(qrSize: qrDisplaySize(in: geometry, cardTopPadding: cardTopPadding))
                         Spacer()
                     }
-                    .padding(.top, topPadding)
-                    .ignoresSafeArea(.container, edges: ignoredEdges)
+                    .padding(.top, cardTopPadding)
                     .transition(
                         .asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
@@ -108,6 +140,7 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
                 }
             }
         }
+        .ignoresSafeArea(.container, edges: ignoredEdges)
     }
 
     private func codeCard(qrSize: CGFloat) -> some View {
