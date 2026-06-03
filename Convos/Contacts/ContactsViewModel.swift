@@ -40,15 +40,25 @@ final class ContactsViewModel {
     var filter: ContactsFilter = .all {
         didSet { rebuildSections() }
     }
+    /// "Show blocked" toggle from the search bar's filter menu. Defaults to
+    /// `false` so blocked contacts are hidden from the browse list by default;
+    /// flipping it on reveals them inline (the contact card -- reached by
+    /// tapping a revealed row -- is the unblock entry point).
+    var showBlocked: Bool = false {
+        didSet { rebuildSections() }
+    }
     /// True while the initial suggested-agents page request is in flight.
     var isLoadingSuggestedAgents: Bool {
         suggestedAgentsModel.isLoading
     }
-    /// True when a text search or audience filter is narrowing the list. An
-    /// empty `sections` while filtering means "nothing matched", which the
-    /// view distinguishes from the "no contacts yet" onboarding empty state.
+    /// True when a text search, audience filter, or the show-blocked toggle is
+    /// narrowing the list. An empty `sections` while filtering means "nothing
+    /// matched", which the view distinguishes from the "no contacts yet"
+    /// onboarding empty state.
     var isFiltering: Bool {
-        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.isActive
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || filter.isActive
+            || showBlocked
     }
 
     private let contactsRepository: any ContactsRepositoryProtocol
@@ -122,7 +132,7 @@ final class ContactsViewModel {
     /// `searchQuery`. Mirrors the picker's filter/group pipeline so both
     /// surfaces sort and bucket identically.
     private func rebuildSections() {
-        let filtered = filterByQuery(filterByAudience(visibleContacts()))
+        let filtered = filterByQuery(filterByAudience(filterByBlocked(visibleContacts())))
         let grouped: [String: [Contact]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
         let sortedKeys = grouped.keys.sorted { lhs, rhs in
             // "#" sorts last so non-alpha names land after Z.
@@ -187,11 +197,22 @@ final class ContactsViewModel {
         return contacts.filter { filter.includes($0) }
     }
 
+    /// Drops blocked contacts unless `showBlocked` is on. Inserted between
+    /// `visibleContacts()` and `filterByAudience` so audience and search
+    /// predicates see the post-blocked set.
+    private func filterByBlocked(_ contacts: [Contact]) -> [Contact] {
+        guard !showBlocked else { return contacts }
+        return contacts.filter { !$0.isBlocked }
+    }
+
     /// Clears the active text search and audience filter so the full list is
     /// shown again. Backs the "Show all" button on the filtered empty state.
+    /// Also turns the show-blocked toggle off so "Show all" means the same
+    /// default rendering the user gets on first load.
     func clearFilters() {
         searchQuery = ""
         filter = .all
+        showBlocked = false
     }
 
     // MARK: - Suggested agents

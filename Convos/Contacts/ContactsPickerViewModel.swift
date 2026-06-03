@@ -85,8 +85,11 @@ final class ContactsPickerViewModel {
     }
     /// True when a text search or audience filter is narrowing the list, so an
     /// empty `sections` means "nothing matched" rather than "no contacts".
+    /// Blocked contacts are always hidden from the picker (no toggle), so the
+    /// show-blocked flag from the contacts browse list has no parallel here.
     var isFiltering: Bool {
-        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.isActive
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || filter.isActive
     }
 
     private let contactsRepository: any ContactsRepositoryProtocol
@@ -299,6 +302,10 @@ final class ContactsPickerViewModel {
     }
 
     private func rebuildSections() {
+        // The picker is a selection surface; blocked contacts are never a
+        // valid target. Unlike the browse list (which exposes a "Show blocked"
+        // toggle so the user can reach the unblock CTA on the contact card),
+        // the picker always filters them out via `Self.isPickable`.
         let visible = allContacts.filter(Self.isPickable)
         let filtered = filterByQuery(filterByAudience(visible))
         let grouped: [String: [Contact]] = Dictionary(

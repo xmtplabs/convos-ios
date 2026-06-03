@@ -390,6 +390,31 @@ Fix the expression. Do not bump the threshold and do not `// swiftlint:disable` 
 4. Extract subviews or `@ViewBuilder` helpers from oversized SwiftUI bodies.
 5. Rebuild.
 
+### If type-check timeouts are firing everywhere (including unchanged files)
+
+If `took N ms to type-check` warnings start hitting code you haven't touched — or even *trivially simple* functions like a six-line `togglePlayback()` — the file is probably not the culprit. The most common cause is an `lldb-rpc-server` memory leak.
+
+`lldb-rpc-server` is the out-of-process debugger backend Xcode spawns. Swift debugger support has long-standing leaks: every `po`, expression evaluation, and breakpoint inspection loads Swift type metadata for the debug target's modules and never frees it. The process grows monotonically across a debug session and frequently survives Xcode quit. Reports of it reaching 15–20 GB are common. When that much memory is in use, the system swaps continuously, the Swift module cache thrashes off disk for every type lookup, and even cheap type-checks blow the 100 ms budget.
+
+**Diagnose:** Activity Monitor → search `lldb-rpc-server`. If the memory column shows anything north of ~2 GB, that's your problem.
+
+**Fix:**
+
+```bash
+killall lldb-rpc-server
+```
+
+Or Force Quit it from Activity Monitor. The Memory Pressure bar should return to green within seconds. Re-time the offending file's type-check; trivial code that was tripping the budget should drop back below 50 ms.
+
+**Mitigate going forward:**
+
+- Quit Xcode periodically during heavy sessions; run `ps aux | grep lldb-rpc-server` after to confirm no orphan process survives, and `killall` any that did.
+- Stop debug sessions when not actively debugging — the leak grows with debugger use, not with mere attach time.
+- Watch `lldb-rpc-server`'s memory column during long sessions; once it crosses ~5 GB, `killall` it before it gets worse.
+- Heavy `po` / `expression` use during marathon sessions is leak fuel; each evaluation loads more Swift type metadata that's never released until the process exits.
+
+The leak has no permanent fix on Apple's end — `killall` is the workaround. If you find yourself doing it every couple of hours, alias it: `alias xclean='killall lldb-rpc-server'`.
+
 ## Build & Release
 
 ### Build Commands

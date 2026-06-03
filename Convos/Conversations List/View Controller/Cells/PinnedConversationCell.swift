@@ -91,12 +91,26 @@ final class PinnedConversationWrapper {
 struct PinnedConversationWrapperView: View {
     var wrapper: PinnedConversationWrapper
 
+    private var isPhone: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
     private var avatarSize: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .phone ? 96 : 72
+        if isPhone {
+            return 96
+        }
+        return 72
+    }
+
+    private var verticalPadding: CGFloat {
+        if isPhone {
+            return 0
+        }
+        return DesignConstants.Spacing.step2x
     }
 
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation, avatarSize: avatarSize)
-            .padding(.vertical, UIDevice.current.userInterfaceIdiom == .phone ? 0 : DesignConstants.Spacing.step2x)
+            .padding(.vertical, verticalPadding)
     }
 }

@@ -13,6 +13,12 @@ struct ContactRowView: View {
     let subtitle: String
 
     var body: some View {
+        // Dim blocked rows so they read as "shown because Show blocked is on"
+        // rather than as a normal contact. The row stays tappable -- the
+        // contact card is the entry point for unblock, so disabling the tap
+        // would orphan the recovery flow.
+        let isBlocked: Bool = contact.isBlocked
+        let rowOpacity: Double = isBlocked ? 0.45 : 1.0
         HStack(spacing: DesignConstants.Spacing.step3x) {
             ContactAvatarView(contact: contact)
                 .frame(width: 56.0, height: 56.0)
@@ -30,13 +36,29 @@ struct ContactRowView: View {
                 }
             }
             Spacer(minLength: 0.0)
-            if contact.isVerifiedAgent {
+            if isBlocked {
+                blockedBadge
+            } else if contact.isVerifiedAgent {
                 RoleLabelPill(label: "Agent")
             }
         }
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .contentShape(Rectangle())
+        .opacity(rowOpacity)
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
+    }
+
+    /// "blocked" pill -- same `.colorFillMinimal` capsule + caption2 style
+    /// as the picker's "blocked" badge so both surfaces read identically.
+    private var blockedBadge: some View {
+        Text("blocked")
+            .font(.caption2)
+            .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, 4.0)
+            .background(
+                Capsule().fill(.colorFillMinimal)
+            )
     }
 }
 
