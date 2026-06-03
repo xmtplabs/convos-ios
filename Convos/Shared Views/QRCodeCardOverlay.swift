@@ -11,7 +11,14 @@ import SwiftUI
 struct QRCodeCardOverlay<Header: View, Center: View>: View {
     let encodedURLString: String
     @Binding var isPresented: Bool
-    let topSafeAreaInset: CGFloat
+    /// Flat top padding above the card, measured from the top of whatever
+    /// region the card occupies (the safe area, or the screen top when
+    /// `ignoresTopSafeArea` is set).
+    let topPadding: CGFloat
+    /// When set, the card extends into the top safe area so `topPadding` is
+    /// measured from the screen's top edge. Lets a caller pull the card up out
+    /// of the safe-area band so a tall card clears the share sheet below it.
+    var ignoresTopSafeArea: Bool = false
     @ViewBuilder let header: () -> Header
     @ViewBuilder let center: () -> Center
 
@@ -30,8 +37,7 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
 
     private func qrDisplaySize(in size: CGSize) -> CGFloat {
         let availableHeight = size.height * (1.0 - Self.shareSheetFraction)
-            - topSafeAreaInset
-            - DesignConstants.Spacing.step4x
+            - topPadding
             - Self.headerHeight
             - Self.cardPadding
             - DesignConstants.Spacing.step10x
@@ -56,11 +62,13 @@ struct QRCodeCardOverlay<Header: View, Center: View>: View {
                 }
 
                 if showCard {
+                    let ignoredEdges: Edge.Set = ignoresTopSafeArea ? .top : []
                     VStack(spacing: 0.0) {
                         codeCard(qrSize: qrDisplaySize(in: geometry.size))
                         Spacer()
                     }
-                    .padding(.top, topSafeAreaInset + DesignConstants.Spacing.step4x)
+                    .padding(.top, topPadding)
+                    .ignoresSafeArea(.container, edges: ignoredEdges)
                     .transition(
                         .asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),

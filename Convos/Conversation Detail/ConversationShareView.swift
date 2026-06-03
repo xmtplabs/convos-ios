@@ -22,7 +22,7 @@ struct ConversationShareOverlay: View {
         QRCodeCardOverlay(
             encodedURLString: invite.inviteURLString,
             isPresented: $isPresented,
-            topSafeAreaInset: topSafeAreaInset,
+            topPadding: topSafeAreaInset + DesignConstants.Spacing.step4x,
             header: {
                 HStack(alignment: .center) {
                     Text("Convos code")

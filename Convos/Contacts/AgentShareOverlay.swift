@@ -11,13 +11,13 @@ struct AgentShareOverlay: View {
     let emoji: String?
     let publishedURLString: String
     @Binding var isPresented: Bool
-    let topSafeAreaInset: CGFloat
 
     var body: some View {
         QRCodeCardOverlay(
             encodedURLString: publishedURLString,
             isPresented: $isPresented,
-            topSafeAreaInset: topSafeAreaInset,
+            topPadding: DesignConstants.Spacing.step6x,
+            ignoresTopSafeArea: true,
             header: {
                 Text(displayName)
                     .kerning(1.0)

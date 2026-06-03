@@ -178,8 +178,7 @@ struct ContactDetailView: View {
                 displayName: contact.resolvedDisplayName,
                 emoji: contact.profileEmoji,
                 publishedURLString: publishedURL,
-                isPresented: $presentingAgentShareSheet,
-                topSafeAreaInset: 0.0
+                isPresented: $presentingAgentShareSheet
             )
         }
     }
