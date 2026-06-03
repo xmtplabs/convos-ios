@@ -486,83 +486,102 @@ struct ConversationInfoView: View {
         }
     }
 
+    // The share-logs row ships in every environment so production users can
+    // send on-device diagnostics to support; the remaining rows are internal
+    // debugging tools and stay out of production builds.
     @ViewBuilder
     private var debugInfoSection: some View {
-        if !ConfigManager.shared.currentEnvironment.isProduction {
-            Section {
-                HStack {
-                    Text("Fork status")
-                    Spacer()
-                    Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Text("Epoch")
-                    Spacer()
-                    Text("\(viewModel.conversation.debugInfo.epoch)")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
-                } label: {
-                    Text("Fork details")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
-                } label: {
-                    Text("Local commit log")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
-                } label: {
-                    Text("Remote commit log")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: metadataDebugText)
-                        .task {
-                            metadataDebugText = await viewModel.conversationMetadataDebugText()
-                        }
-                } label: {
-                    Text("Metadata")
-                }
-                NavigationLink {
-                    HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
-                } label: {
-                    Text("Hidden messages")
-                }
-                Button {
-                    showingRestoreInviteTagAlert = true
-                } label: {
-                    Text("Restore invite tag")
-                }
-                if let url = exportedLogsURL {
-                    ShareLink(item: url) {
-                        HStack {
-                            Text("Share logs")
-                            Spacer()
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("Preparing logs…")
-                        Spacer()
-                        ProgressView()
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-            } header: {
-                Text("Debug info")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.colorTextSecondary)
+        let isProduction = ConfigManager.shared.currentEnvironment.isProduction
+        let header: String = isProduction ? "Diagnostics" : "Debug info"
+        Section {
+            if !isProduction {
+                internalDebugRows
             }
-            .task {
-                do {
-                    exportedLogsURL = try await viewModel.exportDebugLogs()
-                } catch {
-                    Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+            shareLogsRow
+        } header: {
+            Text(header)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .task {
+            await prepareExportedLogs()
+        }
+    }
+
+    @ViewBuilder
+    private var internalDebugRows: some View {
+        HStack {
+            Text("Fork status")
+            Spacer()
+            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        HStack {
+            Text("Epoch")
+            Spacer()
+            Text("\(viewModel.conversation.debugInfo.epoch)")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
+        } label: {
+            Text("Fork details")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
+        } label: {
+            Text("Local commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
+        } label: {
+            Text("Remote commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: metadataDebugText)
+                .task {
+                    metadataDebugText = await viewModel.conversationMetadataDebugText()
+                }
+        } label: {
+            Text("Metadata")
+        }
+        NavigationLink {
+            HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
+        } label: {
+            Text("Hidden messages")
+        }
+        Button {
+            showingRestoreInviteTagAlert = true
+        } label: {
+            Text("Restore invite tag")
+        }
+    }
+
+    @ViewBuilder
+    private var shareLogsRow: some View {
+        if let url = exportedLogsURL {
+            ShareLink(item: url) {
+                HStack {
+                    Text("Share logs")
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
                 }
             }
+        } else {
+            HStack {
+                Text("Preparing logs…")
+                Spacer()
+                ProgressView()
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    private func prepareExportedLogs() async {
+        do {
+            exportedLogsURL = try await viewModel.exportDebugLogs()
+        } catch {
+            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
         }
     }
 
