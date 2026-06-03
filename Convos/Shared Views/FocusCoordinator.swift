@@ -190,27 +190,28 @@ final class FocusCoordinator {
         currentFocus = nextFocus
     }
 
-    /// Runs `work` with the keyboard's pending input settled: synchronously
-    /// drops first responder (forcing the keyboard to commit any uncommitted
-    /// input, like a pending autocorrect or an active dictation hypothesis,
-    /// into the focused field), runs `work`, then restores first responder.
+    /// Runs `work` with the keyboard's pending input settled: re-asserts the
+    /// focused field's selection at the UIKit level first, which makes the
+    /// keyboard resolve any uncommitted input session (a pending autocorrect
+    /// right after a keystroke, or an active dictation hypothesis) before
+    /// `work` mutates the field's bound text programmatically.
     ///
     /// Use this around programmatic mutations of a focused field's bound text
     /// (e.g. clearing the composer on send). Mutating the binding while the
     /// keyboard still holds pending input can lose the write entirely: the
     /// backing text view keeps the old text and the keyboard's next commit
-    /// point syncs the stale text back into the binding. Resigning first
-    /// settles the input session so the mutation lands on stable state;
-    /// restoring synchronously keeps the keyboard up without a visible
-    /// flicker.
+    /// point syncs the stale text back into the binding. A selection change
+    /// runs the same settle path the keyboard uses when the caret moves, with
+    /// no first responder change, so the keyboard never hides or re-shows.
+    /// (An earlier resign/become approach settled input too, but round-
+    /// tripped the keyboard with a visible dismiss-and-reshow in the real
+    /// view hierarchy.)
     func withSettledKeyboardInput(_ work: () -> Void) {
-        guard let responder = Self.currentFirstResponder() else {
-            work()
-            return
+        if let input = Self.currentFirstResponder() as? (UIResponder & UITextInput) {
+            let end = input.endOfDocument
+            input.selectedTextRange = input.textRange(from: end, to: end)
         }
-        responder.resignFirstResponder()
         work()
-        responder.becomeFirstResponder()
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated
