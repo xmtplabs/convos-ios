@@ -307,10 +307,6 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         )
     }
 
-    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
-        try await base.publishAgentTemplate(id: id)
-    }
-
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
         base.voiceMemoTranscriptRepository()
     }
