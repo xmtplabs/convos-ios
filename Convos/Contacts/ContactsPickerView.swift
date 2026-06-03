@@ -130,7 +130,8 @@ struct ContactsPickerView: View {
                 ContactsSearchBar(
                     query: $viewModel.searchQuery,
                     placeholder: "Contacts",
-                    accessibilityIdentifier: "contacts-picker-search-field"
+                    accessibilityIdentifier: "contacts-picker-search-field",
+                    filter: $viewModel.filter
                 )
                 ContactsPickerSelectedPills(
                     contacts: viewModel.selectedContacts,

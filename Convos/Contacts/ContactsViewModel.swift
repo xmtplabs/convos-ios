@@ -33,6 +33,13 @@ final class ContactsViewModel {
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
+    /// Audience filter toggled from the search bar's filter menu. Narrows the
+    /// list to people or agents; `contactCount` stays unfiltered so a filter
+    /// that matches nothing renders an empty list rather than the "no contacts"
+    /// onboarding empty state.
+    var filter: ContactsFilter = .all {
+        didSet { rebuildSections() }
+    }
     /// True while the initial suggested-agents page request is in flight.
     var isLoadingSuggestedAgents: Bool {
         suggestedAgentsModel.isLoading
@@ -109,7 +116,7 @@ final class ContactsViewModel {
     /// `searchQuery`. Mirrors the picker's filter/group pipeline so both
     /// surfaces sort and bucket identically.
     private func rebuildSections() {
-        let filtered = filterByQuery(visibleContacts())
+        let filtered = filterByQuery(filterByAudience(visibleContacts()))
         let grouped: [String: [Contact]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
         let sortedKeys = grouped.keys.sorted { lhs, rhs in
             // "#" sorts last so non-alpha names land after Z.
@@ -155,7 +162,9 @@ final class ContactsViewModel {
         suggestedAgentContacts = rows.map(\.contact)
 
         let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedQuery.isEmpty, !rows.isEmpty else { return nil }
+        // Suggested agents are agents, so hide the whole section under the
+        // People filter (and while a search is active).
+        guard trimmedQuery.isEmpty, filter.includesAgents, !rows.isEmpty else { return nil }
         return Section(id: SuggestedAgentsSection.id, title: SuggestedAgentsSection.title, rows: rows)
     }
 
@@ -165,6 +174,11 @@ final class ContactsViewModel {
         return contacts.filter { contact in
             contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    private func filterByAudience(_ contacts: [Contact]) -> [Contact] {
+        guard filter.isActive else { return contacts }
+        return contacts.filter { filter.includes($0) }
     }
 
     // MARK: - Suggested agents

@@ -70,6 +70,13 @@ final class ContactsPickerViewModel {
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
+    /// Audience filter toggled from the search bar's filter menu. Narrows the
+    /// pickable list to people or agents; selections persist across filter
+    /// changes -- a selected contact hidden by the filter stays selected and
+    /// still appears in the selected-pills row.
+    var filter: ContactsFilter = .all {
+        didSet { rebuildSections() }
+    }
     var isLoading: Bool = true
     /// True while the initial suggested-agents page request is in flight.
     /// Drives the loading state when there are no contacts to show yet.
@@ -288,7 +295,7 @@ final class ContactsPickerViewModel {
 
     private func rebuildSections() {
         let visible = allContacts.filter(Self.isPickable)
-        let filtered = filterByQuery(visible)
+        let filtered = filterByQuery(filterByAudience(visible))
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,
             by: { $0.alphabeticalSectionKey }
@@ -345,7 +352,10 @@ final class ContactsPickerViewModel {
         suggestedAgentContacts = rows.map(\.contact)
 
         let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedQuery.isEmpty, !rows.isEmpty else { return nil }
+        // Suggested agents are agents, so hide the whole section under the
+        // People filter. `suggestedAgentContacts` stays complete above so a
+        // selected suggested agent still resolves in the pills row.
+        guard trimmedQuery.isEmpty, filter.includesAgents, !rows.isEmpty else { return nil }
         return Section(id: SuggestedAgentsSection.id, title: SuggestedAgentsSection.title, rows: rows)
     }
 
@@ -355,6 +365,11 @@ final class ContactsPickerViewModel {
         return contacts.filter { contact in
             contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    private func filterByAudience(_ contacts: [Contact]) -> [Contact] {
+        guard filter.isActive else { return contacts }
+        return contacts.filter { filter.includes($0) }
     }
 
     private static func sectionKeyOrder(_ lhs: String, _ rhs: String) -> Bool {

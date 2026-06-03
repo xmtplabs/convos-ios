@@ -83,7 +83,8 @@ struct ContactsView: View {
                 ContactsSearchBar(
                     query: $viewModel.searchQuery,
                     placeholder: "Search contacts",
-                    accessibilityIdentifier: "contacts-search-field"
+                    accessibilityIdentifier: "contacts-search-field",
+                    filter: $viewModel.filter
                 )
             }
     }
