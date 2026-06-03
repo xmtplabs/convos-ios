@@ -186,29 +186,22 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         inviterName: String?,
         config: CellConfig
     ) -> some View {
-        let isVerified = agent.agentVerification.isVerified
-        let label = isVerified ? "Agent" : "Agent"
+        let label = "Agent"
         let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
-        VStack(spacing: 0) {
-            TextTitleContentView(
-                title: title,
-                profile: agent.profile,
-                agentVerification: agent.agentVerification,
-                onTap: { config.onTapUpdateMember(agent) }
-            )
-                .padding(.top, DesignConstants.Spacing.step4x)
-                .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if isVerified {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
-        }
+        TextTitleContentView(
+            title: title,
+            profile: agent.profile,
+            agentVerification: agent.agentVerification,
+            onTap: { config.onTapUpdateMember(agent) }
+        )
+            .padding(.top, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 }
 
-/// Renders a single `.update` cell (system row + optional agent-joined
-/// footer). Extracted from `MessagesListItemTypeCell.setup`'s switch so
+/// Renders a single `.update` cell (system row). Extracted from
+/// `MessagesListItemTypeCell.setup`'s switch so
 /// the function body stays under the 125-line SwiftLint cap; the body
 /// here also substitutes the contact's profile for the per-conversation
 /// profile when the inbox is a known contact, so a row like "Alice
@@ -224,23 +217,17 @@ private struct UpdateCellContent: View {
             config.memberContactOverride(profile.inboxId)
                 .map { profile.overlaying(contact: $0) } ?? profile
         }
-        VStack(spacing: 0) {
-            TextTitleContentView(
-                title: update.summary(memberNameOverride: nameResolver),
-                profile: resolvedProfile,
-                agentVerification: update.profileMember?.agentVerification ?? .unverified,
-                onTap: update.profileMember.map { member in
-                    { config.onTapUpdateMember(member) }
-                }
-            )
-                .id(update.differenceIdentifier)
-                .padding(.top, DesignConstants.Spacing.step4x)
-                .padding(.bottom, update.addedVerifiedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if update.addedVerifiedAgent {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+        TextTitleContentView(
+            title: update.summary(memberNameOverride: nameResolver),
+            profile: resolvedProfile,
+            agentVerification: update.profileMember?.agentVerification ?? .unverified,
+            onTap: update.profileMember.map { member in
+                { config.onTapUpdateMember(member) }
             }
-        }
+        )
+            .id(update.differenceIdentifier)
+            .padding(.top, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 }

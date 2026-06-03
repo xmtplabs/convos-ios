@@ -2,8 +2,8 @@ id: "30"
 name: "Verified Assistants"
 description: >
   Verify that verified Convos assistants show proper UI treatment (avatar badge,
-  Lava-colored sender label, 'See its skills' button) and that unverified agents
-  show distinct treatment (muted label, no skills button).
+  Lava-colored sender label) and that unverified agents show distinct treatment
+  (muted label).
 tags: [assistants, verification, agents]
 depends_on: ["03"]
 estimated_duration_s: 180
@@ -70,11 +70,10 @@ steps:
       - screenshot: {}
     verify:
       - element_exists: { label_contains: "Assistant joined" }
-      - element_exists: { label: "See its skills" }
-    criteria: assistant_joined_with_skills
+      - element_not_exists: { label: "See its skills" }
+    criteria: assistant_joined
     note: >
-      The assistant should join and show "Assistant joined · Invited by You"
-      with the "See its skills" button below.
+      The assistant should join and show "Assistant joined · Invited by You".
 
   - id: verified_sender_label
     name: "Verified assistant messages have Lava-colored sender label"
@@ -97,7 +96,7 @@ criteria:
     description: "'Agent is present' shows for unverified agents without skills button"
   unverified_profile_no_skills:
     description: "Unverified agent profile only shows 'Block and leave'"
-  assistant_joined_with_skills:
-    description: "Verified assistant shows 'Assistant joined' with 'See its skills' button"
+  assistant_joined:
+    description: "Verified assistant shows 'Assistant joined'"
   verified_lava_label:
     description: "Verified assistant sender label uses Lava color"

@@ -21,7 +21,7 @@ After the app joins, use the app to add an "Instant assistant" from the add-to-c
 2. Wait for the assistant to join and send its first message.
 3. Copy the invite link from the add-to-conversation menu.
 4. On a second device or simulator, open the invite URL as a deep link.
-5. After joining, verify the "Assistant is present" cell appears between "Earlier messages are hidden for privacy" and "You joined as ..." with the assistant's avatar and the "See its skills" button.
+5. After joining, verify the "Assistant is present" cell appears between "Earlier messages are hidden for privacy" and "You joined as ..." with the assistant's avatar.
 6. Tap "Assistant is present" to open the member profile view.
 7. Verify the profile view shows "Get skills" and "Learn about assistants" buttons.
 
@@ -30,7 +30,7 @@ After the app joins, use the app to add an "Instant assistant" from the add-to-c
 8. Use the CLI to create a conversation and generate an invite.
 9. Open the invite in the app via deep link. Process the join request from the CLI.
 10. After joining, verify the "Agent is present" cell appears (not "Assistant is present").
-11. Verify there is no "See its skills" button below the "Agent is present" text.
+11. Verify there is no "See its skills" button below the "Agent is present" text (the button no longer exists for any member).
 12. Tap "Agent is present" to open the member profile view.
 13. Verify the profile view does NOT show "Get skills" or "Learn about assistants" buttons — only "Block and leave".
 
@@ -51,8 +51,8 @@ Explode both test conversations from the CLI.
 
 ## Pass/Fail Criteria
 
-- [ ] "Assistant is present" cell appears for verified assistants with avatar and "See its skills" button
-- [ ] "Agent is present" cell appears for unverified agents without "See its skills" button
+- [ ] "Assistant is present" cell appears for verified assistants with avatar (no "See its skills" button)
+- [ ] "Agent is present" cell appears for unverified agents (no "See its skills" button)
 - [ ] Tapping the present info cell opens the member profile view
 - [ ] Verified assistant profile shows "Get skills" and "Learn about assistants"
 - [ ] Unverified agent profile only shows "Block and leave"

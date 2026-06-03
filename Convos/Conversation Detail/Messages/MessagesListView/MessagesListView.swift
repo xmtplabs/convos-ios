@@ -149,40 +149,28 @@ var body: some View {
 
     @ViewBuilder
     private func updateView(for update: ConversationUpdate) -> some View {
-        VStack(spacing: 0) {
-            TextTitleContentView(
-                title: update.summary,
-                profile: update.profile,
-                agentVerification: update.profileMember?.agentVerification ?? .unverified,
-                onTap: update.profileMember.map { member in
-                    { onTapUpdateMember(member) }
-                }
-            )
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            if update.addedVerifiedAgent {
-                AgentJoinedInfoView()
+        TextTitleContentView(
+            title: update.summary,
+            profile: update.profile,
+            agentVerification: update.profileMember?.agentVerification ?? .unverified,
+            onTap: update.profileMember.map { member in
+                { onTapUpdateMember(member) }
             }
-        }
+        )
+        .padding(.vertical, DesignConstants.Spacing.stepX)
     }
 
     @ViewBuilder
     private func agentPresentView(agent: ConversationMember, inviterName: String?) -> some View {
-        let isVerified = agent.agentVerification.isVerified
-        let label = isVerified ? "Agent" : "Agent"
+        let label = "Agent"
         let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
-        VStack(spacing: 0) {
-            TextTitleContentView(
-                title: title,
-                profile: agent.profile,
-                agentVerification: agent.agentVerification
-            )
-            .padding(.vertical, DesignConstants.Spacing.step4x)
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if isVerified {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
-        }
+        TextTitleContentView(
+            title: title,
+            profile: agent.profile,
+            agentVerification: agent.agentVerification
+        )
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 
     private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
