@@ -38,7 +38,15 @@ struct ContactsView: View {
     var body: some View {
         Group {
             if viewModel.sections.isEmpty && !viewModel.isFiltering {
-                emptyState
+                // No own contacts and no active search. Surface suggested
+                // agents once they load; show a spinner while they're in
+                // flight so we don't flash the onboarding empty state, and
+                // fall back to it only when there's genuinely nothing to show.
+                if viewModel.isLoadingSuggestedAgents {
+                    loadingState
+                } else {
+                    emptyState
+                }
             } else {
                 contactsContent
             }
@@ -175,6 +183,15 @@ struct ContactsView: View {
 
     private var emptyState: some View {
         ContactsEmptyStateView()
+            .background(.colorBackgroundRaisedSecondary)
+    }
+
+    /// Shown while the suggested-agents first page is in flight and the user
+    /// has no contacts yet, so the onboarding empty state doesn't flash before
+    /// the suggestions arrive.
+    private var loadingState: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
     }
 
