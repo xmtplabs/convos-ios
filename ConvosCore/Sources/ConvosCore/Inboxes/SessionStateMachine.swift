@@ -516,6 +516,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw KeychainIdentityStoreError.identityNotFound("ClientId mismatch: expected \(initialClientId), got \(identity.clientId)")
         }
 
+        // Installs that registered before the synced backup slot existed
+        // only ever wrote the primary slot; mirror the identity here so
+        // they become recoverable too. Best-effort, no-op once populated.
+        await identityStore.backfillSyncedBackupIfNeeded()
+
         emitStateChange(.authorizing(inboxId: inboxId))
         Log.info("Started authorization flow for inbox: \(inboxId), clientId: \(initialClientId)")
 

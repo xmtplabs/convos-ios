@@ -32,7 +32,14 @@ public enum ClipIdentityBootstrap {
         platformProviders: PlatformProviders
     ) -> ClipSession {
         let databaseManager = DatabaseManager(environment: environment)
-        let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+        // The clip's auto-registered identity must not be escrowed to
+        // iCloud Keychain -- the user never opted into a backup from this
+        // ephemeral surface. The full app backfills the synced backup on
+        // first authorize once the identity is actually adopted.
+        let identityStore = KeychainIdentityStore(
+            accessGroup: environment.keychainAccessGroup,
+            syncedBackupEnabled: false
+        )
         let sessionManager = SessionManager(
             databaseWriter: databaseManager.dbWriter,
             databaseReader: databaseManager.dbReader,

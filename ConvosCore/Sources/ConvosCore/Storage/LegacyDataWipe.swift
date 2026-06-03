@@ -45,6 +45,12 @@ enum LegacyDataWipe {
     /// both the local and the iCloud-synced copies of each get removed.
     private static let identityKeychainServices: [String] = [
         "org.convos.ios.KeychainIdentityStore.v3",
+        // Synced backup slot: holds one item per identity. Sweeping it
+        // with kSecAttrSynchronizableAny propagates through iCloud
+        // Keychain and removes every identity's recovery backup on every
+        // device on the account -- acceptable only because a generation
+        // bump is a deliberate total reset.
+        "org.convos.ios.KeychainIdentityStore.v3-synced-backup",
         "org.convos.ios.KeychainIdentityStore.v4-local",
         "org.convos.ios.KeychainIdentityStore.v2",
         "org.convos.ios.KeychainIdentityStore.v1"
