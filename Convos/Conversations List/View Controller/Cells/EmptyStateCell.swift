@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 
 enum EmptyStateType {
-    case cta(onStartConvo: () -> Void, onJoinConvo: () -> Void)
     case filtered(message: String, onShowAll: () -> Void)
 }
 
@@ -27,19 +26,6 @@ final class EmptyStateCell: UICollectionViewCell {
 
     func configure(with type: EmptyStateType) {
         switch type {
-        case .cta:
-            // The first-run "Pop-up private convos" card has been replaced
-            // by an inline `AgentBuilderView` mounted at the `MainTabView`
-            // level (gated on `ConversationsViewModel.isEmptyCTAActive`).
-            // This cell still renders so the collection-view diff stays
-            // happy, but it's intentionally empty — when the inline
-            // builder is active the chats tab itself is swapped out, so
-            // this branch is effectively only hit when the tab is briefly
-            // re-mounted during the transition.
-            contentConfiguration = UIHostingConfiguration { EmptyView() }
-                .margins(.all, 0)
-                .background(.clear)
-
         case let .filtered(message, onShowAll):
             contentConfiguration = UIHostingConfiguration {
                 FilteredEmptyStateView(
@@ -67,7 +53,7 @@ final class EmptyStateCell: UICollectionViewCell {
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         )
-        layoutAttributes.size.height = max(fittingSize.height, 200)
+        layoutAttributes.size.height = fittingSize.height
         return layoutAttributes
     }
 }

@@ -13,14 +13,7 @@ final class ConversationsViewController: UIViewController {
         var selectedConversationId: String?
         var isFilteredResultEmpty: Bool
         var filterEmptyMessage: String
-        var hasCreatedMoreThanOneConvo: Bool
         var horizontalSizeClass: UserInterfaceSizeClass?
-
-        @MainActor var shouldShowEmptyCTA: Bool {
-            unpinnedConversations.count == 1 &&
-            !hasCreatedMoreThanOneConvo &&
-            UIDevice.current.userInterfaceIdiom == .phone
-        }
 
         static let empty: State = State(
             pinnedConversations: [],
@@ -28,7 +21,6 @@ final class ConversationsViewController: UIViewController {
             selectedConversationId: nil,
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
-            hasCreatedMoreThanOneConvo: false,
             horizontalSizeClass: nil
         )
     }
@@ -36,7 +28,6 @@ final class ConversationsViewController: UIViewController {
     enum Item: Hashable {
         case pinned(Conversation)
         case conversation(Conversation)
-        case emptyCTA
         case filteredEmpty(String)
 
         func hash(into hasher: inout Hasher) {
@@ -47,8 +38,6 @@ final class ConversationsViewController: UIViewController {
             case .conversation(let conversation):
                 hasher.combine("conversation")
                 hasher.combine(conversation.id)
-            case .emptyCTA:
-                hasher.combine("emptyCTA")
             case .filteredEmpty(let message):
                 hasher.combine("filteredEmpty")
                 hasher.combine(message)
@@ -61,8 +50,6 @@ final class ConversationsViewController: UIViewController {
                 return lConv.id == rConv.id
             case let (.conversation(lConv), .conversation(rConv)):
                 return lConv.id == rConv.id
-            case (.emptyCTA, .emptyCTA):
-                return true
             case let (.filteredEmpty(lMsg), .filteredEmpty(rMsg)):
                 return lMsg == rMsg
             default:
@@ -106,8 +93,6 @@ final class ConversationsViewController: UIViewController {
     var onToggleMute: ((Conversation) -> Void)?
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
-    var onStartConvo: (() -> Void)?
-    var onJoinConvo: (() -> Void)?
     var onShowAllFilter: (() -> Void)?
     /// Fired on every scroll tick with the latest content offset Y. Used
     /// by the host SwiftUI shell (`MainTabView`) to flip the agent
@@ -426,17 +411,6 @@ final class ConversationsViewController: UIViewController {
                     item: conversation
                 )
 
-            case .emptyCTA:
-                let type = EmptyStateType.cta(
-                    onStartConvo: { self.onStartConvo?() },
-                    onJoinConvo: { self.onJoinConvo?() }
-                )
-                return collectionView.dequeueConfiguredReusableCell(
-                    using: emptyCellRegistration,
-                    for: indexPath,
-                    item: type
-                )
-
             case .filteredEmpty(let message):
                 let type = EmptyStateType.filtered(
                     message: message,
@@ -465,10 +439,6 @@ final class ConversationsViewController: UIViewController {
         if currentState.isFilteredResultEmpty {
             snapshot.appendItems([.filteredEmpty(currentState.filterEmptyMessage)], toSection: .list)
         } else {
-            if currentState.shouldShowEmptyCTA {
-                snapshot.appendItems([.emptyCTA], toSection: .list)
-            }
-
             let listItems = currentState.unpinnedConversations.map { Item.conversation($0) }
             snapshot.appendItems(listItems, toSection: .list)
         }
@@ -481,7 +451,7 @@ final class ConversationsViewController: UIViewController {
                 switch item {
                 case .pinned(let c), .conversation(let c):
                     return changedIds.contains(c.id)
-                case .emptyCTA, .filteredEmpty:
+                case .filteredEmpty:
                     return false
                 }
             }
@@ -512,7 +482,7 @@ final class ConversationsViewController: UIViewController {
                 switch item {
                 case .pinned(let conversation), .conversation(let conversation):
                     conversationId = conversation.id
-                case .emptyCTA, .filteredEmpty:
+                case .filteredEmpty:
                     conversationId = nil
                 }
 
@@ -540,7 +510,7 @@ final class ConversationsViewController: UIViewController {
             switch item {
             case .pinned(let c), .conversation(let c):
                 matchesId = c.id == conversation.id
-            case .emptyCTA, .filteredEmpty:
+            case .filteredEmpty:
                 matchesId = false
             }
             if matchesId, let indexPath = dataSource.indexPath(for: item) {
@@ -667,7 +637,7 @@ extension ConversationsViewController: UICollectionViewDelegate {
         switch item {
         case .pinned(let conversation), .conversation(let conversation):
             return conversation
-        case .emptyCTA, .filteredEmpty:
+        case .filteredEmpty:
             return nil
         }
     }

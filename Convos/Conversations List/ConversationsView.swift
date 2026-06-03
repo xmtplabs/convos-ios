@@ -215,7 +215,6 @@ struct ConversationsView: View {
             selectedConversationId: viewModel.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
-            hasCreatedMoreThanOneConvo: viewModel.hasCreatedMoreThanOneConvo,
             onSelectConversation: { conversation in
                 viewModel.selectedConversationId = conversation.id
             },
@@ -234,8 +233,6 @@ struct ConversationsView: View {
             onTogglePin: { conversation in
                 viewModel.togglePin(conversation: conversation)
             },
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all },
             onScrollOffsetChange: onScrollOffsetChange,
             topChromeInset: topChromeInset,
