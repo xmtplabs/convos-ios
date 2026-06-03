@@ -159,9 +159,6 @@ var body: some View {
                 }
             )
             .padding(.vertical, DesignConstants.Spacing.stepX)
-            if update.addedVerifiedAgent {
-                AgentJoinedInfoView()
-            }
         }
     }
 
@@ -178,10 +175,6 @@ var body: some View {
             )
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if isVerified {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
         }
     }
 

@@ -50,8 +50,8 @@ struct ConversationUpdateTests {
     @Test("addedVerifiedAgent is false for unverified agents")
     func addedVerifiedAgentFalseForUnverifiedAgent() {
         // This is the regression case: a CLI joiner advertises itself as
-        // memberKind=agent but has no Convos attestation. The "See its skills"
-        // button must NOT appear for these.
+        // memberKind=agent but has no Convos attestation. Verified-agent
+        // affordances must not appear for these.
         let agent = ConversationMember.mock(name: "CLI Bot", isAgent: true, agentVerification: .unverified)
         let update = update(addedMembers: [agent])
         #expect(update.addedVerifiedAgent == false)
@@ -60,7 +60,7 @@ struct ConversationUpdateTests {
     @Test("addedVerifiedAgent is false for user-OAuth verified agents")
     func addedVerifiedAgentFalseForUserOAuthAgent() {
         // OAuth-verified agents are not Convos agents and should not get
-        // the "See its skills" affordance, which links to the Convos catalog.
+        // verified Convos-agent affordances.
         let agent = ConversationMember.mock(name: "OAuth Agent", isAgent: true, agentVerification: .verified(.userOAuth))
         let update = update(addedMembers: [agent])
         #expect(update.addedVerifiedAgent == false)

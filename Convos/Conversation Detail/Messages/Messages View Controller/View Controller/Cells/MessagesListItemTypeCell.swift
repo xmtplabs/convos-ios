@@ -197,18 +197,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 onTap: { config.onTapUpdateMember(agent) }
             )
                 .padding(.top, DesignConstants.Spacing.step4x)
-                .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.bottom, DesignConstants.Spacing.step4x)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if isVerified {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
         }
     }
 }
 
-/// Renders a single `.update` cell (system row + optional agent-joined
-/// footer). Extracted from `MessagesListItemTypeCell.setup`'s switch so
+/// Renders a single `.update` cell (system row). Extracted from
+/// `MessagesListItemTypeCell.setup`'s switch so
 /// the function body stays under the 125-line SwiftLint cap; the body
 /// here also substitutes the contact's profile for the per-conversation
 /// profile when the inbox is a known contact, so a row like "Alice
@@ -235,12 +231,8 @@ private struct UpdateCellContent: View {
             )
                 .id(update.differenceIdentifier)
                 .padding(.top, DesignConstants.Spacing.step4x)
-                .padding(.bottom, update.addedVerifiedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.bottom, DesignConstants.Spacing.step4x)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if update.addedVerifiedAgent {
-                AgentJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
         }
     }
 }
