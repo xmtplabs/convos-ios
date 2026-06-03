@@ -41,15 +41,11 @@ public enum ConvosLog {
 
     /// Configure the logging system with file-based handler
     /// Call this once at app startup before using any loggers
-    /// Logging is automatically disabled in production environments
+    /// Logging is enabled in every environment, including production, so
+    /// production issues can be diagnosed from the on-device log file.
     public static func configure(environment: AppEnvironment) {
         queue.sync {
             guard _logger == nil else { return }
-
-            // never enable logging in production
-            guard !environment.isProduction else {
-                return
-            }
 
             // First, bootstrap the logging system factory
             LoggingSystem.bootstrap { label in
