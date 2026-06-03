@@ -21,8 +21,9 @@ struct MainTabView: View {
 
     /// Tracks which tab is currently active and drives the standard
     /// `TabView` selection. The system tab bar is hidden only while a
-    /// conversation / Stuff detail is pushed (or the inline empty-state
-    /// builder is up) via `.toolbar(_:for: .tabBar)`.
+    /// conversation / Stuff detail is pushed (so the detail owns the full
+    /// screen) via `.toolbar(_:for: .tabBar)`. It stays visible during the
+    /// inline empty-state builder so the user can still switch tabs.
     @State private var activeTab: ConvosTab = .chats
     /// NavigationStack path for the Stuff tab. Lifted to this shell so
     /// the bottom chrome can hide when Stuff has a detail pushed, same
@@ -411,7 +412,7 @@ struct MainTabView: View {
             }
             .toolbar { sharedToolbar(for: tab) }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
-            .toolbar((isConversationSelected || isInlineBuilderActive) ? .hidden : .visible, for: .tabBar)
+            .toolbar(isConversationSelected ? .hidden : .visible, for: .tabBar)
     }
 
     /// Shared toolbar (compose + add-agent) applied to each tab's
