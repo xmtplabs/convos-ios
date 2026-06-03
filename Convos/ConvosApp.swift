@@ -27,6 +27,13 @@ struct ConvosApp: App {
         let environment = ConfigManager.shared.currentEnvironment
         ConvosLog.configure(environment: environment)
 
+        // Start Sentry as early as possible so crashes during the rest of app
+        // init (database setup, Firebase, client creation) are captured. The
+        // SwiftUI App initializer runs before the app delegate's
+        // didFinishLaunching, so starting it there would leave all of this
+        // initialization as a crash-reporting blind spot.
+        SentryConfiguration.configure()
+
         // Verbose libxmtp logs are invaluable in dev/local but too chatty (and too
         // revealing of protocol internals) to persist on every production device.
         let libXMTPLogLevel: Client.LogLevel = environment.isProduction ? .warn : .debug
