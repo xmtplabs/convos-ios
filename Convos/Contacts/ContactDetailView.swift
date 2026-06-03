@@ -98,7 +98,7 @@ struct ContactDetailView: View {
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
-        coreActions: any CoreActions = NoOpCoreActions(),
+        coreActions: any CoreActions,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         onRemove: (() -> Void)? = nil
@@ -1170,7 +1170,7 @@ extension Contact {
         ContactDetailView(
             contact: .mock(displayName: "Alice"),
             contactsWriter: MockContactsWriter(),
-            contactsRepository: MockContactsRepository()
+            contactsRepository: MockContactsRepository(),
         )
     }
 }
