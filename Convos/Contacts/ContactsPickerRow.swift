@@ -6,13 +6,10 @@ import SwiftUI
 struct ContactsPickerRow: View {
     let row: ContactsPickerViewModel.Row
     let isSelected: Bool
-    /// True when this row is an agent that can't be selected because
-    /// another agent is already selected (one agent per conversation).
-    var isAgentSelectionBlocked: Bool = false
     let onTap: () -> Void
 
     var body: some View {
-        let isDisabled: Bool = row.isAlreadyInChat || isAgentSelectionBlocked
+        let isDisabled: Bool = row.isAlreadyInChat
         let opacity: Double = isDisabled ? 0.45 : 1.0
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {

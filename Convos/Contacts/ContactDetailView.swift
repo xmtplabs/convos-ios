@@ -24,12 +24,14 @@ import SwiftUI
 //   - Pill below the subtitle - "You" for the current user's own card,
 //     the agent role label ("Agent", "Verified by ...") for verified
 //     agents, otherwise nothing
-//   - Chat - hidden for the current user; disabled for verified agents
+//   - "Convos with you" sections - template-backed agents only, listing
+//     conversations that already contain the agent; rows push the
+//     conversation onto the host navigation stack
+//   - New chat - hidden for the current user; disabled for verified agents
 //     (no DMs yet); calls `contactsWriter.upsertContact(...)` before
 //     opening the picker so a synthetic / non-yet-stored contact is
 //     promoted to a real one
-//   - Get skills / Learn about agents - verified agents only, inline
-//     in the action stack after Chat
+//   - Share - template-backed agents with a published link, after New chat
 //   - Remove - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
 //   - Block / Unblock - hidden for the current user; both modes otherwise
@@ -62,12 +64,15 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
+    /// Existing conversation pushed onto the host navigation stack when the
+    /// user taps a row in the "Convos with you" sections.
+    @State private var pushedConversation: NewConversationViewModel?
     @State private var presentingAgentShareSheet: Bool = false
     /// Conversations already containing this agent template, split by who
     /// added the agent. Loaded on appear for template-backed agents; drives
     /// the "Convos with you" / "someone else added them" sections.
     @State private var agentTemplateConversations: AgentTemplateConversations = .empty
-    /// Gates the "One agent, many convos" confirmation before the "Chat"
+    /// Gates the "New chat, new context" confirmation before the "Chat"
     /// button spawns a new conversation with this agent. `agentInfoConfirmed`
     /// distinguishes a "Got it" tap from a drag-to-cancel in the sheet's
     /// `onDismiss`.
@@ -122,7 +127,7 @@ struct ContactDetailView: View {
             .toolbar { closeToolbarItem }
             .toolbar { agentShareToolbarItem }
             .task(id: contact.inboxId) { await syncBlockedState() }
-            .task(id: contact.agentTemplateId) { await loadAgentTemplateConversations() }
+            .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
             .onAppear {
                 ensureNavigator()
@@ -159,22 +164,41 @@ struct ContactDetailView: View {
                 )
                 .background(.colorBackgroundSurfaceless)
             }
+            .navigationDestination(item: $pushedConversation) { vm in
+                pushedConversationView(vm)
+            }
             .overlay { agentShareOverlay }
     }
 
-    /// Loads conversations already containing this agent template, partitioned
-    /// by who added the agent. No-op for non-template contacts.
-    private func loadAgentTemplateConversations() async {
+    /// Existing conversation pushed when a "Convos with you" row is tapped.
+    /// `embedsNavigationStack: false` lands the view on the host stack with
+    /// the system back button instead of nesting a second stack.
+    @ViewBuilder
+    private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            embedsNavigationStack: false
+        )
+        .background(.colorBackgroundSurfaceless)
+    }
+
+    /// Streams conversations already containing this agent template,
+    /// partitioned by who added the agent, from a database observation so
+    /// the "Convos with you" sections stay live while the card is on screen
+    /// (e.g. a convo spawned from this card's New chat appears without
+    /// leaving the view). No-op for non-template contacts. The loop ends
+    /// when the hosting `.task` is cancelled - the view disappears or the
+    /// template id changes.
+    private func observeAgentTemplateConversations() async {
         guard let session, let templateId = contact.agentTemplateId else {
             agentTemplateConversations = .empty
             return
         }
         let repository = session.conversationsRepository(for: [.allowed])
-        do {
-            agentTemplateConversations = try repository.conversations(withAgentTemplateId: templateId)
-        } catch {
-            Log.error("Failed to load agent template conversations for \(templateId): \(error.localizedDescription)")
-            agentTemplateConversations = .empty
+        let publisher = repository.conversationsPublisher(withAgentTemplateId: templateId)
+        for await conversations in publisher.values {
+            agentTemplateConversations = conversations
         }
     }
 
@@ -292,7 +316,6 @@ struct ContactDetailView: View {
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
                     showChat: !mode.isCurrentUser,
                     showShare: agentTemplateShareURL != nil,
-                    showAgentLinks: isVerifiedAgent,
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
@@ -303,6 +326,7 @@ struct ContactDetailView: View {
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
                     agentTemplateConversations: agentTemplateConversations,
+                    onSelectConversation: handleSelectAgentTemplateConversation,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
@@ -550,13 +574,13 @@ struct ContactDetailView: View {
     /// `ContactsView.handlePickerConfirm` and the invite-cell-tap pattern
     /// where the new-convo sheet is owned by the same view that hosted
     /// the picker.
-    private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateId: String?) {
-        guard !memberInboxIds.isEmpty || agentTemplateId != nil, let session else { return }
+    private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
+        guard !memberInboxIds.isEmpty || !agentTemplateIds.isEmpty, let session else { return }
         presentingNewConvo = NewConversationViewModel(
             session: session,
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
-                agentTemplateId: agentTemplateId
+                initialAgentTemplateIds: agentTemplateIds
             ),
             coreActions: coreActions
         )
@@ -567,7 +591,7 @@ struct ContactDetailView: View {
     /// `presentingNewConvo`, the same sheet anchor `handlePickerConfirm`
     /// uses; the `.newConversationWithTemplate` mode creates the
     /// conversation and joins the agent once it reaches `.ready`.
-    /// Chat with a template-backed agent shows the "One agent, many convos"
+    /// Chat with a template-backed agent shows the "New chat, new context"
     /// confirmation first; its "Got it" proceeds via `confirmChatWithAgentTemplate`
     /// (run from the sheet's `onDismiss` so the new-convo sheet presents after
     /// this one closes).
@@ -591,6 +615,17 @@ struct ContactDetailView: View {
             session: session,
             mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity),
             coreActions: coreActions
+        )
+    }
+
+    /// Opens an existing conversation from the "Convos with you" sections by
+    /// pushing it onto the host navigation stack (all entry points wrap this
+    /// view in a `NavigationStack`).
+    private func handleSelectAgentTemplateConversation(_ conversation: Conversation) {
+        guard let session else { return }
+        pushedConversation = NewConversationViewModel(
+            session: session,
+            mode: .existingConversation(conversationId: conversation.id)
         )
     }
 
@@ -685,10 +720,10 @@ private struct ContactDetailSubtitle: View {
 
 // MARK: - Action stack
 
-/// Renders Chat (always first) plus any combination of the verified-
-/// agent links, Remove, and Block - in that order. Chat is the primary
-/// CTA (filled dark pill); the rest use the secondary action-row style
-/// (capsule label + caption below) so an agent and human card share
+/// Renders the "Convos with you" sections (template-backed agents only),
+/// then New chat, Share, Remove, and Block - in that order. New chat is the
+/// primary CTA (filled dark pill); the rest use the secondary action-row
+/// style (capsule label + caption below) so an agent and human card share
 /// one row framework and only differ in which rows render.
 private struct ContactDetailActions: View {
     let isBlocked: Bool
@@ -696,7 +731,6 @@ private struct ContactDetailActions: View {
     let canSendMessage: Bool
     let showChat: Bool
     let showShare: Bool
-    let showAgentLinks: Bool
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
@@ -712,29 +746,29 @@ private struct ContactDetailActions: View {
     /// readout alongside the raw attestation value.
     let agentVerification: AgentVerification?
     /// Conversations already containing this agent template, rendered as the
-    /// "Convos with you" / "someone else added" sections directly under the
-    /// Share row (or Chat when there's no Share row).
+    /// "Convos with you" / "someone else added" sections at the top of the
+    /// action stack, above the New chat button.
     let agentTemplateConversations: AgentTemplateConversations
+    /// Called with the conversation when a "Convos with you" row is tapped.
+    let onSelectConversation: (Conversation) -> Void
     let onSendMessage: () -> Void
     let onShare: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
 
-    @Environment(\.openURL) private var openURL: OpenURLAction
-
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
+            if !agentTemplateConversations.isEmpty {
+                AgentTemplateConversationsSections(
+                    conversations: agentTemplateConversations,
+                    onSelectConversation: onSelectConversation
+                )
+            }
             if showChat {
                 chatButton
             }
             if showShare {
                 shareRow
-            }
-            if !agentTemplateConversations.isEmpty {
-                AgentTemplateConversationsSections(conversations: agentTemplateConversations)
-            }
-            if showAgentLinks {
-                agentLinkRows
             }
             if showRemove {
                 removeRow
@@ -760,23 +794,10 @@ private struct ContactDetailActions: View {
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 
-    @ViewBuilder
-    private var agentLinkRows: some View {
-        ContactDetailActionRow(
-            label: "Learn about agents",
-            footer: "Capabilities, privacy and security",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Learn about agents",
-            accessibilityIdentifier: "contact-detail-learn-about-agents",
-            action: { openURL(AgentLinks.learnAboutAgentsURL) }
-        )
-    }
-
     private var chatButton: some View {
         let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
         return Button(action: onSendMessage) {
-            Text("Chat")
+            Text("New chat")
                 .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimaryInverted)
                 .frame(maxWidth: .infinity)
@@ -787,7 +808,7 @@ private struct ContactDetailActions: View {
                 )
         }
         .disabled(!canSendMessage)
-        .accessibilityLabel("Chat with \(contactDisplayName)")
+        .accessibilityLabel("New chat with \(contactDisplayName)")
         .accessibilityIdentifier("contact-detail-chat")
     }
 

@@ -33,7 +33,7 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         }
     }
 
-    public func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations {
+    public func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
         var addedByCurrentUser: [Conversation] = []
         var addedByOthers: [Conversation] = []
         for conversation in mockConversations {
@@ -48,10 +48,11 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
                 addedByOthers.append(conversation)
             }
         }
-        return AgentTemplateConversations(
+        let partition = AgentTemplateConversations(
             addedByCurrentUser: addedByCurrentUser,
             addedByOthers: addedByOthers
         )
+        return Just(partition).eraseToAnyPublisher()
     }
 }
 

@@ -23,9 +23,12 @@ public protocol ConversationsRepositoryProtocol {
     /// split by who added that agent: `addedByCurrentUser` when the agent
     /// member's `invitedBy` is one of the current user's inboxes, otherwise
     /// `addedByOthers`. Backs the agent contact card's "Convos with you" and
-    /// "someone else added them" sections. Honours the repo's `consent` scope
-    /// and the same draft / expired / unused exclusions as `fetchAll`.
-    func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations
+    /// "someone else added them" sections. Emits the current partition
+    /// immediately and a fresh one whenever the underlying database changes,
+    /// so the sections stay live while the card is on screen. Honours the
+    /// repo's `consent` scope and the same draft / expired / unused
+    /// exclusions as `fetchAll`.
+    func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never>
 }
 
 final class ConversationsRepository: ConversationsRepositoryProtocol {
@@ -68,35 +71,22 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         }
     }
 
-    func conversations(withAgentTemplateId templateId: String) throws -> AgentTemplateConversations {
-        try dbReader.read { [consent] db in
-            // Filter and partition in Swift over the hydrated conversations:
-            // `member.profile.agentTemplateId` is the trusted accessor over the
-            // profile metadata, and `invitedBy` already carries the agent's
-            // inviter, so this avoids a brittle SQL JSON_EXTRACT predicate.
-            // Trade-off: this hydrates every allowed conversation and partitions
-            // in memory rather than filtering in SQL - fine at expected
-            // conversation counts; revisit with a SQL predicate if it gets hot.
-            let currentInboxIds = Set(try DBInbox.fetchAll(db).map(\.inboxId))
-            let conversations = try db.composeAllConversations(consent: consent)
-            var addedByCurrentUser: [Conversation] = []
-            var addedByOthers: [Conversation] = []
-            for conversation in conversations {
-                let agentMember = conversation.members.first { member in
-                    member.isAgent && member.profile.agentTemplateId == templateId
-                }
-                guard let agentMember else { continue }
-                if let inviterInboxId = agentMember.invitedBy?.inboxId, currentInboxIds.contains(inviterInboxId) {
-                    addedByCurrentUser.append(conversation)
-                } else {
-                    addedByOthers.append(conversation)
+    func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
+        ValueObservation
+            .tracking { [consent] db in
+                do {
+                    return try db.composeAgentTemplateConversations(templateId: templateId, consent: consent)
+                } catch {
+                    Log.error("Error composing agent template conversations: \(error)")
+                    throw error
                 }
             }
-            return AgentTemplateConversations(
-                addedByCurrentUser: addedByCurrentUser,
-                addedByOthers: addedByOthers
-            )
-        }
+            // The tracked region spans every conversation table, so without
+            // this an unrelated write would re-emit an identical partition.
+            .removeDuplicates()
+            .publisher(in: dbReader)
+            .replaceError(with: .empty)
+            .eraseToAnyPublisher()
     }
 }
 
@@ -130,6 +120,35 @@ fileprivate extension Database {
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
+    }
+
+    func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
+        // Filter and partition in Swift over the hydrated conversations:
+        // `member.profile.agentTemplateId` is the trusted accessor over the
+        // profile metadata, and `invitedBy` already carries the agent's
+        // inviter, so this avoids a brittle SQL JSON_EXTRACT predicate.
+        // Trade-off: this hydrates every allowed conversation and partitions
+        // in memory rather than filtering in SQL - fine at expected
+        // conversation counts; revisit with a SQL predicate if it gets hot.
+        let currentInboxIds = Set(try DBInbox.fetchAll(self).map(\.inboxId))
+        let conversations = try composeAllConversations(consent: consent)
+        var addedByCurrentUser: [Conversation] = []
+        var addedByOthers: [Conversation] = []
+        for conversation in conversations {
+            let agentMember = conversation.members.first { member in
+                member.isAgent && member.profile.agentTemplateId == templateId
+            }
+            guard let agentMember else { continue }
+            if let inviterInboxId = agentMember.invitedBy?.inboxId, currentInboxIds.contains(inviterInboxId) {
+                addedByCurrentUser.append(conversation)
+            } else {
+                addedByOthers.append(conversation)
+            }
+        }
+        return AgentTemplateConversations(
+            addedByCurrentUser: addedByCurrentUser,
+            addedByOthers: addedByOthers
+        )
     }
 
     func composeOneToOne(

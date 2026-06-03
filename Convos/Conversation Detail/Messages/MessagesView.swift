@@ -92,7 +92,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
-    let hasAgent: Bool
     let isAgentJoinPending: Bool
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
@@ -156,7 +155,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: memberContactOverride,
-            hasAgent: hasAgent,
             isAgentJoinPending: isAgentJoinPending,
             headerMode: headerMode,
             agentBuilderSummary: agentBuilderSummary,

@@ -82,11 +82,9 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(allRowIds, [alice.inboxId, coffeeAgent.inboxId])
     }
 
-    /// At most one agent may be selected. Once an agent is selected, other
-    /// agents are blocked (selecting a second is a no-op and their rows are
-    /// disabled); the user must deselect the first to pick another. Humans
-    /// are unrestricted.
-    func testSecondAgentSelectionIsBlocked() {
+    /// Multiple agents can be selected alongside humans; each selected
+    /// agent contributes its template id to `selectedAgentTemplateIds`.
+    func testMultipleAgentsCanBeSelected() {
         let alice = Contact.mock(displayName: "Alice")
         let coffee = Contact.mock(
             displayName: "Americano",
@@ -103,22 +101,20 @@ final class ContactsPickerViewModelTests: XCTestCase {
 
         viewModel.toggleSelection(for: alice.inboxId)
         viewModel.toggleSelection(for: coffee.inboxId)
-        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
-        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: coffee.inboxId), "the selected agent itself isn't blocked")
-        XCTAssertTrue(viewModel.isAgentSelectionBlocked(for: tea.inboxId), "other agents are blocked once one is selected")
+        XCTAssertEqual(viewModel.selectedAgentTemplateIds, ["tmpl-coffee"])
 
-        // Tapping a second agent is a no-op: the first stays, the second is not added.
+        // Selecting a second agent keeps both.
         viewModel.toggleSelection(for: tea.inboxId)
-        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
-        XCTAssertFalse(viewModel.isSelected(inboxId: tea.inboxId))
+        XCTAssertTrue(viewModel.isSelected(inboxId: tea.inboxId))
         XCTAssertTrue(viewModel.isSelected(inboxId: coffee.inboxId))
         XCTAssertTrue(viewModel.isSelected(inboxId: alice.inboxId))
-        XCTAssertEqual(viewModel.selectionCount, 2)
+        XCTAssertEqual(viewModel.selectionCount, 3)
+        XCTAssertEqual(Set(viewModel.selectedAgentTemplateIds), ["tmpl-coffee", "tmpl-tea"])
+        XCTAssertEqual(viewModel.selectedAgentInboxIds, [coffee.inboxId, tea.inboxId])
 
-        // Deselecting the agent unblocks the others.
+        // Deselecting one agent leaves the other selected.
         viewModel.toggleSelection(for: coffee.inboxId)
-        XCTAssertNil(viewModel.selectedAgentTemplateId)
-        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: tea.inboxId))
+        XCTAssertEqual(viewModel.selectedAgentTemplateIds, ["tmpl-tea"])
     }
 
     func testHashBucketSortsLastForNonAlphaNames() {
@@ -440,8 +436,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(service.requestedLimits.count, 2)
     }
 
-    /// Selecting a suggested agent makes it the conversation's single agent
-    /// (resolved by template id) and follows the one-agent rule.
+    /// Selecting a suggested agent resolves it by template id through the
+    /// synthetic contact backing its row.
     func testSelectingSuggestedAgentSetsTemplateId() async {
         let service = MockSuggestedAgentsService(agents: [.mock(templateId: "trip", name: "Trip")])
         let viewModel = ContactsPickerViewModel(
@@ -456,8 +452,8 @@ final class ContactsPickerViewModelTests: XCTestCase {
         viewModel.toggleSelection(for: rowId)
 
         XCTAssertTrue(viewModel.isSelected(inboxId: rowId))
-        XCTAssertEqual(viewModel.selectedAgentTemplateId, "trip")
-        XCTAssertEqual(viewModel.selectedAgentInboxId, rowId)
+        XCTAssertEqual(viewModel.selectedAgentTemplateIds, ["trip"])
+        XCTAssertEqual(viewModel.selectedAgentInboxIds, [rowId])
         XCTAssertEqual(viewModel.selectedContacts.map(\.inboxId), [rowId])
     }
 

@@ -45,7 +45,6 @@ struct CellConfig {
     let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
-    let hasAgent: Bool
     let isAgentJoinPending: Bool
     let headerMode: MessagesHeaderMode
     /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`

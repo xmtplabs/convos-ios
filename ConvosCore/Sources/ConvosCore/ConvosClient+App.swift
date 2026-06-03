@@ -11,7 +11,13 @@ extension ConvosClient {
         let databaseManager = DatabaseManager(environment: environment)
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
-        let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+        // Device name is read lazily at each backup write (it can change
+        // in Settings) and stamps the synced backup blob for the restore
+        // picker, mirroring the pairing flow's device labels.
+        let identityStore = KeychainIdentityStore(
+            accessGroup: environment.keychainAccessGroup,
+            deviceNameProvider: { DeviceInfo.deviceName }
+        )
         let sessionManager = SessionManager(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,

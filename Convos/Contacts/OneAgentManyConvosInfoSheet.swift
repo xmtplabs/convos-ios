@@ -17,7 +17,7 @@ struct OneAgentManyConvosInfoSheet: View {
     var body: some View {
         FeatureInfoSheet(
             tagline: "Agent Contacts",
-            title: "One agent,\nmany convos",
+            title: "New chat,\nnew context",
             paragraphs: [
                 .init("For privacy, agents cannot share memories, context or skills between conversations.", size: .body),
                 .init("Whoever adds an agent funds its usage.", size: .subheadline),

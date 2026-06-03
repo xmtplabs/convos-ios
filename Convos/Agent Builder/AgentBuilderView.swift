@@ -209,13 +209,11 @@ struct AgentBuilderView: View {
                 inlineTermsFooter
             }
         }
-        .onAppear {
-            // Voice-memo entry skips the composer focus so the keyboard
-            // doesn't pop up alongside the mic-permission prompt; the
-            // body's main `.onAppear` kicks off the recording itself.
-            guard viewModel.entryMode != .voiceMemo else { return }
-            focusCoordinator.moveFocus(to: .agentBuilder)
-        }
+        // Intentionally no default focus here: the inline builder is the
+        // chats-list empty state, and popping the keyboard on every visit
+        // to an empty chats tab is intrusive. The user taps the composer
+        // (or its card) to focus. The sheet presentation still focuses by
+        // default via `initialFocusOverride`.
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
             inlineFocusState = newFocus
         }
@@ -322,7 +320,32 @@ struct AgentBuilderView: View {
         }
     }
 
+    /// Wraps the composer stack in a vertical scroll view purely so a
+    /// downward drag interactively tracks the keyboard down (mirroring
+    /// the messages list's `.scrollDismissesKeyboard(.interactively)`).
+    /// The content is pinned to the visible height via the geometry
+    /// proxy, so nothing actually scrolls - the scroll view exists for
+    /// its bounce + keyboard tracking. The proxy height already excludes
+    /// the keyboard (keyboard safe-area inset shrinks the proposal), so
+    /// the card keeps its existing shrink-above-the-keyboard behavior.
     private func composerRect(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                composerStack(focusState: focusState)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .scrollIndicators(.hidden)
+            // Unclipped so the glass card's matched-geometry morph into
+            // the in-stream summary cell (and the sheet path's move/scale
+            // removal transition) isn't cut off at the scroll bounds.
+            .scrollClipDisabled()
+            .scrollDismissesKeyboard(.interactively)
+        }
+    }
+
+    private func composerStack(
         focusState: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         VStack(spacing: 0) {

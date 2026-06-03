@@ -4,15 +4,13 @@ struct NewConvoIdentityView: View {
     var onCopyLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
     var onInviteAgent: (() -> Void)?
-    var hasAgent: Bool = false
     var isAgentJoinPending: Bool = false
 
     private var showInviteMenu: Bool { onCopyLink != nil }
 
-    private var isAgentActionDisabled: Bool { hasAgent || isAgentJoinPending }
+    private var isAgentActionDisabled: Bool { isAgentJoinPending }
 
     private var agentSubtitle: String {
-        if hasAgent { return "Already here" }
         if isAgentJoinPending { return "Joining…" }
         return "Made for this group"
     }

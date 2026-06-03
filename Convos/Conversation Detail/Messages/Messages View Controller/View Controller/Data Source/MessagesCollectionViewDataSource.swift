@@ -42,7 +42,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var memberContactOverride: ((String) -> Contact?)?
-    var hasAgent: Bool = false
     var isAgentJoinPending: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
@@ -166,7 +165,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onRetryTranscript?(item)
             },
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
-            hasAgent: hasAgent,
             isAgentJoinPending: isAgentJoinPending,
             headerMode: headerMode,
             hidesInviteCard: hidesInviteCard,

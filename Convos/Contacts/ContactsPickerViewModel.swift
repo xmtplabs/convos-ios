@@ -85,8 +85,10 @@ final class ContactsPickerViewModel {
     }
     /// True when a text search or audience filter is narrowing the list, so an
     /// empty `sections` means "nothing matched" rather than "no contacts".
+    /// Blocked contacts are always hidden from the picker.
     var isFiltering: Bool {
-        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.isActive
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || filter.isActive
     }
 
     private let contactsRepository: any ContactsRepositoryProtocol
@@ -98,7 +100,7 @@ final class ContactsPickerViewModel {
     /// add-to-conversation entry point) yields no section.
     private let suggestedAgentsModel: SuggestedAgentsModel
     /// Synthetic contacts for the currently visible suggested agents. Kept so
-    /// selection lookups (one-agent rule, confirm-by-template) resolve a
+    /// selection lookups (agent detection, confirm-by-template) resolve a
     /// selected suggestion even while the section is hidden by a search query.
     private var suggestedAgentContacts: [Contact] = []
 
@@ -211,24 +213,8 @@ final class ContactsPickerViewModel {
         if selectedInboxIds.contains(inboxId) {
             selectedInboxIds.remove(inboxId)
         } else {
-            // At most one agent per conversation - agents are
-            // instance-per-conversation and can't share context. Once one
-            // is selected, other agent rows are disabled (see
-            // `isAgentSelectionBlocked`); selecting a second is a no-op.
-            // Humans are unrestricted.
-            if isAgent(inboxId), selectedAgentInboxId != nil {
-                return
-            }
             selectedInboxIds.insert(inboxId)
         }
-    }
-
-    /// True when `inboxId` is an unselected agent that can't be selected
-    /// because a different agent is already selected. The picker disables
-    /// these rows; the user deselects the current agent to pick another.
-    func isAgentSelectionBlocked(for inboxId: String) -> Bool {
-        guard isAgent(inboxId), !selectedInboxIds.contains(inboxId) else { return false }
-        return selectedAgentInboxId != nil
     }
 
     func deselect(inboxId: String) {
@@ -243,22 +229,16 @@ final class ContactsPickerViewModel {
         selectedInboxIds.contains(inboxId)
     }
 
-    /// `inboxId` of the currently selected agent, if any. At most one
-    /// agent may be selected (see `toggleSelection`).
-    var selectedAgentInboxId: String? {
-        selectedInboxIds.first { isAgent($0) }
+    /// `inboxId`s of the currently selected agents.
+    var selectedAgentInboxIds: Set<String> {
+        Set(selectedContacts.filter { $0.agentTemplateId != nil }.map(\.inboxId))
     }
 
-    /// `agentTemplateId` of the currently selected agent, threaded into
-    /// conversation creation so a fresh instance of that template is
+    /// `agentTemplateId`s of the currently selected agents, threaded into
+    /// conversation creation so a fresh instance of each template is
     /// spawned into the new (or existing) conversation.
-    var selectedAgentTemplateId: String? {
-        guard let agentInboxId = selectedAgentInboxId else { return nil }
-        return selectableContacts.first { $0.inboxId == agentInboxId }?.agentTemplateId
-    }
-
-    private func isAgent(_ inboxId: String) -> Bool {
-        selectableContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
+    var selectedAgentTemplateIds: [String] {
+        selectedContacts.compactMap(\.agentTemplateId)
     }
 
     /// Single source of truth for "is this contact a valid picker row".
@@ -299,6 +279,10 @@ final class ContactsPickerViewModel {
     }
 
     private func rebuildSections() {
+        // The picker is a selection surface; blocked contacts are never a
+        // valid target. Unlike the browse list (which exposes a "Show blocked"
+        // toggle so the user can reach the unblock CTA on the contact card),
+        // the picker always filters them out via `Self.isPickable`.
         let visible = allContacts.filter(Self.isPickable)
         let filtered = filterByQuery(filterByAudience(visible))
         let grouped: [String: [Contact]] = Dictionary(

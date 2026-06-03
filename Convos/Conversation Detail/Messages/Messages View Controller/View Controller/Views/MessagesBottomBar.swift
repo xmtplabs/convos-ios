@@ -548,7 +548,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
             memberContactOverride: { _ in nil },
-            hasAgent: false,
             isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
             scrollToBottomTrigger: { _ in },
