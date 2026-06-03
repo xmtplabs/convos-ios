@@ -190,6 +190,29 @@ final class FocusCoordinator {
         currentFocus = nextFocus
     }
 
+    /// Runs `work` with the keyboard's pending input settled: synchronously
+    /// drops first responder (forcing the keyboard to commit any uncommitted
+    /// input, like a pending autocorrect or an active dictation hypothesis,
+    /// into the focused field), runs `work`, then restores first responder.
+    ///
+    /// Use this around programmatic mutations of a focused field's bound text
+    /// (e.g. clearing the composer on send). Mutating the binding while the
+    /// keyboard still holds pending input can lose the write entirely: the
+    /// backing text view keeps the old text and the keyboard's next commit
+    /// point syncs the stale text back into the binding. Resigning first
+    /// settles the input session so the mutation lands on stable state;
+    /// restoring synchronously keeps the keyboard up without a visible
+    /// flicker.
+    func withSettledKeyboardInput(_ work: () -> Void) {
+        guard let responder = Self.currentFirstResponder() else {
+            work()
+            return
+        }
+        responder.resignFirstResponder()
+        work()
+        responder.becomeFirstResponder()
+    }
+
     /// Called by the view when SwiftUI's @FocusState has updated
     /// This handles all synchronization logic between SwiftUI's focus state and the coordinator
     func syncFocusState(_ newFocus: MessagesViewInputFocus?) {
@@ -314,6 +337,18 @@ final class FocusCoordinator {
     }
 
     // MARK: - Private Methods
+
+    private static func currentFirstResponder() -> UIResponder? {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                if let responder = window.firstResponderDescendant() {
+                    return responder
+                }
+            }
+        }
+        return nil
+    }
 
     private func setupKeyboardObservation() {
         KeyboardListener.shared.add(delegate: self)
@@ -502,6 +537,20 @@ extension FocusCoordinator: KeyboardListenerDelegate {
             let isShowingKeyboard = info.frameEnd.origin.y < screenHeight
             updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen)
         }
+    }
+}
+
+// MARK: - First Responder Lookup
+
+private extension UIView {
+    func firstResponderDescendant() -> UIResponder? {
+        if isFirstResponder { return self }
+        for subview in subviews {
+            if let responder = subview.firstResponderDescendant() {
+                return responder
+            }
+        }
+        return nil
     }
 }
 

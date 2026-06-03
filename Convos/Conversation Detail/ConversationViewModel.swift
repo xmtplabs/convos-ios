@@ -2387,6 +2387,20 @@ extension ConversationViewModel {
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
+        // Settle the keyboard before reading and clearing messageText. If the
+        // send lands while the keyboard still holds uncommitted input (a
+        // pending autocorrect right after a keystroke, or an active dictation
+        // session), clearing the binding can be lost entirely and the sent
+        // text resurrects in the composer at the keyboard's next commit
+        // point. Settling also commits a pending correction into messageText
+        // before capture, so the sent message matches what the keyboard
+        // would have produced.
+        focusCoordinator.withSettledKeyboardInput {
+            sendComposerContents(focusCoordinator: focusCoordinator)
+        }
+    }
+
+    private func sendComposerContents(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
