@@ -9,18 +9,22 @@ enum SubscriptionServices {
     static var useRealStoreKit: Bool {
         let environment = ConfigManager.shared.currentEnvironment
         if environment.isProduction { return true }
+        // The UserDefaults override is intentionally DEBUG-only. On
+        // Release builds (TestFlight / App Store / Ad-Hoc) we always
+        // return the build-config default below so a stored `false`
+        // from a previous Debug build on the same device can't quietly
+        // pin a TestFlight tester to the mock service — UserDefaults
+        // survives reinstalls under the same bundle ID. The Debug menu
+        // toggle still works in Debug builds (where it's reachable).
+        #if DEBUG
         if let stored = UserDefaults.standard.object(forKey: Constant.useRealStoreKitKey) as? Bool {
             return stored
         }
-        // Mirror `CreditsServices.useRealBackend`: `buildEnvironment ==
-        // .distribution` reports false on TestFlight because TestFlight
-        // builds ship `embedded.mobileprovision` and so classify as
-        // `.development`. Use the build configuration instead so
-        // TestFlight / App Store / Ad-Hoc default to real StoreKit while
-        // local Xcode runs default to the mock.
-        #if DEBUG
         return false
         #else
+        // TestFlight builds ship `embedded.mobileprovision` and classify
+        // as `.development` per buildEnvironment, so we anchor on the
+        // build configuration instead: Release == real StoreKit.
         return true
         #endif
     }

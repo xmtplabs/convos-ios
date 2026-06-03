@@ -44,20 +44,25 @@ public enum CreditsServices {
     public static var useRealBackend: Bool {
         let environment = ConfigManager.shared.currentEnvironment
         if environment.isProduction { return true }
+        // The UserDefaults override is intentionally DEBUG-only. On
+        // Release builds (TestFlight / App Store / Ad-Hoc) we always
+        // return the build-config default below so a stored `false`
+        // from a previous Debug build on the same device can't quietly
+        // pin a TestFlight tester to the mock service — UserDefaults
+        // survives reinstalls under the same bundle ID. The Debug menu
+        // toggle still works in Debug builds (where it's reachable).
+        #if DEBUG
         if let stored = UserDefaults.standard.object(forKey: Constant.useRealBackendKey) as? Bool {
             return stored
         }
+        return false
+        #else
         // The previous `buildEnvironment == .distribution` check relied on
         // `hasEmbeddedMobileProvision()` returning `false`, but TestFlight
         // builds also ship `embedded.mobileprovision` — so they were being
         // classified as `.development` and silently falling back to the
-        // mock. Use the build configuration instead: Debug builds are local
-        // engineering runs (default to mock so HTTP isn't hit during
-        // iteration); Release builds are TestFlight / App Store / Ad-Hoc
-        // (default to the real backend so testers see production behavior).
-        #if DEBUG
-        return false
-        #else
+        // mock. Anchor on the build configuration instead: Release builds
+        // (TestFlight / App Store / Ad-Hoc) hit the real backend.
         return true
         #endif
     }
