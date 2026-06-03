@@ -300,6 +300,8 @@ private struct ContactsPickerList: View {
         if viewModel.sections.isEmpty {
             if viewModel.isLoadingSuggestedAgents {
                 loadingState
+            } else if viewModel.isFiltering {
+                filteredEmptyState
             } else {
                 emptyState
             }
@@ -370,6 +372,21 @@ private struct ContactsPickerList: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(DesignConstants.Spacing.step6x)
+    }
+
+    private var filteredEmptyState: some View {
+        VStack {
+            Spacer()
+            FilteredEmptyStateView(
+                message: "No contacts",
+                accessibilityLabel: "Show all contacts"
+            ) {
+                viewModel.clearFilters()
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step6x)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func rowTapAction(for row: ContactsPickerViewModel.Row) -> () -> Void {

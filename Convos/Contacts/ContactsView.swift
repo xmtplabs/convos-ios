@@ -37,8 +37,16 @@ struct ContactsView: View {
 
     var body: some View {
         Group {
-            if viewModel.sections.isEmpty {
-                emptyState
+            if viewModel.sections.isEmpty && !viewModel.isFiltering {
+                // No own contacts and no active search. Surface suggested
+                // agents once they load; show a spinner while they're in
+                // flight so we don't flash the onboarding empty state, and
+                // fall back to it only when there's genuinely nothing to show.
+                if viewModel.isLoadingSuggestedAgents {
+                    loadingState
+                } else {
+                    emptyState
+                }
             } else {
                 contactsContent
             }
@@ -77,7 +85,7 @@ struct ContactsView: View {
     /// rows scroll cleanly under the bar.
     @ViewBuilder
     private var contactsContent: some View {
-        contactList
+        listOrFilteredEmptyState
             .background(.colorBackgroundRaisedSecondary)
             .safeAreaBar(edge: .top) {
                 ContactsSearchBar(
@@ -87,6 +95,34 @@ struct ContactsView: View {
                     filter: $viewModel.filter
                 )
             }
+    }
+
+    /// Shows the filtered empty state when a search or filter matches nothing,
+    /// keeping the search bar above so the user can clear the search; otherwise
+    /// the contacts list. Reached only when `sections` is non-empty or a filter
+    /// is active, so an empty `sections` here always means "nothing matched".
+    @ViewBuilder
+    private var listOrFilteredEmptyState: some View {
+        if viewModel.sections.isEmpty {
+            filteredEmptyState
+        } else {
+            contactList
+        }
+    }
+
+    private var filteredEmptyState: some View {
+        VStack {
+            Spacer()
+            FilteredEmptyStateView(
+                message: "No contacts",
+                accessibilityLabel: "Show all contacts"
+            ) {
+                viewModel.clearFilters()
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step6x)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -147,6 +183,15 @@ struct ContactsView: View {
 
     private var emptyState: some View {
         ContactsEmptyStateView()
+            .background(.colorBackgroundRaisedSecondary)
+    }
+
+    /// Shown while the suggested-agents first page is in flight and the user
+    /// has no contacts yet, so the onboarding empty state doesn't flash before
+    /// the suggestions arrive.
+    private var loadingState: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
     }
 

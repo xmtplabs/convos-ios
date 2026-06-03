@@ -94,4 +94,47 @@ final class ContactsViewModelTests: XCTestCase {
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds.sorted(), [alice.inboxId, aliceAssistant.inboxId].sorted())
     }
+
+    // MARK: - Filtered empty state
+
+    /// `isFiltering` distinguishes "nothing matched the search/filter" from
+    /// "no contacts at all", so the view keeps the search bar and shows the
+    /// "Show all" empty state instead of the onboarding empty state.
+    func testIsFilteringReflectsSearchAndAudienceFilter() {
+        let repo = MockContactsRepository(contacts: [.mock(displayName: "Alice")])
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+
+        XCTAssertFalse(viewModel.isFiltering)
+
+        viewModel.searchQuery = "  "
+        XCTAssertFalse(viewModel.isFiltering, "whitespace-only query is not filtering")
+
+        viewModel.searchQuery = "zzz"
+        XCTAssertTrue(viewModel.isFiltering)
+
+        viewModel.searchQuery = ""
+        XCTAssertFalse(viewModel.isFiltering)
+
+        viewModel.filter = .agents
+        XCTAssertTrue(viewModel.isFiltering)
+    }
+
+    /// "Show all" clears both the text search and the audience filter, so the
+    /// full list comes back and `isFiltering` reads false again.
+    func testClearFiltersRestoresFullList() {
+        let alice = Contact.mock(displayName: "Alice")
+        let bob = Contact.mock(displayName: "Bob")
+        let repo = MockContactsRepository(contacts: [alice, bob])
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+
+        viewModel.searchQuery = "zzz"
+        XCTAssertTrue(viewModel.sections.isEmpty)
+        XCTAssertTrue(viewModel.isFiltering)
+
+        viewModel.clearFilters()
+
+        XCTAssertFalse(viewModel.isFiltering)
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, bob.inboxId].sorted())
+    }
 }
