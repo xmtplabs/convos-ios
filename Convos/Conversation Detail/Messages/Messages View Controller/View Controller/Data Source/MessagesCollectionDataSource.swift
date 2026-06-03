@@ -35,7 +35,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onInviteAgent: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
-    var hasAgent: Bool { get set }
     var isAgentJoinPending: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }

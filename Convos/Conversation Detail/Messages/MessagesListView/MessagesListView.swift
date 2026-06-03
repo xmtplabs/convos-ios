@@ -25,7 +25,6 @@ struct MessagesListView: View {
     let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
-    let hasAgent: Bool
     let isAgentJoinPending: Bool
     let loadPrevious: () -> Void
 
@@ -58,7 +57,6 @@ var body: some View {
                     onCopyLink: onCopyInviteLink,
                     onConvoCode: onConvoCode,
                     onInviteAgent: onInviteAgent,
-                    hasAgent: hasAgent,
                     isAgentJoinPending: isAgentJoinPending
                 )
             }

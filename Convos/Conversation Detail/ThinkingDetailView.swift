@@ -186,7 +186,6 @@ struct ThinkingDetailView: View {
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
             memberContactOverride: { _ in nil },
-            hasAgent: conversation.hasAgent,
             isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
             hasBottomBar: true,

@@ -159,7 +159,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
-            hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
             headerMode: isReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
@@ -246,7 +245,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var addToConversationMenu: some View {
         AddToConversationMenu(
             isFull: viewModel.isFull,
-            hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
             isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
             onConvoCode: {

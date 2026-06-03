@@ -79,7 +79,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                             onCopyLink: config.onCopyInviteLink,
                             onConvoCode: config.onConvoCode,
                             onInviteAgent: config.onInviteAgent,
-                            hasAgent: config.hasAgent,
                             isAgentJoinPending: config.isAgentJoinPending
                         )
                     }

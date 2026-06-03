@@ -43,10 +43,10 @@ struct ContactsPickerView: View {
     @State private var agentInfoConfirmed: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// `memberInboxIds` are the selected humans; `agentTemplateId` is the
-    /// template of the single selected agent, if any (the picker allows at
-    /// most one, and only in new-conversation mode).
-    let onConfirm: (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
+    /// `memberInboxIds` are the selected humans; `agentTemplateIds` are the
+    /// templates of the selected agents (one fresh instance is spawned per
+    /// id), empty when no agent was picked.
+    let onConfirm: (_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) -> Void
     /// Optional source conversation that informs the indicator pill's
     /// emoji avatar. For the new-convo flow callers can pass the current
     /// draft so the picker reflects whatever emoji the convo will inherit;
@@ -67,7 +67,7 @@ struct ContactsPickerView: View {
         pillConversation: Conversation? = nil,
         embedsNavigationStack: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
-        onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
+        onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
             mode: mode,
@@ -178,7 +178,7 @@ struct ContactsPickerView: View {
         // "One agent, many convos" sheet as a confirmation step first; its
         // "Got it" button proceeds via `performConfirm`. Human-only
         // selections create the conversation immediately.
-        if viewModel.selectedAgentTemplateId != nil {
+        if !viewModel.selectedAgentTemplateIds.isEmpty {
             presentingAgentInfo = true
         } else {
             performConfirm()
@@ -186,14 +186,11 @@ struct ContactsPickerView: View {
     }
 
     private func performConfirm() {
-        // Split the selection: the agent (if any) is spawned by template,
-        // not added as a member, so it's excluded from the member ids.
-        let agentTemplateId = viewModel.selectedAgentTemplateId
-        var memberIds = viewModel.selectedInboxIds
-        if let agentInboxId = viewModel.selectedAgentInboxId {
-            memberIds.remove(agentInboxId)
-        }
-        onConfirm(memberIds, agentTemplateId)
+        // Split the selection: agents are spawned by template, not added
+        // as members, so they're excluded from the member ids.
+        let agentTemplateIds = viewModel.selectedAgentTemplateIds
+        let memberIds = viewModel.selectedInboxIds.subtracting(viewModel.selectedAgentInboxIds)
+        onConfirm(memberIds, agentTemplateIds)
         // Compose hosts the picker in its own navigation stack and pushes
         // the new conversation, so it must not dismiss here.
         if !viewModel.mode.isCompose {
@@ -334,7 +331,6 @@ private struct ContactsPickerList: View {
         ContactsPickerRow(
             row: row,
             isSelected: viewModel.isSelected(inboxId: row.id),
-            isAgentSelectionBlocked: viewModel.isAgentSelectionBlocked(for: row.id),
             onTap: rowTapAction(for: row)
         )
         .onAppear {

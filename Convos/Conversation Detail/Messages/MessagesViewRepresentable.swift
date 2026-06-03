@@ -38,7 +38,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
-    let hasAgent: Bool
     let isAgentJoinPending: Bool
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
@@ -131,7 +130,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
         messagesViewController.memberContactOverride = memberContactOverride
-        messagesViewController.hasAgent = hasAgent
         messagesViewController.isAgentJoinPending = isAgentJoinPending
 let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
@@ -195,7 +193,6 @@ let menuPresented = contextMenuState.isPresented
         onRetryTranscript: { _ in },
         profileSheetForMember: { _ in AnyView(EmptyView()) },
         memberContactOverride: { _ in nil },
-        hasAgent: false,
         isAgentJoinPending: false,
         bottomBarHeight: bottomBarHeight,
         scrollToBottomTrigger: { _ in },

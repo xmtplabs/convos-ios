@@ -73,7 +73,6 @@ struct ConversationMembersListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AddToConversationMenu(
                     isFull: viewModel.isFull,
-                    hasAgent: viewModel.conversation.hasAgent,
                     isEnabled: true,
                     onConvoCode: {
                         viewModel.presentingShareView = true

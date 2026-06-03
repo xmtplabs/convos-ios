@@ -57,21 +57,18 @@ struct ComposeFlowView: View {
     }
 
     /// Skip (empty selection) opens the claimed conversation as-is; Continue
-    /// adds the picked humans as members and, if an agent was picked, spawns a
-    /// fresh instance of its template into the conversation (at most one agent
-    /// per conversation, enforced by the picker). The push happens immediately
-    /// either way -- the members / agent land in the open conversation a
-    /// moment later.
-    private func handleProceed(_ memberInboxIds: Set<String>, _ agentTemplateId: String?) {
+    /// adds the picked humans as members and spawns a fresh instance of each
+    /// picked agent template into the conversation. The push happens
+    /// immediately either way -- the members / agents land in the open
+    /// conversation a moment later.
+    private func handleProceed(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
         if let conversationViewModel = composeConversationViewModel.conversationViewModel {
             if !memberInboxIds.isEmpty {
                 Task {
                     try? await conversationViewModel.addMembersFromContacts(Array(memberInboxIds))
                 }
             }
-            if let agentTemplateId {
-                conversationViewModel.requestAgentJoin(templateId: agentTemplateId)
-            }
+            conversationViewModel.requestAgentJoins(templateIds: agentTemplateIds)
         }
         pushedConversation = composeConversationViewModel
     }

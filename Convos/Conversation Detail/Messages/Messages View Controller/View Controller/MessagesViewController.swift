@@ -309,9 +309,6 @@ final class MessagesViewController: UIViewController {
     /// in-class UIKit `presentAttachmentPreview` path.
     var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
 
-    var hasAgent: Bool = false {
-        didSet { dataSource.hasAgent = hasAgent }
-    }
     var isAgentJoinPending: Bool = false {
         didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
     }

@@ -3,7 +3,6 @@ import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
-    var hasAgent: Bool = false
     var isAgentJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
@@ -16,10 +15,9 @@ struct AddToConversationMenu: View {
     /// that's bound to that modifier's `isPresented`.
     let onAddFromContacts: () -> Void
 
-    private var isAgentActionDisabled: Bool { hasAgent || isAgentJoinPending }
+    private var isAgentActionDisabled: Bool { isAgentJoinPending }
 
     private var agentSubtitle: String {
-        if hasAgent { return "Already here" }
         if isAgentJoinPending { return "Joining…" }
         return "Made for this group"
     }
