@@ -228,20 +228,18 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var subscriptionSection: some View {
-        if !ConfigManager.shared.currentEnvironment.isProduction {
-            Section {
-                let subscribeAction = { presentingPaywall = true }
-                Button(action: subscribeAction) {
-                    powerRowLabel
-                }
-                .accessibilityIdentifier("subscription-row")
-                .sheet(isPresented: $presentingPaywall) {
-                    let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
-                    PaywallView(viewModel: viewModel)
-                }
-            } footer: {
-                Text(membershipFooterLabel)
+        Section {
+            let subscribeAction = { presentingPaywall = true }
+            Button(action: subscribeAction) {
+                powerRowLabel
             }
+            .accessibilityIdentifier("subscription-row")
+            .sheet(isPresented: $presentingPaywall) {
+                let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+                PaywallView(viewModel: viewModel)
+            }
+        } footer: {
+            Text(membershipFooterLabel)
         }
     }
 
