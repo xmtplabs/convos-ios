@@ -38,7 +38,7 @@ import SwiftUI
 struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
     @State private var presentingAgentInfo: Bool = false
-    /// Set by the "One agent, many convos" sheet's "Got it" button so the
+    /// Set by the "New chat, new context" sheet's "Got it" button so the
     /// sheet's `onDismiss` knows to proceed with creation (vs a cancel).
     @State private var agentInfoConfirmed: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -175,7 +175,7 @@ struct ContactsPickerView: View {
     private func handleConfirm() {
         guard viewModel.canConfirm else { return }
         // Starting a conversation that includes an agent shows the
-        // "One agent, many convos" sheet as a confirmation step first; its
+        // "New chat, new context" sheet as a confirmation step first; its
         // "Got it" button proceeds via `performConfirm`. Human-only
         // selections create the conversation immediately.
         if viewModel.selectedAgentTemplateId != nil {

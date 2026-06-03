@@ -7,7 +7,7 @@ description: >
   provisions it (name + templateId), the verified template-backed agent shows up as
   a single contact in the Contacts browse list with an Agent pill, the contact card
   carries a "Valid - convos" attestation + a publish-and-share icon, and starting a
-  chat from the card presents the "One agent, many convos" confirmation. Guards
+  chat from the card presents the "New chat, new context" confirmation. Guards
   Contact+BrowseVisibility.isVisibleInContactsList (agentVerification != nil &&
   agentTemplateId != nil), ContactsRepository canonicalContacts dedup, and the
   ContactDetailView agent affordances.
@@ -117,18 +117,18 @@ steps:
       confirming the pinned AGENT_DEBUG_JWKS verified the built agent.
 
   - id: chat_shows_agent_info_sheet
-    name: "Chat button presents the One-agent-many-convos confirmation"
+    name: "Chat button presents the New-chat-new-context confirmation"
     actions:
       - tap: { id: "contact-detail-chat" }
-      - wait_for_element: { label_contains: "One agent", timeout: 10 }
+      - wait_for_element: { label_contains: "new context", timeout: 10 }
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "One agent" }
+      - element_exists: { label_contains: "new context" }
       - element_exists: { label: "Got it" }
     criteria: agent_info_sheet_presented
     note: >
       handleChatWithAgentTemplate presents OneAgentManyConvosInfoSheet; match on the
-      unique title "One agent, many convos" + the "Got it" button (no stable
+      unique title "New chat, new context" + the "Got it" button (no stable
       accessibility id surfaces through the shared FeatureInfoSheet button style).
 
   - id: confirm_agent_info_proceeds
@@ -162,6 +162,6 @@ criteria:
   agent_card_shows_agent_affordances:
     description: "The agent contact card shows the Agent role pill, a valid convos attestation, the Share-agent icon, and the Chat button"
   agent_info_sheet_presented:
-    description: "Tapping Chat on the agent card presents the 'One agent, many convos' sheet"
+    description: "Tapping Chat on the agent card presents the 'New chat, new context' sheet"
   agent_info_confirm_proceeds:
     description: "Tapping 'Got it' dismisses the sheet and lands on a new conversation composer"

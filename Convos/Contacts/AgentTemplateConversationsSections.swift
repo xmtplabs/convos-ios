@@ -4,27 +4,36 @@ import SwiftUI
 /// The "Convos with you" / "someone else added them" sections on the agent
 /// contact card. Lists conversations that already contain this agent
 /// template, split by who added the agent, reusing `ConversationsListItem`
-/// for each row. Render only when there is content (see `isEmpty`).
+/// for each row. Tapping a row hands the conversation back via
+/// `onSelectConversation` so the host can push it onto its navigation
+/// stack. Render only when there is content (see `isEmpty`).
 struct AgentTemplateConversationsSections: View {
     let conversations: AgentTemplateConversations
+    let onSelectConversation: (Conversation) -> Void
 
     var body: some View {
         if !conversations.isEmpty {
+            // The "Convos with you" header renders exactly once: on the
+            // current-user section when it has rows, otherwise on the
+            // someone-else section so the group is always labeled.
+            let othersHeader: String? = conversations.addedByCurrentUser.isEmpty ? "Convos with you" : nil
             VStack(spacing: DesignConstants.Spacing.step6x) {
                 if !conversations.addedByCurrentUser.isEmpty {
                     AgentTemplateConversationsSection(
                         header: "Convos with you",
                         conversations: conversations.addedByCurrentUser,
                         footer: "You added them · Using your credits",
-                        showsPrivacyNote: true
+                        showsPrivacyNote: true,
+                        onSelectConversation: onSelectConversation
                     )
                 }
                 if !conversations.addedByOthers.isEmpty {
                     AgentTemplateConversationsSection(
-                        header: nil,
+                        header: othersHeader,
                         conversations: conversations.addedByOthers,
                         footer: "Someone else added them",
-                        showsPrivacyNote: false
+                        showsPrivacyNote: false,
+                        onSelectConversation: onSelectConversation
                     )
                 }
             }
@@ -40,6 +49,7 @@ private struct AgentTemplateConversationsSection: View {
     let conversations: [Conversation]
     let footer: String
     let showsPrivacyNote: Bool
+    let onSelectConversation: (Conversation) -> Void
 
     private static var privacyNote: String {
         "For privacy, agents cannot share memories, context or skills between conversations."
@@ -60,7 +70,13 @@ private struct AgentTemplateConversationsSection: View {
                         Divider()
                             .padding(.leading, DesignConstants.Spacing.step4x)
                     }
-                    ConversationsListItem(conversation: conversation)
+                    let action = { onSelectConversation(conversation) }
+                    Button(action: action) {
+                        ConversationsListItem(conversation: conversation)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("agent-template-conversation-row-\(conversation.id)")
                 }
 
                 if showsPrivacyNote {

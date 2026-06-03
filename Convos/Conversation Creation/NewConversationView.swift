@@ -5,11 +5,14 @@ struct NewConversationView: View {
     let viewModel: NewConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     /// When `true` (the default) the view wraps its content in its own
-    /// `NavigationStack` -- the standalone sheet presentation. The Compose
-    /// flow sets this `false` so the view is pushed onto the contacts
-    /// picker's stack (no nested `NavigationStack`). When pushed the back
-    /// button is hidden so the user can't return to the picker; the close
-    /// (X) button tears down the whole flow via `onClose` instead.
+    /// `NavigationStack` -- the standalone sheet presentation. Pushed
+    /// presentations set this `false` so the view lands on the host's stack
+    /// (no nested `NavigationStack`). What happens to the back button then
+    /// depends on `onClose`: the Compose flow passes one, which hides the
+    /// back button (no returning to the picker) and routes the close (X)
+    /// through the flow tear-down; pushes without `onClose` (the contact
+    /// card's "Convos with you" rows) keep the system back button and show
+    /// no X.
     var embedsNavigationStack: Bool = true
     /// Closes the entire Compose flow. Set when the view is pushed onto the
     /// picker's stack; when `nil` (standalone sheet) the close button
@@ -59,12 +62,13 @@ struct NewConversationView: View {
                     }
                 }
                 .toolbar {
-                    // The close (X) is the only way out in both presentations:
-                    // standalone it dismisses the sheet; pushed (Compose flow)
-                    // `onClose` tears down the whole flow. Paired with the
-                    // hidden back button below so the pushed view can't return
-                    // to the picker.
-                    if !viewModel.showingFullScreenScanner {
+                    // Standalone, the close (X) dismisses the sheet; pushed
+                    // by the Compose flow, `onClose` tears the whole flow
+                    // down (paired with the hidden back button below so the
+                    // pushed view can't return to the picker). Pushed without
+                    // `onClose`, the system back button is the way out, so no
+                    // X is rendered.
+                    if !viewModel.showingFullScreenScanner && (embedsNavigationStack || onClose != nil) {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(role: .close) {
                                 if let onClose {
@@ -77,7 +81,7 @@ struct NewConversationView: View {
                         }
                     }
                 }
-                .navigationBarBackButtonHidden(!embedsNavigationStack)
+                .navigationBarBackButtonHidden(!embedsNavigationStack && onClose != nil)
                 .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { scannedCode in

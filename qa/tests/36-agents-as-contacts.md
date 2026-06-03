@@ -13,14 +13,14 @@ human counterpart (non-agent members as contacts) is test 40 (two simulators).
 | A built agent gets a templateId (backend provisioning) | agent-builder + AgentTemplate provisioning | `agent_provisions_template` |
 | A verified, template-backed agent shows up as a contact | `Contact+BrowseVisibility.isVisibleInContactsList` (`agentVerification != nil && agentTemplateId != nil`) | `agent_appears_in_contacts` |
 | Agent card affordances + verification | `ContactDetailView` (Agent pill, Share-agent, "Valid - convos" attestation) | `open_agent_contact_card` |
-| "One agent, many convos" gate before a new agent convo | `OneAgentManyConvosInfoSheet` | `chat_shows_agent_info_sheet` / `confirm_agent_info_proceeds` |
+| "New chat, new context" gate before a new agent convo | `OneAgentManyConvosInfoSheet` | `chat_shows_agent_info_sheet` / `confirm_agent_info_proceeds` |
 
 ## Validated live against the local stack
 
 Built "King's Tutor" from the prompt "a friendly chess coach that teaches openings":
 it provisioned a templateId, appeared in the Contacts browse list with the **"Agent"
 pill**, the card showed Share + Chat + Get skills + **"Attestation: Valid - convos"**,
-Chat presented **"One agent, many convos"**, and "Got it" proceeded to a new
+Chat presented **"New chat, new context"**, and "Got it" proceeded to a new
 conversation. (Screenshots captured during the run.)
 
 ## Key facts
@@ -40,7 +40,7 @@ conversation. (Screenshots captured during the run.)
   surfaces a readable DisplayError now (not "error 6").
 - The "Got it" button on the One-agent sheet has **no stable accessibility id** (shared
   `FeatureInfoSheet` + `convosButtonStyle` `AnyView` wrapper) - match the sheet by its
-  unique title "One agent, many convos" and tap the "Got it" label.
+  unique title "New chat, new context" and tap the "Got it" label.
 
 ## Runbook
 
