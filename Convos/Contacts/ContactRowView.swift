@@ -43,6 +43,10 @@ struct ContactRowView: View {
         .contentShape(Rectangle())
         .opacity(rowOpacity)
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
+        // VoiceOver doesn't surface the 0.45 opacity dim or the "blocked"
+        // pill on its own; the hint ensures users with VoiceOver enabled
+        // know the contact is blocked before activating the row.
+        .accessibilityHint(isBlocked ? "This contact is blocked" : "")
     }
 
     /// "blocked" pill -- same `.colorFillMinimal` capsule + caption2 style
