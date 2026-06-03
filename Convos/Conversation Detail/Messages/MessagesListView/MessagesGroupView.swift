@@ -276,21 +276,25 @@ struct MessagesGroupView: View {
             }
 
             let cardTap = { onTapSender(group.sender) }
-            AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: cardTap)
-                .overlay(alignment: .bottomLeading) {
-                    if cardIsLast && !group.sender.isCurrentUser {
-                        avatarOverlay { onTapSender(group.sender) }
+            // Mirrors `MessageContainer` so the card caps at the same max
+            // width as text bubbles - natural sizing for short content,
+            // bounded by a 50pt trailing spacer with lower layout priority,
+            // plus the same `maxBubbleRowWidth` cap on regular-width layouts.
+            HStack(alignment: .bottom, spacing: 0.0) {
+                AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: cardTap)
+                    .overlay(alignment: .bottomLeading) {
+                        if cardIsLast && !group.sender.isCurrentUser {
+                            avatarOverlay { onTapSender(group.sender) }
+                        }
                     }
-                }
 
-            // Mirrors `MessageContainer.spacer` so the card caps at the same
-            // max width as text bubbles — natural sizing for short content,
-            // bounded by a 50pt trailing spacer with lower layout priority.
-            Spacer()
-                .frame(minWidth: 50.0)
-                .layoutPriority(-1)
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
+            }
+            .bubbleRowWidthCap(alignment: .leading)
         }
         .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
     }
@@ -330,6 +334,7 @@ struct MessagesGroupView: View {
                             .layoutPriority(-1)
                     }
                 }
+                .bubbleRowWidthCap(alignment: .leading)
                 .zIndex(100)
                 .id("messages-group-item-\(message.differenceIdentifier)")
                 .overlay(alignment: .bottomLeading) {

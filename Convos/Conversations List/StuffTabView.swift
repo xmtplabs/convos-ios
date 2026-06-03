@@ -1,7 +1,7 @@
 import ConvosCore
 import SwiftUI
 
-/// Cross-conversation "Stuff" tab. Renders a two-column grid of the most
+/// Cross-conversation "Stuff" tab. Renders a grid of the most
 /// recent agent-sent HTML attachment from every conversation, with the
 /// conversation's display name + unread dot under each preview square.
 /// See [[StuffOverviewViewModel]] for the data layer and
@@ -11,6 +11,9 @@ import SwiftUI
 /// - 24pt outer horizontal margins
 /// - 18pt between columns
 /// - 12pt between rows (and 12pt top/bottom outer padding)
+/// - 2 columns in compact width (iPhone); in regular width (iPad) the
+///   column count grows with the available width, capped at 5, so cells
+///   stay close to their iPhone size instead of stretching
 ///
 /// Tapping a cell pushes the conversation detail onto this tab's own
 /// `NavigationStack` (via `pushedConversations`), so the user stays on
@@ -40,6 +43,7 @@ struct StuffTabView: View {
     @State private var pushedConvoVM: ConversationViewModel?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarColumnWidth: CGFloat = 0
+    @State private var gridWidth: CGFloat = 0
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Namespace private var localNamespace: Namespace.ID
@@ -60,10 +64,22 @@ struct StuffTabView: View {
     }
 
     private var columns: [GridItem] {
-        [
-            GridItem(.flexible(), spacing: Constant.interColumnSpacing),
-            GridItem(.flexible(), spacing: Constant.interColumnSpacing),
-        ]
+        let column = GridItem(.flexible(), spacing: Constant.interColumnSpacing)
+        return Array(repeating: column, count: columnCount)
+    }
+
+    /// 2 columns in compact width. In regular width (iPad), fit as many
+    /// columns of at least `minRegularCellWidth` as the measured grid
+    /// width allows, capped at `maxColumnCount`. Cells stay square via
+    /// `StuffPreviewCell`'s aspect ratio regardless of column width.
+    private var columnCount: Int {
+        guard horizontalSizeClass == .regular, gridWidth > 0 else {
+            return Constant.compactColumnCount
+        }
+        let available: CGFloat = max(0, gridWidth - 2 * Constant.outerHorizontalPadding)
+        let cellPlusSpacing: CGFloat = Constant.minRegularCellWidth + Constant.interColumnSpacing
+        let fitting = Int((available + Constant.interColumnSpacing) / cellPlusSpacing)
+        return min(max(fitting, Constant.compactColumnCount), Constant.maxColumnCount)
     }
 
     var body: some View {
@@ -145,6 +161,11 @@ struct StuffTabView: View {
             .padding(.vertical, Constant.outerVerticalPadding)
         }
         .background(.colorBackgroundSurfaceless)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newValue in
+            gridWidth = newValue
+        }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top
         } action: { _, newValue in
@@ -186,5 +207,10 @@ struct StuffTabView: View {
         static let outerVerticalPadding: CGFloat = 12.0
         static let interColumnSpacing: CGFloat = 18.0
         static let interRowSpacing: CGFloat = 12.0
+        static let compactColumnCount: Int = 2
+        static let maxColumnCount: Int = 5
+        /// Roughly the cell width of the 2-column layout on an iPhone,
+        /// so regular-width cells never render smaller than iPhone cells.
+        static let minRegularCellWidth: CGFloat = 140.0
     }
 }

@@ -207,10 +207,13 @@ struct MessagesGroupItemView: View {
     @ViewBuilder
     private func agentShareBubble(agentShare: MessageAgentShare) -> some View {
         let isOutgoing = message.sender.isCurrentUser
+        let cardAlignment: Alignment = isOutgoing ? .trailing : .leading
         // The card sizes to its content but is capped at the same max width as
         // text bubbles via a low-priority 50pt spacer (mirrors the in-convo
-        // `MessagesGroupView.contactCardRow`). The spacer sits opposite the
-        // sender so the card hugs the leading edge for incoming and the
+        // `MessagesGroupView.contactCardRow`) plus the same
+        // `maxBubbleRowWidth` cap text bubbles get from `MessageContainer`,
+        // so the card never outgrows them on iPad. The spacer sits opposite
+        // the sender so the card hugs the leading edge for incoming and the
         // trailing edge for outgoing.
         HStack(alignment: .bottom, spacing: 0.0) {
             if isOutgoing {
@@ -234,6 +237,7 @@ struct MessagesGroupItemView: View {
                     .layoutPriority(-1)
             }
         }
+        .bubbleRowWidthCap(alignment: cardAlignment)
         .padding(.trailing, trailingPadding)
     }
 
