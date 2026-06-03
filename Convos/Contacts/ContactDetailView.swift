@@ -294,6 +294,7 @@ struct ContactDetailView: View {
                     // `handleChatWithAgentTemplate`).
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
                     showChat: !mode.isCurrentUser,
+                    isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
@@ -697,7 +698,8 @@ private struct ContactDetailSubtitle: View {
 // MARK: - Action stack
 
 /// Renders the "Convos with you" sections (template-backed agents only),
-/// then New chat, Share, Remove, and Block - in that order. New chat is the
+/// then the chat CTA ("New chat" for agents, "Chat" for human members),
+/// Share, Remove, and Block - in that order. The chat CTA is the
 /// primary CTA (filled dark pill); the rest use the secondary action-row
 /// style (capsule label + caption below) so an agent and human card share
 /// one row framework and only differ in which rows render.
@@ -706,6 +708,10 @@ private struct ContactDetailActions: View {
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
     let showChat: Bool
+    /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
+    /// fresh conversation), "Chat" for human members (tapping routes to a
+    /// DM with that person).
+    let isAgent: Bool
     let showShare: Bool
     let showRemove: Bool
     let showBlock: Bool
@@ -772,8 +778,9 @@ private struct ContactDetailActions: View {
 
     private var chatButton: some View {
         let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
+        let chatLabel: String = isAgent ? "New chat" : "Chat"
         return Button(action: onSendMessage) {
-            Text("New chat")
+            Text(chatLabel)
                 .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimaryInverted)
                 .frame(maxWidth: .infinity)
@@ -784,7 +791,7 @@ private struct ContactDetailActions: View {
                 )
         }
         .disabled(!canSendMessage)
-        .accessibilityLabel("New chat with \(contactDisplayName)")
+        .accessibilityLabel("\(chatLabel) with \(contactDisplayName)")
         .accessibilityIdentifier("contact-detail-chat")
     }
 
