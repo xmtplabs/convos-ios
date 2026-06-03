@@ -44,11 +44,9 @@ final class MessagesLayoutAttributes: UICollectionViewLayoutAttributes {
     }
 
     override func isEqual(_ object: Any?) -> Bool {
-        guard super.isEqual(object) else { return false }
-        guard let other = object as? MessagesLayoutAttributes else { return false }
-        let alignmentsMatch: Bool = alignment == other.alignment
-        let spacingMatches: Bool = interItemSpacing == other.interItemSpacing
-        return alignmentsMatch && spacingMatches
+        super.isEqual(object)
+            && alignment == (object as? MessagesLayoutAttributes)?.alignment
+            && interItemSpacing == (object as? MessagesLayoutAttributes)?.interItemSpacing
     }
 
     var kind: ItemKind {
