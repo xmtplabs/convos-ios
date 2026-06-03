@@ -86,6 +86,23 @@ workflows:
         - automatic_code_signing: api-key
         - scheme: "$BITRISE_SCHEME"
         - configuration: "$BITRISE_BUILD_CONFIG"
+    - script@1:
+        title: Upload dSYMs to Sentry
+        is_skippable: true
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -euo pipefail
+            if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+                echo "SENTRY_AUTH_TOKEN not set - skipping Sentry dSYM upload."
+                exit 0
+            fi
+            if [ -z "${BITRISE_DSYM_PATH:-}" ] || [ ! -e "$BITRISE_DSYM_PATH" ]; then
+                echo "No dSYM archive found - nothing to upload."
+                exit 0
+            fi
+            command -v sentry-cli >/dev/null 2>&1 || brew install getsentry/tools/sentry-cli
+            sentry-cli debug-files upload "$BITRISE_DSYM_PATH"
     - deploy-to-itunesconnect-application-loader@2:
         inputs:
         - bundle_id: org.convos.ios-preview
@@ -168,6 +185,23 @@ workflows:
         - automatic_code_signing: api-key
         - scheme: "$BITRISE_SCHEME"
         - configuration: "$BITRISE_BUILD_CONFIG"
+    - script@1:
+        title: Upload dSYMs to Sentry
+        is_skippable: true
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -euo pipefail
+            if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+                echo "SENTRY_AUTH_TOKEN not set - skipping Sentry dSYM upload."
+                exit 0
+            fi
+            if [ -z "${BITRISE_DSYM_PATH:-}" ] || [ ! -e "$BITRISE_DSYM_PATH" ]; then
+                echo "No dSYM archive found - nothing to upload."
+                exit 0
+            fi
+            command -v sentry-cli >/dev/null 2>&1 || brew install getsentry/tools/sentry-cli
+            sentry-cli debug-files upload "$BITRISE_DSYM_PATH"
     - deploy-to-itunesconnect-application-loader@2:
         inputs:
         - app_id: '6744776535'
