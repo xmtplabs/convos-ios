@@ -83,6 +83,11 @@ final class ContactsPickerViewModel {
     var isLoadingSuggestedAgents: Bool {
         suggestedAgentsModel.isLoading
     }
+    /// True when a text search or audience filter is narrowing the list, so an
+    /// empty `sections` means "nothing matched" rather than "no contacts".
+    var isFiltering: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.isActive
+    }
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let alreadyInChatInboxIds: Set<String>
@@ -370,6 +375,14 @@ final class ContactsPickerViewModel {
     private func filterByAudience(_ contacts: [Contact]) -> [Contact] {
         guard filter.isActive else { return contacts }
         return contacts.filter { filter.includes($0) }
+    }
+
+    /// Clears the active text search and audience filter so the full pickable
+    /// list is shown again. Backs the "Show all" button on the filtered empty
+    /// state. Selections are unaffected.
+    func clearFilters() {
+        searchQuery = ""
+        filter = .all
     }
 
     private static func sectionKeyOrder(_ lhs: String, _ rhs: String) -> Bool {

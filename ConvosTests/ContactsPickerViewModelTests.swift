@@ -500,4 +500,48 @@ final class ContactsPickerViewModelTests: XCTestCase {
         viewModel.searchQuery = ""
         XCTAssertNotNil(suggestedSection(viewModel))
     }
+
+    // MARK: - Filtered empty state
+
+    /// `isFiltering` lets the picker show the "Show all" empty state (rather
+    /// than the generic "no contacts" one) when a search or audience filter
+    /// matches nothing.
+    func testIsFilteringReflectsSearchAndAudienceFilter() {
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: [.mock(displayName: "Alice")])
+        )
+
+        XCTAssertFalse(viewModel.isFiltering)
+
+        viewModel.searchQuery = "zzz"
+        XCTAssertTrue(viewModel.isFiltering)
+
+        viewModel.searchQuery = ""
+        XCTAssertFalse(viewModel.isFiltering)
+
+        viewModel.filter = .agents
+        XCTAssertTrue(viewModel.isFiltering)
+    }
+
+    /// "Show all" clears the search and audience filter, restoring the full
+    /// pickable list.
+    func testClearFiltersRestoresFullList() {
+        let alice = Contact.mock(displayName: "Alice")
+        let bob = Contact.mock(displayName: "Bob")
+        let viewModel = ContactsPickerViewModel(
+            mode: .newConversation,
+            contactsRepository: MockContactsRepository(contacts: [alice, bob])
+        )
+
+        viewModel.searchQuery = "zzz"
+        XCTAssertTrue(viewModel.sections.isEmpty)
+        XCTAssertTrue(viewModel.isFiltering)
+
+        viewModel.clearFilters()
+
+        XCTAssertFalse(viewModel.isFiltering)
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, bob.inboxId].sorted())
+    }
 }

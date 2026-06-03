@@ -44,6 +44,12 @@ final class ContactsViewModel {
     var isLoadingSuggestedAgents: Bool {
         suggestedAgentsModel.isLoading
     }
+    /// True when a text search or audience filter is narrowing the list. An
+    /// empty `sections` while filtering means "nothing matched", which the
+    /// view distinguishes from the "no contacts yet" onboarding empty state.
+    var isFiltering: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.isActive
+    }
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private var cancellable: AnyCancellable?
@@ -179,6 +185,13 @@ final class ContactsViewModel {
     private func filterByAudience(_ contacts: [Contact]) -> [Contact] {
         guard filter.isActive else { return contacts }
         return contacts.filter { filter.includes($0) }
+    }
+
+    /// Clears the active text search and audience filter so the full list is
+    /// shown again. Backs the "Show all" button on the filtered empty state.
+    func clearFilters() {
+        searchQuery = ""
+        filter = .all
     }
 
     // MARK: - Suggested agents
