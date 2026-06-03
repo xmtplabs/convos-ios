@@ -391,6 +391,39 @@ import Testing
         #expect(backups.map(\.inboxId) == ["valid-inbox"])
     }
 
+    /// The backup blob carries restore-display metadata: the writing
+    /// device's name (from the injected provider, evaluated lazily at
+    /// write time) and the backup date.
+    @Test func backupRecordsDeviceNameAndDate() async throws {
+        let namedStore = KeychainIdentityStore(
+            accessGroup: testAccessGroup,
+            deviceNameProvider: { "Test iPhone" }
+        )
+        let keys = try await namedStore.generateKeys()
+        let beforeSave = Date()
+        _ = try await namedStore.save(
+            inboxId: "named-inbox",
+            clientId: "named-client",
+            keys: keys
+        )
+
+        let backup = try #require(try await namedStore.loadSyncedBackups().first)
+        #expect(backup.deviceName == "Test iPhone")
+        let backedUpAt = try #require(backup.backedUpAt)
+        #expect(backedUpAt >= beforeSave)
+        #expect(backedUpAt <= Date())
+
+        // The default store (no provider) writes nil rather than failing.
+        _ = try await keychainStore.save(
+            inboxId: "named-inbox",
+            clientId: "named-client-two",
+            keys: keys
+        )
+        let rewritten = try #require(try await keychainStore.loadSyncedBackups().first)
+        #expect(rewritten.deviceName == nil)
+        #expect(rewritten.clientId == "named-client-two")
+    }
+
     /// Confirms the kSecMatchLimitAll enumeration holds beyond two items.
     @Test func loadSyncedBackupsEnumeratesManyItems() async throws {
         for index in 1...3 {

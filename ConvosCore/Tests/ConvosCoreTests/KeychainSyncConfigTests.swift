@@ -145,6 +145,26 @@ struct KeychainSyncConfigTests {
         #expect(backups.count == 1)
         #expect(backups.first?.inboxId == "backup-inbox")
         #expect(backups.first?.clientId == "backup-client")
+        #expect(backups.first?.deviceName == MockKeychainIdentityStore.mockDeviceName)
+        #expect(backups.first?.backedUpAt != nil)
+    }
+
+    @Test("backup metadata fields are optional when decoding")
+    func backupMetadataIsOptionalWhenDecoding() throws {
+        // A blob written without restore-display metadata must still
+        // decode -- metadata can never make a backup unrecoverable.
+        let keys = try KeychainIdentityKeys.generate()
+        let json: [String: Any] = [
+            "inboxId": "bare-inbox",
+            "clientId": "bare-client",
+            "privateKeyData": keys.privateKey.secp256K1.bytes.base64EncodedString()
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(KeychainIdentityBackup.self, from: data)
+        #expect(decoded.inboxId == "bare-inbox")
+        #expect(decoded.deviceName == nil)
+        #expect(decoded.backedUpAt == nil)
     }
 
     @Test("delete clears the deleted identity's synced backup too")

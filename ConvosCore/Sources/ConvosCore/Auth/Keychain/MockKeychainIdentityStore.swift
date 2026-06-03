@@ -2,6 +2,10 @@ import Foundation
 import os
 
 actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
+    /// Fixed device name stamped on mock backups, mirroring the real
+    /// store's lazily-provided `DeviceInfo.deviceName`.
+    static let mockDeviceName: String = "Mock Device"
+
     /// Backed by an unfair lock so `loadSync` can read without hopping
     /// actor isolation — mirrors the real store's keychain-daemon-owned
     /// concurrency model.
@@ -27,7 +31,11 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
             if let displacedInboxId, displacedInboxId != inboxId {
                 backups.removeValue(forKey: displacedInboxId)
             }
-            backups[inboxId] = KeychainIdentityBackup(identity: identity)
+            backups[inboxId] = KeychainIdentityBackup(
+                identity: identity,
+                deviceName: Self.mockDeviceName,
+                backedUpAt: Date()
+            )
         }
         return identity
     }
@@ -51,7 +59,11 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         guard let identity = try? loadSync() else { return }
         backupState.withLock { backups in
             if backups[identity.inboxId] == nil {
-                backups[identity.inboxId] = KeychainIdentityBackup(identity: identity)
+                backups[identity.inboxId] = KeychainIdentityBackup(
+                    identity: identity,
+                    deviceName: Self.mockDeviceName,
+                    backedUpAt: Date()
+                )
             }
         }
     }

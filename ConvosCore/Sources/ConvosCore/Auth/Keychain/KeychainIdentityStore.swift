@@ -84,21 +84,36 @@ public struct KeychainIdentity: Codable, Sendable {
 /// this device's local database, which never leaves the device, so
 /// escrowing it in iCloud would add exposure without recovery value.
 /// A recovering device generates a fresh database key.
+///
+/// Carries restore-display metadata alongside the key material: the
+/// user-visible name of the device that wrote the backup and the write
+/// date, so a restore picker can show "Alice's iPhone, backed up
+/// June 3" instead of a bare inboxId. Both decode as optional so a
+/// missing metadata field can never make a backup unrecoverable.
 public struct KeychainIdentityBackup: Codable, Sendable {
     public let inboxId: String
     public let clientId: String
     public let privateKey: PrivateKey
+    /// Name of the device that last wrote this backup (mirrors the
+    /// pairing flow's `DeviceInfo.deviceName`), when the writer had one.
+    public let deviceName: String?
+    /// When this backup blob was last written.
+    public let backedUpAt: Date?
 
     private enum CodingKeys: String, CodingKey {
         case inboxId
         case clientId
         case privateKeyData
+        case deviceName
+        case backedUpAt
     }
 
-    init(identity: KeychainIdentity) {
+    init(identity: KeychainIdentity, deviceName: String?, backedUpAt: Date) {
         inboxId = identity.inboxId
         clientId = identity.clientId
         privateKey = identity.keys.privateKey
+        self.deviceName = deviceName
+        self.backedUpAt = backedUpAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -107,6 +122,8 @@ public struct KeychainIdentityBackup: Codable, Sendable {
         clientId = try container.decode(String.self, forKey: .clientId)
         let privateKeyData = try container.decode(Data.self, forKey: .privateKeyData)
         privateKey = try PrivateKey(privateKeyData)
+        deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
+        backedUpAt = try container.decodeIfPresent(Date.self, forKey: .backedUpAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -114,6 +131,8 @@ public struct KeychainIdentityBackup: Codable, Sendable {
         try container.encode(inboxId, forKey: .inboxId)
         try container.encode(clientId, forKey: .clientId)
         try container.encode(privateKey.secp256K1.bytes, forKey: .privateKeyData)
+        try container.encodeIfPresent(deviceName, forKey: .deviceName)
+        try container.encodeIfPresent(backedUpAt, forKey: .backedUpAt)
     }
 }
 
@@ -254,6 +273,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let keychainService: String
     private let keychainAccessGroup: String
     private let syncedBackupEnabled: Bool
+    private let deviceNameProvider: (@Sendable () -> String?)?
 
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
@@ -269,14 +289,27 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     // MARK: - Initialization
 
-    /// - Parameter syncedBackupEnabled: pass `false` from surfaces whose
-    ///   identities must not be escrowed to iCloud (the App Clip). Gates
-    ///   only the backup write paths (mirror + backfill); reads and the
-    ///   scoped backup delete stay active so cleanup still works.
-    public init(accessGroup: String, syncedBackupEnabled: Bool = true) {
+    /// - Parameters:
+    ///   - syncedBackupEnabled: pass `false` from surfaces whose
+    ///     identities must not be escrowed to iCloud (the App Clip).
+    ///     Gates only the backup write paths (mirror + backfill); reads
+    ///     and the scoped backup delete stay active so cleanup still
+    ///     works.
+    ///   - deviceNameProvider: evaluated lazily at each backup write to
+    ///     stamp the blob with the user-visible device name for the
+    ///     restore picker (the app passes `{ DeviceInfo.deviceName }`).
+    ///     Injected rather than read from `DeviceInfo.shared` directly so
+    ///     contexts that never configure `DeviceInfo` (tests, extensions)
+    ///     can use the store without tripping its configuration check.
+    public init(
+        accessGroup: String,
+        syncedBackupEnabled: Bool = true,
+        deviceNameProvider: (@Sendable () -> String?)? = nil
+    ) {
         self.keychainAccessGroup = accessGroup
         self.keychainService = Self.defaultService
         self.syncedBackupEnabled = syncedBackupEnabled
+        self.deviceNameProvider = deviceNameProvider
     }
 
     // MARK: - Public Interface
@@ -404,7 +437,12 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private func mirrorToSyncedBackup(_ identity: KeychainIdentity) {
         guard syncedBackupEnabled else { return }
         do {
-            let data = try JSONEncoder().encode(KeychainIdentityBackup(identity: identity))
+            let backup = KeychainIdentityBackup(
+                identity: identity,
+                deviceName: deviceNameProvider?(),
+                backedUpAt: Date()
+            )
+            let data = try JSONEncoder().encode(backup)
             try saveData(data, with: syncedBackupQuery(inboxId: identity.inboxId))
         } catch {
             Log.error("Failed to write identity to synced backup slot: \(error)")
