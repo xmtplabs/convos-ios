@@ -39,17 +39,19 @@ public enum ConvosLog {
 
     // MARK: - Configuration
 
-    /// Configure the logging system with file-based handler
-    /// Call this once at app startup before using any loggers
-    /// Logging is automatically disabled in production environments
+    /// Configure the logging system with file-based handler.
+    /// Call this once at app startup before using any loggers.
+    ///
+    /// File logging is enabled in every environment, including production.
+    /// Logs stay local in the shared app group container, rotate at 10MB
+    /// (see `FileLogHandler.maxFileSize`), and are only emitted off-device
+    /// when the user explicitly taps the in-app "Share logs" affordance
+    /// in Settings -> Send feedback / Share logs. The combination is
+    /// privacy-respecting (no automatic telemetry) and unblocks support
+    /// triage for App Store users who can't run a Debug build.
     public static func configure(environment: AppEnvironment) {
         queue.sync {
             guard _logger == nil else { return }
-
-            // never enable logging in production
-            guard !environment.isProduction else {
-                return
-            }
 
             // First, bootstrap the logging system factory
             LoggingSystem.bootstrap { label in

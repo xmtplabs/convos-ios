@@ -482,7 +482,43 @@ struct ConversationInfoView: View {
 
             permissionsSection
 
+            shareLogsSection
+
             debugInfoSection
+        }
+    }
+
+    /// Always-visible (including in production) so App Store users can
+    /// share logs when they hit a bug. Sits in its own section, separate
+    /// from `debugInfoSection`, so the technical debug rows below stay
+    /// hidden in production while this single user-facing affordance is
+    /// reachable everywhere.
+    @ViewBuilder
+    private var shareLogsSection: some View {
+        Section {
+            if let url = exportedLogsURL {
+                ShareLink(item: url) {
+                    HStack {
+                        Text("Share logs")
+                        Spacer()
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            } else {
+                HStack {
+                    Text("Preparing logs…")
+                    Spacer()
+                    ProgressView()
+                }
+                .foregroundStyle(.colorTextSecondary)
+            }
+        }
+        .task {
+            do {
+                exportedLogsURL = try await viewModel.exportDebugLogs()
+            } catch {
+                Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -535,33 +571,10 @@ struct ConversationInfoView: View {
                 } label: {
                     Text("Restore invite tag")
                 }
-                if let url = exportedLogsURL {
-                    ShareLink(item: url) {
-                        HStack {
-                            Text("Share logs")
-                            Spacer()
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("Preparing logs…")
-                        Spacer()
-                        ProgressView()
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
             } header: {
                 Text("Debug info")
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.colorTextSecondary)
-            }
-            .task {
-                do {
-                    exportedLogsURL = try await viewModel.exportDebugLogs()
-                } catch {
-                    Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-                }
             }
         }
     }
