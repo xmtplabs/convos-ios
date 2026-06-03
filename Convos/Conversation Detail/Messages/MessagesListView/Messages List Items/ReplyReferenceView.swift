@@ -163,10 +163,12 @@ struct ReplyReferenceView: View {
                 ReplyReferenceLinkPreview(preview: preview)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let agentShare = parentAgentShare {
+                // No extra trailing padding: the enclosing `MessagesGroupItemView`
+                // already insets the whole reply reference by `trailingPadding`,
+                // so the card's trailing edge lines up with the text bubble's.
                 AgentShareBubble(agentShare: agentShare)
                     .frame(maxWidth: C.agentShareReferenceMaxWidth, alignment: isOutgoing ? .trailing : .leading)
                     .allowsHitTesting(false)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 HStack(spacing: 0) {
                     if isOutgoing {
