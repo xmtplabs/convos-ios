@@ -31,7 +31,16 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
-        self.subscriptionSubject = CurrentValueSubject(nil)
+        // Seed the subject with the last persisted snapshot so the first
+        // UI render after launch shows the user's actual tier (the common
+        // case) instead of flashing "Basic" for the few hundred ms it
+        // takes `refreshFromEntitlements()` to round-trip Apple +
+        // backend. `BackendCreditsService` already has this behavior for
+        // credits via its GRDB-backed read; subscriptions had no
+        // equivalent cache, which is why the HOME pill flickered Basic →
+        // Plus at every cold start. The cache is corrected by every
+        // subsequent publish (refresh / purchase / Apple update).
+        self.subscriptionSubject = CurrentValueSubject(Self.loadCachedSubscription())
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
             await self.refreshFromEntitlements()
@@ -42,6 +51,16 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     deinit {
         updateListenerTask?.cancel()
+    }
+
+    /// Single funnel for every subscription-state publish. Sends on the
+    /// in-memory subject (drives `subscriptionPublisher` / UI bindings)
+    /// AND writes through to UserDefaults so the next cold start can
+    /// seed the subject without flickering through nil. Use everywhere
+    /// instead of touching `subscriptionSubject` directly.
+    private func publish(_ subscription: UserSubscription?) {
+        subscriptionSubject.send(subscription)
+        Self.saveCachedSubscription(subscription)
     }
 
     nonisolated public var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> {
@@ -110,7 +129,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // catches up; periodic foreground `refresh()` calls reconcile
             // beyond that.
             if let sub = await userSubscription(from: transaction) {
-                subscriptionSubject.send(sub)
+                publish(sub)
             }
             // Force a credits refresh: the tier just changed (or was set for
             // the first time), so `monthlyGrant` derived from
@@ -162,7 +181,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // revocations, where `userSubscription(from:)` returns a
             // non-nil snapshot with status `.revoked` or `.expired`.
             if let sub = await userSubscription(from: transaction) {
-                subscriptionSubject.send(sub)
+                publish(sub)
             }
             // Apple-side transition (renew, refund, tier change) → tier or
             // status may have changed → credits need to re-derive from the
@@ -239,7 +258,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             guard let sub = await userSubscription(from: transaction) else { continue }
             latest = sub
         }
-        subscriptionSubject.send(latest)
+        publish(latest)
         // If the backend just learned about an entitlement it didn't
         // previously have, its `GET /credits` answer changes (tier-based
         // grant kicks in). Force-refresh credits so the local depleted
@@ -388,5 +407,36 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     private enum Constant {
         static let appAccountTokenKey: String = "storeKit.appAccountToken"
+        static let lastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
+    }
+
+    /// Persist the most recently published subscription snapshot so the next
+    /// app launch can seed its initial UI state without waiting for the
+    /// async `refreshFromEntitlements()` round-trip. Cleared (set to nil)
+    /// when the user no longer has an entitlement so the cached "Plus"
+    /// doesn't outlive the actual subscription.
+    ///
+    /// `internal` rather than `private` so unit tests can exercise the
+    /// cache round-trip directly without driving a full StoreKit purchase
+    /// flow. The type as a whole is `internal` so this doesn't widen the
+    /// public surface.
+    static func saveCachedSubscription(_ subscription: UserSubscription?) {
+        let defaults = UserDefaults.standard
+        guard let subscription else {
+            defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(subscription) else {
+            defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
+            return
+        }
+        defaults.set(data, forKey: Constant.lastKnownSubscriptionKey)
+    }
+
+    static func loadCachedSubscription() -> UserSubscription? {
+        guard let data = UserDefaults.standard.data(forKey: Constant.lastKnownSubscriptionKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(UserSubscription.self, from: data)
     }
 }
