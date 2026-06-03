@@ -29,6 +29,8 @@ _: {
         packages = [
           gems
           (lib.lowPrio gems.wrappedRuby)
+          # dSYM upload to Sentry in the prod TestFlight workflow
+          pkgs.sentry-cli
         ];
         DEVELOPER_DIR = "${xcode}";
         LANG = "en_US.UTF-8";

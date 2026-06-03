@@ -21,8 +21,12 @@
 #   APP_STORE_CONNECT_API_PRIVATE_KEY  - Raw .p8 contents of the ASC API key
 #   CACHIX_AUTH_TOKEN                  - Auth token for the xmtp Cachix cache
 #
-# Prod builds disable Sentry at compile time (generate-secrets-secure.sh sets
-# an empty DSN for the Release configuration), so no Sentry secrets are wired.
+# Optional repository secrets (Sentry crash reporting; prod builds ship
+# without Sentry when these are unset):
+#   SENTRY_DSN_PROD                    - DSN baked into prod builds
+#   SENTRY_AUTH_TOKEN                  - Token for dSYM upload (symbolication)
+#   SENTRY_ORG                         - Sentry org slug for dSYM upload
+#   SENTRY_PROJECT                     - Sentry project slug for dSYM upload
 
 name: Prod TestFlight Release
 
@@ -100,6 +104,7 @@ jobs:
       - name: Generate Secrets.swift
         env:
           BUILD_CONFIGURATION: Prod
+          SENTRY_DSN_PROD: ${{ secrets.SENTRY_DSN_PROD }}
         run: ./Scripts/generate-secrets-secure.sh
 
       - name: Run fastlane testflight_prod
@@ -115,6 +120,27 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: fastlane testflight_prod
+
+      # Sentry symbolicates prod crash reports server-side using the dSYMs
+      # from the archive (gym zips them next to the IPA). Skips cleanly when
+      # the Sentry secrets are not configured.
+      - name: Upload dSYMs to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set - skipping dSYM upload."
+            exit 0
+          fi
+          shopt -s nullglob
+          dsym_zips=(build/*.dSYM.zip)
+          if [ ${#dsym_zips[@]} -eq 0 ]; then
+            echo "No dSYM zips found in build/ - nothing to upload."
+            exit 0
+          fi
+          sentry-cli debug-files upload "${dsym_zips[@]}"
 
       - name: Upload IPA artifact
         if: always()

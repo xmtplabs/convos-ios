@@ -14,6 +14,10 @@
 #   CACHIX_AUTH_TOKEN             - Auth token for the xmtp Cachix cache
 #                                   (required if the cache is private)
 #
+# Optional repository secret:
+#   SENTRY_DSN_DEV                - Sentry DSN baked into dev/PR builds;
+#                                   Sentry is disabled when unset
+#
 # Required repository variables:
 #   FIREBASE_APP_ID_PR            - Firebase iOS app id (1:NNN:ios:HEX) for
 #                                   org.convos.ios-preview.pr
@@ -99,6 +103,7 @@ jobs:
       - name: Generate Secrets.swift
         env:
           BUILD_CONFIGURATION: Dev
+          SENTRY_DSN_DEV: ${{ secrets.SENTRY_DSN_DEV }}
         run: ./Scripts/generate-secrets-secure.sh
 
       - name: Run fastlane firebase_pr

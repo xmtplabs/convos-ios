@@ -33,7 +33,8 @@ BUILD_CONFIG="${BITRISE_BUILD_CONFIG:-${BUILD_CONFIGURATION:-Release}}"
 
 echo "Build configuration: $BUILD_CONFIG"
 
-# Only use dev DSN for Dev CI builds, empty for Release/Prod
+# Dev builds use the dev DSN; Prod/Release builds use the prod DSN.
+# An unset DSN leaves Sentry disabled in the resulting build.
 if [[ "$BUILD_CONFIG" == "Dev" ]]; then
     # Dev CI build - use dev DSN if available
     if [[ -n "${SENTRY_DSN_DEV}" ]]; then
@@ -43,10 +44,15 @@ if [[ "$BUILD_CONFIG" == "Dev" ]]; then
         ESCAPED_SENTRY_DSN=$(swift_escape "${SENTRY_DSN:-}")
         echo "Dev CI build - using SENTRY_DSN (fallback)"
     fi
-elif [[ "$BUILD_CONFIG" == "Release" ]]; then
-    # Production build - explicitly disable Sentry
-    ESCAPED_SENTRY_DSN=""
-    echo "Production build - Sentry DSN set to empty"
+elif [[ "$BUILD_CONFIG" == "Release" || "$BUILD_CONFIG" == "Prod" ]]; then
+    # Production build - use prod DSN if available
+    if [[ -n "${SENTRY_DSN_PROD:-}" ]]; then
+        ESCAPED_SENTRY_DSN=$(swift_escape "${SENTRY_DSN_PROD}")
+        echo "Production build - using SENTRY_DSN_PROD"
+    else
+        ESCAPED_SENTRY_DSN=""
+        echo "Production build - SENTRY_DSN_PROD not set, Sentry disabled"
+    fi
 else
     # Unknown configuration - default to empty for safety
     ESCAPED_SENTRY_DSN=""
