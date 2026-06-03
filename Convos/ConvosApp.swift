@@ -24,18 +24,21 @@ struct ConvosApp: App {
         let environment = ConfigManager.shared.currentEnvironment
         ConvosLog.configure(environment: environment)
 
-        Log.info("Activating LibXMTP file log writer at \(environment.defaultXMTPLogsDirectoryURL.path) (level=.debug, rotation=hourly, maxFiles=10)…")
+        // Verbose libxmtp logs are invaluable in dev/local but too chatty (and too
+        // revealing of protocol internals) to persist on every production device.
+        let libXMTPLogLevel: Client.LogLevel = environment.isProduction ? .warn : .debug
+        Log.info("Activating LibXMTP file log writer at \(environment.defaultXMTPLogsDirectoryURL.path) (level=\(libXMTPLogLevel), rotation=hourly, maxFiles=10)…")
         Client.activatePersistentLibXMTPLogWriter(
-            logLevel: .debug,
+            logLevel: libXMTPLogLevel,
             rotationSchedule: .hourly,
             maxFiles: 10,
             customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
             processType: .main
         )
         Log.info("LibXMTP file log writer activated")
-        Log.info("Setting LibXMTP native log level to .debug…")
-        Client.setLibXMTPNativeLogLevel(.debug)
-        Log.info("LibXMTP native log level set to .debug")
+        Log.info("Setting LibXMTP native log level to \(libXMTPLogLevel)…")
+        Client.setLibXMTPNativeLogLevel(libXMTPLogLevel)
+        Log.info("LibXMTP native log level set to \(libXMTPLogLevel)")
         Log.info("App starting with environment: \(environment)")
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
