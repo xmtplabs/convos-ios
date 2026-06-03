@@ -26,85 +26,219 @@ public final class MessagesListProcessor: Sendable {
             previousReadByMembers: previousReadByMembers,
             verifiedAgent: verifiedAgent
         )
-        // Hide agent-builder bundle messages flagged by a `BuilderBundleManifest`
-        // (see `DBBuilderBundleHiddenMessage`). Unlike the creator-only
-        // `agentBuilderSummary.bundledMessageIds` filter below, this applies to
-        // every member's client and to messages from any sender, so the brief
-        // is hidden group-wide. It renders no summary card — it only hides.
-        let visibleItems: [MessagesListItemType] = hiddenBundleMessageIds.isEmpty
-            ? baseItems
-            : filterHiddenBundleMessages(from: baseItems, hiddenIds: hiddenBundleMessageIds)
-        return applyAgentContactCardAndSummary(
-            to: visibleItems,
+        // The "build" is the prompt + attachment messages the builder sent on
+        // the user's behalf. Their ids reach the processor two ways: the
+        // networked `BuilderBundleManifest` populates `hiddenBundleMessageIds`
+        // on every member's client, and the creator's local `AgentBuilderSummary`
+        // carries `bundledMessageIds`. Union them -- on the sender the prompt
+        // renders under its client UUID (only in `bundledMessageIds`); on
+        // recipients it renders under its XMTP id (only in
+        // `hiddenBundleMessageIds`). The processor rebuilds the summary card from
+        // these messages and positions it where they landed, instead of dropping
+        // them silently or rendering them as bare bubbles.
+        let buildMessageIds: Set<String> = hiddenBundleMessageIds
+            .union(agentBuilderSummary?.bundledMessageIds ?? [])
+        return applyAgentBuilderCardsAndContactCard(
+            to: baseItems,
+            rawMessages: messages,
+            buildMessageIds: buildMessageIds,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )
     }
 
-    /// Remove messages whose id is in `hiddenIds` from every group (any
-    /// sender), drop groups left empty, and strip orphaned date separators.
-    private static func filterHiddenBundleMessages(
-        from items: [MessagesListItemType],
-        hiddenIds: Set<String>
-    ) -> [MessagesListItemType] {
-        let filtered: [MessagesListItemType] = items.compactMap { item -> MessagesListItemType? in
-            guard case .messages(let group) = item else { return item }
-            let kept: [AnyMessage] = group.messages.filter { !hiddenIds.contains($0.messageId) }
-            if kept.count == group.messages.count { return item }
-            if kept.isEmpty { return nil }
-            var rebuilt: MessagesGroup = MessagesGroup(
-                id: group.id,
-                sender: group.sender,
-                messages: kept,
-                isLastGroup: group.isLastGroup,
-                isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
-                showsTypingIndicator: group.showsTypingIndicator,
-                allTypingMembers: group.allTypingMembers,
-                readByMembers: group.readByMembers,
-                onlyVisibleToSender: group.onlyVisibleToSender,
-                isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
-                voiceMemoTranscripts: group.voiceMemoTranscripts
-            )
-            rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
-            rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
-            rebuilt.agentContactCard = group.agentContactCard
-            rebuilt.thinkingByMessageId = group.thinkingByMessageId
-            rebuilt.hidesSenderLabel = group.hidesSenderLabel
-            rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
-            rebuilt.thinkingContent = group.thinkingContent
-            rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
-            rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
-            return .messages(rebuilt)
-        }
-        return dropOrphanDateSeparators(in: filtered)
+    /// Rebuild a `MessagesGroup` with a new id + message subset, copying the
+    /// presentation side-channel fields the initializer doesn't take.
+    private static func rebuiltGroup(_ group: MessagesGroup, id: String, messages: [AnyMessage]) -> MessagesGroup {
+        var rebuilt: MessagesGroup = MessagesGroup(
+            id: id,
+            sender: group.sender,
+            messages: messages,
+            isLastGroup: group.isLastGroup,
+            isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
+            showsTypingIndicator: group.showsTypingIndicator,
+            allTypingMembers: group.allTypingMembers,
+            readByMembers: group.readByMembers,
+            onlyVisibleToSender: group.onlyVisibleToSender,
+            isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
+            voiceMemoTranscripts: group.voiceMemoTranscripts
+        )
+        rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
+        rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
+        rebuilt.agentContactCard = group.agentContactCard
+        rebuilt.thinkingByMessageId = group.thinkingByMessageId
+        rebuilt.hidesSenderLabel = group.hidesSenderLabel
+        rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
+        rebuilt.thinkingContent = group.thinkingContent
+        rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
+        rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
+        return rebuilt
     }
 
-    /// Post-process the raw item list to (a) hide the user's own builder-bundle
-    /// sends by id (`AgentBuilderSummary.bundledMessageIds`) and suppress the
-    /// legacy "Agent joined" row, (b) attach the contact-card prefix to the
-    /// agent's first messages group (synthesizing an empty group when the agent
-    /// hasn't said anything yet), and (c) prepend the summary cell.
-    private static func applyAgentContactCardAndSummary(
+    /// Group build messages into runs of entries adjacent in the message stream.
+    /// One Make sends its prompt + attachment bundle back to back, so they form a
+    /// single run (and a single card); separate Make events split by other
+    /// messages form separate runs and render separate cards.
+    private static func buildRuns(in rawMessages: [AnyMessage], buildMessageIds: Set<String>) -> [[AnyMessage]] {
+        guard !buildMessageIds.isEmpty else { return [] }
+        var runs: [[AnyMessage]] = []
+        var current: [AnyMessage] = []
+        var lastIndex: Int?
+        for (index, message) in rawMessages.enumerated() where buildMessageIds.contains(message.messageId) {
+            if let last = lastIndex, index == last + 1 {
+                current.append(message)
+            } else {
+                if !current.isEmpty { runs.append(current) }
+                current = [message]
+            }
+            lastIndex = index
+        }
+        if !current.isEmpty { runs.append(current) }
+        return runs
+    }
+
+    /// The `AgentBuilderConnection` raw values captured in a creator's local
+    /// summary, used for the connection chips. Empty for recipients (no summary).
+    private static func builderConnectionIdentifiers(from summary: AgentBuilderSummary) -> [String] {
+        summary.attachments.compactMap { attachment in
+            if case .connection(_, let identifier) = attachment { return identifier }
+            return nil
+        }
+    }
+
+    /// Assemble the card render model for one build run: prompt from the run's
+    /// text message, chips from its attachment message. Connection chips + the
+    /// morph flag come from the creator's local `summary` (nil on recipients).
+    private static func makeCardContent(
+        run: [AnyMessage],
+        anchor: String,
+        summary: AgentBuilderSummary?
+    ) -> AgentBuilderCardContent {
+        var prompt: String = ""
+        var attachments: [HydratedAttachment] = []
+        for message in run {
+            switch message.content {
+            case .text(let text):
+                if prompt.isEmpty { prompt = text }
+            case .attachment(let attachment):
+                attachments.append(attachment)
+            case .attachments(let bundled):
+                attachments.append(contentsOf: bundled)
+            default:
+                break
+            }
+        }
+        // The build messages are sent on the user's behalf, so their sender is
+        // the agent's creator. Use it for the footer attribution now that the
+        // card renders for every member.
+        let creator: ConversationMember? = run.first?.sender
+        let connectionIdentifiers: [String] = summary.map(builderConnectionIdentifiers(from:)) ?? []
+        let existingConversation: Bool = summary?.existingConversation ?? false
+        let transitionEligible: Bool = summary != nil && !existingConversation
+        return AgentBuilderCardContent(
+            id: "agent-builder-card-" + anchor,
+            prompt: prompt,
+            attachments: attachments,
+            creatorIsCurrentUser: creator?.isCurrentUser ?? true,
+            creatorDisplayName: creator?.profile.displayName ?? "",
+            connectionIdentifiers: connectionIdentifiers,
+            existingConversation: existingConversation,
+            transitionEligible: transitionEligible
+        )
+    }
+
+    /// Rebuild the agent-builder summary card(s) from the build's own messages
+    /// (`buildMessageIds`) and splice each in at the position those messages
+    /// occupied, dropping the raw build bubbles. Adjacent build messages (the
+    /// attachment bundle + the prompt text) collapse into a single card.
+    private static func reconstructBuilderCards(
+        in items: [MessagesListItemType],
+        rawMessages: [AnyMessage],
+        buildMessageIds: Set<String>,
+        agentBuilderSummary: AgentBuilderSummary?
+    ) -> [MessagesListItemType] {
+        let runs: [[AnyMessage]] = buildRuns(in: rawMessages, buildMessageIds: buildMessageIds)
+        guard !runs.isEmpty else { return items }
+
+        let summaryIds: Set<String> = Set(agentBuilderSummary?.bundledMessageIds ?? [])
+        var anchorByMessageId: [String: String] = [:]
+        var cardByAnchor: [String: AgentBuilderCardContent] = [:]
+        for run in runs {
+            guard let anchor = run.first?.messageId else { continue }
+            for message in run { anchorByMessageId[message.messageId] = anchor }
+            let ownsSummary: Bool = !summaryIds.isEmpty && run.contains { summaryIds.contains($0.messageId) }
+            cardByAnchor[anchor] = makeCardContent(
+                run: run,
+                anchor: anchor,
+                summary: ownsSummary ? agentBuilderSummary : nil
+            )
+        }
+
+        var result: [MessagesListItemType] = []
+        result.reserveCapacity(items.count)
+        var emittedAnchors: Set<String> = []
+
+        for item in items {
+            guard case .messages(let group) = item,
+                  group.messages.contains(where: { buildMessageIds.contains($0.messageId) }) else {
+                result.append(item)
+                continue
+            }
+            // Walk the group, splitting it into build vs non-build segments.
+            // Build segments collapse into their run's card (emitted once);
+            // non-build segments stay as their own group with a stable id.
+            var segment: [AnyMessage] = []
+            var segmentIsBuild: Bool = false
+            func flushSegment() {
+                guard let first = segment.first else { return }
+                if segmentIsBuild {
+                    if let anchor = anchorByMessageId[first.messageId],
+                       !emittedAnchors.contains(anchor),
+                       let card = cardByAnchor[anchor] {
+                        emittedAnchors.insert(anchor)
+                        result.append(.agentBuilderSummary(card))
+                    }
+                } else {
+                    result.append(.messages(rebuiltGroup(group, id: "group-" + first.messageId, messages: segment)))
+                }
+                segment = []
+            }
+            for message in group.messages {
+                let isBuild: Bool = buildMessageIds.contains(message.messageId)
+                if !segment.isEmpty, isBuild != segmentIsBuild { flushSegment() }
+                segmentIsBuild = isBuild
+                segment.append(message)
+            }
+            flushSegment()
+        }
+        return result
+    }
+
+    /// Rebuild the agent-builder summary card(s) from the build messages and
+    /// position them chronologically, then attach the agent contact card.
+    /// Replaces the old index-0 pinning of a local-only summary: the card is now
+    /// rebuilt from the prompt + attachment messages every member receives, so it
+    /// is visible to everyone and sits where Make happened.
+    private static func applyAgentBuilderCardsAndContactCard(
         to baseItems: [MessagesListItemType],
+        rawMessages: [AnyMessage],
+        buildMessageIds: Set<String>,
         verifiedAgent: ConversationMember?,
         agentBuilderSummary: AgentBuilderSummary?,
         isInAgentBuilderFlow: Bool
     ) -> [MessagesListItemType] {
         var items: [MessagesListItemType] = baseItems
 
-        // Suppress the legacy "Agent joined" update row throughout the
-        // entire builder flow — pre-Make the builder overlay covers the
-        // chat, and post-Make the summary + contact card morph announce
-        // arrival, so the update row would only briefly flash through the
-        // overlay fade-out. Done outside the `agentBuilderSummary`
-        // block because the flag is set on builder appearance, before the
-        // summary exists. Gates on `addedAgent` (not
-        // `addedVerifiedAgent`) because the attestation result lands
-        // after the member-added event: filtering on verification would
-        // miss the brief window where the agent is in the convo but its
-        // Convos verification hasn't been validated yet, and that window
-        // is exactly when the user sees the flash.
+        // Suppress the legacy "Agent joined" update row while the builder UI is
+        // on screen (home flow): pre-Make it sits under the builder overlay, and
+        // during the post-Make morph the summary + contact card already announce
+        // arrival, so the row would only flash through the fade-out. Recipients
+        // and the dismissed existing-conversation builder are never
+        // `isInAgentBuilderFlow`, so they keep the join row as a real event and
+        // as the contact-card anchor. Gates on `addedAgent` (not
+        // `addedVerifiedAgent`): attestation lands after the member-added event,
+        // and the flash window is before verification completes.
         if isInAgentBuilderFlow {
             items = items.filter { item in
                 guard case .update(_, let update, _) = item else { return true }
@@ -112,77 +246,17 @@ public final class MessagesListProcessor: Sendable {
             }
         }
 
-        if let summary = agentBuilderSummary {
-            items = items.flatMap { item -> [MessagesListItemType] in
-                switch item {
-                case .messages(let group):
-                    if group.sender.isCurrentUser {
-                        // User-side: filter by `bundledMessageIds`. The set
-                        // is populated synchronously in
-                        // `AgentBuilderViewModel.commit()` before the
-                        // writer is called, so the prompt text + multi-remote
-                        // bundle are caught the instant they appear in the
-                        // DB. Messages the user types after Make (not in the
-                        // set) flow through normally. A group can contain
-                        // both — consecutive same-sender messages stay in
-                        // one group regardless of the gap.
-                        let kept: [AnyMessage] = group.messages.filter {
-                            !summary.bundledMessageIds.contains($0.messageId)
-                        }
-                        if kept.isEmpty { return [] }
-                        if kept.count == group.messages.count { return [item] }
-                        var rebuilt: MessagesGroup = MessagesGroup(
-                            id: group.id,
-                            sender: group.sender,
-                            messages: kept,
-                            isLastGroup: group.isLastGroup,
-                            isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
-                            showsTypingIndicator: group.showsTypingIndicator,
-                            allTypingMembers: group.allTypingMembers,
-                            readByMembers: group.readByMembers,
-                            onlyVisibleToSender: group.onlyVisibleToSender,
-                            isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
-                            voiceMemoTranscripts: group.voiceMemoTranscripts
-                        )
-                        rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
-                        rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
-                        rebuilt.agentContactCard = group.agentContactCard
-                        rebuilt.thinkingByMessageId = group.thinkingByMessageId
-                        rebuilt.hidesSenderLabel = group.hidesSenderLabel
-                        rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
-                        rebuilt.thinkingContent = group.thinkingContent
-                        rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
-                        rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
-                        return [.messages(rebuilt)]
-                    } else {
-                        // Agent / other-member groups always stay: the backend
-                        // now skips the agent's pre-Make greeting, so there's
-                        // no time-based chatter to cut. (The old
-                        // `sentAt < cutoffDate` filter was removed -- the user's
-                        // own bundle is hidden by id, not by timestamp.)
-                        return [item]
-                    }
-                case .update(_, let update, _):
-                    // Builder flow: the summary + contact card already
-                    // announce the agent's arrival, so the legacy
-                    // "Agent joined · see its skills" update bubble
-                    // would just compete with them. Drop the row for any
-                    // agent add (not just `addedVerifiedAgent`)
-                    // because verification lands after the member-added
-                    // event — filtering on verification would miss the
-                    // brief pre-attestation window. Regular non-agent
-                    // member adds / removes still surface as normal.
-                    return update.addedAgent ? [] : [item]
-                default:
-                    return [item]
-                }
-            }
-            // Drop date separators that no longer precede a visible message
-            // group. The base processor emits a `.date(...)` row before the
-            // first message of a new calendar window, but if every message
-            // in that window was a builder-bundle send (just filtered
-            // above), the separator is now orphaned and flashes briefly
-            // post-Make while the agent provisions.
+        if !buildMessageIds.isEmpty {
+            items = reconstructBuilderCards(
+                in: items,
+                rawMessages: rawMessages,
+                buildMessageIds: buildMessageIds,
+                agentBuilderSummary: agentBuilderSummary
+            )
+            // Splicing out the build bubbles can orphan the date separator that
+            // preceded them; the card now anchors that day, so re-run the sweep
+            // (the card counts as an anchor) to keep a valid separator and drop a
+            // truly empty one.
             items = dropOrphanDateSeparators(in: items)
         }
 
@@ -207,24 +281,26 @@ public final class MessagesListProcessor: Sendable {
                     isLastGroupSentByCurrentUser: false
                 )
                 cardGroup.agentContactCard = cardInfo
-                // Anchor the synthesized card group right after the
-                // "Agent joined" update row (if any). In builder flow
-                // that row was just filtered out above, so we fall back to
-                // index 0; in every other conversation the join row sits
-                // where the agent actually arrived, so the card lands
-                // immediately beneath it. Without a join row to anchor on
-                // we also fall back to index 0.
+                // The summary card must always sit above the contact card. When a
+                // summary card exists, anchor the synthesized contact card right
+                // after it -- in the home flow the agent joins *before* the Make
+                // bundle, so the join-update row can sort above the summary;
+                // anchoring on the join row there would put the contact card
+                // first. Non-builder agent conversations (no summary card) fall
+                // back to the agent-join row, then index 0.
+                let builderCardIndex: Int? = items.lastIndex { item in
+                    if case .agentBuilderSummary = item { return true }
+                    return false
+                }
                 let joinUpdateIndex: Int? = items.firstIndex { item in
                     guard case .update(_, let update, _) = item else { return false }
                     return update.addedVerifiedAgent
                 }
-                let insertionIndex: Int = joinUpdateIndex.map { $0 + 1 } ?? 0
+                let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
+                    ?? joinUpdateIndex.map { $0 + 1 }
+                    ?? 0
                 items.insert(.messages(cardGroup), at: insertionIndex)
             }
-        }
-
-        if let summary = agentBuilderSummary {
-            items.insert(.agentBuilderSummary(summary), at: 0)
         }
 
         return items
@@ -232,9 +308,9 @@ public final class MessagesListProcessor: Sendable {
 
     /// Strip date separators that no longer precede a message group. A
     /// `.date(...)` row is kept iff there is at least one anchorable row
-    /// (`.messages`, `.update`, or `.connectionEvent`) before the next
-    /// `.date(...)` (or end of list). Typing indicators, info rows, and
-    /// other purely ephemeral items don't anchor — a stretch with only
+    /// (`.messages`, `.update`, `.connectionEvent`, or `.agentBuilderSummary`)
+    /// before the next `.date(...)` (or end of list). Typing indicators, info
+    /// rows, and other purely ephemeral items don't anchor — a stretch with only
     /// those leaves the date separator orphaned and it is dropped.
     private static func dropOrphanDateSeparators(in items: [MessagesListItemType]) -> [MessagesListItemType] {
         var result: [MessagesListItemType] = []
@@ -245,7 +321,7 @@ public final class MessagesListProcessor: Sendable {
                 for later in items[(index + 1)...] {
                     if case .date = later { break }
                     switch later {
-                    case .messages, .update, .connectionEvent:
+                    case .messages, .update, .connectionEvent, .agentBuilderSummary:
                         hasFollowingAnchor = true
                     default:
                         break
@@ -332,7 +408,7 @@ public final class MessagesListProcessor: Sendable {
                     currentSenderId = nil
                 }
                 // Always emit verified-agent join updates; the post-process
-                // step in `applyAgentContactCardAndSummary` suppresses them
+                // step in `applyAgentBuilderCardsAndContactCard` suppresses them
                 // for builder-flow conversations (where the summary card and
                 // contact card both already announce arrival) and uses them
                 // as the anchor for the synthesized contact-card row in

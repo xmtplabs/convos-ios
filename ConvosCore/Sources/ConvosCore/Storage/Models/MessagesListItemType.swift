@@ -52,7 +52,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
     case agentPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
-    case agentBuilderSummary(AgentBuilderSummary)
+    case agentBuilderSummary(AgentBuilderCardContent)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -75,8 +75,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-present-info"
         case .connectionEvent(let id, _, _):
             return "connection-event-\(id)"
-        case .agentBuilderSummary(let summary):
-            return "agent-builder-summary-\(summary.id.uuidString)"
+        case .agentBuilderSummary(let content):
+            return "agent-builder-summary-\(content.id)"
         case .typingIndicator:
             return "typing-indicator"
         }

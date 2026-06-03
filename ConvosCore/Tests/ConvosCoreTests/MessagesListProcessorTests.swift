@@ -1135,3 +1135,260 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(readers.first?.agentVerification == .unverified)
     }
 }
+
+// MARK: - Agent Builder Card Reconstruction Tests
+
+private func builderCards(from items: [MessagesListItemType]) -> [AgentBuilderCardContent] {
+    items.compactMap {
+        if case .agentBuilderSummary(let content) = $0 { return content }
+        return nil
+    }
+}
+
+private func builderSummary(
+    bundledMessageIds: Set<String>,
+    connectionIdentifiers: [String] = [],
+    existingConversation: Bool = false
+) -> AgentBuilderSummary {
+    AgentBuilderSummary(
+        prompt: "",
+        attachments: connectionIdentifiers.map { .connection(id: UUID(), identifier: $0) },
+        cutoffDate: Date(),
+        bundledMessageIds: bundledMessageIds,
+        existingConversation: existingConversation
+    )
+}
+
+struct MessagesListProcessorAgentBuilderCardTests {
+    @Test("Recipient rebuilds the card from the bundle messages, positioned where Make happened")
+    func recipientReconstruction() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Hey", date: now),
+            makeAttachment(id: "b-att", sender: currentUser, date: now.addingTimeInterval(10)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Track the fog", date: now.addingTimeInterval(11)),
+            makeMessage(id: "later", sender: otherUser, text: "Cool", date: now.addingTimeInterval(20)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+
+        // The raw bundle bubbles never render.
+        #expect(messageIds(from: result) == ["hey", "later"])
+
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Track the fog")
+        #expect(cards.first?.attachments.count == 1)
+
+        // Card sits between the prior message and the later one.
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true }; return false }
+        let laterIndex = result.firstIndex {
+            if case .messages(let group) = $0 { return group.messages.contains { $0.messageId == "later" } }
+            return false
+        }
+        let heyIndex = result.firstIndex {
+            if case .messages(let group) = $0 { return group.messages.contains { $0.messageId == "hey" } }
+            return false
+        }
+        #expect(cardIndex != nil && heyIndex != nil && laterIndex != nil)
+        if let cardIndex, let heyIndex, let laterIndex {
+            #expect(heyIndex < cardIndex)
+            #expect(cardIndex < laterIndex)
+        }
+    }
+
+    @Test("Sender rebuilds the card from bundledMessageIds even when the hidden set is empty")
+    func senderReconstructionViaBundledMessageIds() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Hey", date: now),
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: now.addingTimeInterval(10)),
+        ]
+        // hiddenBundleMessageIds empty (own manifest not yet round-tripped); only
+        // the local summary knows the bundle ids.
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            hiddenBundleMessageIds: []
+        )
+        #expect(messageIds(from: result) == ["hey"])
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Be my assistant")
+        #expect(cards.first?.creatorIsCurrentUser == true)
+    }
+
+    @Test("Hidden ids present but bundle messages absent renders no card and no bare bubbles")
+    func hiddenIdsWithoutMessages() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Hey", date: now),
+            makeMessage(id: "later", sender: otherUser, text: "Still here", date: now.addingTimeInterval(10)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+        #expect(builderCards(from: result).isEmpty)
+        #expect(messageIds(from: result) == ["hey", "later"])
+    }
+
+    @Test("Date separator above the bundle is kept, anchored by the card")
+    func dateSeparatorAnchoredByCard() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Morning", date: now),
+            // > 1 hour later: a new date window starts at the bundle.
+            makeMessage(id: "b-text", sender: currentUser, text: "New agent", date: now.addingTimeInterval(7200)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        let counts = itemCounts(from: result)
+        #expect(counts.dates == 2)
+        #expect(builderCards(from: result).count == 1)
+        // Last item is the card, preceded by its date separator.
+        if case .agentBuilderSummary = result.last {} else {
+            Issue.record("Expected the card as the last item")
+        }
+    }
+
+    @Test("Contact card lands directly under the builder card in the home flow")
+    func contactCardUnderBuilderCard() {
+        let now = Date()
+        let agent: ConversationMember = .mock(
+            isCurrentUser: false,
+            name: "Agent",
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Hey", date: now),
+            makeMessage(id: "b-text", sender: currentUser, text: "Make it", date: now.addingTimeInterval(10)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: agent,
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            hiddenBundleMessageIds: ["b-text"],
+            isInAgentBuilderFlow: true
+        )
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true }; return false }
+        let contactCardIndex = result.firstIndex {
+            if case .messages(let group) = $0 { return group.agentContactCard != nil }
+            return false
+        }
+        #expect(cardIndex != nil)
+        #expect(contactCardIndex != nil)
+        if let cardIndex, let contactCardIndex {
+            #expect(contactCardIndex == cardIndex + 1)
+        }
+    }
+
+    @Test("Summary stays above the contact card even when the agent joined before Make")
+    func summaryAboveContactCardWhenAgentJoinedFirst() {
+        let now = Date()
+        let agent = ConversationMember(
+            profile: Profile(inboxId: "agent-1", conversationId: "conv", name: "Trail Roller", avatar: nil, isAgent: true),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+        // Home flow: the agent joins *before* the Make bundle is sent.
+        let messages = [
+            AnyMessage.message(Message(
+                id: "agent-joined",
+                sender: otherUser,
+                source: .incoming,
+                status: .published,
+                content: .update(ConversationUpdate(
+                    creator: otherUser,
+                    addedMembers: [agent],
+                    removedMembers: [],
+                    metadataChanges: []
+                )),
+                date: now,
+                reactions: []
+            ), .existing),
+            makeMessage(id: "b-text", sender: currentUser, text: "Plan my trip", date: now.addingTimeInterval(10)),
+        ]
+        // isInAgentBuilderFlow false -> the join row is NOT suppressed and sorts
+        // above the summary, reproducing the contact-card-first ordering bug.
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: agent,
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            hiddenBundleMessageIds: ["b-text"],
+            isInAgentBuilderFlow: false
+        )
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true }; return false }
+        let contactCardIndex = result.firstIndex {
+            if case .messages(let group) = $0 { return group.agentContactCard != nil }
+            return false
+        }
+        #expect(cardIndex != nil)
+        #expect(contactCardIndex != nil)
+        if let cardIndex, let contactCardIndex {
+            #expect(cardIndex < contactCardIndex)
+        }
+    }
+
+    @Test("Two separate Make events render two cards")
+    func multipleBuildRuns() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "hey", sender: otherUser, text: "Hey", date: now),
+            makeMessage(id: "b1", sender: currentUser, text: "First agent", date: now.addingTimeInterval(10)),
+            makeMessage(id: "mid", sender: otherUser, text: "Interesting", date: now.addingTimeInterval(20)),
+            makeMessage(id: "b2", sender: currentUser, text: "Second agent", date: now.addingTimeInterval(30)),
+            makeMessage(id: "later", sender: otherUser, text: "Nice", date: now.addingTimeInterval(40)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b1", "b2"]
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 2)
+        #expect(Set(cards.map(\.prompt)) == ["First agent", "Second agent"])
+        #expect(messageIds(from: result) == ["hey", "mid", "later"])
+    }
+
+    @Test("Recipient card attributes the creator and shows no connection chips")
+    func recipientAttributionAndNoConnections() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: otherUser, text: "Alice's agent", date: now),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        let card = builderCards(from: result).first
+        #expect(card?.creatorIsCurrentUser == false)
+        #expect(card?.creatorDisplayName == "Alice")
+        #expect(card?.connectionIdentifiers.isEmpty == true)
+    }
+
+    @Test("Creator card carries the connection identifiers from the local summary")
+    func creatorConnectionChips() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Calendar agent", date: now),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: builderSummary(
+                bundledMessageIds: ["b-text"],
+                connectionIdentifiers: ["googleCalendar"]
+            ),
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        let card = builderCards(from: result).first
+        #expect(card?.connectionIdentifiers == ["googleCalendar"])
+        #expect(card?.creatorIsCurrentUser == true)
+    }
+}

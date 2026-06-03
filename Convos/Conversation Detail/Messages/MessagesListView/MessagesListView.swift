@@ -71,16 +71,26 @@ var body: some View {
         }
     }
 
-    private var messagesList: some View {
-        ForEach(messages.enumerated(), id: \.element.id) { index, item in
-            itemView(for: item)
-                .onScrollVisibilityChange(threshold: 0.1) { isVisible in
-                    guard lastItemIndex == nil else { return }
+    // Concrete tuple-array (not a lazy `EnumeratedSequence`) so the `ForEach`
+    // below works on a `RandomAccessCollection` with a fully-resolved element
+    // type, keeping its getter's type-check time well under the limit.
+    private var enumeratedMessages: [(offset: Int, element: MessagesListItemType)] {
+        Array(messages.enumerated())
+    }
 
-                    if isVisible && index == messages.count - 1 {
-                        lastItemIndex = index
-                    }
+    private var messagesList: some View {
+        ForEach(enumeratedMessages, id: \.element.id) { entry in
+            itemView(for: entry.element)
+                .onScrollVisibilityChange(threshold: 0.1) { isVisible in
+                    handleScrollVisibilityChange(isVisible: isVisible, index: entry.offset)
                 }
+        }
+    }
+
+    private func handleScrollVisibilityChange(isVisible: Bool, index: Int) {
+        guard lastItemIndex == nil else { return }
+        if isVisible, index == messages.count - 1 {
+            lastItemIndex = index
         }
     }
 
@@ -128,8 +138,8 @@ var body: some View {
             ConnectionEventSummaryView(summary: summary)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case .agentBuilderSummary(let summary):
-            AgentBuilderSummaryView(summary: summary)
+        case .agentBuilderSummary(let content):
+            AgentBuilderSummaryView(content: content)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .typingIndicator:

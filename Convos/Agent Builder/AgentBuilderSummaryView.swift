@@ -2,20 +2,35 @@ import AVFoundation
 import ConvosCore
 import SwiftUI
 
-/// The "summary card" cell that replaces the user's prompt + early agent
-/// chatter at the top of a post-Make agent conversation. Reproduces the
-/// AgentDraftComposer's rounded-rect liquid-glass styling (no bottom
-/// buttons, no Make button) and the same attachment chips minus their X
-/// buttons. Footer reads "You created an agent" in the group-update text
-/// style.
+/// The "summary card" cell shown where the user tapped Make. Reproduces the
+/// AgentDraftComposer's rounded-rect liquid-glass styling (no bottom buttons, no
+/// Make button) and the same attachment chips minus their X buttons. The footer
+/// reads "You created an agent" / "<name> created an agent" in the group-update
+/// text style.
+///
+/// The content is reconstructed by `MessagesListProcessor` from the build's own
+/// messages (the prompt + attachment bundle every member receives), so the card
+/// is visible to all members and sits in chronological order -- it is no longer
+/// pinned to the top from a creator-only local summary.
 struct AgentBuilderSummaryView: View {
-    let summary: AgentBuilderSummary
-    /// Namespace owned by `AgentBuilderView`. When non-nil the card pairs
-    /// with the composer's glass rect via `glassEffectID +
+    let content: AgentBuilderCardContent
+    /// Namespace owned by `AgentBuilderView`. When non-nil the card pairs with
+    /// the composer's glass rect via `glassEffectID +
     /// glassEffectTransition(.matchedGeometry)`, producing the morph on Make.
-    /// Nil for the "returning later" case where the card simply renders
-    /// in-place without an entry animation.
+    /// Nil for recipients and the "returning later" case where the card simply
+    /// renders in-place without an entry animation.
     var transitionNamespace: Namespace.ID?
+
+    private var footerText: String {
+        if content.creatorIsCurrentUser || content.creatorDisplayName.isEmpty {
+            return "You created an agent"
+        }
+        return "\(content.creatorDisplayName) created an agent"
+    }
+
+    private var hasChips: Bool {
+        !content.attachments.isEmpty || !content.connectionIdentifiers.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
@@ -30,7 +45,7 @@ struct AgentBuilderSummaryView: View {
             GlassEffectContainer {
                 card
             }
-            Text("You created an agent")
+            Text(footerText)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
@@ -49,17 +64,20 @@ struct AgentBuilderSummaryView: View {
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            if !summary.prompt.isEmpty {
-                Text(summary.prompt)
+            if !content.prompt.isEmpty {
+                Text(content.prompt)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            if !summary.attachments.isEmpty {
+            if hasChips {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        ForEach(summary.attachments) { attachment in
+                        ForEach(content.attachments, id: \.key) { attachment in
                             chipView(for: attachment)
+                        }
+                        ForEach(content.connectionIdentifiers, id: \.self) { identifier in
+                            connectionChip(identifier: identifier)
                         }
                     }
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -76,18 +94,16 @@ struct AgentBuilderSummaryView: View {
     }
 
     @ViewBuilder
-    private func chipView(for attachment: AgentBuilderSummaryAttachment) -> some View {
-        switch attachment {
-        case .photo(_, let thumbnailData):
-            photoVideoChip(thumbnailData: thumbnailData, isVideo: false)
-        case .video(_, let thumbnailData):
-            photoVideoChip(thumbnailData: thumbnailData, isVideo: true)
-        case let .file(_, filename, _, _):
-            fileChip(filename: filename)
-        case let .voiceMemo(_, duration, levels):
-            voiceMemoChip(duration: duration, levels: levels)
-        case let .connection(_, identifier):
-            connectionChip(identifier: identifier)
+    private func chipView(for attachment: HydratedAttachment) -> some View {
+        switch attachment.mediaType {
+        case .image:
+            photoVideoChip(thumbnailData: attachment.thumbnailData, isVideo: false)
+        case .video:
+            photoVideoChip(thumbnailData: attachment.thumbnailData, isVideo: true)
+        case .audio:
+            voiceMemoChip(duration: attachment.duration ?? 0, levels: attachment.waveformLevels ?? [])
+        case .file, .unknown:
+            fileChip(filename: attachment.filename ?? "File")
         }
     }
 
@@ -190,16 +206,21 @@ struct AgentBuilderSummaryView: View {
 }
 
 #Preview {
-    let summary = AgentBuilderSummary(
+    let content = AgentBuilderCardContent(
+        id: "preview",
         prompt: "Help me plan a backpacking trip across Patagonia. I want to camp 4 nights and finish in El Chaltén.",
         attachments: [
-            .photo(id: UUID(), thumbnailData: nil),
-            .file(id: UUID(), filename: "itinerary.pdf", mimeType: "application/pdf", fileSize: 12_345),
-            .voiceMemo(id: UUID(), duration: 18, levels: Array(repeating: 0.6, count: 40)),
-            .connection(id: UUID(), identifier: "googleCalendar"),
+            HydratedAttachment(key: "preview-photo", mimeType: "image/jpeg"),
+            HydratedAttachment(key: "preview-file", mimeType: "application/pdf", filename: "itinerary.pdf"),
+            HydratedAttachment(
+                key: "preview-voice",
+                mimeType: "audio/m4a",
+                duration: 18,
+                waveformLevels: Array(repeating: 0.6, count: 40)
+            ),
         ],
-        cutoffDate: Date()
+        connectionIdentifiers: ["googleCalendar"]
     )
-    return AgentBuilderSummaryView(summary: summary)
+    return AgentBuilderSummaryView(content: content)
         .padding()
 }
