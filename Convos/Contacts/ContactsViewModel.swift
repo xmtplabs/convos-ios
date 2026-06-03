@@ -42,8 +42,8 @@ final class ContactsViewModel {
     }
     /// "Show blocked" toggle from the search bar's filter menu. Defaults to
     /// `false` so blocked contacts are hidden from the browse list by default;
-    /// flipping it on reveals them inline (the contact card -- reached by
-    /// tapping a revealed row -- is the unblock entry point).
+    /// when enabled, blocked contacts appear inline (the contact card is the
+    /// unblock entry point).
     var showBlocked: Bool = false {
         didSet { rebuildSections() }
     }

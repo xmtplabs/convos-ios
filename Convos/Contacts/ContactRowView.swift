@@ -13,10 +13,7 @@ struct ContactRowView: View {
     let subtitle: String
 
     var body: some View {
-        // Dim blocked rows so they read as "shown because Show blocked is on"
-        // rather than as a normal contact. The row stays tappable -- the
-        // contact card is the entry point for unblock, so disabling the tap
-        // would orphan the recovery flow.
+        // Dim blocked contacts to distinguish from normal contacts.
         let isBlocked: Bool = contact.isBlocked
         let rowOpacity: Double = isBlocked ? 0.45 : 1.0
         HStack(spacing: DesignConstants.Spacing.step3x) {

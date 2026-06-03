@@ -140,9 +140,8 @@ final class ContactsViewModelTests: XCTestCase {
 
     // MARK: - Show blocked
 
-    /// Default state hides blocked contacts. The browse list previously
-    /// showed them inline so the user could tap one to unblock; the PR
-    /// introducing `showBlocked` flips the default.
+    /// Default state hides blocked contacts; the user opts back in via the
+    /// `showBlocked` toggle.
     func testBlockedContactsHiddenByDefault() {
         let alice = Contact.mock(displayName: "Alice")
         let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)

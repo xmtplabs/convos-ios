@@ -85,8 +85,7 @@ final class ContactsPickerViewModel {
     }
     /// True when a text search or audience filter is narrowing the list, so an
     /// empty `sections` means "nothing matched" rather than "no contacts".
-    /// Blocked contacts are always hidden from the picker (no toggle), so the
-    /// show-blocked flag from the contacts browse list has no parallel here.
+    /// Blocked contacts are always hidden from the picker.
     var isFiltering: Bool {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || filter.isActive
