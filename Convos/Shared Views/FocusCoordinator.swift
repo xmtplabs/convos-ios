@@ -190,28 +190,40 @@ final class FocusCoordinator {
         currentFocus = nextFocus
     }
 
-    /// Runs `work` with the keyboard's pending input settled: re-asserts the
-    /// focused field's selection at the UIKit level first, which makes the
-    /// keyboard resolve any uncommitted input session (a pending autocorrect
-    /// right after a keystroke, or an active dictation hypothesis) before
-    /// `work` mutates the field's bound text programmatically.
+    /// Runs `work` with the keyboard's pending input settled, so that `work`
+    /// can safely mutate the focused field's bound text programmatically.
     ///
     /// Use this around programmatic mutations of a focused field's bound text
     /// (e.g. clearing the composer on send). Mutating the binding while the
-    /// keyboard still holds pending input can lose the write entirely: the
-    /// backing text view keeps the old text and the keyboard's next commit
-    /// point syncs the stale text back into the binding. A selection change
-    /// runs the same settle path the keyboard uses when the caret moves, with
-    /// no first responder change, so the keyboard never hides or re-shows.
-    /// (An earlier resign/become approach settled input too, but round-
-    /// tripped the keyboard with a visible dismiss-and-reshow in the real
-    /// view hierarchy.)
+    /// keyboard still holds uncommitted input can lose the write entirely:
+    /// the backing text view keeps the old text and the keyboard's next
+    /// commit point syncs the stale text back into the binding.
+    ///
+    /// Two settle strategies, by input session type:
+    /// - Pending autocorrect (typing): re-assert the selection at the UIKit
+    ///   level. A selection change runs the same settle path the keyboard
+    ///   uses when the caret moves, with no first responder change, so the
+    ///   keyboard never hides or re-shows.
+    /// - Active dictation: the selection nudge does not stop the session;
+    ///   its hypothesis finalizes via insertText after the mutation and
+    ///   resurrects the text. Dropping and restoring first responder is the
+    ///   one available way to terminate the session first. The keyboard
+    ///   round-trip that made resign/become unacceptable for plain typing is
+    ///   fine here: the dictation UI visibly ends on send anyway.
     func withSettledKeyboardInput(_ work: () -> Void) {
-        if let input = Self.currentFirstResponder() as? (UIResponder & UITextInput) {
+        guard let input = Self.currentFirstResponder() as? (UIResponder & UITextInput) else {
+            work()
+            return
+        }
+        if input.textInputMode?.primaryLanguage == Constant.dictationInputMode {
+            input.resignFirstResponder()
+            work()
+            input.becomeFirstResponder()
+        } else {
             let end = input.endOfDocument
             input.selectedTextRange = input.textRange(from: end, to: end)
+            work()
         }
-        work()
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated
@@ -480,6 +492,12 @@ final class FocusCoordinator {
         Log.info("Keyboard type changed: \(previousKeyboardType) → \(newKeyboardType), updating focus to: \(String(describing: newDefault))")
         beginProgrammaticTransition(to: newDefault)
         currentFocus = newDefault
+    }
+
+    /// The `UITextInputMode.primaryLanguage` value reported while a dictation
+    /// session is active.
+    private enum Constant {
+        static let dictationInputMode: String = "dictation"
     }
 }
 
