@@ -100,7 +100,8 @@ struct ContactsView: View {
                         query: $viewModel.searchQuery,
                         placeholder: "Search contacts",
                         accessibilityIdentifier: "contacts-search-field",
-                        filter: $viewModel.filter
+                        filter: $viewModel.filter,
+                        showBlocked: $viewModel.showBlocked
                     )
                 }
                 .onChange(of: incomingScrollTarget) { _, target in

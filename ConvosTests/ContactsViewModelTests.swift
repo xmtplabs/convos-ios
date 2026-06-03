@@ -137,4 +137,99 @@ final class ContactsViewModelTests: XCTestCase {
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds.sorted(), [alice.inboxId, bob.inboxId].sorted())
     }
+
+    // MARK: - Show blocked
+
+    /// Default state hides blocked contacts; the user opts back in via the
+    /// `showBlocked` toggle.
+    func testBlockedContactsHiddenByDefault() {
+        let alice = Contact.mock(displayName: "Alice")
+        let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
+        let repo = MockContactsRepository(contacts: [alice, blockedBob])
+
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
+        XCTAssertEqual(allIds, [alice.inboxId])
+    }
+
+    func testShowBlockedToggleRevealsBlockedRows() {
+        let alice = Contact.mock(displayName: "Alice")
+        let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
+        let repo = MockContactsRepository(contacts: [alice, blockedBob])
+
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+        viewModel.showBlocked = true
+
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, blockedBob.inboxId].sorted())
+    }
+
+    /// `contactCount` is the unfiltered count of contacts the app knows
+    /// about. Hiding blocked from the list does not change it -- the
+    /// onboarding empty state stays correct for users whose only contacts
+    /// happen to all be blocked.
+    func testContactCountIgnoresShowBlockedToggle() {
+        let alice = Contact.mock(displayName: "Alice")
+        let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
+        let repo = MockContactsRepository(contacts: [alice, blockedBob])
+
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+
+        XCTAssertEqual(viewModel.contactCount, 2)
+        viewModel.showBlocked = true
+        XCTAssertEqual(viewModel.contactCount, 2)
+    }
+
+    /// Show-blocked composes with the audience filter: with both on,
+    /// only blocked contacts in that audience appear.
+    func testShowBlockedComposesWithAudienceFilter() {
+        let alice = Contact.mock(displayName: "Alice")
+        let blockedHuman = Contact.mock(displayName: "Bob", isBlocked: true)
+        let blockedAgent = Contact.mock(
+            displayName: "Coffee",
+            isBlocked: true,
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let repo = MockContactsRepository(contacts: [alice, blockedHuman, blockedAgent])
+
+        let viewModel = ContactsViewModel(contactsRepository: repo)
+        viewModel.showBlocked = true
+        viewModel.filter = .agents
+
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
+        // Show-blocked + agents-only -> only the blocked agent appears.
+        XCTAssertEqual(allIds, [blockedAgent.inboxId])
+    }
+
+    /// `isFiltering` should fire on the show-blocked toggle alone, so the
+    /// view can branch on "filtered empty state" rather than "no contacts
+    /// onboarding state" when the toggle is the only narrowing predicate.
+    func testIsFilteringTracksShowBlockedToggle() {
+        let viewModel = ContactsViewModel(contactsRepository: MockContactsRepository())
+
+        XCTAssertFalse(viewModel.isFiltering)
+        viewModel.showBlocked = true
+        XCTAssertTrue(viewModel.isFiltering)
+        viewModel.showBlocked = false
+        XCTAssertFalse(viewModel.isFiltering)
+    }
+
+    /// `clearFilters()` is invoked from the filtered-empty-state "Show all"
+    /// button. It must reset the show-blocked toggle alongside the audience
+    /// filter and search query so "Show all" matches the default load.
+    func testClearFiltersResetsShowBlocked() {
+        let viewModel = ContactsViewModel(contactsRepository: MockContactsRepository())
+
+        viewModel.showBlocked = true
+        viewModel.filter = .agents
+        viewModel.searchQuery = "alice"
+
+        viewModel.clearFilters()
+
+        XCTAssertFalse(viewModel.showBlocked)
+        XCTAssertEqual(viewModel.filter, .all)
+        XCTAssertTrue(viewModel.searchQuery.isEmpty)
+    }
 }

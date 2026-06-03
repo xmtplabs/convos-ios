@@ -13,6 +13,9 @@ struct ContactRowView: View {
     let subtitle: String
 
     var body: some View {
+        // Dim blocked contacts to distinguish from normal contacts.
+        let isBlocked: Bool = contact.isBlocked
+        let rowOpacity: Double = isBlocked ? 0.45 : 1.0
         HStack(spacing: DesignConstants.Spacing.step3x) {
             ContactAvatarView(contact: contact)
                 .frame(width: 56.0, height: 56.0)
@@ -30,13 +33,33 @@ struct ContactRowView: View {
                 }
             }
             Spacer(minLength: 0.0)
-            if contact.isVerifiedAgent {
+            if isBlocked {
+                blockedBadge
+            } else if contact.isVerifiedAgent {
                 RoleLabelPill(label: "Agent")
             }
         }
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .contentShape(Rectangle())
+        .opacity(rowOpacity)
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
+        // VoiceOver doesn't surface the 0.45 opacity dim or the "blocked"
+        // pill on its own; the hint ensures users with VoiceOver enabled
+        // know the contact is blocked before activating the row.
+        .accessibilityHint(isBlocked ? "This contact is blocked" : "")
+    }
+
+    /// "blocked" pill -- same `.colorFillMinimal` capsule + caption2 style
+    /// as the picker's "blocked" badge so both surfaces read identically.
+    private var blockedBadge: some View {
+        Text("blocked")
+            .font(.caption2)
+            .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, 4.0)
+            .background(
+                Capsule().fill(.colorFillMinimal)
+            )
     }
 }
 

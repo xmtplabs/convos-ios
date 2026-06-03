@@ -148,11 +148,15 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
     }
 
-    /// Extracted from the `setup(item:config:)` switch so the many-argument
-    /// `MessagesGroupView` construction doesn't push that switch over the
-    /// type-check-time limit.
+    // MARK: - Extracted cases
+    //
+    // The two cases below were lifted out of `setup`'s @ViewBuilder switch
+    // because their argument lists trip the long-function-body type-check
+    // budget when inlined. Mirrors the same shape as the `MessagesGroupView`
+    // extraction noted in PR #930.
+
     @ViewBuilder
-    private static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
+    fileprivate static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
         MessagesGroupView(
             group: group,
             conversationId: config.conversationId,
@@ -180,14 +184,13 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     }
 
     @ViewBuilder
-    private static func agentPresentInfoContent(
+    fileprivate static func agentPresentInfoContent(
         agent: ConversationMember,
         inviterName: String?,
         config: CellConfig
     ) -> some View {
-        let isVerified = agent.agentVerification.isVerified
-        let label = isVerified ? "Agent" : "Agent"
-        let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+        let label: String = "Agent"
+        let title: String = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
         VStack(spacing: 0) {
             TextTitleContentView(
                 title: title,
