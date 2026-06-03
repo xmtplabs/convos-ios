@@ -13,7 +13,6 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     private var foregroundObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        SentryConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(
