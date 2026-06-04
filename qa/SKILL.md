@@ -52,6 +52,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 33 | `qa/tests/33-read-receipts.md` | Read receipts: send on view, display avatars, opt-out setting |
 | 42 | `qa/tests/42-agent-builder-attachment-summary.md` | Agent builder: create agent with prompt + photo attachment, verify summary card renders the photo thumbnail (pre- and post-rehydration) |
 | 43 | `qa/tests/43-long-message-rendering.md` | Long-message UX: short renders unchanged, long shows Read More + inline expand, pathological pushes MessageDetailView (Back/Copy/Reply), no-hang guard |
+| 44 | `qa/tests/44-icloud-pairing-prompt.md` | First-install iCloud pairing prompt: Pair <device>? sheet from a synced keychain backup, Skip persistence, and the full no-QR pair handshake (two simulators; Device B is a clone of Device A) |
 
 ## Running Tests
 

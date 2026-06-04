@@ -1042,6 +1042,47 @@ public extension SessionManager {
         }
     }
 
+    /// Reads the iCloud-synced backup slot and returns every identity that
+    /// isn't this install's own (a fresh install's placeholder identity
+    /// mirrors itself into the slot, so it must be excluded), newest
+    /// backup first. Best-effort: keychain failures return an empty list
+    /// so the prompt simply doesn't show.
+    ///
+    /// The backups are read before the primary slot on purpose: a backup
+    /// mirror is only ever written after its primary, so any identity
+    /// present in the backups read here is guaranteed visible to the
+    /// `loadSync()` that follows. Reading in the other order races silent
+    /// identity registration and could report this install's own
+    /// just-created placeholder as pairable.
+    func pairableDeviceBackups() async -> [PairableDeviceBackup] {
+        do {
+            let backups = try await identityStore.loadSyncedBackups()
+            let currentInboxId = (try? identityStore.loadSync())?.inboxId
+            return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
+        } catch {
+            Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")
+            return []
+        }
+    }
+
+    /// Signs a pairing invite with the synced backup's private key. The
+    /// key never leaves ConvosCore - the caller only receives the slug,
+    /// which carries the same authority as a slug minted by the backed-up
+    /// device itself, so the joiner's signature and identity-share address
+    /// checks hold unchanged.
+    func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
+        let backups = try await identityStore.loadSyncedBackups()
+        guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
+            throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
+        }
+        let invite = try await PairingInvite.signed(
+            initiatorInboxId: backup.inboxId,
+            privateKey: backup.privateKey,
+            expiresAt: expiresAt
+        )
+        return try invite.toURLSafeSlug()
+    }
+
     /// Called after a successful pairing on the joiner side. The paired
     /// secp256k1 key was already saved to the keychain by
     /// `LivePairingService.handleIdentityShare` before this runs. We:
