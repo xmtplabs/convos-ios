@@ -8,8 +8,8 @@ import SwiftUI
 /// While resolving, the card's own pulsing "Learning more about my job"
 /// placeholder stands in.
 ///
-/// This view is display-only: the tap that opens the shared agent's template
-/// flow is owned by the enclosing `messageGesture` (`onSingleTap`), so the
+/// This view is display-only: the tap that opens the shared agent's contact
+/// detail is owned by the enclosing `messageGesture` (`onSingleTap`), so the
 /// same gesture pipeline as other message bubbles handles it -- and the
 /// context-menu preview, which renders this view without that gesture, stays
 /// correctly non-interactive.

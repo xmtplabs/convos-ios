@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Environment delivery for the agent-share message card's two cross-cutting
 /// dependencies -- the resolver that turns a share link into displayable agent
-/// info, and the tap handler that opens the shared agent's template flow.
+/// info, and the tap handler that opens the shared agent's contact detail.
 /// Injected once at the cell (like `messageContextMenuState`) so they don't
 /// have to thread through the deep messages-view hierarchy.
 

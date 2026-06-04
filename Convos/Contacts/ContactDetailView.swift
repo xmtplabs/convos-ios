@@ -292,9 +292,10 @@ struct ContactDetailView: View {
                         .padding(.top, DesignConstants.Spacing.step2x)
                         .padding(.horizontal, DesignConstants.Spacing.step6x)
                 }
-                // Suggested-agent placeholders aren't saved contacts, so the
-                // "Added X ago" line (and Block, below) don't apply.
-                if !contact.isSuggestedAgentPlaceholder {
+                // Suggested-agent and agent-share placeholders aren't saved
+                // contacts, so the "Added X ago" line (and Block, below)
+                // don't apply.
+                if !contact.isUnsavedAgentPlaceholder {
                     ContactDetailSubtitle(
                         contact: contact,
                         invitedBy: mode.invitedBy,
@@ -320,7 +321,7 @@ struct ContactDetailView: View {
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
-                    showBlock: !mode.isCurrentUser && !contact.isSuggestedAgentPlaceholder,
+                    showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,

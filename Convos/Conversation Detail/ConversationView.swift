@@ -127,9 +127,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
     }
 
-    private func handleNewConvoAgentShareChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .create))
+    /// The agent-share placeholder card reports as a member-profile present
+    /// with the placeholder's sentinel inbox id (`agent-share:<templateId>`),
+    /// keeping "a profile card opened from this conversation" consistent in
+    /// analytics with the member-avatar path while staying distinguishable.
+    private func handleAgentShareContactChanged(from oldContact: Contact?, to newContact: Contact?) {
+        guard oldContact == nil, let newContact else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newContact.inboxId
+            )
+        )
     }
 
     private func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
@@ -405,6 +414,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel)
     }
 
+    @ViewBuilder
+    private func agentShareContactDetailSheet(for contact: Contact) -> some View {
+        AgentShareContactDetailSheetContent(viewModel: viewModel, contact: contact, profileSettingsViewModel: profileSettingsViewModel)
+    }
+
     private var scanInviteButton: some View {
         Button {
             onScanInviteCode()
@@ -484,9 +498,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var metricsObserversPart3: MetricsObserversPart3 {
         MetricsObserversPart3(
             presentingProfileForMember: viewModel.presentingProfileForMember,
+            presentingContactForAgentShare: viewModel.presentingContactForAgentShare,
             presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
             presentingThinkingDetail: viewModel.presentingThinkingDetail,
             onMemberProfileChanged: handleMemberProfileChanged(from:to:),
+            onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
             onReactionsChanged: handleReactionsChanged(from:to:),
             onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
         )
@@ -499,14 +515,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
             presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
             presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
-            presentingNewConvoForAgentShare: viewModel.presentingNewConversationForAgentShare != nil,
             presentingAddFromContactsPicker: presentingAddFromContactsPicker,
             onFullInfoChanged: handleFullInfoChanged(from:to:),
             onRevealMediaInfoChanged: handleRevealMediaInfoChanged(from:to:),
             onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
             onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
-            onNewConvoAgentShareChanged: handleNewConvoAgentShareChanged(from:to:),
             onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
     }
@@ -593,8 +607,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
         }
-        .sheet(item: $viewModel.presentingNewConversationForAgentShare) { viewModel in
-            newConversationSheet(viewModel)
+        .sheet(item: $viewModel.presentingContactForAgentShare) { contact in
+            agentShareContactDetailSheet(for: contact)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
@@ -726,6 +740,33 @@ struct MemberContactDetailSheetContent: View {
     }
 }
 
+/// Contact detail sheet for a tapped agent-share message card whose template
+/// has no running agent in this conversation. The contact is a placeholder
+/// built from the share link's resolved profile (see
+/// `Contact.agentSharePlaceholder`), so the card renders in `.standalone`
+/// mode: no "Remove from convo", and the unsaved-placeholder gating hides
+/// the "Added X ago" line and Block. "New chat" spawns a fresh instance of
+/// the template via the card's own confirmation flow.
+struct AgentShareContactDetailSheetContent: View {
+    let viewModel: ConversationViewModel
+    let contact: Contact
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+
+    var body: some View {
+        let messagingService = viewModel.messagingService
+        NavigationStack {
+            ContactDetailView(
+                contact: contact,
+                contactsWriter: messagingService.contactsWriter(),
+                contactsRepository: messagingService.contactsRepository(),
+                session: viewModel.session,
+                coreActions: viewModel.coreActions,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
+        }
+    }
+}
+
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
@@ -744,83 +785,5 @@ struct MemberContactDetailSheetContent: View {
             messagesTextFieldEnabled: true,
             bottomBarContent: { EmptyView() }
         )
-    }
-}
-
-private struct MetricsObserversPart1: ViewModifier {
-    let presentingConversationSettings: Bool
-    let presentingProfileSettings: Bool
-    let presentingShareView: Bool
-    let presentingConversationForked: Bool
-    let presentingExplodedInviteInfo: Bool
-    let presentingAgentsIntro: Bool
-    let presentingPaywall: Bool
-    let showingAgentsInfo: Bool
-    let showingLockedInfo: Bool
-    let onConversationSettingsChanged: (Bool, Bool) -> Void
-    let onProfileSettingsChanged: (Bool, Bool) -> Void
-    let onShareViewChanged: (Bool, Bool) -> Void
-    let onConversationForkedChanged: (Bool, Bool) -> Void
-    let onExplodedInviteInfoChanged: (Bool, Bool) -> Void
-    let onAgentsIntroChanged: (Bool, Bool) -> Void
-    let onPaywallChanged: (Bool, Bool) -> Void
-    let onAgentsInfoChanged: (Bool, Bool) -> Void
-    let onLockedInfoChanged: (Bool, Bool) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: presentingConversationSettings) { o, n in onConversationSettingsChanged(o, n) }
-            .onChange(of: presentingProfileSettings) { o, n in onProfileSettingsChanged(o, n) }
-            .onChange(of: presentingShareView) { o, n in onShareViewChanged(o, n) }
-            .onChange(of: presentingConversationForked) { o, n in onConversationForkedChanged(o, n) }
-            .onChange(of: presentingExplodedInviteInfo) { o, n in onExplodedInviteInfoChanged(o, n) }
-            .onChange(of: presentingAgentsIntro) { o, n in onAgentsIntroChanged(o, n) }
-            .onChange(of: presentingPaywall) { o, n in onPaywallChanged(o, n) }
-            .onChange(of: showingAgentsInfo) { o, n in onAgentsInfoChanged(o, n) }
-            .onChange(of: showingLockedInfo) { o, n in onLockedInfoChanged(o, n) }
-    }
-}
-
-private struct MetricsObserversPart2: ViewModifier {
-    let showingFullInfo: Bool
-    let presentingRevealMediaInfo: Bool
-    let presentingPhotosInfo: Bool
-    let presentingAgentBuilder: Bool
-    let presentingNewConvoForInvite: Bool
-    let presentingNewConvoForAgentShare: Bool
-    let presentingAddFromContactsPicker: Bool
-    let onFullInfoChanged: (Bool, Bool) -> Void
-    let onRevealMediaInfoChanged: (Bool, Bool) -> Void
-    let onPhotosInfoChanged: (Bool, Bool) -> Void
-    let onAgentBuilderChanged: (Bool, Bool) -> Void
-    let onNewConvoInviteChanged: (Bool, Bool) -> Void
-    let onNewConvoAgentShareChanged: (Bool, Bool) -> Void
-    let onAddFromContactsChanged: (Bool, Bool) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: showingFullInfo) { o, n in onFullInfoChanged(o, n) }
-            .onChange(of: presentingRevealMediaInfo) { o, n in onRevealMediaInfoChanged(o, n) }
-            .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
-            .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
-            .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }
-            .onChange(of: presentingNewConvoForAgentShare) { o, n in onNewConvoAgentShareChanged(o, n) }
-            .onChange(of: presentingAddFromContactsPicker) { o, n in onAddFromContactsChanged(o, n) }
-    }
-}
-
-private struct MetricsObserversPart3: ViewModifier {
-    let presentingProfileForMember: ConversationMember?
-    let presentingReactionsForMessage: AnyMessage?
-    let presentingThinkingDetail: ThinkingSessionDescriptor?
-    let onMemberProfileChanged: (ConversationMember?, ConversationMember?) -> Void
-    let onReactionsChanged: (AnyMessage?, AnyMessage?) -> Void
-    let onThinkingDetailChanged: (ThinkingSessionDescriptor?, ThinkingSessionDescriptor?) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: presentingProfileForMember) { o, n in onMemberProfileChanged(o, n) }
-            .onChange(of: presentingReactionsForMessage) { o, n in onReactionsChanged(o, n) }
-            .onChange(of: presentingThinkingDetail) { o, n in onThinkingDetailChanged(o, n) }
     }
 }

@@ -32,7 +32,7 @@ struct MessagesGroupItemView: View {
 
     /// Tap handler for an agent-share card, delivered via the environment from
     /// the cell (like `agentShareResolver`) rather than threaded through the
-    /// messages-view hierarchy. Opens the shared agent's template flow.
+    /// messages-view hierarchy. Opens the shared agent's contact detail.
     @Environment(\.onTapAgentShare) private var onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
 
     @State private var isAppearing: Bool = true

@@ -775,11 +775,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
-    /// Drives the new-conversation flow opened by tapping a shared agent's
-    /// contact card. Mirrors `presentingNewConversationForInvite`.
-    var presentingNewConversationForAgentShare: NewConversationViewModel? {
-        didSet { oldValue?.cleanUpIfNeeded() }
-    }
+    /// Drives the contact detail sheet opened by tapping a shared agent's
+    /// message card when no agent running that template is a member of this
+    /// conversation. Carries a placeholder `Contact` built from the share
+    /// link's resolved profile; the card's "New chat" action spawns a fresh
+    /// instance of the template. Mirrors `presentingProfileForMember`.
+    var presentingContactForAgentShare: Contact?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
@@ -2830,15 +2831,16 @@ extension ConversationViewModel {
         session.inviteMembershipResolver()
     }
 
-    /// Tapping a shared agent's contact card opens that agent's contact
-    /// detail when an agent running the same template is already a member of
-    /// this conversation; otherwise it opens a new conversation seeded with
-    /// the template (the same flow the `convos://template/<id>` deep link
-    /// uses). The custom-scheme form carries the template id directly; a
-    /// web-slug share is resolved to its id via the API resolver first.
+    /// Tapping a shared agent's message card opens that agent's contact
+    /// detail. When an agent running the same template is already a member of
+    /// this conversation, the member's card opens directly; otherwise a
+    /// placeholder card is built from the share link's resolved profile, and
+    /// its "New chat" action spawns a fresh instance of the template. The
+    /// custom-scheme form carries the template id directly; a web-slug share
+    /// is resolved to its id via the API resolver first.
     func onTapAgentShare(_ agentShare: MessageAgentShare) {
-        if isValidTemplateId(agentShare.identifier) {
-            presentAgentMemberOrTemplate(templateId: agentShare.identifier)
+        if isValidTemplateId(agentShare.identifier),
+           presentAgentMemberIfInConversation(templateId: agentShare.identifier) {
             return
         }
         let resolver = agentShareResolver
@@ -2846,34 +2848,37 @@ extension ConversationViewModel {
         Task { [weak self] in
             let info = await resolver.resolve(identifier: identifier)
             await MainActor.run {
-                guard let self, let templateId = info?.templateId else { return }
-                // The web-slug resolve already returned the agent's profile;
-                // pass it through so the new conversation paints it optimistically.
-                self.presentAgentMemberOrTemplate(templateId: templateId, optimisticIdentity: info)
+                guard let self else { return }
+                self.presentAgentShareContactCard(for: agentShare, resolved: info)
             }
         }
     }
 
-    /// Routes a tapped agent template to the in-conversation member's contact
-    /// detail when present, falling back to the spawn-a-new-conversation
-    /// template flow otherwise. The post-builder contact card reaches the same
-    /// member detail directly via `onTapAvatar` (it already has the member).
-    private func presentAgentMemberOrTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
+    /// Opens the in-conversation member's contact detail for `templateId`,
+    /// returning false when no agent running that template is a member. The
+    /// post-builder contact card reaches the same member detail directly via
+    /// `onTapAvatar` (it already has the member).
+    private func presentAgentMemberIfInConversation(templateId: String) -> Bool {
         let member: ConversationMember? = conversation.members.first { member in
             member.isAgent && member.profile.agentTemplateId == templateId
         }
-        if let member {
-            presentingProfileForMember = member
-            return
-        }
-        openAgentTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity)
+        guard let member else { return false }
+        presentingProfileForMember = member
+        return true
     }
 
-    private func openAgentTemplate(templateId: String, optimisticIdentity: AgentShareInfo? = nil) {
-        presentingNewConversationForAgentShare = NewConversationViewModel(
-            session: session,
-            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity),
-            coreActions: coreActions
+    /// Presents the shared agent's contact detail from a placeholder contact
+    /// built from the resolved profile. When the resolve failed but the link
+    /// carried the template id itself, a neutral identity stands in so the
+    /// card (and its "New chat" action) still works without the profile.
+    private func presentAgentShareContactCard(for agentShare: MessageAgentShare, resolved info: AgentShareInfo?) {
+        let fallbackTemplateId: String? = isValidTemplateId(agentShare.identifier) ? agentShare.identifier : nil
+        guard let templateId = info?.templateId ?? fallbackTemplateId else { return }
+        if presentAgentMemberIfInConversation(templateId: templateId) { return }
+        presentingContactForAgentShare = .agentSharePlaceholder(
+            templateId: templateId,
+            shareURL: agentShare.url,
+            info: info
         )
     }
 

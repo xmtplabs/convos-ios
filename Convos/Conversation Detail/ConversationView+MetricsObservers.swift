@@ -1,14 +1,11 @@
 import ConvosCore
 import SwiftUI
 
-/// Extracted modifiers carrying the 17 Bool-keyed metrics `.onChange`
-/// observers for the conversation screen. Split into two modifiers
-/// because chaining all 17 into a single `body(content:)` blew past the
-/// 300ms type-check threshold (see CLAUDE.md build-performance notes).
-/// The two object-keyed observers (`presentingProfileForMember`,
-/// `presentingReactionsForMessage`) stay on `ConversationView.body` —
-/// only two modifiers and their types (`ConversationMember?` /
-/// `AnyMessage?`) don't fit a uniform shape.
+/// Extracted modifiers carrying the metrics `.onChange` observers for the
+/// conversation screen. Split into multiple modifiers because chaining all
+/// of them into a single `body(content:)` blew past the type-check
+/// threshold (see CLAUDE.md build-performance notes). Parts 1 and 2 carry
+/// the Bool-keyed observers; Part 3 carries the object-keyed ones.
 extension ConversationView {
     struct MetricsObserversPart1: ViewModifier {
         let presentingConversationSettings: Bool
@@ -51,7 +48,6 @@ extension ConversationView {
         let presentingPhotosInfo: Bool
         let presentingAgentBuilder: Bool
         let presentingNewConvoForInvite: Bool
-        let presentingNewConvoForAgentShare: Bool
         let presentingAddFromContactsPicker: Bool
 
         let onFullInfoChanged: (Bool, Bool) -> Void
@@ -59,7 +55,6 @@ extension ConversationView {
         let onPhotosInfoChanged: (Bool, Bool) -> Void
         let onAgentBuilderChanged: (Bool, Bool) -> Void
         let onNewConvoInviteChanged: (Bool, Bool) -> Void
-        let onNewConvoAgentShareChanged: (Bool, Bool) -> Void
         let onAddFromContactsChanged: (Bool, Bool) -> Void
 
         func body(content: Content) -> some View {
@@ -69,23 +64,25 @@ extension ConversationView {
                 .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
                 .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
                 .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }
-                .onChange(of: presentingNewConvoForAgentShare) { o, n in onNewConvoAgentShareChanged(o, n) }
                 .onChange(of: presentingAddFromContactsPicker) { o, n in onAddFromContactsChanged(o, n) }
         }
     }
 
     struct MetricsObserversPart3: ViewModifier {
         let presentingProfileForMember: ConversationMember?
+        let presentingContactForAgentShare: Contact?
         let presentingReactionsForMessage: AnyMessage?
         let presentingThinkingDetail: ThinkingSessionDescriptor?
 
         let onMemberProfileChanged: (ConversationMember?, ConversationMember?) -> Void
+        let onAgentShareContactChanged: (Contact?, Contact?) -> Void
         let onReactionsChanged: (AnyMessage?, AnyMessage?) -> Void
         let onThinkingDetailChanged: (ThinkingSessionDescriptor?, ThinkingSessionDescriptor?) -> Void
 
         func body(content: Content) -> some View {
             content
                 .onChange(of: presentingProfileForMember) { o, n in onMemberProfileChanged(o, n) }
+                .onChange(of: presentingContactForAgentShare) { o, n in onAgentShareContactChanged(o, n) }
                 .onChange(of: presentingReactionsForMessage) { o, n in onReactionsChanged(o, n) }
                 .onChange(of: presentingThinkingDetail) { o, n in onThinkingDetailChanged(o, n) }
         }
