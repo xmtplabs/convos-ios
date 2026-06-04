@@ -3298,7 +3298,7 @@ extension ConversationViewModel {
     @MainActor
     func exportDebugLogs() async throws -> URL {
         let environment = ConfigManager.shared.currentEnvironment
-        logAgentDebugInfo()
+        let agentDebugInfo = agentDebugInfoText()
 
         var conversationDebugURL: URL?
         do {
@@ -3319,17 +3319,19 @@ extension ConversationViewModel {
         return try await Task.detached {
             try DebugLogExporter.exportAllLogs(
                 environment: environment,
-                conversationDebugInfo: debugInfoURL
+                conversationDebugInfo: debugInfoURL,
+                additionalInfo: agentDebugInfo
             )
         }.value
     }
 
-    /// Writes a summary of the convo's agents into the app log so exported
-    /// log bundles carry agent verification and provenance details.
-    private func logAgentDebugInfo() {
+    /// Summary of the convo's agents, staged into the exported bundle's
+    /// convos-info.txt so log bundles carry agent verification and
+    /// provenance details.
+    private func agentDebugInfoText() -> String? {
         let agents = conversation.members.filter(\.isAgent)
-        guard !agents.isEmpty else { return }
-        Log.info("[AgentDebug] convo \(conversation.id) has \(agents.count) agent(s)")
+        guard !agents.isEmpty else { return nil }
+        var lines: [String] = ["Agents in convo (\(agents.count)):"]
         for agent in agents {
             let profile = agent.profile
             let issuer = agent.agentVerification.issuer?.rawValue ?? "none"
@@ -3337,8 +3339,9 @@ extension ConversationViewModel {
             let instanceId = profile.agentInstanceId ?? "none"
             let publishedURL = profile.agentTemplatePublishedURL ?? "none"
             let summary = "verified=\(agent.isVerifiedAgent), issuer=\(issuer), templateId=\(templateId), instanceId=\(instanceId), publishedUrl=\(publishedURL)"
-            Log.info("[AgentDebug] agent \(profile.inboxId): \(summary)")
+            lines.append("agent \(profile.inboxId): \(summary)")
         }
+        return lines.joined(separator: "\n")
     }
 
     private func metadataDebugFallbackText(reason: String) -> String {
