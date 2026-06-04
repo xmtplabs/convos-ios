@@ -85,6 +85,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
+        // Assign bottomBarHeight before state: its deferred inset update must be
+        // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.focusCoordinator = focusCoordinator
 

@@ -173,12 +173,37 @@ final class MessagesViewController: UIViewController {
     var bottomBarHeight: CGFloat = 0.0 {
         didSet {
             if bottomBarHeight != oldValue {
-                updateBottomInsetForBottomBarHeight()
+                scheduleBottomBarInsetUpdate()
             }
 
             if bottomBarHeight > 0.0 {
                 currentInterfaceActions.options.remove(.determiningBottomBarHeight)
             }
+        }
+    }
+
+    /// `bottomBarHeight` is only written from `updateUIViewController`, which can run
+    /// synchronously inside an in-flight UIKit layout pass (e.g. a sheet's keyboard
+    /// relayout in `UISheetPresentationController`). Animating inset changes and forcing
+    /// collection view layout re-entrantly from there crashes in UIKit's
+    /// `_updateLayoutAttributesForExistingVisibleViewsFadingForBoundsChange:` assertion,
+    /// because `restoreContentOffset` suppresses layout attributes while the collection
+    /// view is mid bounds change. Deferring to the next run loop tick keeps the update
+    /// out of the enclosing layout pass; rapid changes coalesce into one update.
+    ///
+    /// Initial layout stays correct because `updateUIViewController` assigns
+    /// `bottomBarHeight` before `state`, so this deferred inset block is enqueued ahead
+    /// of the initial load's scroll-to-bottom (which runs via the collection view
+    /// reload's async completion). Keep that assignment order in the representable.
+    private var hasPendingBottomBarInsetUpdate: Bool = false
+
+    private func scheduleBottomBarInsetUpdate() {
+        guard !hasPendingBottomBarInsetUpdate else { return }
+        hasPendingBottomBarInsetUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasPendingBottomBarInsetUpdate = false
+            self.updateBottomInsetForBottomBarHeight()
         }
     }
 
