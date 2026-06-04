@@ -42,6 +42,74 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         XCTAssertFalse(viewModel.includeInfoInPublicPreview)
     }
 
+    func testRevealModeDefaultsToOffWhenNoPerConversationPreference() async throws {
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: nil),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "no-prefs-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertTrue(viewModel.autoRevealPhotos)
+        XCTAssertFalse(viewModel.shouldBlurPhotos)
+    }
+
+    func testRevealModeFallsBackToGlobalDefaultWhenBlurEnabledGlobally() async throws {
+        GlobalConvoDefaults.shared.autoRevealPhotos = false
+
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: nil),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "global-blur-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertFalse(viewModel.autoRevealPhotos)
+        XCTAssertTrue(viewModel.shouldBlurPhotos)
+    }
+
+    func testExplicitConversationPreferenceOverridesGlobalDefault() async throws {
+        let preferences = PhotoPreferences(
+            conversationId: "explicit-prefs-conversation",
+            autoReveal: false,
+            hasRevealedFirst: false,
+            sendReadReceipts: nil
+        )
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: preferences),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "explicit-prefs-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertFalse(viewModel.autoRevealPhotos)
+        XCTAssertTrue(viewModel.shouldBlurPhotos)
+    }
+
     func testRevealPreferenceSeededWhenConversationReadyAfterCreation() async throws {
         GlobalConvoDefaults.shared.autoRevealPhotos = true
 

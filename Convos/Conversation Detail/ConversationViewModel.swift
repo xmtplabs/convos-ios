@@ -821,7 +821,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var agentJoinTaskId: String?
 
-    var autoRevealPhotos: Bool = false
+    var autoRevealPhotos: Bool = GlobalConvoDefaults.shared.autoRevealPhotos
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -1163,8 +1163,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1384,15 +1383,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
             }
-    }
-
-    private var defaultAutoRevealForNewConversation: Bool {
-        applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
     }
 
     private func applyGlobalDefaultsForDraftConversationIfNeeded() {
