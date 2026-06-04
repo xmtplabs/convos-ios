@@ -43,6 +43,34 @@ final class PendingAgentPresentationTests: XCTestCase {
         XCTAssertTrue(member.isVerifiedConvosAgent)
     }
 
+    // MARK: - withFallbackAgentDescription
+
+    func testFallbackDescriptionMergesWhenProfileLacksOne() {
+        let member = makeAgentMember(metadata: ["emoji": .string("🧬")])
+
+        let merged = member.withFallbackAgentDescription("Longevity tips and protocols")
+
+        XCTAssertEqual(merged.profile.agentDescription, "Longevity tips and protocols")
+        XCTAssertEqual(merged.profile.profileEmoji, "🧬", "Existing metadata should be preserved")
+        XCTAssertEqual(merged.profile.inboxId, member.profile.inboxId)
+        XCTAssertEqual(merged.agentVerification, member.agentVerification)
+    }
+
+    func testFallbackDescriptionDoesNotOverrideAgentsOwn() {
+        let member = makeAgentMember(metadata: ["description": .string("Written by the agent")])
+
+        let merged = member.withFallbackAgentDescription("Template description")
+
+        XCTAssertEqual(merged.profile.agentDescription, "Written by the agent")
+    }
+
+    func testFallbackDescriptionNoOpWhenNilOrEmpty() {
+        let member = makeAgentMember(metadata: nil)
+
+        XCTAssertNil(member.withFallbackAgentDescription(nil).profile.agentDescription)
+        XCTAssertNil(member.withFallbackAgentDescription("").profile.agentDescription)
+    }
+
     // MARK: - pendingAgentPresentation
 
     func testNoPresentationWhenNotPending() {
@@ -126,6 +154,24 @@ final class PendingAgentPresentationTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func makeAgentMember(metadata: ProfileMetadata?) -> ConversationMember {
+        let profile = Profile(
+            inboxId: "agent-inbox",
+            conversationId: "conv-1",
+            name: "Longevity Lab",
+            avatar: nil,
+            isAgent: true,
+            metadata: metadata
+        )
+        return ConversationMember(
+            profile: profile,
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+    }
 
     private func makeViewModel(
         conversation: Conversation = .mock(id: "test-convo", name: nil, members: [.mock(isCurrentUser: true)])
