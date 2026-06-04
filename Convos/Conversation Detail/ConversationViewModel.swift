@@ -612,14 +612,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             reclearResurrectedDictationTextIfNeeded(oldValue: oldValue)
         }
     }
-    /// When the composer last received a multi-character write in a single
-    /// update. Dictation streams hypothesis updates as bulk replacements
-    /// while typing changes one character at a time, so a recent bulk change
-    /// is the available signal that a send is interrupting dictation -
-    /// iOS exposes no direct way to ask (`textInputMode` stays the regular
-    /// language during dictation and no input-mode notification fires).
-    /// Pastes and link-strips also set this; the cost of that false positive
-    /// is one keyboard round-trip on the next send, which is cosmetic.
+    /// When the composer last received a multi-character insertion in a
+    /// single update. Dictation streams hypothesis updates as bulk
+    /// replacements while typing changes one character at a time, so a
+    /// recent bulk change is the available signal that a send is
+    /// interrupting dictation - iOS exposes no direct way to ask
+    /// (`textInputMode` stays the regular language during dictation and no
+    /// input-mode notification fires). Autocorrect commits, QuickType taps,
+    /// pastes, and coalesced fast typing also set this; that false positive
+    /// is invisible (the send ends the input session via an off-screen
+    /// focus handoff that never moves the keyboard), so the heuristic
+    /// deliberately overtriggers rather than miss real dictation. Cleared
+    /// whenever the composer empties (sends and programmatic clears like
+    /// link-strips), so stale activity never flags a later send.
     private var lastBulkTextChangeAt: Date?
     /// Armed by a send that interrupted likely-dictation. The recognizer's
     /// final transcription can arrive after the composer was already cleared
@@ -642,8 +647,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     private func trackBulkTextChange(oldValue: String) {
-        guard !messageText.isEmpty else { return }
-        if abs(messageText.count - oldValue.count) > 1 {
+        guard !messageText.isEmpty else {
+            lastBulkTextChangeAt = nil
+            return
+        }
+        if messageText.count - oldValue.count > 1 {
             lastBulkTextChangeAt = Date()
         }
     }
@@ -2068,7 +2076,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         static let dictationActivityWindow: TimeInterval = 3.0
         /// How long after a likely-dictation send a multi-character composer
         /// repopulation is treated as the recognizer's late re-insert.
-        static let dictationReclearWindow: TimeInterval = 4.0
+        /// Observed re-inserts land within roughly a second of the send;
+        /// the window is kept tight because a legitimate multi-character
+        /// write inside it (a paste, or the first hypothesis of the next
+        /// dictation) would be cleared too.
+        static let dictationReclearWindow: TimeInterval = 1.5
     }
 }
 
@@ -2458,6 +2470,13 @@ extension ConversationViewModel {
         // session), clearing the binding can be lost entirely and the sent
         // text resurrects in the composer at the keyboard's next commit
         // point.
+        //
+        // The session-ending handoff is reserved for likely-dictation sends
+        // rather than used for every send deliberately: the selection nudge
+        // changes no responder state at all, so the common typed path keeps
+        // zero focus churn (VoiceOver, third-party keyboards, responder
+        // restore edge cases), while the handoff's responder round-trip is
+        // confined to sends that actually need the input session ended.
         let endingDictation = isLikelyDictating
         focusCoordinator.withSettledKeyboardInput(endingInputSession: endingDictation) {
             sendComposerContents(focusCoordinator: focusCoordinator, endedDictation: endingDictation)
