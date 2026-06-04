@@ -217,7 +217,7 @@ had their YAMLs corrected to match actual UI behavior.
 | 04 | ✅ | Paste join via scan view works; paste-invite-button; system paste permission dialog |
 | 13 | ⏭️ | No schema changes on branch; main=dev same commit; not applicable |
 | 15 | ✅ | ConversationViewModel.init: 2-5ms; new convo: 128ms (reuse) / 1068ms (create) |
-| 42 | ✅ | Agent builder + photo: summary chip renders pre/post cold relaunch; builder bar is at top of Chats tab (expanded form); fixed gray-chip bug (photo bundle entries now embed thumbnailDataBase64) |
+| 42 | ✅ | Agent builder + photo: summary chip renders pre/post conversation re-entry; builder bar is at top of Chats tab (expanded form); fixed gray-chip bug (photo bundle entries now embed thumbnailDataBase64) |
 
 All 25 tests validated. 23 pass, 1 fail (test 20), 1 skip (test 13).
 

@@ -105,9 +105,9 @@ steps:
     criteria: summary_shows_thumbnail
     note: >
       This is the regression check for the gray-chip bug: the summary chip
-      renders gray when AgentBuilderSummaryAttachment.photo carries nil
-      thumbnailData even though the photo itself uploads and reaches the
-      agent.
+      renders gray when the stored attachment JSON carries no
+      thumbnailDataBase64, so the hydrated attachment's thumbnailData is nil
+      even though the photo itself uploads and reaches the agent.
 
   - id: verify_bundle_sent
     name: "Verify the builder bundle send reported no errors"

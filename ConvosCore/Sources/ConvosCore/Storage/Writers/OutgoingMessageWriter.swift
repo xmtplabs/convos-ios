@@ -1210,6 +1210,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let thumbnailDataBase64: String? = state.image
             .crossPlatformThumbnailJPEGData(maxPixelSize: bundleChipThumbnailMaxPixelSize)?
             .base64EncodedString()
+        if thumbnailDataBase64 == nil {
+            Log.warning("Chip thumbnail generation failed for photo bundle entry: \(trackingKey)")
+        }
         let stored = StoredRemoteAttachment(
             url: prepared.assetURL,
             contentDigest: prepared.contentDigest,

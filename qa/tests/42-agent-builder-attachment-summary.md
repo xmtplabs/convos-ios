@@ -28,7 +28,7 @@ Verify that creating an agent with a prompt and a photo attachment produces a po
 ### Verify the summary card
 
 5. The summary card should show the prompt text.
-6. The summary card's attachment chip (80pt rounded square under the prompt) should render the attached photo. A flat gray square means the thumbnail is missing — this is the known gray-chip bug (summary chip renders `Color.colorFillSubtle` when the persisted `AgentBuilderSummaryAttachment.photo` carries nil `thumbnailData`, even though the photo uploads and reaches the agent).
+6. The summary card's attachment chip (80pt rounded square under the prompt) should render the attached photo. A flat gray square means the thumbnail is missing — this is the known gray-chip bug (summary chip renders `Color.colorFillSubtle` when the stored attachment JSON carries no `thumbnailDataBase64`, leaving the hydrated attachment's `thumbnailData` nil, even though the photo uploads and reaches the agent).
 7. Check the app log (per log monitoring rules in RULES.md) for "AgentBuilder bundle: failed" or "AgentBuilder: pending media upload await failed" — either fails the bundle criterion. The agent joining and processing is the positive signal the bundle was delivered.
 
 ### Verify persistence across re-entry

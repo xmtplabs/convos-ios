@@ -205,16 +205,16 @@ struct AgentBuilderSummaryView: View {
 /// the staged image under both the tracking key and the stored-JSON key),
 /// then the thumbnail embedded in the stored attachment JSON. Rows written
 /// before photo bundle entries embedded thumbnails - and the brief pre-upload
-/// window where the row still carries a tracking key - resolve via the cache
-/// tier instead of sticking on the gray placeholder. When the cache has
-/// nothing for the key, the embedded thumbnail bytes are written into it so
-/// later renders are plain cache hits.
+/// window where the row still carries a tracking key - resolve via the async
+/// disk tier instead of sticking on the gray placeholder. The chip only
+/// reads from the cache, never writes: the raw attachment key is also the
+/// full-size photo renderer's cache key, so seeding the chip-sized thumbnail
+/// under it could serve a 240px image where full resolution is expected.
 private struct AgentBuilderChipThumbnail: View {
     let attachmentKey: String
     let thumbnailData: Data?
 
     @State private var loadedImage: UIImage?
-    @State private var loadedFromEmbeddedThumbnail: Bool = false
 
     init(attachmentKey: String, thumbnailData: Data?) {
         self.attachmentKey = attachmentKey
@@ -223,7 +223,6 @@ private struct AgentBuilderChipThumbnail: View {
             _loadedImage = State(initialValue: cached)
         } else if let thumbnailData, let image = UIImage(data: thumbnailData) {
             _loadedImage = State(initialValue: image)
-            _loadedFromEmbeddedThumbnail = State(initialValue: true)
         }
     }
 
@@ -238,24 +237,9 @@ private struct AgentBuilderChipThumbnail: View {
             }
         }
         .task(id: attachmentKey) {
-            await resolveFromCache()
+            guard loadedImage == nil else { return }
+            loadedImage = await ImageCache.shared.imageAsync(for: attachmentKey)
         }
-    }
-
-    /// Prefer the cached image (memory, then disk) over the embedded
-    /// thumbnail: on the sender's device the cache holds the full-quality
-    /// staged photo. If the cache misses entirely, seed it with the embedded
-    /// thumbnail bytes; the disk write skips existing files, so a full-size
-    /// cached image is never replaced by the chip-sized thumbnail.
-    private func resolveFromCache() async {
-        guard loadedImage == nil || loadedFromEmbeddedThumbnail else { return }
-        if let cached = await ImageCache.shared.imageAsync(for: attachmentKey) {
-            loadedImage = cached
-            loadedFromEmbeddedThumbnail = false
-            return
-        }
-        guard let thumbnailData else { return }
-        ImageCache.shared.cacheData(thumbnailData, for: attachmentKey, storageTier: .persistent)
     }
 }
 

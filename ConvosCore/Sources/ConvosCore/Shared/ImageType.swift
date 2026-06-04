@@ -22,9 +22,11 @@ extension ImageType {
     }
 
     /// Downscale to a JPEG thumbnail capped at `maxPixelSize` on the longest
-    /// edge. ImageIO decodes straight at the target size (the same fast path
-    /// `UIImage.preparingThumbnail(of:)` uses), so a multi-megapixel photo
-    /// never materializes at full resolution on the way to a small chip.
+    /// edge. The in-memory image is first re-encoded to a full-resolution
+    /// JPEG (ImageIO sources need encoded bytes), then ImageIO decodes that
+    /// straight at the target size. The intermediate encode does materialize
+    /// a full-resolution JPEG buffer once; callers run this off the main
+    /// thread, once per send.
     func crossPlatformThumbnailJPEGData(maxPixelSize: Int, compressionQuality: CGFloat = 0.7) -> Data? {
         guard let sourceData = crossPlatformJPEGData(compressionQuality: 0.9) else { return nil }
         let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
