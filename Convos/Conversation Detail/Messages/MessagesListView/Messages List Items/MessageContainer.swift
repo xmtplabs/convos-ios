@@ -43,6 +43,12 @@ struct MessageContainer<Content: View>: View {
         }
     }
 
+    /// Pins the bubble to the sender's edge when the row is wider than
+    /// `Constant.maxBubbleRowWidth` (regular-width layouts like iPad).
+    private var bubbleAlignment: Alignment {
+        isOutgoing ? .trailing : .leading
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 0.0) {
             if isOutgoing {
@@ -65,5 +71,16 @@ struct MessageContainer<Content: View>: View {
                 spacer
             }
         }
+        .bubbleRowWidthCap(alignment: bubbleAlignment)
+    }
+}
+
+extension View {
+    /// Caps a bubble row at `Constant.maxBubbleRowWidth`, pinning it to the
+    /// sender's edge when the container offers more width (regular-width
+    /// layouts like iPad), then re-expands so the row still spans the list.
+    func bubbleRowWidthCap(alignment: Alignment) -> some View {
+        frame(maxWidth: Constant.maxBubbleRowWidth, alignment: alignment)
+            .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
