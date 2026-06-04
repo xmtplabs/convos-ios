@@ -68,6 +68,14 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// flow re-enters and wants to re-claim from a fresh prewarm.
     func releaseClaimedConversation(id conversationId: String) async
 
+    /// Registers a conversation created outside the cache (e.g. the agent
+    /// builder's auto-created hidden draft, `createConversation(startsUnused:)`)
+    /// as claimed, so `prepareNewConversation()` can't hand the same row to
+    /// another caller while it's actively in use. In-memory only: an app
+    /// restart clears the claim, making an abandoned hidden row consumable
+    /// by the cache again.
+    func registerClaimedConversation(id conversationId: String) async
+
     /// Drops a conversation that was claimed via `prepareNewConversation()` but
     /// never engaged with by the user — typically called from the new-
     /// conversation / Agent Builder X-cancel path when no messages have

@@ -160,14 +160,27 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
-    /// The id returned by `session.prepareNewConversation()` when this VM
-    /// claimed a row from the unused-conversation cache, or `nil` if the
-    /// pool was empty (and the state machine created one on demand). Kept
-    /// here so wrapping VMs (e.g. `AgentBuilderViewModel`) can call
-    /// `session.commitClaimedConversation(id:)` at their own commit
-    /// moment without re-deriving the id from the draft-vs-real
+    /// The id of the hidden (`isUnused = true`) row this VM owns: either
+    /// the row claimed from the unused-conversation cache via
+    /// `session.prepareNewConversation()`, or - for deferred-visibility
+    /// modes when the pool was empty - the row the state machine created
+    /// on demand (`startsUnused`), captured at `.ready`. Kept here so
+    /// wrapping VMs (e.g. `AgentBuilderViewModel`) can promote the row at
+    /// their own commit moment via `commitConversationVisibility()` without
+    /// re-deriving the id from the draft-vs-real
     /// `conversationViewModel.conversation.id`.
     private(set) var claimedConversationId: String?
+
+    /// `.newAgent` keeps its conversation row hidden until the user taps
+    /// Make. The cache-claimed path defers by skipping the commit at
+    /// acquire; the cache-miss path defers by creating the conversation
+    /// with `startsUnused: true`.
+    private let defersVisibilityUntilCommit: Bool
+
+    /// Set when `commitConversationVisibility()` runs before the
+    /// auto-created conversation reaches `.ready` (no id to flip yet).
+    /// Flushed by `handleStateChange(.ready)`.
+    private var pendingVisibilityCommit: Bool = false
 
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
@@ -283,6 +296,10 @@ class NewConversationViewModel: Identifiable, Hashable {
             self.pendingAgentTemplateIds = agentTemplateIds
         }
 
+        // Only `.newAgent` defers row visibility to the Make tap; every
+        // other mode shows the conversation as soon as it exists.
+        self.defersVisibilityUntilCommit = if case .newAgent = mode { true } else { false }
+
         switch mode {
         case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
             self.autoCreateConversation = true
@@ -353,6 +370,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
         self.seededMemberInboxIds = []
+        self.defersVisibilityUntilCommit = false
         // Tests-only init - the warm-cache flow goes through the
         // public init. Existing-conversation cleanup guard stays off.
         self.isExistingConversation = false
@@ -585,11 +603,12 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         if autoCreateConversation && existingConversationId == nil {
             let actions: any CoreActions = coreActions
+            let startsUnused: Bool = defersVisibilityUntilCommit
             newConversationTask = Task { [weak self, stateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
                 do {
-                    try await stateManager.createConversation()
+                    try await stateManager.createConversation(startsUnused: startsUnused)
                     Task { await actions.startedConversation() }
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: stateManager)
                     await self?.persistHidesInviteCardIfNeeded(stateManager: stateManager)
@@ -712,6 +731,21 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    /// Promotes this VM's hidden conversation row into a visible one.
+    /// Covers both deferred-visibility shapes: the cache-claimed row
+    /// (id known since acquire) and the auto-created `startsUnused` row
+    /// (id known at `.ready`). When called before the auto-created
+    /// conversation is ready, the commit is queued and flushed by
+    /// `handleStateChange(.ready)` - mirroring how message sends queue
+    /// until the conversation exists.
+    func commitConversationVisibility() async {
+        if let claimedConversationId {
+            await session.commitClaimedConversation(id: claimedConversationId)
+            return
+        }
+        pendingVisibilityCommit = true
+    }
+
     /// Send a first message through the state machine. Used by wrapping
     /// flows (e.g. AgentBuilderViewModel) that commit a draft before
     /// the user sees the chat view. If the state machine hasn't reached
@@ -767,6 +801,7 @@ class NewConversationViewModel: Identifiable, Hashable {
             guard let conversationStateManager else { return }
             newConversationTask?.cancel()
             let actions: any CoreActions = coreActions
+            let startsUnused: Bool = defersVisibilityUntilCommit
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
@@ -775,7 +810,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                     guard !Task.isCancelled else { return }
                 }
                 do {
-                    try await conversationStateManager.createConversation()
+                    try await conversationStateManager.createConversation(startsUnused: startsUnused)
                     Task { await actions.startedConversation() }
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 } catch {
@@ -1007,6 +1042,25 @@ extension NewConversationViewModel {
             let readyElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
+
+            // Deferred-visibility cache-miss path: the state machine created
+            // this conversation hidden (`startsUnused`), so adopt its id as
+            // the claimed row. Registering the claim keeps
+            // `prepareNewConversation()` from handing the same hidden row to
+            // another caller while this flow is alive; a commit requested
+            // before `.ready` (Make tapped during creation) is flushed here.
+            if defersVisibilityUntilCommit, result.origin == .created, claimedConversationId == nil {
+                let conversationId = result.conversationId
+                claimedConversationId = conversationId
+                let shouldCommitNow = pendingVisibilityCommit
+                pendingVisibilityCommit = false
+                Task { [session] in
+                    await session.registerClaimedConversation(id: conversationId)
+                    if shouldCommitNow {
+                        await session.commitClaimedConversation(id: conversationId)
+                    }
+                }
+            }
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each

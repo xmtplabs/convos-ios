@@ -415,6 +415,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         await unusedConversationCache.releaseClaimedConversationId(conversationId)
     }
 
+    public func registerClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.registerClaimedConversation(id: conversationId)
+    }
+
     public func discardClaimedConversation(id conversationId: String) async {
         await unusedConversationCache.releaseClaimedConversationId(conversationId)
         guard !DBConversation.isDraft(id: conversationId) else { return }

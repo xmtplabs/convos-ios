@@ -227,7 +227,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - DraftConversationWriterProtocol Methods
 
     public func createConversation() async throws {
-        await stateMachine.create(initialMemberInboxIds: initialMemberInboxIds)
+        try await createConversation(startsUnused: false)
+    }
+
+    public func createConversation(startsUnused: Bool) async throws {
+        await stateMachine.create(
+            initialMemberInboxIds: initialMemberInboxIds,
+            startsUnused: startsUnused
+        )
     }
 
     public func joinConversation(inviteCode: String) async throws {

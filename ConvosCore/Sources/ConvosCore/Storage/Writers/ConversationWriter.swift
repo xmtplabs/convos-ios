@@ -681,6 +681,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if !localConversation.isUnused {
                 conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
             }
+            // Preserve hidden state, mirroring `updateExistingConversation`'s
+            // by-id branch: a row only becomes visible through an explicit
+            // commit (`commitClaimedConversation`), never via a stream echo
+            // replacing it by invite tag.
+            if localConversation.isUnused {
+                conversationToSave = conversationToSave.with(isUnused: true)
+            }
             // This row is replacing `localConversation`, so its sticky-on
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
