@@ -430,7 +430,14 @@ struct MainTabView: View {
             }
             .toolbar { sharedToolbar(for: tab) }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
-            .toolbar(isConversationSelected ? .hidden : .visible, for: .tabBar)
+            // `.automatic`, not `.visible`, when no conversation is selected:
+            // an explicit `.visible` at the stack root overrides the
+            // `.toolbarVisibility(.hidden, for: .tabBar)` that pushed
+            // destinations (StuffDetailView, the contact card's pushed
+            // conversation) set for themselves, leaving the tab bar floating
+            // over their bottom chrome. `.automatic` keeps the bar visible on
+            // tab roots while letting those destinations hide it.
+            .toolbar(isConversationSelected ? .hidden : .automatic, for: .tabBar)
     }
 
     /// Shared toolbar (compose + add-agent) applied to each tab's

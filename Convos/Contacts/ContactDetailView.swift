@@ -172,7 +172,11 @@ struct ContactDetailView: View {
 
     /// Existing conversation pushed when a "Convos with you" row is tapped.
     /// `embedsNavigationStack: false` lands the view on the host stack with
-    /// the system back button instead of nesting a second stack.
+    /// the system back button instead of nesting a second stack. The tab bar
+    /// is hidden here (mirroring `StuffDetailView`) because the Contacts tab
+    /// entry point pushes onto a tab stack whose shell only hides the bar for
+    /// Chats/Stuff selections; without this the bar overlaps the composer.
+    /// Harmless in sheet entry points, which have no tab bar.
     @ViewBuilder
     private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
         NewConversationView(
@@ -181,6 +185,7 @@ struct ContactDetailView: View {
             embedsNavigationStack: false
         )
         .background(.colorBackgroundSurfaceless)
+        .toolbarVisibility(.hidden, for: .tabBar)
     }
 
     /// Streams conversations already containing this agent template,
