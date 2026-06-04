@@ -5,10 +5,27 @@ import SwiftUI
 /// flows that need to attach files (mailto: links cannot carry attachments).
 /// Check `MailComposeView.canSendMail` before presenting and fall back to a
 /// mailto: link when no mail account is configured.
+///
+/// Attachments are passed pre-loaded so callers can read the file off the
+/// main thread before presenting (large log bundles would otherwise stall
+/// the sheet animation).
 struct MailComposeView: UIViewControllerRepresentable {
+    struct Attachment: Sendable {
+        let data: Data
+        let mimeType: String
+        let fileName: String
+
+        init?(contentsOf url: URL) {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            self.data = data
+            self.mimeType = url.mailAttachmentMimeType
+            self.fileName = url.lastPathComponent
+        }
+    }
+
     let recipients: [String]
     let subject: String
-    let attachmentURL: URL?
+    let attachment: Attachment?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -21,11 +38,11 @@ struct MailComposeView: UIViewControllerRepresentable {
         controller.mailComposeDelegate = context.coordinator
         controller.setToRecipients(recipients)
         controller.setSubject(subject)
-        if let attachmentURL, let data = try? Data(contentsOf: attachmentURL) {
+        if let attachment {
             controller.addAttachmentData(
-                data,
-                mimeType: attachmentURL.mailAttachmentMimeType,
-                fileName: attachmentURL.lastPathComponent
+                attachment.data,
+                mimeType: attachment.mimeType,
+                fileName: attachment.fileName
             )
         }
         return controller

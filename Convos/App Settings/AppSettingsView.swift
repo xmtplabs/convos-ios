@@ -407,7 +407,7 @@ struct AppSettingsView: View {
     }
 
     private func sendFeedback() {
-        let email = "convos@xmtp.com"
+        let email = "hi@convos.org"
         let subject = "Convos Feedback"
         let mailtoString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)"
 

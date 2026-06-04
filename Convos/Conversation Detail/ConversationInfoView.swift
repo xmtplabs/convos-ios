@@ -80,6 +80,9 @@ struct ConversationInfoView: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var showingExplodeSheet: Bool = false
     @State private var presentingMailCompose: Bool = false
+    @State private var preparingReportIssueEmail: Bool = false
+    @State private var reportIssueAttachment: MailComposeView.Attachment?
+    @State private var exportLogsTask: Task<URL?, Never>?
     @State private var presentingEditView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
@@ -740,27 +743,29 @@ extension ConversationInfoView {
 
     @ViewBuilder
     private var reportIssueRow: some View {
-        if exportedLogsURL != nil {
-            Button {
-                reportIssue()
-            } label: {
-                HStack {
-                    Text("Report an issue")
-                        .foregroundStyle(.colorTextPrimary)
-                    Spacer()
+        Button {
+            reportIssue()
+        } label: {
+            HStack {
+                Text("Report an issue")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if preparingReportIssueEmail {
+                    ProgressView()
+                } else {
                     Image(systemName: "envelope")
                         .foregroundStyle(.colorTextSecondary)
                 }
             }
-            .accessibilityIdentifier("report-issue-button")
-            .sheet(isPresented: $presentingMailCompose) {
-                MailComposeView(
-                    recipients: [Constant.supportEmail],
-                    subject: Constant.supportEmailSubject,
-                    attachmentURL: exportedLogsURL
-                )
-                .ignoresSafeArea()
-            }
+        }
+        .accessibilityIdentifier("report-issue-button")
+        .sheet(isPresented: $presentingMailCompose) {
+            MailComposeView(
+                recipients: [Constant.supportEmail],
+                subject: Constant.supportEmailSubject,
+                attachment: reportIssueAttachment
+            )
+            .ignoresSafeArea()
         }
     }
 
@@ -788,29 +793,56 @@ extension ConversationInfoView {
     }
 
     private func reportIssue() {
-        if MailComposeView.canSendMail {
-            presentingMailCompose = true
-        } else {
+        guard !preparingReportIssueEmail else { return }
+        guard MailComposeView.canSendMail else {
             // No mail account configured for the system compose sheet: fall
             // back to a mailto: draft, which cannot carry the logs attachment.
             let subject = Constant.supportEmailSubject
             let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
             guard let url = URL(string: "mailto:\(Constant.supportEmail)?subject=\(encodedSubject)") else { return }
             openURL(url)
+            return
         }
+        preparingReportIssueEmail = true
+        Task {
+            reportIssueAttachment = await loadReportIssueAttachment()
+            preparingReportIssueEmail = false
+            presentingMailCompose = true
+        }
+    }
+
+    /// Waits for the log export if it is still running, then reads the
+    /// bundle into memory off the main thread so presenting the compose
+    /// sheet doesn't stall on a large file read.
+    private func loadReportIssueAttachment() async -> MailComposeView.Attachment? {
+        guard let url = await exportedLogsURLAwaitingExport() else { return nil }
+        let task = Task.detached { MailComposeView.Attachment(contentsOf: url) }
+        return await task.value
+    }
+
+    private func exportedLogsURLAwaitingExport() async -> URL? {
+        if let exportedLogsURL { return exportedLogsURL }
+        if let exportLogsTask { return await exportLogsTask.value }
+        // The section's export task hasn't started yet; run it directly.
+        return try? await viewModel.exportDebugLogs()
     }
 
     private func prepareExportedLogs() async {
-        do {
-            exportedLogsURL = try await viewModel.exportDebugLogs()
-        } catch {
-            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+        let task = Task { () -> URL? in
+            do {
+                return try await viewModel.exportDebugLogs()
+            } catch {
+                Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+                return nil
+            }
         }
+        exportLogsTask = task
+        exportedLogsURL = await task.value
     }
 
     private enum Constant {
-        static let supportEmail: String = "support@convos.org"
-        static let supportEmailSubject: String = "Convos Issue"
+        static let supportEmail: String = "hi@convos.org"
+        static let supportEmailSubject: String = "I'm reporting an issue"
     }
 }
 
