@@ -1,0 +1,172 @@
+id: "42"
+name: "Agent Builder Attachment Summary"
+description: >
+  Create an agent from the home-screen builder with a prompt and a photo
+  attachment, then verify the post-Make summary card renders both the prompt
+  text and the photo thumbnail chip. Also verifies the staged attachment chip
+  appears in the builder composer before Make, that the builder bundle send
+  reports no errors, and that the summary thumbnail survives leaving and
+  re-entering the conversation (DB rehydration path).
+tags: [agents, agent-builder, attachments, photos]
+depends_on: ["01"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: false
+  screen: conversations_list
+  simulator_has_photos: true
+
+state:
+  agent_conversation_entered: null
+
+setup:
+  - action: download_test_photo
+    args: { url: "https://picsum.photos/seed/builder42/600/400", path: "/tmp/builder-test-photo.jpg" }
+  - action: add_test_photos_to_simulator
+    note: >
+      xcrun simctl addmedia $UDID /tmp/builder-test-photo.jpg
+      Only needed if the photo library is empty (test 20 may have already
+      seeded photos).
+
+steps:
+  - id: open_agent_builder
+    name: "Open the agent builder from home"
+    actions:
+      - tap: { id: "agent-builder-bar-collapsed" }
+      - wait_for_element: { id: "agent-composer-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "agent-composer-text-field" }
+      - element_exists: { id: "agent-make-button" }
+    criteria: builder_opens
+    note: >
+      The builder bar sits at the bottom of the Chats tab. It may render
+      expanded (id "agent-builder-bar-expanded") instead of collapsed —
+      tapping either opens the full-screen builder. The expanded bar also
+      has "Add photo" / "Take photo" shortcut buttons; do not use those
+      here, this test stages the photo from inside the builder.
+
+  - id: type_prompt
+    name: "Type the agent prompt"
+    actions:
+      - type_in_field:
+          id: "agent-composer-text-field"
+          text: "Help me plan protein-packed recipes from this powder"
+    verify:
+      - element_exists: { label_contains: "protein-packed" }
+    criteria: prompt_typed
+
+  - id: attach_photo
+    name: "Attach a photo from the library"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_first_photo: {}
+      - wait_for_element: { id: "agent-attachment-preview", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "agent-attachment-preview" }
+    criteria: photo_staged
+    on_system_dialog: "Allow photo library access if prompted"
+    note: >
+      The photo picker button is in the horizontally scrolling media strip
+      at the bottom of the builder (id "photo-picker-button", label "Photo
+      library"). After picking, the staged photo renders as a square chip
+      with an X remove button above the media strip. The picker loads the
+      image asynchronously — wait for the chip, don't proceed on faith.
+
+  - id: make_agent
+    name: "Tap Make and wait for the agent to be created"
+    actions:
+      - tap: { id: "agent-make-button" }
+      - wait_for_element: { label_contains: "You created an agent", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "You created an agent" }
+    criteria: agent_created
+    note: >
+      Make morphs the builder composer into the summary card pinned at the
+      top of the new agent conversation. The agent (built by the backend
+      agent-builder service) joins shortly after; its contact card slides
+      in below the summary. Builder requires a reachable backend for the
+      env under test.
+
+  - id: verify_summary_card
+    name: "Verify the summary card shows prompt and photo thumbnail"
+    actions:
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "protein-packed" }
+      - visual_check: >
+          The summary card's attachment chip (80pt rounded square under the
+          prompt text) renders the attached photo image. A flat gray square
+          (Color.colorFillSubtle) means the thumbnail is missing — fail this
+          criterion.
+    criteria: summary_shows_thumbnail
+    note: >
+      This is the regression check for the gray-chip bug: the summary chip
+      renders gray when AgentBuilderSummaryAttachment.photo carries nil
+      thumbnailData even though the photo itself uploads and reaches the
+      agent.
+
+  - id: verify_bundle_sent
+    name: "Verify the builder bundle send reported no errors"
+    actions:
+      - find_elements: { pattern: "Add your name and pic" }
+    verify:
+      - cli_output_contains: ""
+    criteria: bundle_sent_ok
+    note: >
+      Check the app log (per log monitoring rules in RULES.md) for
+      "AgentBuilder bundle: failed" or "AgentBuilder: pending media upload
+      await failed" — either line fails this criterion. The agent joining
+      and beginning to process (e.g. status line under its contact card)
+      is the positive signal that the bundle reached the conversation.
+
+  - id: reenter_conversation
+    name: "Leave and re-enter the agent conversation"
+    actions:
+      - navigate_to_conversations_list: {}
+      - wait_for_element: { id: "agent-builder-bar-collapsed", timeout: 10 }
+      - tap: { label_contains: "protein-packed" }
+      - wait_for_element: { label_contains: "You created an agent", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "You created an agent" }
+      - visual_check: >
+          The summary card photo chip still renders the photo after
+          re-entry (summary now rehydrated from the database, not the
+          in-memory commit plan). A gray square here but not in
+          verify_summary_card isolates the bug to persistence/rehydration.
+    criteria: summary_thumbnail_persists
+    note: >
+      The conversation row may be titled by the agent's chosen name rather
+      than the prompt — find the newest conversation row if the prompt
+      text doesn't match a row label.
+
+teardown:
+  - action: navigate_to_conversations_list
+  - action: note
+    args:
+      text: >
+        The agent conversation is left in place — it exercises the
+        conversations list like any other convo and there is no CLI handle
+        to explode it. Delete manually via swipe actions if a pristine
+        list is needed.
+    optional: true
+
+criteria:
+  builder_opens:
+    description: "Tapping the home builder bar opens the agent builder with composer and Make button"
+  prompt_typed:
+    description: "Prompt text appears in the builder composer text field"
+  photo_staged:
+    description: "Picked photo appears as a staged attachment chip (agent-attachment-preview) before Make"
+  agent_created:
+    description: "Make creates the agent conversation and the summary card footer 'You created an agent' appears"
+  summary_shows_thumbnail:
+    description: "Summary card attachment chip renders the photo image, not a gray placeholder"
+  bundle_sent_ok:
+    description: "No 'AgentBuilder bundle: failed' / 'pending media upload await failed' errors in the app log"
+  summary_thumbnail_persists:
+    description: "Summary card photo thumbnail still renders after leaving and re-entering the conversation"

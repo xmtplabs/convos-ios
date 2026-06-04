@@ -97,9 +97,9 @@ struct AgentBuilderSummaryView: View {
     private func chipView(for attachment: HydratedAttachment) -> some View {
         switch attachment.mediaType {
         case .image:
-            photoVideoChip(thumbnailData: attachment.thumbnailData, isVideo: false)
+            photoVideoChip(attachment: attachment, isVideo: false)
         case .video:
-            photoVideoChip(thumbnailData: attachment.thumbnailData, isVideo: true)
+            photoVideoChip(attachment: attachment, isVideo: true)
         case .audio:
             voiceMemoChip(duration: attachment.duration ?? 0, levels: attachment.waveformLevels ?? [])
         case .file, .unknown:
@@ -108,16 +108,11 @@ struct AgentBuilderSummaryView: View {
     }
 
     @ViewBuilder
-    private func photoVideoChip(thumbnailData: Data?, isVideo: Bool) -> some View {
-        Group {
-            if let data = thumbnailData, let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Color.colorFillSubtle
-            }
-        }
+    private func photoVideoChip(attachment: HydratedAttachment, isVideo: Bool) -> some View {
+        AgentBuilderChipThumbnail(
+            attachmentKey: attachment.key,
+            thumbnailData: attachment.thumbnailData
+        )
         .frame(width: chipSize, height: chipSize)
         .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
         .overlay(alignment: .bottomLeading) {
@@ -203,6 +198,46 @@ struct AgentBuilderSummaryView: View {
     }
 
     private let chipSize: CGFloat = 80
+}
+
+/// Chip image with the same tiered source strategy as
+/// `ReplyReferencePhotoPreview`: the thumbnail embedded in the stored
+/// attachment JSON first, then the image cache (the send pipeline caches the
+/// staged image under both the tracking key and the stored-JSON key). Rows
+/// written before photo bundle entries embedded thumbnails — and the brief
+/// pre-upload window where the row still carries a tracking key — resolve via
+/// the cache tier instead of sticking on the gray placeholder.
+private struct AgentBuilderChipThumbnail: View {
+    let attachmentKey: String
+    let thumbnailData: Data?
+
+    @State private var loadedImage: UIImage?
+
+    init(attachmentKey: String, thumbnailData: Data?) {
+        self.attachmentKey = attachmentKey
+        self.thumbnailData = thumbnailData
+        if let thumbnailData, let image = UIImage(data: thumbnailData) {
+            _loadedImage = State(initialValue: image)
+        } else {
+            _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color.colorFillSubtle
+            }
+        }
+        .task(id: attachmentKey) {
+            guard loadedImage == nil else { return }
+            loadedImage = await ImageCache.shared.imageAsync(for: attachmentKey)
+        }
+    }
 }
 
 #Preview {

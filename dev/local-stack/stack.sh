@@ -76,7 +76,9 @@ sync_backend_url() {
   local dv="${WORKER_DIR}/.dev.vars" ip want cur; [[ -f "$dv" ]] || return 0
   ip="$(host_ip)"; [[ -z "$ip" ]] && { warn "no host IP (offline?) — leaving CONVOS_API_BASE_URL as-is"; return; }
   want="http://${ip}:${BACKEND_PORT}/api"
-  cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)"
+  # grep exits 1 when the key is absent (fresh .dev.vars); don't let set -e
+  # kill the whole script before set_env_kv gets to write the key.
+  cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)" || true
   [[ "$cur" == "$want" ]] && { ok "worker CONVOS_API_BASE_URL = ${want} (current)"; return; }
   set_env_kv "$dv" CONVOS_API_BASE_URL "$want"
   ok "worker CONVOS_API_BASE_URL -> ${want}"
@@ -171,7 +173,7 @@ cmd_doctor() {
     local dv="${WORKSPACE}/convos-assistants/workers/assistant/.dev.vars" ip cur
     ip="$(host_ip)"
     if [[ -f "$dv" && -n "$ip" ]]; then
-      cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)"
+      cur="$(grep -E '^CONVOS_API_BASE_URL=' "$dv" | cut -d= -f2-)" || true
       [[ "$cur" == "http://${ip}:${BACKEND_PORT:-4000}/api" ]] \
         && ok "worker backend URL matches host IP ($ip)" \
         || warn "worker CONVOS_API_BASE_URL='${cur:-<unset>}' != host http://${ip}:${BACKEND_PORT:-4000}/api — run 'make up' to re-sync (else the agent-builder calls the wrong backend)"

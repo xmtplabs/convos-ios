@@ -52,6 +52,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 32 | `qa/tests/32-voice-memo-transcription.md` | Voice memo transcription: receive voice memo, on-device transcript appears, expand/collapse, persistence across relaunch, retry on failure |
 | 33 | `qa/tests/33-read-receipts.md` | Read receipts: send on view, display avatars, opt-out setting |
 | 34 | `qa/tests/34-side-convo-stable-emoji.md` | Side convo flow: create linked convo invite, verify invite metadata, and confirm stable conversation emoji across two devices |
+| 42 | `qa/tests/42-agent-builder-attachment-summary.md` | Agent builder: create agent with prompt + photo attachment, verify summary card renders the photo thumbnail (pre- and post-rehydration) |
 
 ## Running Tests
 
