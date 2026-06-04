@@ -622,12 +622,15 @@ struct ContactDetailView: View {
         guard let session, let templateId = contact.agentTemplateId else { return }
         // The contact card already has the agent's identity in hand, so paint
         // it optimistically while the conversation provisions and the agent
-        // joins -- no async resolve needed.
+        // joins -- no async resolve needed. `agentDescription` carries the
+        // template description (seeded from the contact or resolved on
+        // appear), so the optimistic contact card shows it instead of the
+        // "Learning more about my job" placeholder while the agent joins.
         let optimisticIdentity = AgentShareInfo(
             templateId: templateId,
             displayName: contact.displayName,
             emoji: contact.profileEmoji,
-            descriptionText: nil,
+            descriptionText: agentDescription,
             avatarURL: contact.avatarURL
         )
         presentingNewConvo = NewConversationViewModel(

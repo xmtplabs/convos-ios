@@ -361,11 +361,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// processor synthesizes the contact card immediately. The synthetic
     /// member is only ever handed to the repository here -- it is never
     /// inserted into `conversation.members`.
+    ///
+    /// Once the real agent joins, its profile can briefly lack the
+    /// `description` metadata (the agent writes it after joining), so the
+    /// template description from the optimistic identity is kept as a
+    /// fallback -- otherwise the card would regress from the template
+    /// description back to the pulsing placeholder until the agent's own
+    /// description arrives.
     private func syncVerifiedAgentToRepo() {
         let realAgent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
         let agent: ConversationMember?
         if let realAgent {
-            agent = realAgent
+            agent = realAgent.withFallbackAgentDescription(optimisticAgentIdentity?.descriptionText)
         } else if let presentation = pendingAgentPresentation,
                   presentation.showsContactCard,
                   let identity = optimisticAgentIdentity {
