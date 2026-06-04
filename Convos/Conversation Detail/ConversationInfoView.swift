@@ -77,7 +77,9 @@ struct ConversationInfoView: View {
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var showingExplodeSheet: Bool = false
+    @State private var presentingMailCompose: Bool = false
     @State private var presentingEditView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
@@ -512,105 +514,6 @@ struct ConversationInfoView: View {
         }
     }
 
-    // The share-logs row ships in every environment so production users can
-    // send on-device diagnostics to support; the remaining rows are internal
-    // debugging tools and stay out of production builds.
-    @ViewBuilder
-    private var debugInfoSection: some View {
-        let isProduction = ConfigManager.shared.currentEnvironment.isProduction
-        let header: String = isProduction ? "Diagnostics" : "Debug info"
-        Section {
-            if !isProduction {
-                internalDebugRows
-            }
-            shareLogsRow
-        } header: {
-            Text(header)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .task {
-            await prepareExportedLogs()
-        }
-    }
-
-    @ViewBuilder
-    private var internalDebugRows: some View {
-        HStack {
-            Text("Fork status")
-            Spacer()
-            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
-                .foregroundStyle(.colorTextSecondary)
-        }
-        HStack {
-            Text("Epoch")
-            Spacer()
-            Text("\(viewModel.conversation.debugInfo.epoch)")
-                .foregroundStyle(.colorTextSecondary)
-        }
-        NavigationLink {
-            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
-        } label: {
-            Text("Fork details")
-        }
-        NavigationLink {
-            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
-        } label: {
-            Text("Local commit log")
-        }
-        NavigationLink {
-            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
-        } label: {
-            Text("Remote commit log")
-        }
-        NavigationLink {
-            DebugLogsTextView(logs: metadataDebugText)
-                .task {
-                    metadataDebugText = await viewModel.conversationMetadataDebugText()
-                }
-        } label: {
-            Text("Metadata")
-        }
-        NavigationLink {
-            HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
-        } label: {
-            Text("Hidden messages")
-        }
-        Button {
-            showingRestoreInviteTagAlert = true
-        } label: {
-            Text("Restore invite tag")
-        }
-    }
-
-    @ViewBuilder
-    private var shareLogsRow: some View {
-        if let url = exportedLogsURL {
-            ShareLink(item: url) {
-                HStack {
-                    Text("Share logs")
-                    Spacer()
-                    Image(systemName: "square.and.arrow.up")
-                }
-            }
-        } else {
-            HStack {
-                Text("Preparing logs…")
-                Spacer()
-                ProgressView()
-            }
-            .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    private func prepareExportedLogs() async {
-        do {
-            exportedLogsURL = try await viewModel.exportDebugLogs()
-        } catch {
-            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-        }
-    }
-
     private var navigationBarContent: some ToolbarContent {
         Group {
             ToolbarItem(placement: .topBarLeading) {
@@ -758,6 +661,156 @@ struct ConversationInfoView: View {
                         }
                 }
         }
+    }
+}
+
+// MARK: - Support and debug section
+
+extension ConversationInfoView {
+    // The support rows ship in every environment so production users can
+    // send on-device diagnostics to support; the remaining rows are internal
+    // debugging tools and stay out of production builds.
+    @ViewBuilder
+    private var debugInfoSection: some View {
+        let isProduction = ConfigManager.shared.currentEnvironment.isProduction
+        Section {
+            if !isProduction {
+                internalDebugRows
+            }
+            reportIssueRow
+            shareLogsRow
+        } header: {
+            Text("Support")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .task {
+            await prepareExportedLogs()
+        }
+    }
+
+    @ViewBuilder
+    private var internalDebugRows: some View {
+        HStack {
+            Text("Fork status")
+            Spacer()
+            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        HStack {
+            Text("Epoch")
+            Spacer()
+            Text("\(viewModel.conversation.debugInfo.epoch)")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
+        } label: {
+            Text("Fork details")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
+        } label: {
+            Text("Local commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
+        } label: {
+            Text("Remote commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: metadataDebugText)
+                .task {
+                    metadataDebugText = await viewModel.conversationMetadataDebugText()
+                }
+        } label: {
+            Text("Metadata")
+        }
+        NavigationLink {
+            HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
+        } label: {
+            Text("Hidden messages")
+        }
+        Button {
+            showingRestoreInviteTagAlert = true
+        } label: {
+            Text("Restore invite tag")
+        }
+    }
+
+    @ViewBuilder
+    private var reportIssueRow: some View {
+        if exportedLogsURL != nil {
+            Button {
+                reportIssue()
+            } label: {
+                HStack {
+                    Text("Report an issue")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "envelope")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+            .accessibilityIdentifier("report-issue-button")
+            .sheet(isPresented: $presentingMailCompose) {
+                MailComposeView(
+                    recipients: [Constant.supportEmail],
+                    subject: Constant.supportEmailSubject,
+                    attachmentURL: exportedLogsURL
+                )
+                .ignoresSafeArea()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var shareLogsRow: some View {
+        if let url = exportedLogsURL {
+            ShareLink(item: url) {
+                HStack {
+                    Text("Share logs")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack {
+                Text("Preparing logs…")
+                Spacer()
+                ProgressView()
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    private func reportIssue() {
+        if MailComposeView.canSendMail {
+            presentingMailCompose = true
+        } else {
+            // No mail account configured for the system compose sheet: fall
+            // back to a mailto: draft, which cannot carry the logs attachment.
+            let subject = Constant.supportEmailSubject
+            let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+            guard let url = URL(string: "mailto:\(Constant.supportEmail)?subject=\(encodedSubject)") else { return }
+            openURL(url)
+        }
+    }
+
+    private func prepareExportedLogs() async {
+        do {
+            exportedLogsURL = try await viewModel.exportDebugLogs()
+        } catch {
+            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+        }
+    }
+
+    private enum Constant {
+        static let supportEmail: String = "support@convos.org"
+        static let supportEmailSubject: String = "Convos Issue"
     }
 }
 

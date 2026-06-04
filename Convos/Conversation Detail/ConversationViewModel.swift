@@ -3298,6 +3298,7 @@ extension ConversationViewModel {
     @MainActor
     func exportDebugLogs() async throws -> URL {
         let environment = ConfigManager.shared.currentEnvironment
+        logAgentDebugInfo()
 
         var conversationDebugURL: URL?
         do {
@@ -3321,6 +3322,23 @@ extension ConversationViewModel {
                 conversationDebugInfo: debugInfoURL
             )
         }.value
+    }
+
+    /// Writes a summary of the convo's agents into the app log so exported
+    /// log bundles carry agent verification and provenance details.
+    private func logAgentDebugInfo() {
+        let agents = conversation.members.filter(\.isAgent)
+        guard !agents.isEmpty else { return }
+        Log.info("[AgentDebug] convo \(conversation.id) has \(agents.count) agent(s)")
+        for agent in agents {
+            let profile = agent.profile
+            let issuer = agent.agentVerification.issuer?.rawValue ?? "none"
+            let templateId = profile.agentTemplateId ?? "none"
+            let instanceId = profile.agentInstanceId ?? "none"
+            let publishedURL = profile.agentTemplatePublishedURL ?? "none"
+            let summary = "verified=\(agent.isVerifiedAgent), issuer=\(issuer), templateId=\(templateId), instanceId=\(instanceId), publishedUrl=\(publishedURL)"
+            Log.info("[AgentDebug] agent \(profile.inboxId): \(summary)")
+        }
     }
 
     private func metadataDebugFallbackText(reason: String) -> String {
