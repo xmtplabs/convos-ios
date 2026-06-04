@@ -47,7 +47,7 @@ struct AddToConversationMenu: View {
 
             Button(action: onAddFromContacts) {
                 Text("Add from Contacts")
-                Text("Pick from people you've talked to")
+                Text("People and agents")
                 Image(systemName: "person.crop.circle.badge.plus")
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
