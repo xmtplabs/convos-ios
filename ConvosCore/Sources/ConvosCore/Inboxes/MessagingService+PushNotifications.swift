@@ -133,6 +133,14 @@ extension MessagingService {
         // Sync all conversations - this will fetch any groups we've been added to
         _ = try await client.conversationsProvider.syncAllConversations(consentStates: [.unknown])
 
+        // The pairing DM is a brand-new conversation, so a pairing join
+        // request's first delivery is this welcome push. Detect it before
+        // anything else can return - the joiner only waits a few minutes,
+        // and with no topic subscription for the new DM there may be no
+        // second push. Detection has no side effects; the invite
+        // processing below still runs either way.
+        let pairingRequest = await detectRecentPairingJoinRequest(client: client)
+
         // Case 1: Process join requests (others accepting our invites)
         let joinRequestOutcomes = await joinRequestsManager.processJoinRequestOutcomes(since: lastProcessed, client: client)
         await handleJoinRequestOutcomesForPush(
@@ -141,6 +149,19 @@ extension MessagingService {
             apiClient: apiClient,
             context: "welcome"
         )
+
+        if let pairingRequest {
+            // Only let a genuinely surfaced pairing request short-circuit.
+            // The scan spans all recent DMs, not just this push's topic, so
+            // a deduped duplicate (.droppedMessage) might belong to an
+            // earlier push - returning it here would suppress a join-result
+            // or new-group notification this same push legitimately carries.
+            // On a duplicate, fall through to those checks instead.
+            let notification = pairingRequestNotification(pairingRequest, userInfo: userInfo)
+            if !notification.isDroppedMessage {
+                return notification
+            }
+        }
 
         if let result = joinRequestOutcomes.compactMap(\.result).first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
@@ -333,6 +354,14 @@ extension MessagingService {
             if decodedMessage.senderInboxId == currentInboxId {
                 Log.debug("Dropping DM notification - message from self")
                 return .droppedMessage
+            }
+
+            // A pairing join request (the joiner re-sends every few
+            // seconds while connecting) - surface "<device> is requesting
+            // to pair" instead of feeding it to the invite flow.
+            if let identity = try? identityStore.loadSync(),
+               let pairingRequest = PairingJoinRequestDetector.verifiedJoinRequest(in: decodedMessage, identity: identity) {
+                return pairingRequestNotification(pairingRequest, userInfo: userInfo)
             }
 
             // DMs are only used for join requests (invite acceptance flow)
@@ -1247,5 +1276,95 @@ extension MessagingService {
         } catch {
             Log.error("NSE: Failed to schedule explosion notification: \(error.localizedDescription)")
         }
+    }
+}
+
+// MARK: - Pairing Join Requests
+
+extension MessagingService {
+    /// Scans recently created unknown-consent DMs for a verified pairing
+    /// join request (see `PairingJoinRequestDetector` for the security
+    /// model). Used by the welcome-push path, where the request's content
+    /// isn't in the payload - the pairing DM was just synced from the
+    /// network. Bounded to a handful of fresh DMs and their latest
+    /// messages so it stays cheap inside the NSE's time budget.
+    func detectRecentPairingJoinRequest(client: any XMTPClientProvider) async -> VerifiedPairingJoinRequest? {
+        guard let identity = try? identityStore.loadSync() else { return nil }
+        let cutoff = Date().addingTimeInterval(-PairingPushConstant.requestWindow)
+        let cutoffNs = Int64(cutoff.timeIntervalSince1970 * 1_000_000_000)
+        let dms: [Dm]
+        do {
+            dms = try client.conversationsProvider.listDms(
+                createdAfterNs: cutoffNs,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: PairingPushConstant.maxScannedDms,
+                consentStates: [.unknown],
+                orderBy: .createdAt
+            )
+        } catch {
+            Log.warning("NSE: failed to list DMs for pairing scan: \(error)")
+            return nil
+        }
+        for dm in dms {
+            let messages = (try? await dm.messages(limit: PairingPushConstant.maxScannedMessagesPerDm)) ?? []
+            for message in messages {
+                if let request = PairingJoinRequestDetector.verifiedJoinRequest(in: message, identity: identity) {
+                    return request
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Builds the "<device> is requesting to pair" notification and
+    /// stashes the request for the main app to present on next activation
+    /// (`PendingPairRequestStore`). The stash doubles as the dedupe
+    /// record: the joiner re-sends its request every few seconds, and one
+    /// banner per burst is plenty.
+    func pairingRequestNotification(
+        _ request: VerifiedPairingJoinRequest,
+        userInfo: [AnyHashable: Any]
+    ) -> DecodedNotificationContent {
+        let appGroup = environment.appGroupIdentifier
+        if let existing = PendingPairRequestStore.pending(appGroup: appGroup),
+           existing.joinerInboxId == request.joinerInboxId,
+           Date().timeIntervalSince(existing.receivedAt) < PairingPushConstant.dedupeWindow {
+            Log.debug("NSE: suppressing duplicate pairing request notification")
+            return .droppedMessage
+        }
+        PendingPairRequestStore.setPending(
+            .init(
+                joinerInboxId: request.joinerInboxId,
+                deviceName: request.deviceName,
+                receivedAt: Date()
+            ),
+            appGroup: appGroup
+        )
+        Log.info("NSE: surfacing pairing join request from \(request.joinerInboxId)")
+        // The conversationId becomes the notification's threadIdentifier.
+        // Stamping the fixed pairing thread lets the system collapse a
+        // resend burst's banners and lets the app's activation cleanup
+        // find and remove NSE-posted ones (whose request identifiers are
+        // system-assigned and unknowable here).
+        return .init(
+            title: "Pair new device",
+            body: "\"\(request.deviceName)\" is requesting to pair",
+            conversationId: PairingNotificationThread.identifier,
+            userInfo: userInfo
+        )
+    }
+
+    private enum PairingPushConstant {
+        /// How far back a DM can have been created and still be scanned;
+        /// matches the joiner's resend window.
+        static let requestWindow: TimeInterval = 300
+        /// One banner per request burst: the joiner re-sends every ~5s,
+        /// and each NSE invocation is a fresh process, so dedupe lives in
+        /// the app-group stash rather than memory.
+        static let dedupeWindow: TimeInterval = 60
+        static let maxScannedDms: Int = 10
+        static let maxScannedMessagesPerDm: Int = 5
     }
 }

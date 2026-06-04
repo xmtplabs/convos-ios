@@ -42,7 +42,7 @@ Simulators don't sync iCloud Keychain, so the "new device on the same iCloud acc
 
 11. Device B's conversation list mirrors Device A's history with no "Add your name and pic" CTA - proof the found inbox id became this device's identity.
 12. Relaunch Device B once more: the prompt must not return even though the decline flag was cleared in step 5 - B's identity now matches the backup, so it is excluded from the pairable list.
-13. (Manual, timing-sensitive) Background Device A's app, start a fresh pair attempt on a reset Device B within ~10s: Device A posts a local notification "<device>" is requesting to pair; foregrounding A presents the PIN sheet from the stashed request. A killed app gets nothing until the NSE handles pairing pushes (documented follow-up).
+13. (Manual, timing-sensitive) Background Device A's app, start a fresh pair attempt on a reset Device B within ~10s: Device A posts a local notification "<device>" is requesting to pair; foregrounding A presents the PIN sheet from the stashed request. For a killed app, the NSE detects the join request in the welcome/message push, shows the same banner, and stashes via `PendingPairRequestStore` - real devices only (simulators receive no remote APNS).
 
 ## Teardown
 
