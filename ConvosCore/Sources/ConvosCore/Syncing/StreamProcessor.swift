@@ -233,7 +233,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
-        if handleDeviceRemovedFastPath(message: message, params: params) { return }
+        if handleFastPaths(message: message, params: params) { return }
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
@@ -340,6 +340,14 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
+
+    /// Pre-conversation-lookup handlers for system-signal content types
+    /// that need no conversation context. Returns true when the message
+    /// was consumed and normal processing should stop.
+    private func handleFastPaths(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        if handleDeviceRemovedFastPath(message: message, params: params) { return true }
+        return handlePairingJoinRequestFastPath(message: message, params: params)
+    }
 
     private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
         guard let encodedContentType = try? message.encodedContent.type,
@@ -878,6 +886,73 @@ extension StreamProcessor {
             name: .installationWasRevokedByPeer,
             object: nil,
             userInfo: ["revokedInstallationId": removal.revokedInstallationId]
+        )
+        return true
+    }
+}
+
+// MARK: - Pairing Join Requests
+
+extension StreamProcessor {
+    /// Pre-conversation-lookup fast path for `PairingJoinRequestContent`,
+    /// so "another device wants to pair" surfaces even when the Devices
+    /// pairing screen isn't open (the iCloud-discovery joiner sends its
+    /// request unsolicited).
+    ///
+    /// Only requests whose embedded invite slug is signed by this inbox's
+    /// own identity key are surfaced: the iCloud-discovery joiner mints
+    /// its slug from the synced keychain backup and the QR flow signs its
+    /// slug locally, so both carry our signature, while a forged request
+    /// can't - producing a valid slug requires the private key. The
+    /// address comparison anchors that verification to our key: the
+    /// slug's inboxId and address fields are attacker-choosable, but the
+    /// signature only ever recovers to the signer's own address.
+    ///
+    /// Returns true whenever the message is a pairing join request (valid
+    /// or not) so normal message processing skips it either way.
+    func handlePairingJoinRequestFastPath(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        guard let typeId = try? message.encodedContent.type.typeID,
+              typeId == ContentTypePairingJoinRequest.typeID else {
+            return false
+        }
+        guard message.senderInboxId != params.client.inboxId,
+              let content = try? message.content() as PairingJoinRequestContent else {
+            return true
+        }
+        let invite: PairingInvite
+        do {
+            invite = try PairingInvite.fromURLSafeSlug(content.slug)
+        } catch {
+            Log.warning("StreamProcessor: ignoring pairing join request with undecodable or expired slug: \(error)")
+            return true
+        }
+        guard let identity = try? identityStore.loadSync(),
+              invite.initiatorInboxId == identity.inboxId,
+              invite.initiatorAddress.lowercased() == identity.keys.privateKey.walletAddress.lowercased() else {
+            Log.warning("StreamProcessor: ignoring pairing join request whose slug wasn't signed by this identity")
+            return true
+        }
+        // Bind the slug's nonce to the first joiner that used it: the
+        // legit joiner's resend loop reuses its slug freely, but a
+        // different inbox replaying a captured slug (e.g. a photographed
+        // QR still inside its expiry window) is dropped instead of
+        // popping an unsolicited PIN sheet. In-memory is enough - slugs
+        // expire in minutes and the processor outlives any handshake.
+        if let boundJoiner = PairingNonceLedger.shared.joiner(for: invite.nonce),
+           boundJoiner != message.senderInboxId {
+            Log.warning("StreamProcessor: ignoring pairing join request replaying another joiner's slug")
+            return true
+        }
+        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: message.senderInboxId)
+        Log.info("StreamProcessor: verified pairing join request from joiner \(message.senderInboxId) - surfacing")
+        NotificationCenter.default.post(
+            name: .pairingDidReceiveVerifiedJoinRequest,
+            object: nil,
+            userInfo: [
+                "joinerInboxId": message.senderInboxId,
+                "deviceName": content.deviceName,
+                "slug": content.slug
+            ]
         )
         return true
     }

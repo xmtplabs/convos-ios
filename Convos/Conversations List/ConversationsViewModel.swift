@@ -84,6 +84,34 @@ final class ConversationsViewModel {
     var pendingGrantRequest: PendingGrantRequest?
     var pendingPairDevice: PendingPairDevice?
     var pendingJoinerPairing: JoinerPairingSheetViewModel?
+    /// Drives the first-install "Pair <device>?" sheet when another
+    /// device's identity is found in the iCloud-synced keychain backup.
+    var foundDevicePairingPrompt: FoundDevicePairingPrompt?
+    /// Joiner pairing flow prepared by `pairWithFoundDevice()`, promoted
+    /// to `pendingJoinerPairing` once the prompt sheet finishes
+    /// dismissing - presenting both sheets in the same tick can drop the
+    /// second presentation.
+    @ObservationIgnored
+    private var preparedFoundDevicePairing: JoinerPairingSheetViewModel?
+    /// Whether the prompt sheet's dismissal has completed. Minting and
+    /// dismissal race in both directions: whichever finishes second
+    /// performs the promotion (see `pairWithFoundDevice`).
+    @ObservationIgnored
+    private var foundDevicePromptDismissalComplete: Bool = false
+    @ObservationIgnored
+    private var didCheckForPairableDevice: Bool = false
+    /// Initiator pairing sheet auto-surfaced by a verified join request
+    /// arriving on the main message stream. Presented at MainTabView
+    /// level so it shows over any tab.
+    var incomingPairingRequest: PairingSheetViewModel?
+    /// When the current `incomingPairingRequest` was assigned. Drives the
+    /// dropped-presentation watchdog in `handleVerifiedJoinRequest`.
+    @ObservationIgnored
+    private var incomingPairingPresentedAt: Date?
+    @ObservationIgnored
+    private var pendingIncomingPairRequest: PendingIncomingPairRequest?
+    @ObservationIgnored
+    private let incomingPairingObservers: PairingNotificationObservers = .init()
     let staleDeviceObserver: StaleDeviceObserver = .init()
 
     var newConversationViewModel: NewConversationViewModel? {
@@ -221,6 +249,7 @@ final class ConversationsViewModel {
 
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasCreatedMoreThanOneConvoKey)
+        UserDefaults.standard.removeObject(forKey: hasDeclinedFoundDevicePairingKey)
     }
 
     // MARK: - Private
@@ -281,6 +310,7 @@ final class ConversationsViewModel {
             self.conversationsCount = 0
         }
         observe()
+        observeIncomingPairingRequests()
     }
 
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
@@ -292,6 +322,7 @@ final class ConversationsViewModel {
     func onAppear() {
         isVisible = true
         updateListVisibility()
+        checkForPairableDeviceIfNeeded()
     }
 
     func onDisappear() {
@@ -348,66 +379,10 @@ final class ConversationsViewModel {
                 expiresAt: expiresAt,
                 initiatorName: initiatorName
             )
-            let capturedSession = session
-            pendingJoinerPairing = JoinerPairingSheetViewModel(
+            pendingJoinerPairing = makeJoinerPairingViewModel(
                 pairingId: pairingId,
                 expiresAt: expiresAt,
-                initiatorName: initiatorName,
-                pairingService: capturedSession.joinerPairingService(),
-                onPairingAdopted: { [weak self] in
-                    await self?.session.refreshAfterPairingCompleted()
-                },
-                onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
-                    // The joiner just adopted the initiator's identity, so
-                    // it shouldn't be asked to onboard a profile from
-                    // scratch. Three side-effects in order:
-                    //   1. Seed DBMyProfile from the share payload (may fail).
-                    //   2. Re-bind the shared profile VM unconditionally.
-                    //      Identity adoption already happened, so the
-                    //      VM's cached writer / repository for the
-                    //      placeholder session are stale either way — a
-                    //      failed seed doesn't reverse the adoption, and
-                    //      leaving the VM bound to the now-stopped
-                    //      MessagingService risks crashes on subsequent
-                    //      profile operations.
-                    //   3. Flip global onboarding flags *only* on a
-                    //      successful seed, so a failed save doesn't
-                    //      permanently suppress prompts under an empty
-                    //      DBMyProfile.
-                    guard let session = self?.session else { return }
-                    var seeded: Bool = false
-                    do {
-                        try await session.messagingService().myGlobalProfileWriter().save(
-                            name: displayName,
-                            imageData: nil,
-                            imageAssetIdentifier: imageAssetIdentifier,
-                            metadata: nil
-                        )
-                        // Propagate the adopted profile through the canonical
-                        // repository so it fans out to every conversation via
-                        // the durable publisher. No image bytes are available on
-                        // the adoption path, so only the display name is sent.
-                        try await session.messagingService().profilesRepository().publishMyProfile(
-                            displayName: displayName,
-                            avatarBytes: nil,
-                            priorityConversationId: nil
-                        )
-                        seeded = true
-                    } catch {
-                        Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
-                    }
-                    ProfileSettingsViewModel.shared.rebind(session: session)
-                    if seeded {
-                        ConversationOnboardingCoordinator.markCompletedForPairedDevice()
-                    }
-                },
-                onDeleteExistingData: { [weak self] in
-                    try await self?.session.deleteAllInboxes()
-                },
-                checkHasExistingData: { [weak self] in
-                    guard let session = self?.session else { return false }
-                    return await session.hasAnyUsedConversations()
-                }
+                initiatorName: initiatorName
             )
         case .agentTemplate(templateId: let templateId):
             startConversation(withAgentTemplateId: templateId)
@@ -799,6 +774,363 @@ final class ConversationsViewModel {
             }
         }
     }
+}
+
+// MARK: - Device Pairing
+
+extension ConversationsViewModel {
+    /// Builds a joiner-side pairing sheet VM with the session callbacks
+    /// shared by both entry points: the `/pair/<slug>` deep link and the
+    /// first-install iCloud-discovery prompt.
+    func makeJoinerPairingViewModel(
+        pairingId: String,
+        expiresAt: Date?,
+        initiatorName: String?,
+        timeoutInterval: TimeInterval = 60,
+        connectingMessage: String? = nil,
+        resendJoinRequestInterval: TimeInterval? = nil
+    ) -> JoinerPairingSheetViewModel {
+        JoinerPairingSheetViewModel(
+            pairingId: pairingId,
+            expiresAt: expiresAt,
+            initiatorName: initiatorName,
+            timeoutInterval: timeoutInterval,
+            connectingMessage: connectingMessage,
+            resendJoinRequestInterval: resendJoinRequestInterval,
+            pairingService: session.joinerPairingService(),
+            onPairingAdopted: { [weak self] in
+                await self?.session.refreshAfterPairingCompleted()
+            },
+            onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
+                // The joiner just adopted the initiator's identity, so
+                // it shouldn't be asked to onboard a profile from
+                // scratch. Three side-effects in order:
+                //   1. Seed DBMyProfile from the share payload (may fail).
+                //   2. Re-bind the shared profile VM unconditionally.
+                //      Identity adoption already happened, so the
+                //      VM's cached writer / repository for the
+                //      placeholder session are stale either way — a
+                //      failed seed doesn't reverse the adoption, and
+                //      leaving the VM bound to the now-stopped
+                //      MessagingService risks crashes on subsequent
+                //      profile operations.
+                //   3. Flip global onboarding flags *only* on a
+                //      successful seed, so a failed save doesn't
+                //      permanently suppress prompts under an empty
+                //      DBMyProfile.
+                guard let session = self?.session else { return }
+                var seeded: Bool = false
+                do {
+                    try await session.messagingService().myGlobalProfileWriter().save(
+                        name: displayName,
+                        imageData: nil,
+                        imageAssetIdentifier: imageAssetIdentifier,
+                        metadata: nil
+                    )
+                    // Propagate the adopted profile through the canonical
+                    // repository so it fans out to every conversation via
+                    // the durable publisher. No image bytes are available on
+                    // the adoption path, so only the display name is sent.
+                    try await session.messagingService().profilesRepository().publishMyProfile(
+                        displayName: displayName,
+                        avatarBytes: nil,
+                        priorityConversationId: nil
+                    )
+                    seeded = true
+                } catch {
+                    Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
+                }
+                ProfileSettingsViewModel.shared.rebind(session: session)
+                if seeded {
+                    ConversationOnboardingCoordinator.markCompletedForPairedDevice()
+                }
+            },
+            onDeleteExistingData: { [weak self] in
+                try await self?.session.deleteAllInboxes()
+            },
+            checkHasExistingData: { [weak self] in
+                guard let session = self?.session else { return false }
+                return await session.hasAnyUsedConversations()
+            }
+        )
+    }
+
+    private static let hasDeclinedFoundDevicePairingKey: String = "hasDeclinedFoundDevicePairing"
+    private var hasDeclinedFoundDevicePairing: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: Self.hasDeclinedFoundDevicePairingKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.hasDeclinedFoundDevicePairingKey)
+        }
+    }
+
+    /// First-install check for another device's identity in the
+    /// iCloud-synced keychain backup. Runs once per launch from
+    /// `onAppear`; re-running on later launches covers iCloud Keychain's
+    /// sync latency (a backup that hadn't synced yet on first launch).
+    ///
+    /// Deliberately not gated on local "engagement" signals:
+    /// fresh-install bootstrap pollutes all of them with zero user
+    /// interaction (`hasAnyUsedConversations()` flips once the inline
+    /// agent builder's auto-claimed draft commits on first termination,
+    /// and the conversations count includes the hidden prewarmed convo),
+    /// which would permanently suppress the prompt from the second launch
+    /// on. The prompt therefore shows whenever another identity's backup
+    /// exists and the user hasn't declined; data on an established
+    /// install stays safe because the joiner flow runs its own
+    /// hold-to-erase guard before anything destructive.
+    func checkForPairableDeviceIfNeeded() {
+        guard !didCheckForPairableDevice else { return }
+        didCheckForPairableDevice = true
+        guard !hasDeclinedFoundDevicePairing else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let backups = await self.session.pairableDeviceBackups()
+            QAEvent.emit(.pairing, "found_device_check", ["pairableCount": "\(backups.count)"])
+            guard let newest = backups.first else { return }
+            // Don't fight an in-flight deep-link pairing flow.
+            guard self.pendingJoinerPairing == nil, self.foundDevicePairingPrompt == nil else { return }
+            self.foundDevicePairingPrompt = FoundDevicePairingPrompt(
+                inboxId: newest.inboxId,
+                deviceName: newest.deviceName
+            )
+            QAEvent.emit(.pairing, "found_device_prompt_shown", [
+                "inboxId": newest.inboxId,
+                "deviceName": newest.deviceName ?? ""
+            ])
+        }
+    }
+
+    /// Primary action of the prompt sheet: dismisses the prompt
+    /// immediately, mints a pairing invite signed by the found device's
+    /// backed-up key (so the standard joiner flow can target it as the
+    /// main device), then presents the joiner flow.
+    ///
+    /// The prompt is nil'ed synchronously, before the mint Task, so a
+    /// rapid second tap finds it nil and bails - concurrent mints would
+    /// each build a `JoinerPairingSheetViewModel` whose notification
+    /// observers stay live even on the orphaned loser, double-handling
+    /// pairing messages. Minting and the dismissal animation then race
+    /// in both directions; whichever finishes second performs the
+    /// promotion (promoting while the prompt sheet is still animating
+    /// out can drop the new presentation).
+    func pairWithFoundDevice() {
+        guard let prompt = foundDevicePairingPrompt else { return }
+        foundDevicePromptDismissalComplete = false
+        foundDevicePairingPrompt = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let expiresAt = Date().addingTimeInterval(Constant.foundDevicePairingWindow)
+                let slug = try await self.session.pairingInviteSlug(
+                    forBackupInboxId: prompt.inboxId,
+                    expiresAt: expiresAt
+                )
+                let deviceLabel = prompt.deviceName ?? "your other device"
+                self.preparedFoundDevicePairing = self.makeJoinerPairingViewModel(
+                    pairingId: slug,
+                    expiresAt: expiresAt,
+                    initiatorName: prompt.deviceName,
+                    // Match the initiator sheet's window. The PIN-entry
+                    // countdown rebases to this on PIN arrival; the
+                    // deep-link flow's 60s is tight when the user is
+                    // juggling two devices they didn't stage in advance.
+                    timeoutInterval: Constant.foundDevicePairingStageTimeout,
+                    connectingMessage: "Open Convos on \"\(deviceLabel)\" to continue pairing.",
+                    resendJoinRequestInterval: Constant.foundDevicePairingResendInterval
+                )
+                QAEvent.emit(.pairing, "found_device_invite_minted", ["inboxId": prompt.inboxId])
+            } catch {
+                Log.error("Failed to mint pairing invite from synced backup: \(error)")
+                // Re-arm the once-per-launch check so a later chats-list
+                // appearance offers the prompt again; with the latch left
+                // set, a transient keychain/signing failure would strand
+                // the user until the next app launch with no retry path.
+                self.didCheckForPairableDevice = false
+            }
+            if self.foundDevicePromptDismissalComplete {
+                self.promotePreparedFoundDevicePairing()
+            }
+            // Otherwise the sheet is still animating out; onDismiss
+            // promotes when it completes.
+        }
+    }
+
+    /// Secondary action of the prompt sheet. Persistent: once skipped,
+    /// the prompt never comes back (until app data is reset).
+    func skipFoundDevicePairing() {
+        hasDeclinedFoundDevicePairing = true
+        foundDevicePairingPrompt = nil
+        QAEvent.emit(.pairing, "found_device_prompt_skipped")
+    }
+
+    /// Called when the prompt sheet finishes dismissing; presents the
+    /// joiner pairing flow prepared by `pairWithFoundDevice()` if the
+    /// mint already finished (no-op for Skip / swipe-away dismissals).
+    func onFoundDevicePromptDismissed() {
+        foundDevicePromptDismissalComplete = true
+        promotePreparedFoundDevicePairing()
+    }
+
+    private func promotePreparedFoundDevicePairing() {
+        guard let prepared = preparedFoundDevicePairing else { return }
+        preparedFoundDevicePairing = nil
+        pendingJoinerPairing = prepared
+    }
+
+    // MARK: Incoming Pairing Requests (initiator side)
+
+    /// Auto-surfaces the initiator pairing flow when a verified join
+    /// request arrives on the main message stream (posted by
+    /// `StreamProcessor` after checking the slug signature against this
+    /// device's own identity key). Foregrounded: present the PIN sheet
+    /// immediately. Otherwise: stash the request and raise a local
+    /// notification; the stash is redeemed on the next activation.
+    private func observeIncomingPairingRequests() {
+        incomingPairingObservers.add(for: .pairingDidReceiveVerifiedJoinRequest) { [weak self] notification in
+            guard let joinerInboxId = notification.userInfo?["joinerInboxId"] as? String,
+                  let deviceName = notification.userInfo?["deviceName"] as? String else { return }
+            Task { @MainActor in
+                self?.handleVerifiedJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName)
+            }
+        }
+        incomingPairingObservers.add(for: UIApplication.didBecomeActiveNotification) { [weak self] _ in
+            Task { @MainActor in
+                self?.presentPendingIncomingPairRequestIfNeeded()
+            }
+        }
+    }
+
+    private func handleVerifiedJoinRequest(joinerInboxId: String, deviceName: String) {
+        // An initiator flow already mid-handshake (the Devices QR sheet
+        // or a previously surfaced request) owns the exchange; a second
+        // coordinator would race PIN generation for the same joiner. The
+        // joiner re-sends its request every few seconds, so a dropped
+        // one here is recovered as soon as the active flow ends.
+        guard PairingSheetViewModel.active == nil else { return }
+        if incomingPairingRequest != nil {
+            // The sheet sets `PairingSheetViewModel.active` from its
+            // `.task` the moment it actually presents. A request that
+            // has sat un-presented well past that point means SwiftUI
+            // dropped the presentation (another sheet was up when it was
+            // assigned); without this reset the stale reference blocks
+            // every resend until app restart.
+            guard let presentedAt = incomingPairingPresentedAt,
+                  Date().timeIntervalSince(presentedAt) > Constant.incomingPairingPresentationGrace else {
+                return
+            }
+            Log.warning("Incoming pairing sheet never presented; resetting and retrying")
+            incomingPairingRequest = nil
+            incomingPairingPresentedAt = nil
+        }
+        if UIApplication.shared.applicationState == .active {
+            presentIncomingPairingSheet(joinerInboxId: joinerInboxId, deviceName: deviceName)
+        } else {
+            // Latch the banner per joiner: the resend cadence would
+            // otherwise re-alert every few seconds while backgrounded.
+            // The stash still refreshes so the staleness window keys
+            // off the latest resend, not the first.
+            let alreadyNotified = pendingIncomingPairRequest?.joinerInboxId == joinerInboxId
+            pendingIncomingPairRequest = PendingIncomingPairRequest(
+                joinerInboxId: joinerInboxId,
+                deviceName: deviceName,
+                receivedAt: Date()
+            )
+            if !alreadyNotified {
+                scheduleIncomingPairingNotification(deviceName: deviceName)
+            }
+        }
+    }
+
+    private func presentIncomingPairingSheet(joinerInboxId: String, deviceName: String) {
+        QAEvent.emit(.pairing, "incoming_request_surfaced", ["joinerInboxId": joinerInboxId])
+        incomingPairingPresentedAt = Date()
+        incomingPairingRequest = PairingSheetViewModel(
+            pairingService: DeferredInitiatorPairingService(session: session),
+            mode: .respondToJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName),
+            appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+        )
+    }
+
+    private func presentPendingIncomingPairRequestIfNeeded() {
+        guard let pending = pendingIncomingPairRequest else { return }
+        pendingIncomingPairRequest = nil
+        UNUserNotificationCenter.current().removeDeliveredNotifications(
+            withIdentifiers: [Constant.incomingPairingNotificationId]
+        )
+        // The joiner re-sends its request for the length of the pairing
+        // window; past that the handshake would just expire on send, so
+        // stale stashes are dropped instead of surfaced.
+        guard Date().timeIntervalSince(pending.receivedAt) < Constant.foundDevicePairingWindow else { return }
+        guard PairingSheetViewModel.active == nil, incomingPairingRequest == nil else { return }
+        presentIncomingPairingSheet(joinerInboxId: pending.joinerInboxId, deviceName: pending.deviceName)
+    }
+
+    private func scheduleIncomingPairingNotification(deviceName: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Pair new device"
+        content.body = "\"\(deviceName)\" is requesting to pair"
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: Constant.incomingPairingNotificationId,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                Log.warning("Failed to schedule pairing request notification: \(error)")
+            }
+        }
+    }
+
+    /// Dismissal hook for the joiner pairing sheet (interactive and
+    /// programmatic): tears down the ephemeral pairing client before the
+    /// reference drops. Safe on every terminal state - the joiner-side
+    /// `cancel()` signals nothing to the peer and the service stop is
+    /// idempotent, so a completed flow just gets its temp client wiped.
+    func dismissJoinerPairing() {
+        pendingJoinerPairing?.cancel()
+        pendingJoinerPairing = nil
+        pendingPairDevice = nil
+    }
+
+    /// Sheet-dismissal hook for the auto-surfaced initiator flow.
+    func dismissIncomingPairingRequest() {
+        incomingPairingRequest?.triggerCancel()
+        incomingPairingRequest = nil
+        incomingPairingPresentedAt = nil
+    }
+
+    private enum Constant {
+        /// Validity window for an invite minted from an iCloud backup.
+        /// Longer than the QR flow's window because the user still has to
+        /// fetch the other device and open the app on it.
+        static let foundDevicePairingWindow: TimeInterval = 300
+        /// Cadence for re-sending the join request while connecting. The
+        /// found device only sees requests that arrive while its app is
+        /// streaming, so the first send is almost always too early.
+        static let foundDevicePairingResendInterval: TimeInterval = 5
+        /// Per-stage (PIN entry, emoji confirmation) window, matching the
+        /// initiator sheet's 120s.
+        static let foundDevicePairingStageTimeout: TimeInterval = 120
+        /// Fixed identifier so a joiner's resend burst replaces (not
+        /// stacks) the "is requesting to pair" local notification.
+        static let incomingPairingNotificationId: String = "incoming-pairing-request"
+        /// How long an assigned `incomingPairingRequest` may sit without
+        /// the sheet's `.task` firing before the watchdog concludes the
+        /// presentation was dropped. Generous against slow presentation
+        /// animations; tiny against the 5s resend cadence that retries.
+        static let incomingPairingPresentationGrace: TimeInterval = 3
+    }
+}
+
+/// A verified join request that arrived while the app wasn't active,
+/// awaiting presentation on the next foreground.
+private struct PendingIncomingPairRequest {
+    let joinerInboxId: String
+    let deviceName: String
+    let receivedAt: Date
 }
 
 extension ConversationsViewModel {

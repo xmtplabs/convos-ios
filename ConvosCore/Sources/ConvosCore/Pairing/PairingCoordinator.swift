@@ -95,6 +95,29 @@ public actor PairingCoordinator {
         startExpirationTimer()
     }
 
+    /// Initiator entry for a join request that arrived before any pairing
+    /// UI was open (the iCloud-discovery joiner sends its request
+    /// unsolicited; the stream layer verified the slug signature before
+    /// surfacing it). Skips `.waitingForScan` and goes straight to
+    /// `.showingPin` for the given joiner. The caller sends the returned
+    /// PIN to the joiner, mirroring `receivedJoinRequest`.
+    public func startPairing(
+        respondingToJoinerInboxId joinerInboxId: String,
+        deviceName: String,
+        initiatorInboxId: String
+    ) async throws -> String {
+        guard case .idle = state else {
+            throw PairingError.alreadyPairing
+        }
+
+        self.initiatorInboxId = initiatorInboxId
+        let pin = Self.generatePin()
+        generatedPin = pin
+        updateState(.showingPin(pin: pin, deviceName: deviceName, joinerInboxId: joinerInboxId))
+        startExpirationTimer()
+        return pin
+    }
+
     public func receivedJoinRequest(joinerInboxId: String, deviceName: String) async throws {
         guard case .waitingForScan = state else { return }
 
