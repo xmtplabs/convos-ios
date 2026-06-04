@@ -6,6 +6,12 @@ import GRDB
 import UniformTypeIdentifiers
 @preconcurrency import XMTPiOS
 
+/// Pixel cap for the thumbnail embedded in a bundle entry's stored JSON.
+/// The agent-builder summary card renders these chips at 80pt; 240px (3x
+/// Retina) keeps them crisp without bloating the message row the way a
+/// full-resolution photo would.
+private let bundleChipThumbnailMaxPixelSize: Int = 240
+
 /// One entry in a `MultiRemoteAttachment` bundle. Eager photo/video variants
 /// reference an upload that was already kicked off by the composer; voice
 /// memo and file variants point at a local URL the writer encrypts + uploads
@@ -1195,13 +1201,27 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             salt: prepared.encryptionSalt,
             secret: prepared.encryptionSecret
         )
+        // Embed a chip-sized thumbnail in the stored JSON, mirroring the
+        // video path's `state.thumbnailData` below. The agent-builder summary
+        // card renders bundle chips straight from this JSON (`hydrateAttachment`
+        // -> `HydratedAttachment.thumbnailData`); without it the sender's own
+        // photo chip renders as a permanent gray placeholder even though the
+        // upload itself succeeded.
+        let thumbnailDataBase64: String? = state.image
+            .crossPlatformThumbnailJPEGData(maxPixelSize: bundleChipThumbnailMaxPixelSize)?
+            .base64EncodedString()
+        if thumbnailDataBase64 == nil {
+            Log.warning("Chip thumbnail generation failed for photo bundle entry: \(trackingKey)")
+        }
         let stored = StoredRemoteAttachment(
             url: prepared.assetURL,
             contentDigest: prepared.contentDigest,
             secret: prepared.encryptionSecret,
             salt: prepared.encryptionSalt,
             nonce: prepared.encryptionNonce,
-            filename: prepared.filename
+            filename: prepared.filename,
+            mimeType: "image/jpeg",
+            thumbnailDataBase64: thumbnailDataBase64
         )
         try? await pendingUploadWriter.delete(taskId: prepared.taskId)
         try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
