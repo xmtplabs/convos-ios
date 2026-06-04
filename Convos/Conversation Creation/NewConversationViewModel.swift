@@ -179,8 +179,16 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     /// Set when `commitConversationVisibility()` runs before the
     /// auto-created conversation reaches `.ready` (no id to flip yet).
-    /// Flushed by `handleStateChange(.ready)`.
+    /// Flushed by `handleStateChange(.ready)`; cleared by
+    /// `deleteConversation()` so a dismissed builder can't promote a
+    /// conversation the user abandoned.
     private var pendingVisibilityCommit: Bool = false
+
+    /// The `.ready` hook's register(+queued commit) work. Awaited by
+    /// `commitConversationVisibility()` so a Make tap landing right after
+    /// `.ready` can't run its commit before the claim registration and
+    /// leave a stale id in the cache's claim set.
+    private var claimRegistrationTask: Task<Void, Never>?
 
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
@@ -740,6 +748,10 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// until the conversation exists.
     func commitConversationVisibility() async {
         if let claimedConversationId {
+            // Order behind the `.ready` hook's claim registration so the
+            // commit's claim removal can't be overwritten by a late
+            // registration insert.
+            await claimRegistrationTask?.value
             await session.commitClaimedConversation(id: claimedConversationId)
             return
         }
@@ -762,6 +774,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        // A queued visibility commit must not survive dismissal - the user
+        // abandoned the builder, so a late `.ready` shouldn't promote the
+        // conversation into the chats list.
+        pendingVisibilityCommit = false
         // Drop the conversation row claimed via `prepareNewConversation()`
         // when the user backs out without engaging. Key off
         // `claimedConversationId` so existing-conversation flows
@@ -1054,7 +1070,7 @@ extension NewConversationViewModel {
                 claimedConversationId = conversationId
                 let shouldCommitNow = pendingVisibilityCommit
                 pendingVisibilityCommit = false
-                Task { [session] in
+                claimRegistrationTask = Task { [session] in
                     await session.registerClaimedConversation(id: conversationId)
                     if shouldCommitNow {
                         await session.commitClaimedConversation(id: conversationId)

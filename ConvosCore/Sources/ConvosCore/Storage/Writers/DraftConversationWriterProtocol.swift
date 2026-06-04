@@ -17,8 +17,10 @@ public protocol DraftConversationWriterProtocol: OutgoingMessageWriterProtocol {
 }
 
 public extension DraftConversationWriterProtocol {
-    /// Default forwards to the plain create so conformers that don't
-    /// support deferred visibility (mocks, previews) keep compiling.
+    /// Default forwards to the plain create, dropping the flag. This is
+    /// for mocks and previews only - any production conformer must
+    /// override it, or deferred-visibility creation silently degrades to
+    /// a visible row.
     func createConversation(startsUnused: Bool) async throws {
         try await createConversation()
     }

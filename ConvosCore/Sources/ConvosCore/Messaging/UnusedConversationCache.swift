@@ -123,8 +123,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         let claimedSnapshot = claimedConversationIds
         do {
             let claimedId: String? = try await databaseWriter.read { db -> String? in
-                var request = DBConversation
-                    .filter(DBConversation.Columns.isUnused == true)
+                var request = Self.consumableUnusedConversationRequest()
                 if !claimedSnapshot.isEmpty {
                     request = request.filter(!claimedSnapshot.contains(DBConversation.Columns.id))
                 }
@@ -138,6 +137,23 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             Log.error("Failed to consume unused conversation: \(error)")
             return nil
         }
+    }
+
+    /// Rows eligible for handout: hidden, cache-shaped
+    /// (`clientConversationId == id`), and fully prepared (real invite
+    /// tag). The agent builder's deferred-visibility stubs carry their
+    /// draft client id and are owned by that flow until committed or
+    /// discarded - handing one to a second caller would put two flows on
+    /// one conversation. Rows still carrying a provisional or empty tag
+    /// never finished preparation (publish or tag write failed), so they
+    /// stay out of the pool rather than risk surfacing a placeholder tag
+    /// in an invite.
+    private static func consumableUnusedConversationRequest() -> QueryInterfaceRequest<DBConversation> {
+        DBConversation
+            .filter(DBConversation.Columns.isUnused == true)
+            .filter(DBConversation.Columns.clientConversationId == DBConversation.Columns.id)
+            .filter(length(DBConversation.Columns.inviteTag) > 0)
+            .filter(!DBConversation.Columns.inviteTag.like("\(provisionalInviteTagPrefix)%"))
     }
 
     public func commitClaimedConversation(
@@ -186,8 +202,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         let claimedSnapshot = claimedConversationIds
         do {
             return try await databaseReader.read { db in
-                var request = DBConversation
-                    .filter(DBConversation.Columns.isUnused == true)
+                // Mirrors `consumeUnusedConversationId`'s eligibility so a
+                // row consume would skip (builder stub, half-prepared row)
+                // can't suppress preparing a fresh consumable one.
+                var request = Self.consumableUnusedConversationRequest()
                 if !claimedSnapshot.isEmpty {
                     request = request.filter(!claimedSnapshot.contains(DBConversation.Columns.id))
                 }
@@ -242,10 +260,11 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
         // Write the hidden row before `publish()` so the conversation
         // stream's echo of the new group finds an existing `isUnused = true`
-        // row and preserves it. Without this, the echo raced the post-publish
-        // write below and inserted a fresh visible row - the conversation
-        // briefly flashed in the chats list until this method flipped it
-        // back to hidden. The provisional tag (unique per conversation)
+        // row and preserves it. Before this ordering, the row was only
+        // written after publish, so the echo raced it and inserted a fresh
+        // visible row - the conversation briefly flashed in the chats list
+        // until the late write flipped it back to hidden. The provisional
+        // tag (unique per conversation)
         // avoids colliding on the column's UNIQUE constraint when several
         // hidden stubs exist at once; `ensureInviteTag` below replaces it
         // with the real tag. Self-claim for the whole preparation window so
@@ -351,12 +370,21 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
     }
 
+    /// Prefix marking an invite tag as a pre-publish placeholder. Mirrors
+    /// the `DBConversation.draftPrefix` pattern: every producer and
+    /// consumer of provisional tags derives from this one constant.
+    static let provisionalInviteTagPrefix: String = "pending-"
+
     /// Unique placeholder for the pre-publish row write. The real tag only
     /// exists after `ensureInviteTag()`, but `conversation.inviteTag` has a
     /// UNIQUE constraint, so concurrent hidden stubs (prewarm + agent
     /// builder) can't both use an empty string.
     static func provisionalInviteTag(for conversationId: String) -> String {
-        "pending-\(conversationId)"
+        "\(provisionalInviteTagPrefix)\(conversationId)"
+    }
+
+    static func isProvisionalInviteTag(_ inviteTag: String) -> Bool {
+        inviteTag.hasPrefix(provisionalInviteTagPrefix)
     }
 
     /// Writes the pre-created group to GRDB in one pass. Called twice per
@@ -410,7 +438,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
         let dbConversation: DBConversation
         if let existing = try DBConversation.fetchOne(db, key: conversationId) {
-            let incomingIsPlaceholder: Bool = inviteTag.isEmpty || inviteTag.hasPrefix("pending-")
+            let incomingIsPlaceholder: Bool = inviteTag.isEmpty || isProvisionalInviteTag(inviteTag)
             let preservedTag: String = incomingIsPlaceholder && !existing.inviteTag.isEmpty ? existing.inviteTag : inviteTag
             dbConversation = existing
                 .with(isUnused: true)
