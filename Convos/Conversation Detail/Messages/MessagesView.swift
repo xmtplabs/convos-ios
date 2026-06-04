@@ -169,6 +169,11 @@ struct MessagesView<BottomBarContent: View>: View {
                 )
             },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
+            // Read-only hosts never render the composer (see the
+            // `safeAreaBar` below), so the controller must not wait for a
+            // bottom-bar measurement before applying its initial state and
+            // revealing the list.
+            hasBottomBar: !isReadOnly,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
             },
