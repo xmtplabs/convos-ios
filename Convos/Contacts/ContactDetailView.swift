@@ -49,6 +49,15 @@ struct ContactDetailView: View {
     /// (where the system already renders a chevron back button) pass false
     /// so the user doesn't see two redundant dismiss controls.
     let showsCloseButton: Bool
+    /// Whether a conversation pushed from the "Convos with you" rows should
+    /// inset its indicator below the device's top safe area. Only the
+    /// Contacts tab passes true - its push lands full screen, extending
+    /// under the status bar. Every sheet-hosted card (member tap in a chat,
+    /// members list) keeps the default false: the sheet's top edge already
+    /// sits below the status bar, so the device inset would render the
+    /// indicator too far down. Not derivable from `showsCloseButton` - the
+    /// members list pushes the card (no X) but its stack lives in a sheet.
+    let pushedConversationInsetsTopSafeArea: Bool
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
@@ -101,6 +110,7 @@ struct ContactDetailView: View {
         coreActions: any CoreActions,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
+        pushedConversationInsetsTopSafeArea: Bool = false,
         onRemove: (() -> Void)? = nil
     ) {
         self.contact = contact
@@ -111,6 +121,7 @@ struct ContactDetailView: View {
         self.coreActions = coreActions
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsCloseButton = showsCloseButton
+        self.pushedConversationInsetsTopSafeArea = pushedConversationInsetsTopSafeArea
         self.onRemove = onRemove
         _isBlocked = State(initialValue: contact.isBlocked)
         // Suggested-agent contacts carry the description, so it renders
@@ -183,7 +194,7 @@ struct ContactDetailView: View {
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             embedsNavigationStack: false,
-            insetsTopSafeArea: true
+            insetsTopSafeArea: pushedConversationInsetsTopSafeArea
         )
         .background(.colorBackgroundSurfaceless)
         .toolbarVisibility(.hidden, for: .tabBar)

@@ -235,7 +235,8 @@ struct ContactsView: View {
             session: session,
             coreActions: coreActions,
             profileSettingsViewModel: profileSettingsViewModel,
-            showsCloseButton: false
+            showsCloseButton: false,
+            pushedConversationInsetsTopSafeArea: true
         )
     }
 
