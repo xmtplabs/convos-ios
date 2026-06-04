@@ -608,8 +608,25 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var messageText: String = "" {
         didSet {
             handleTextChanged()
+            trackBulkTextChange(oldValue: oldValue)
+            reclearResurrectedDictationTextIfNeeded(oldValue: oldValue)
         }
     }
+    /// When the composer last received a multi-character write in a single
+    /// update. Dictation streams hypothesis updates as bulk replacements
+    /// while typing changes one character at a time, so a recent bulk change
+    /// is the available signal that a send is interrupting dictation -
+    /// iOS exposes no direct way to ask (`textInputMode` stays the regular
+    /// language during dictation and no input-mode notification fires).
+    /// Pastes and link-strips also set this; the cost of that false positive
+    /// is one keyboard round-trip on the next send, which is cosmetic.
+    private var lastBulkTextChangeAt: Date?
+    /// Armed by a send that interrupted likely-dictation. The recognizer's
+    /// final transcription can arrive after the composer was already cleared
+    /// and re-insert text (no public API can cancel the in-flight result),
+    /// so for a short window after such a send any multi-character
+    /// repopulation of the emptied composer is cleared again.
+    private var dictationReclearArmedAt: Date?
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
@@ -622,6 +639,45 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pastedLinkPreview = preview
         messageText = ""
         previousMessageTextLength = 0
+    }
+
+    private func trackBulkTextChange(oldValue: String) {
+        guard !messageText.isEmpty else { return }
+        if abs(messageText.count - oldValue.count) > 1 {
+            lastBulkTextChangeAt = Date()
+        }
+    }
+
+    /// `true` when the composer recently received dictation-style bulk
+    /// writes, meaning a send right now is likely interrupting an active
+    /// dictation session (see `lastBulkTextChangeAt`).
+    private var isLikelyDictating: Bool {
+        guard let lastBulkTextChangeAt else { return false }
+        return Date().timeIntervalSince(lastBulkTextChangeAt) < Constant.dictationActivityWindow
+    }
+
+    /// Clears the composer again when the dictation recognizer's late
+    /// transcription repopulates it after a mid-dictation send (see
+    /// `dictationReclearArmedAt`). The re-insert arrives as one
+    /// multi-character write into the emptied composer; its content is
+    /// unpredictable (the recognizer revises and continues the sent
+    /// hypothesis), so the check is content-free. Disarms on the first
+    /// single-character edit, so normal typing after a send is never
+    /// touched.
+    private func reclearResurrectedDictationTextIfNeeded(oldValue: String) {
+        guard let armedAt = dictationReclearArmedAt else { return }
+        guard Date().timeIntervalSince(armedAt) < Constant.dictationReclearWindow else {
+            dictationReclearArmedAt = nil
+            return
+        }
+        guard oldValue.isEmpty, !messageText.isEmpty else { return }
+        guard messageText.count > 1 else {
+            dictationReclearArmedAt = nil
+            return
+        }
+        Log.info("Re-clearing dictation text resurrected after send")
+        dictationReclearArmedAt = nil
+        messageText = ""
     }
 
     var typingMembers: [ConversationMember] = []
@@ -2005,6 +2061,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         isEditingConversationName = false
         focusCoordinator.endEditing(for: .conversationName, context: context)
     }
+
+    private enum Constant {
+        /// How recently the composer must have received a bulk write for a
+        /// send to be treated as interrupting an active dictation session.
+        static let dictationActivityWindow: TimeInterval = 3.0
+        /// How long after a likely-dictation send a multi-character composer
+        /// repopulation is treated as the recognizer's late re-insert.
+        static let dictationReclearWindow: TimeInterval = 4.0
+    }
 }
 
 // MARK: - Conversation Settings Actions
@@ -2392,15 +2457,14 @@ extension ConversationViewModel {
         // pending autocorrect right after a keystroke, or an active dictation
         // session), clearing the binding can be lost entirely and the sent
         // text resurrects in the composer at the keyboard's next commit
-        // point. Settling also commits a pending correction into messageText
-        // before capture, so the sent message matches what the keyboard
-        // would have produced.
-        focusCoordinator.withSettledKeyboardInput {
-            sendComposerContents(focusCoordinator: focusCoordinator)
+        // point.
+        let endingDictation = isLikelyDictating
+        focusCoordinator.withSettledKeyboardInput(endingInputSession: endingDictation) {
+            sendComposerContents(focusCoordinator: focusCoordinator, endedDictation: endingDictation)
         }
     }
 
-    private func sendComposerContents(focusCoordinator: FocusCoordinator) {
+    private func sendComposerContents(focusCoordinator: FocusCoordinator, endedDictation: Bool) {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
@@ -2431,6 +2495,9 @@ extension ConversationViewModel {
         pendingInviteImage = nil
         pendingAgentShare = nil
         pastedLinkPreview = nil
+        if endedDictation {
+            dictationReclearArmedAt = Date()
+        }
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter

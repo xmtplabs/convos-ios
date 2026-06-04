@@ -199,27 +199,33 @@ final class FocusCoordinator {
     /// the backing text view keeps the old text and the keyboard's next
     /// commit point syncs the stale text back into the binding.
     ///
-    /// Two settle strategies, by input session type:
-    /// - Pending autocorrect (typing): re-assert the selection at the UIKit
-    ///   level. A selection change runs the same settle path the keyboard
-    ///   uses when the caret moves, with no first responder change, so the
-    ///   keyboard never hides or re-shows.
-    /// - Active dictation: the selection nudge does not stop the session;
-    ///   its hypothesis finalizes via insertText after the mutation and
-    ///   resurrects the text. Dropping and restoring first responder is the
-    ///   one available way to terminate the session first. The keyboard
-    ///   round-trip that made resign/become unacceptable for plain typing is
-    ///   fine here: the dictation UI visibly ends on send anyway.
-    func withSettledKeyboardInput(_ work: () -> Void) {
+    /// Two settle strategies:
+    /// - `endingInputSession == false` (plain typing): re-assert the
+    ///   selection at the UIKit level. A selection change runs the same
+    ///   settle path the keyboard uses when the caret moves, with no first
+    ///   responder change, so the keyboard never hides or re-shows.
+    /// - `endingInputSession == true` (caller believes dictation is active):
+    ///   the selection nudge does not stop a dictation session - it keeps
+    ///   streaming hypothesis updates into the field after the mutation -
+    ///   so drop and restore first responder, the one available way to
+    ///   terminate the session first. This visibly round-trips the keyboard,
+    ///   which is why it is reserved for dictation, where the dictation UI
+    ///   ending on send is expected. (Dictation is not detectable directly:
+    ///   on iOS 26.2 `textInputMode` stays the regular language during
+    ///   dictation and no input-mode-change notification fires, so callers
+    ///   infer it behaviorally - see `ConversationViewModel`.)
+    func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
         guard let input = Self.currentFirstResponder() as? (UIResponder & UITextInput) else {
             work()
             return
         }
-        if input.textInputMode?.primaryLanguage == Constant.dictationInputMode {
+        if endingInputSession {
+            Log.info("Settling keyboard input via resign/restore (ending input session)")
             input.resignFirstResponder()
             work()
             input.becomeFirstResponder()
         } else {
+            Log.info("Settling keyboard input via selection nudge")
             let end = input.endOfDocument
             input.selectedTextRange = input.textRange(from: end, to: end)
             work()
@@ -492,12 +498,6 @@ final class FocusCoordinator {
         Log.info("Keyboard type changed: \(previousKeyboardType) → \(newKeyboardType), updating focus to: \(String(describing: newDefault))")
         beginProgrammaticTransition(to: newDefault)
         currentFocus = newDefault
-    }
-
-    /// The `UITextInputMode.primaryLanguage` value reported while a dictation
-    /// session is active.
-    private enum Constant {
-        static let dictationInputMode: String = "dictation"
     }
 }
 
