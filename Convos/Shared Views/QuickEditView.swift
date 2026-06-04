@@ -65,16 +65,24 @@ struct QuickEditView: View {
         .accessibilityIdentifier("quick-edit-done-button")
     }
 
-    private var nameTextField: some View {
-        let leadingPadding: CGFloat = DesignConstants.Spacing.step4x
-        let fieldHeight: CGFloat = 52.0
-        let borderColor: Color = .colorBorderSubtle
-        return TextField(placeholderText, text: $text)
+    /// The bare field with focus and UIKit introspection, split from
+    /// `nameTextField` so the type-checker solves the introspect generics
+    /// separately from the long modifier tail. The combined chain sat near
+    /// the type-check budget and tripped it on loaded machines.
+    private var introspectedNameField: some View {
+        TextField(placeholderText, text: $text)
             .focused($focusState, equals: focused)
             .introspect(.textField, on: .iOS(.v26)) { (textField: UITextField) in
                 textFieldDelegate.action = onSubmit
                 textField.delegate = textFieldDelegate
             }
+    }
+
+    private var nameTextField: some View {
+        let leadingPadding: CGFloat = DesignConstants.Spacing.step4x
+        let fieldHeight: CGFloat = 52.0
+        let borderColor: Color = .colorBorderSubtle
+        return introspectedNameField
             .padding(.leading, leadingPadding)
             .font(.body)
             .tint(.colorTextPrimary)
@@ -86,12 +94,16 @@ struct QuickEditView: View {
             .accessibilityIdentifier("quick-edit-display-name-field")
             .safeAreaInset(edge: .trailing) { settingsButton }
             .onChange(of: text) { _, newValue in
-                let maxLength: Int = NameLimits.maxDisplayNameLength
-                if newValue.count > maxLength {
-                    text = String(newValue.prefix(maxLength))
-                }
+                handleTextChanged(to: newValue)
             }
             .background(Capsule().stroke(borderColor, lineWidth: 1.0))
+    }
+
+    private func handleTextChanged(to newValue: String) {
+        let maxLength: Int = NameLimits.maxDisplayNameLength
+        if newValue.count > maxLength {
+            text = String(newValue.prefix(maxLength))
+        }
     }
 
     var body: some View {
