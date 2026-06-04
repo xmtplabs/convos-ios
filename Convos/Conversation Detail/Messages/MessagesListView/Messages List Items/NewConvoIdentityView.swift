@@ -45,7 +45,7 @@ struct NewConvoIdentityView: View {
                     }
                     Button(action: addFromContactsAction) {
                         Text("Add from Contacts")
-                        Text("Pick from people you've talked to")
+                        Text("People and agents")
                         Image(systemName: "person.crop.circle.badge.plus")
                     }
                     .accessibilityIdentifier("new-convo-add-from-contacts")
