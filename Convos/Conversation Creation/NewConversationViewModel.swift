@@ -739,76 +739,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
-    /// Promotes this VM's hidden conversation row into a visible one.
-    /// Covers both deferred-visibility shapes: the cache-claimed row
-    /// (id known since acquire) and the auto-created `startsUnused` row
-    /// (id known at `.ready`). When called before the auto-created
-    /// conversation is ready, the commit is queued and flushed by
-    /// `handleStateChange(.ready)` - mirroring how message sends queue
-    /// until the conversation exists.
-    func commitConversationVisibility() async {
-        if let claimedConversationId {
-            // Order behind the `.ready` hook's claim registration so the
-            // commit's claim removal can't be overwritten by a late
-            // registration insert.
-            await claimRegistrationTask?.value
-            await session.commitClaimedConversation(id: claimedConversationId)
-            return
-        }
-        pendingVisibilityCommit = true
-    }
-
-    /// Send a first message through the state machine. Used by wrapping
-    /// flows (e.g. AgentBuilderViewModel) that commit a draft before
-    /// the user sees the chat view. If the state machine hasn't reached
-    /// `.ready` yet, the existing message-stream queue inside
-    /// `ConversationStateMachine.sendMessage` holds the send until it does.
-    func send(text: String) async throws {
-        guard let conversationStateManager else {
-            throw ConversationStateMachineError.noConversationStateManager
-        }
-        try await conversationStateManager.send(text: text)
-    }
-
-    func deleteConversation() {
-        Log.info("Deleting conversation")
-        newConversationTask?.cancel()
-        joinConversationTask?.cancel()
-        // A queued visibility commit must not survive dismissal - the user
-        // abandoned the builder, so a late `.ready` shouldn't promote the
-        // conversation into the chats list.
-        pendingVisibilityCommit = false
-        // Drop the conversation row claimed via `prepareNewConversation()`
-        // when the user backs out without engaging. Key off
-        // `claimedConversationId` so existing-conversation flows
-        // (`.existingConversation(...)`) don't accidentally delete the
-        // user's real conversation. The single-inbox refactor turned the
-        // old per-conversation `session.deleteInbox` cleanup into a no-op
-        // (it would destroy the user's account), so without this the
-        // warm-cached group would persist in the conversations list.
-        // Drafts skip — they don't have a visible row.
-        if let claimedId = claimedConversationId {
-            Task { [session] in
-                await session.discardClaimedConversation(id: claimedId)
-            }
-        }
-    }
-
-    func setDismissAction(_ action: DismissAction) {
-        dismissAction = action
-    }
-
-    func dismissWithDeletion() {
-        _cleanedUp = true
-        displayError = nil
-        currentError = nil
-        isCreatingConversation = false
-        conversationViewModel?.isWaitingForInviteAcceptance = false
-        inboxAcquisitionTask?.cancel()
-        deleteConversation()
-        dismissAction?()
-    }
-
     func retryAction(_ action: RetryAction) {
         displayError = nil
         let delay = retryDelay
@@ -960,6 +890,85 @@ class NewConversationViewModel: Identifiable, Hashable {
         static let retryDelayShort: TimeInterval = 2
         static let retryDelayMedium: TimeInterval = 4
         static let retryDelayMax: TimeInterval = 8
+    }
+}
+
+// MARK: - Conversation lifecycle actions
+
+/// Visibility commit, first-message send, and the delete / dismiss paths.
+/// Split into an extension purely to keep the type body within SwiftLint's
+/// `type_body_length` budget; everything stays `@MainActor`-isolated
+/// (inherited from the type), so behavior is identical to when these
+/// lived inline.
+extension NewConversationViewModel {
+    /// Promotes this VM's hidden conversation row into a visible one.
+    /// Covers both deferred-visibility shapes: the cache-claimed row
+    /// (id known since acquire) and the auto-created `startsUnused` row
+    /// (id known at `.ready`). When called before the auto-created
+    /// conversation is ready, the commit is queued and flushed by
+    /// `handleStateChange(.ready)` - mirroring how message sends queue
+    /// until the conversation exists.
+    func commitConversationVisibility() async {
+        if let claimedConversationId {
+            // Order behind the `.ready` hook's claim registration so the
+            // commit's claim removal can't be overwritten by a late
+            // registration insert.
+            await claimRegistrationTask?.value
+            await session.commitClaimedConversation(id: claimedConversationId)
+            return
+        }
+        pendingVisibilityCommit = true
+    }
+
+    /// Send a first message through the state machine. Used by wrapping
+    /// flows (e.g. AgentBuilderViewModel) that commit a draft before
+    /// the user sees the chat view. If the state machine hasn't reached
+    /// `.ready` yet, the existing message-stream queue inside
+    /// `ConversationStateMachine.sendMessage` holds the send until it does.
+    func send(text: String) async throws {
+        guard let conversationStateManager else {
+            throw ConversationStateMachineError.noConversationStateManager
+        }
+        try await conversationStateManager.send(text: text)
+    }
+
+    func deleteConversation() {
+        Log.info("Deleting conversation")
+        newConversationTask?.cancel()
+        joinConversationTask?.cancel()
+        // A queued visibility commit must not survive dismissal - the user
+        // abandoned the builder, so a late `.ready` shouldn't promote the
+        // conversation into the chats list.
+        pendingVisibilityCommit = false
+        // Drop the conversation row claimed via `prepareNewConversation()`
+        // when the user backs out without engaging. Key off
+        // `claimedConversationId` so existing-conversation flows
+        // (`.existingConversation(...)`) don't accidentally delete the
+        // user's real conversation. The single-inbox refactor turned the
+        // old per-conversation `session.deleteInbox` cleanup into a no-op
+        // (it would destroy the user's account), so without this the
+        // warm-cached group would persist in the conversations list.
+        // Drafts skip — they don't have a visible row.
+        if let claimedId = claimedConversationId {
+            Task { [session] in
+                await session.discardClaimedConversation(id: claimedId)
+            }
+        }
+    }
+
+    func setDismissAction(_ action: DismissAction) {
+        dismissAction = action
+    }
+
+    func dismissWithDeletion() {
+        _cleanedUp = true
+        displayError = nil
+        currentError = nil
+        isCreatingConversation = false
+        conversationViewModel?.isWaitingForInviteAcceptance = false
+        inboxAcquisitionTask?.cancel()
+        deleteConversation()
+        dismissAction?()
     }
 }
 
