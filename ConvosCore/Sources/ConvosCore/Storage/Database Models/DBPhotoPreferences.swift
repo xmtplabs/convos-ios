@@ -55,7 +55,8 @@ extension DBPhotoPreferences {
     static func defaultPreferences(for conversationId: String) -> DBPhotoPreferences {
         DBPhotoPreferences(
             conversationId: conversationId,
-            autoReveal: false,
+            // Photos are auto-revealed by default (Reveal Mode toggle is off).
+            autoReveal: true,
             hasRevealedFirst: false,
             updatedAt: Date(),
             sendReadReceipts: nil
