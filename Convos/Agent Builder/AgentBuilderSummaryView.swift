@@ -200,26 +200,30 @@ struct AgentBuilderSummaryView: View {
     private let chipSize: CGFloat = 80
 }
 
-/// Chip image with the same tiered source strategy as
-/// `ReplyReferencePhotoPreview`: the thumbnail embedded in the stored
-/// attachment JSON first, then the image cache (the send pipeline caches the
-/// staged image under both the tracking key and the stored-JSON key). Rows
-/// written before photo bundle entries embedded thumbnails — and the brief
-/// pre-upload window where the row still carries a tracking key — resolve via
-/// the cache tier instead of sticking on the gray placeholder.
+/// Chip image with the same cache-first strategy as
+/// `ReplyReferencePhotoPreview`: image cache first (the send pipeline caches
+/// the staged image under both the tracking key and the stored-JSON key),
+/// then the thumbnail embedded in the stored attachment JSON. Rows written
+/// before photo bundle entries embedded thumbnails - and the brief pre-upload
+/// window where the row still carries a tracking key - resolve via the cache
+/// tier instead of sticking on the gray placeholder. When the cache has
+/// nothing for the key, the embedded thumbnail bytes are written into it so
+/// later renders are plain cache hits.
 private struct AgentBuilderChipThumbnail: View {
     let attachmentKey: String
     let thumbnailData: Data?
 
     @State private var loadedImage: UIImage?
+    @State private var loadedFromEmbeddedThumbnail: Bool = false
 
     init(attachmentKey: String, thumbnailData: Data?) {
         self.attachmentKey = attachmentKey
         self.thumbnailData = thumbnailData
-        if let thumbnailData, let image = UIImage(data: thumbnailData) {
+        if let cached = ImageCache.shared.image(for: attachmentKey) {
+            _loadedImage = State(initialValue: cached)
+        } else if let thumbnailData, let image = UIImage(data: thumbnailData) {
             _loadedImage = State(initialValue: image)
-        } else {
-            _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+            _loadedFromEmbeddedThumbnail = State(initialValue: true)
         }
     }
 
@@ -234,9 +238,24 @@ private struct AgentBuilderChipThumbnail: View {
             }
         }
         .task(id: attachmentKey) {
-            guard loadedImage == nil else { return }
-            loadedImage = await ImageCache.shared.imageAsync(for: attachmentKey)
+            await resolveFromCache()
         }
+    }
+
+    /// Prefer the cached image (memory, then disk) over the embedded
+    /// thumbnail: on the sender's device the cache holds the full-quality
+    /// staged photo. If the cache misses entirely, seed it with the embedded
+    /// thumbnail bytes; the disk write skips existing files, so a full-size
+    /// cached image is never replaced by the chip-sized thumbnail.
+    private func resolveFromCache() async {
+        guard loadedImage == nil || loadedFromEmbeddedThumbnail else { return }
+        if let cached = await ImageCache.shared.imageAsync(for: attachmentKey) {
+            loadedImage = cached
+            loadedFromEmbeddedThumbnail = false
+            return
+        }
+        guard let thumbnailData else { return }
+        ImageCache.shared.cacheData(thumbnailData, for: attachmentKey, storageTier: .persistent)
     }
 }
 
