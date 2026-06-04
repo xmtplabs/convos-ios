@@ -184,11 +184,46 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
         }
 
+        if wasRemovedFromConversation {
+            try Self.persistRemovedMarker(conversationId: conversation.id, in: db)
+        }
+
         return IncomingMessageWriterResult(
             contentType: message.contentType,
             wasRemovedFromConversation: wasRemovedFromConversation,
             messageAlreadyExists: messageExistsInDB
         )
+    }
+
+    /// Marks the conversation as removed-for-the-local-user. Idempotent and
+    /// deliberately independent of `messageAlreadyExists`: when the NSE saves
+    /// the removal `GroupUpdated` message first, the main app re-encounters it
+    /// as an existing row and must still converge on the persisted marker.
+    /// Cleared by `ConversationWriter.persist` when a synced member list
+    /// includes the local inbox again (re-add or rejoin).
+    static func persistRemovedMarker(conversationId: String, in db: Database) throws {
+        let current = try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .fetchOne(db)
+            ?? ConversationLocalState(
+                conversationId: conversationId,
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date.distantPast,
+                isMuted: false,
+                pinnedOrder: nil,
+                hidesInviteCard: false,
+                wasRemoved: false
+            )
+        guard !current.wasRemoved else { return }
+        // Unpinning here frees the pin slot a hidden conversation would
+        // otherwise occupy invisibly (the pin limit and pinned count both
+        // read isPinned rows).
+        try current
+            .with(wasRemoved: true)
+            .with(isPinned: false)
+            .with(pinnedOrder: nil)
+            .save(db)
     }
 
     func store(message: DecodedMessage,
@@ -247,8 +282,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             ])
         }
 
-        // Post notification after transaction commits
-        if result.wasRemovedFromConversation && !result.messageAlreadyExists {
+        // Post notification after transaction commits. Not gated on
+        // messageAlreadyExists: when the NSE saved the removal message first,
+        // the main app still needs the live-hide. The persisted wasRemoved
+        // marker (set in persist) is the restart-safe source of truth; this
+        // notification is the in-session UX fast path.
+        if result.wasRemovedFromConversation {
             conversation.postLeftConversationNotification()
         }
 

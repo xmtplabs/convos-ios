@@ -117,6 +117,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
@@ -193,6 +194,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)

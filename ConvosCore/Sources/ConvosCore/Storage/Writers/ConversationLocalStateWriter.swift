@@ -52,7 +52,8 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
                     pinnedOrder: nil,
-                    hidesInviteCard: false
+                    hidesInviteCard: false,
+                    wasRemoved: false
                 )
 
             let pinnedOrder: Int? = if isPinned {
@@ -106,7 +107,8 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
                     pinnedOrder: nil,
-                    hidesInviteCard: false
+                    hidesInviteCard: false,
+                    wasRemoved: false
                 )
             let updated = update(current)
             try updated.save(db)

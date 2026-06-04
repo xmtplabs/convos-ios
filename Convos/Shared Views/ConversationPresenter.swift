@@ -68,6 +68,13 @@ struct ConversationPresenter<Content: View>: View {
         return viewModel.presentingShareView
     }
 
+    /// Read-only when the host asks for it (stale/removed device) or when
+    /// the local user was removed from this conversation but can still view
+    /// it. Mirrors `ConversationView.effectiveReadOnly` for the indicator.
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel?.conversation.wasRemoved == true
+    }
+
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
@@ -152,14 +159,14 @@ struct ConversationPresenter<Content: View>: View {
             viewModel: viewModel,
             placeholderOverride: indicatorPlaceholderOverride,
             subtitleOverride: indicatorSubtitleOverride,
-            allowsEditing: allowsIndicatorEditing && !isReadOnly,
+            allowsEditing: allowsIndicatorEditing && !effectiveReadOnly,
             focusState: $focusState,
             focusCoordinator: focusCoordinator
         )
         .environment(\.forcedAgentVerification, pendingAgentOverride)
         .environment(\.pendingAgentIdentity, pendingAgentIdentity)
         .hoverEffect(.lift)
-        .disabled(isReadOnly)
+        .disabled(effectiveReadOnly)
         .matchedGeometryEffect(
             id: AdaptiveAppIndicatorConstant.indicatorShellId,
             in: sharedIndicatorNamespace ?? indicatorNamespace,

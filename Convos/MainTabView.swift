@@ -614,7 +614,7 @@ struct MainTabView: View {
             ? .verified(.convos)
             : nil
         let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
-        let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved
+        let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved || convoVM.conversation.wasRemoved
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,

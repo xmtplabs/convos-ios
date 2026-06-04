@@ -203,7 +203,24 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 
+        Self.registerRemovedStateMigrations(on: &migrator)
+
         return migrator
+    }
+
+    /// Persisted "the local user was removed from this conversation" marker.
+    /// Removal was previously hidden only in-memory
+    /// (ConversationsViewModel.hiddenConversationIds), so a relaunch
+    /// resurrected a conversation whose XMTP group is inactive - visible
+    /// history but every send failing. The `.notNull().defaults(to: false)`
+    /// clause back-fills existing rows with `false`, matching the legacy
+    /// (visible) behavior for conversations the user was never removed from.
+    private static func registerRemovedStateMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("addConversationLocalStateWasRemoved") { db in
+            try db.alter(table: "conversationLocalState") { t in
+                t.add(column: "wasRemoved", .boolean).notNull().defaults(to: false)
+            }
+        }
     }
 
     private static func createConnections(_ db: Database) throws {

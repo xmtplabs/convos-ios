@@ -88,7 +88,8 @@ struct ConversationLocalStateWriterTests {
                 isUnreadUpdatedAt: Date(),
                 isMuted: true,
                 pinnedOrder: 3,
-                hidesInviteCard: false
+                hidesInviteCard: false,
+                wasRemoved: false
             ).insert(db)
         }
 
