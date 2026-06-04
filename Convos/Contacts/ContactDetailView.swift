@@ -182,7 +182,8 @@ struct ContactDetailView: View {
         NewConversationView(
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
-            embedsNavigationStack: false
+            embedsNavigationStack: false,
+            insetsTopSafeArea: true
         )
         .background(.colorBackgroundSurfaceless)
         .toolbarVisibility(.hidden, for: .tabBar)

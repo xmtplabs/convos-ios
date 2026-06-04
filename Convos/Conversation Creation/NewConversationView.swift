@@ -19,6 +19,15 @@ struct NewConversationView: View {
     /// picker's stack; when `nil` (standalone sheet) the close button
     /// dismisses via the environment `dismiss`.
     var onClose: (() -> Void)?
+    /// Whether the conversation indicator should inset below the device's
+    /// top safe area. Sheet presentations (every call site except the
+    /// contact card's pushed conversation) keep the default `false` -- a
+    /// sheet's top edge already sits below the status bar, so the indicator
+    /// only needs its small fixed padding. A full-screen push extends under
+    /// the status bar, so its entry point passes `true` to keep the
+    /// indicator out of the status bar (mirrors the Chats tab's pushed
+    /// conversation, which sets this on its own `ConversationPresenter`).
+    var insetsTopSafeArea: Bool = false
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -45,7 +54,7 @@ struct NewConversationView: View {
         ConversationPresenter(
             viewModel: viewModel.conversationViewModel,
             focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: false,
+            insetsTopSafeArea: insetsTopSafeArea,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
