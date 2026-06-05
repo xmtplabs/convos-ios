@@ -597,12 +597,20 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await apiClient.requestAgentJoin(
+        let response = try await apiClient.requestAgentJoin(
             slug: slug,
             templateId: templateId,
             options: options,
             forceErrorCode: forceErrorCode
         )
+        // Temporary diagnostic: the agent now sends a join-request DM that
+        // the message stream is expected to deliver. Poll for it for a
+        // bounded window in case the stream has died, so the agent doesn't
+        // time out and stream death shows up in the logs. Covers every
+        // agents/join entry point (add agent, contacts picker, compose,
+        // agent builder) since they all route through here.
+        await messagingService().sessionStateManager.startAgentJoinRequestPolling()
+        return response
     }
 
     public func agentShareResolver() -> any AgentShareResolving {

@@ -48,6 +48,8 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
 
     func requestDiscovery() async {}
 
+    func startAgentJoinRequestPolling() async {}
+
     func addObserver(_ observer: SessionStateObserver) {
         observer.sessionStateDidChange(currentState)
     }

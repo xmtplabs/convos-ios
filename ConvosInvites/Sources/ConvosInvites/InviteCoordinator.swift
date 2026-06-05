@@ -343,6 +343,19 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         try? await group.sync()
 
+        // Multiple processing paths (message stream, batch catch-up, and the
+        // temporary agent-join poll) can see the same join-request message.
+        // If the joiner is already in the group, a previous pass handled it -
+        // skip the re-add so we don't send duplicate profile snapshots or,
+        // worse, a spurious error DM back to a joiner that already joined.
+        if let memberInboxIds = try? await group.members.map(\.inboxId),
+           memberInboxIds.contains(request.joinerInboxId) {
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         do {
             let currentTag = try tagStorage.getInviteTag(for: group)
             guard signedInvite.invitePayload.tag == currentTag else {
@@ -411,6 +424,8 @@ public final class InviteCoordinator: @unchecked Sendable {
                 continue
             case .accepted:
                 try? await dm.updateConsentState(state: .allowed)
+                return outcome
+            case .alreadyMember:
                 return outcome
             case .malicious:
                 return outcome
