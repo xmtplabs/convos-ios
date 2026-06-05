@@ -39,24 +39,46 @@ public struct EncryptedImageParams: Sendable {
 
 /// Utility for downloading and decrypting encrypted images
 public enum EncryptedImageLoader {
+    /// Process-wide cap on concurrent encrypted-image downloads. Sync can
+    /// schedule one fetch per conversation/profile in a burst; without a
+    /// global bound those all hold ciphertext and plaintext buffers at
+    /// once, which is enough to exhaust the background memory budget.
+    private static let downloadGate: AsyncSemaphore = AsyncSemaphore(width: 4)
+
     /// Download ciphertext from URL and decrypt using provided parameters
     /// - Parameter params: Encryption parameters including URL and crypto values
     /// - Returns: Decrypted image data
     /// - Throws: Network errors or `ImageEncryptionError` on decryption failure
     public static func loadAndDecrypt(params: EncryptedImageParams) async throws -> Data {
-        let (ciphertext, response) = try await URLSession.shared.data(from: params.url)
+        try await downloadGate.withSlot {
+            try await downloadAndDecrypt(params: params)
+        }
+    }
+
+    /// Streams the ciphertext to a temporary file instead of buffering it in
+    /// memory, then decrypts from a memory-mapped read. Peak footprint per
+    /// download is the plaintext only, instead of ciphertext + plaintext.
+    private static func downloadAndDecrypt(params: EncryptedImageParams) async throws -> Data {
+        let (fileURL, response) = try await URLSession.shared.download(from: params.url)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
 
-        let plaintext = try ImageEncryption.decrypt(
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard byteCount <= Constant.maxCiphertextBytes else {
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+
+        let ciphertext = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        return try ImageEncryption.decrypt(
             ciphertext: ciphertext,
             groupKey: params.groupKey,
             salt: params.salt,
             nonce: params.nonce
         )
-
-        return plaintext
     }
 
     /// Convenience method with individual parameters
@@ -68,6 +90,13 @@ public enum EncryptedImageLoader {
     ) async throws -> Data {
         let params = EncryptedImageParams(url: url, salt: salt, nonce: nonce, groupKey: groupKey)
         return try await loadAndDecrypt(params: params)
+    }
+
+    private enum Constant {
+        /// Refuse ciphertext payloads larger than this. Avatars and group
+        /// images are compressed to well under 1MB by the upload pipeline,
+        /// so anything beyond this is not a legitimate image payload.
+        static let maxCiphertextBytes: Int = 20 * 1024 * 1024
     }
 }
 
