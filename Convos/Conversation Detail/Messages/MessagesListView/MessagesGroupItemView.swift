@@ -599,6 +599,36 @@ private actor VideoURLCache {
     }
 }
 
+/// Shared trailing layout for photo and video rows: rounds and caps the
+/// visible media (on regular width), reports its frame for context menu
+/// anchoring, then expands to the full row width with the proper alignment.
+private struct MediaRowLayout: ViewModifier {
+    let isRegularWidth: Bool
+    let isOutgoing: Bool
+
+    func body(content: Content) -> some View {
+        let cornerRadius: CGFloat = isRegularWidth ? DesignConstants.CornerRadius.medium : 0
+        let mediaMaxWidth: CGFloat = isRegularWidth ? AttachmentPlaceholder.maxPhotoWidth : .infinity
+        let rowAlignment: Alignment = isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading
+        let paddedEdges: Edge.Set = isRegularWidth ? (isOutgoing ? .trailing : .leading) : []
+        content
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .background { mediaFrameReader }
+            .frame(maxWidth: mediaMaxWidth)
+            .frame(maxWidth: .infinity, alignment: rowAlignment)
+            .padding(paddedEdges, DesignConstants.Spacing.step4x)
+    }
+
+    private var mediaFrameReader: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: MessageMediaContentFrameKey.self,
+                value: geometry.frame(in: .named(MessageMediaContentFrameKey.coordinateSpaceName))
+            )
+        }
+    }
+}
+
 private struct AttachmentPlaceholder: View {
     static let maxPhotoWidth: CGFloat = 430
     static let videoPlaybackStarted: Notification.Name = Notification.Name("AttachmentPlaceholder.videoPlaybackStarted")
@@ -706,10 +736,7 @@ private struct AttachmentPlaceholder: View {
             .aspectRatio(placeholderAspectRatio, contentMode: .fit)
             .clipped()
             .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+            .modifier(MediaRowLayout(isRegularWidth: isRegularWidth, isOutgoing: isOutgoing))
             .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
     }
 
@@ -725,10 +752,7 @@ private struct AttachmentPlaceholder: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-        .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-        .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-        .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+        .modifier(MediaRowLayout(isRegularWidth: isRegularWidth, isOutgoing: isOutgoing))
     }
 
     private func handleBlurChange() {
