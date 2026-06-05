@@ -198,10 +198,11 @@ struct MainTabView: View {
     }
 
     /// `true` once a conversation has been pushed onto the Chats tab's
-    /// navigation stack. Hides the builder bar (via the safe-area inset
-    /// conditional) and the tab bar so the conversation detail can use
-    /// the full screen. Bound to `conversationsViewModel` because the
-    /// selection model lives there.
+    /// navigation stack. Hides the nav bar and the tab bar so the
+    /// conversation detail can use the full screen. The builder bar is not
+    /// keyed to this: it stays in the tab root's safe-area inset and slides
+    /// away with the root during the push. Bound to `conversationsViewModel`
+    /// because the selection model lives there.
     private var isConversationSelected: Bool {
         conversationsViewModel.selectedConversationViewModel != nil
             || !stuffPushedItems.isEmpty
@@ -423,7 +424,12 @@ struct MainTabView: View {
     private func tabChrome(_ content: some View, for tab: ConvosTab) -> some View {
         content
             .safeAreaInset(edge: builderBarEdge, spacing: 0) {
-                if tab != .contacts && !isConversationSelected && !isInlineBuilderActive {
+                // Intentionally not keyed to `isConversationSelected`: the
+                // inset belongs to the tab root's layout, so a pushed detail
+                // covers it and the bar rides offscreen with the root during
+                // the push. Removing it here instead collapsed the inset and
+                // reflowed the list mid-transition.
+                if tab != .contacts && !isInlineBuilderActive {
                     builderBar
                         .transition(.blurReplace)
                 }
