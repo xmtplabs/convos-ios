@@ -1,5 +1,5 @@
 {
-  "originHash" : "4cc47b4918e3106a8d7c076112da65047aab9dc16a763f9f248f98517809b7c7",
+  "originHash" : "0b364bfb8f0346d1f6144dd2f64db564429002e9293bc18e0ec046475b7ca1b2",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "8b7bfe0e865239b6b018dbfad75398e8ebcfd3bb"
+        "branch" : "jarod/assistant-join-metrics",
+        "revision" : "db0dde49c87c670758ca7a14488d863701a9be1d"
       }
     },
     {

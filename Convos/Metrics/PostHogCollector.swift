@@ -3,6 +3,7 @@ import ConvosCore
 import ConvosMetrics
 import Foundation
 import PostHog
+import Sentry
 
 final class PostHogCollector: CollectorDelegate {
     var userPropertiesCancellable: AnyCancellable?
@@ -49,5 +50,19 @@ final class PostHogCollector: CollectorDelegate {
             name,
             properties: properties.compactMapValues { $0 }
         )
+        captureDiagnosticEventInSentry(name: name, properties: properties)
+    }
+
+    /// Engineering diagnostics that should alert through Sentry rather than
+    /// only landing in product analytics: a poll-rescued assistant join is
+    /// direct evidence of a silently dead message stream. No-op when the
+    /// SDK isn't started (local/test builds) and carries no PII - only the
+    /// stream-staleness numbers from the metric.
+    private func captureDiagnosticEventInSentry(name: String, properties: [String: Any?]) {
+        guard name == MetricsCoreActions.eventAssistantJoinRescuedByPolling else { return }
+        let event = Event(level: .warning)
+        event.message = SentryMessage(formatted: "assistant join rescued by polling - message stream likely dead")
+        event.extra = properties.compactMapValues { $0 }
+        SentrySDK.capture(event: event)
     }
 }
