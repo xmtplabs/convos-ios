@@ -326,6 +326,10 @@ struct JoinRequestProcessingTests {
             senderInboxId: "joiner-123",
             error: .invalidSignature
         )
+        let alreadyMember = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123"
+        )
 
         #expect(accepted.shouldKeepDMSubscribed)
         #expect(accepted.dmConversationId == "dm-123")
@@ -333,6 +337,10 @@ struct JoinRequestProcessingTests {
         #expect(benignFailure.shouldKeepDMSubscribed)
         #expect(!malicious.shouldKeepDMSubscribed)
         #expect(malicious.isMalicious)
+        #expect(alreadyMember.shouldKeepDMSubscribed)
+        #expect(alreadyMember.dmConversationId == "dm-123")
+        #expect(alreadyMember.joinResult == nil)
+        #expect(!alreadyMember.isMalicious)
     }
 
     // MARK: - InviteJoinError Feedback

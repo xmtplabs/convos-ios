@@ -17,6 +17,13 @@ public protocol SyncingManagerProtocol: Actor {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 
+    /// Temporary diagnostic for agents timing out while joining (suspected
+    /// silent message-stream death). Polls for unprocessed join-request DMs
+    /// for a bounded window after an agents/join call, processing anything
+    /// the stream missed. Remove once the stream issue is confirmed and
+    /// fixed. See `SyncingManager.startAgentJoinRequestPolling`.
+    func startAgentJoinRequestPolling() async
+
     /// Drain the backlog of activity since `cursor` in one batched transaction,
     /// before streams resume. Runs the message-side `BatchCatchUp` and the
     /// invite-side `InviteJoinRequestsManager.processJoinRequestOutcomes`
@@ -118,6 +125,12 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
+    /// Temporary diagnostic state for the agent-join poll. The task is the
+    /// bounded polling loop; the date stamps the last message the stream
+    /// actually delivered, so poll logs can report how stale the stream is.
+    private var agentJoinPollTask: Task<Void, Never>?
+    private var lastMessageStreamEventDate: Date?
+
     /// Reconciles conversation consent against contact-block state (the
     /// source of truth for feed visibility). Reconstructed per session
     /// start because it captures the live XMTP client.
@@ -206,6 +219,7 @@ actor SyncingManager: SyncingManagerProtocol {
         notificationTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        agentJoinPollTask?.cancel()
         currentTask?.cancel()
 
         // Remove observers
@@ -796,6 +810,7 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        agentJoinPollTask?.cancel()
 
         if let task = syncTask {
             _ = await task.value
@@ -808,6 +823,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = agentJoinPollTask {
+            _ = await task.value
+            agentJoinPollTask = nil
         }
     }
 
@@ -846,6 +865,10 @@ actor SyncingManager: SyncingManagerProtocol {
                 for try await message in stream {
                     // Check cancellation
                     try Task.checkCancellation()
+
+                    // Diagnostic stamp for the agent-join poll: how recently
+                    // the message stream actually delivered anything.
+                    lastMessageStreamEventDate = Date()
 
                     // Reset retry count after first successful message (stream is healthy)
                     if isFirstMessage {
@@ -948,9 +971,11 @@ actor SyncingManager: SyncingManagerProtocol {
             enqueueAction(.streamFailed)
         }
     }
+}
 
-    // MARK: - Mutation
+// MARK: - Mutation
 
+extension SyncingManager {
     func setActiveConversationId(_ conversationId: String?) {
         // Update the active conversation
         activeConversationId = conversationId
@@ -962,6 +987,111 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
         await streamProcessor.setTypingIndicatorHandler(handler)
+    }
+}
+
+// MARK: - Agent Join Request Polling (temporary diagnostic)
+
+extension SyncingManager {
+    /// Bounded polling fallback for agent join requests. Agents join by
+    /// sending a join-request DM to the conversation creator; that DM is
+    /// normally picked up by the message stream. When the stream dies
+    /// silently the request is never processed and the agent backend gives
+    /// up after about two minutes. While we diagnose the stream issue, this
+    /// polls the network for a short window after each agents/join call and
+    /// processes anything the stream missed, logging loudly when that
+    /// happens so stream death is observable in the logs.
+    ///
+    /// Re-processing a request the stream already handled is safe: the
+    /// coordinator returns `.alreadyMember` (no re-add, no duplicate
+    /// snapshot), which also keeps the "stream missed it" log signal free
+    /// of false positives.
+    func startAgentJoinRequestPolling() {
+        agentJoinPollTask?.cancel()
+        let startedAt = Date()
+        Log.info("[agent-join-poll] starting: every \(Int(Constant.agentJoinPollInterval))s for \(Int(Constant.agentJoinPollWindow))s")
+        agentJoinPollTask = Task { [weak self] in
+            await self?.runAgentJoinRequestPolling(startedAt: startedAt)
+        }
+    }
+
+    private func runAgentJoinRequestPolling(startedAt: Date) async {
+        var cursor = startedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
+        let deadline = startedAt.addingTimeInterval(Constant.agentJoinPollWindow)
+        var tick = 0
+        while !Task.isCancelled && Date() < deadline {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(Constant.agentJoinPollInterval * 1_000_000_000))
+            } catch {
+                break
+            }
+            tick += 1
+            guard case .ready(let params) = _state else {
+                Log.debug("[agent-join-poll] tick \(tick) skipped - sync not ready (\(_state))")
+                continue
+            }
+            let tickStartedAt = Date()
+            do {
+                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            } catch {
+                Log.warning("[agent-join-poll] tick \(tick): syncAllConversations failed, will retry: \(error)")
+                continue
+            }
+            let acceptedCount = await runAgentJoinPollBatch(params: params, since: cursor)
+            if acceptedCount > 0 {
+                let lastStreamEvent: String = lastMessageStreamEventDate.map { "\(Int(Date().timeIntervalSince($0)))s ago" } ?? "never"
+                Log.warning(
+                    "[agent-join-poll] tick \(tick): accepted \(acceptedCount) join request(s) the message stream had not processed" +
+                    " (last stream message: \(lastStreamEvent)) - message stream is likely dead"
+                )
+            } else {
+                Log.debug("[agent-join-poll] tick \(tick): no unprocessed join requests")
+            }
+            cursor = tickStartedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
+        }
+        Log.info("[agent-join-poll] finished after \(tick) tick(s)")
+    }
+
+    /// Processes join-request DMs since `since`, then pulls the message-side
+    /// backlog so the resulting membership change (group_updated) lands in
+    /// the local database even while the stream is down. Returns the number
+    /// of join requests this pass actually accepted - requests another path
+    /// already handled surface as `.alreadyMember` and don't count, so a
+    /// healthy stream keeps this at zero.
+    ///
+    /// `nonisolated` for the same reason as `runBatchCatchUp`: the only
+    /// state it touches is the immutable `identityStore` / `databaseWriter`,
+    /// and it keeps the non-Sendable client out of the actor's isolation
+    /// domain.
+    private nonisolated func runAgentJoinPollBatch(params: SyncClientParams, since: Date?) async -> Int {
+        let client = params.client
+        let manager = InviteJoinRequestsManager(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let outcomes = await manager.processJoinRequestOutcomes(since: since, client: client)
+        var acceptedCount = 0
+        for outcome in outcomes {
+            if case .accepted = outcome {
+                acceptedCount += 1
+            }
+        }
+        await runMessageBatch(client: client, since: since)
+        return acceptedCount
+    }
+
+    private enum Constant {
+        /// How often the temporary agent-join poll checks for unprocessed
+        /// join requests.
+        static let agentJoinPollInterval: TimeInterval = 5
+        /// How long the poll keeps checking after an agents/join call. The
+        /// agent backend gives up after about two minutes; poll a bit past
+        /// that so the tail end of the window is still observable.
+        static let agentJoinPollWindow: TimeInterval = 150
+        /// Back-overlap applied when advancing the poll cursor so messages
+        /// that land while a sync pass is in flight aren't skipped by the
+        /// next tick.
+        static let agentJoinPollCursorOverlap: TimeInterval = 5
     }
 }
 

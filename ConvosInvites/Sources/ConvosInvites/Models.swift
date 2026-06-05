@@ -149,11 +149,16 @@ public struct JoinResult: Sendable {
 /// - `malicious`: Signature verification failed in a way that indicates
 ///   tampering. The DM is denied and the device unsubscribes from its
 ///   topic so it can no longer wake the inbox.
+/// - `alreadyMember`: The request decoded and verified, but the joiner is
+///   already in the group - another processing path (stream vs batch vs
+///   poll) handled this request first. No re-add, no snapshot, no error
+///   DM; the DM stays subscribed like `accepted`.
 /// - `noJoinRequest`: The message was not a join-request candidate.
 public enum JoinRequestDMOutcome: Sendable {
     case accepted(JoinResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String)
     case noJoinRequest
 
     public var joinResult: JoinResult? {
@@ -169,6 +174,8 @@ public enum JoinRequestDMOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
+        case .alreadyMember(let dmConversationId, _):
+            return dmConversationId
         case .noJoinRequest:
             return nil
         }
@@ -176,7 +183,7 @@ public enum JoinRequestDMOutcome: Sendable {
 
     public var shouldKeepDMSubscribed: Bool {
         switch self {
-        case .accepted, .benignFailure:
+        case .accepted, .benignFailure, .alreadyMember:
             return true
         case .malicious, .noJoinRequest:
             return false

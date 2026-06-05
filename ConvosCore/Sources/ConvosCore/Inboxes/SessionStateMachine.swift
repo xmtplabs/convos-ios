@@ -374,6 +374,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager.requestDiscovery()
     }
 
+    public func startAgentJoinRequestPolling() async {
+        guard let syncingManager else { return }
+        await syncingManager.startAgentJoinRequestPolling()
+    }
+
     // MARK: - SessionStateManagerProtocol
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {

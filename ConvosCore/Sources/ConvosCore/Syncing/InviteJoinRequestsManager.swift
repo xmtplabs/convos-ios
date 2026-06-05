@@ -22,6 +22,7 @@ enum InviteJoinRequestOutcome: Sendable {
     case accepted(JoinRequestResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String)
     case noJoinRequest
 
     var result: JoinRequestResult? {
@@ -37,6 +38,8 @@ enum InviteJoinRequestOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
+        case .alreadyMember(let dmConversationId, _):
+            return dmConversationId
         case .noJoinRequest:
             return nil
         }
@@ -44,7 +47,7 @@ enum InviteJoinRequestOutcome: Sendable {
 
     var shouldKeepDMSubscribed: Bool {
         switch self {
-        case .accepted, .benignFailure:
+        case .accepted, .benignFailure, .alreadyMember:
             return true
         case .malicious, .noJoinRequest:
             return false
@@ -242,6 +245,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
+            )
+        case let .alreadyMember(dmConversationId, joinerInboxId):
+            Log.debug("Join request for \(joinerInboxId) already handled by another pass (DM \(dmConversationId))")
+            return .alreadyMember(
+                dmConversationId: dmConversationId,
+                joinerInboxId: joinerInboxId
             )
         case .noJoinRequest:
             return .noJoinRequest

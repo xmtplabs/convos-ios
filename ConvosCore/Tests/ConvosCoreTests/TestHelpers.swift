@@ -281,6 +281,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
     }
 
+    func startAgentJoinRequestPolling() {
+    }
+
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
     }
 
