@@ -76,6 +76,10 @@ that throw is silent. Add a single log line carrying the content type id + autho
 - Keep `leftConversationNotification` + `hiddenConversationIds` as the live-UX fast
   path; broaden the notification gate so it also fires when the message row already
   existed.
+- Surface the flag as `Conversation.wasRemoved` so any view that can still reach a
+  removed conversation (single-conversation lookups stay unfiltered on purpose)
+  renders it with the existing read-only treatment: composer hidden, share/scan and
+  indicator editing disabled.
 
 ### PR 4 - Profile metadata merge-don't-clobber (IOS-452)
 
