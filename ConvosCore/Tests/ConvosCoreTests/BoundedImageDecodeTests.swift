@@ -8,6 +8,17 @@ import UniformTypeIdentifiers
 /// Renders a solid-color PNG at the given pixel dimensions using only
 /// CoreGraphics/ImageIO, so these tests run on macOS and iOS alike.
 private func makePNGData(width: Int, height: Int) throws -> Data {
+    try makeImageData(width: width, height: height, type: .png, properties: nil)
+}
+
+/// Renders a JPEG carrying an EXIF orientation tag, for exercising the
+/// decoder's transform path (PNG has no standard orientation metadata).
+private func makeJPEGData(width: Int, height: Int, orientation: CGImagePropertyOrientation) throws -> Data {
+    let properties: [CFString: Any] = [kCGImagePropertyOrientation: orientation.rawValue]
+    return try makeImageData(width: width, height: height, type: .jpeg, properties: properties)
+}
+
+private func makeImageData(width: Int, height: Int, type: UTType, properties: [CFString: Any]?) throws -> Data {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let context = try #require(CGContext(
         data: nil,
@@ -24,9 +35,9 @@ private func makePNGData(width: Int, height: Int) throws -> Data {
 
     let mutableData = try #require(CFDataCreateMutable(nil, 0))
     let destination = try #require(
-        CGImageDestinationCreateWithData(mutableData, UTType.png.identifier as CFString, 1, nil)
+        CGImageDestinationCreateWithData(mutableData, type.identifier as CFString, 1, nil)
     )
-    CGImageDestinationAddImage(destination, cgImage, nil)
+    CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary?)
     #expect(CGImageDestinationFinalize(destination))
     return mutableData as Data
 }
@@ -93,5 +104,29 @@ struct BoundedImageDecodeTests {
             .appendingPathComponent("does-not-exist-\(UUID().uuidString).png")
 
         #expect(BoundedImageDecode.image(contentsOf: missing) == nil)
+    }
+
+    @Test func exifOrientationIsBakedIntoPixels() throws {
+        // Orientation .right (EXIF 6) means the stored bitmap is rotated 90
+        // degrees clockwise on display, so decoded width/height swap.
+        let data = try makeJPEGData(width: 400, height: 200, orientation: .right)
+
+        let image = try #require(BoundedImageDecode.image(from: data))
+
+        let size = pixelSize(of: image)
+        #expect(Int(size.width) == 200)
+        #expect(Int(size.height) == 400)
+    }
+
+    @Test func clampingAppliesToPostTransformDimensions() throws {
+        let data = try makeJPEGData(width: 3000, height: 1500, orientation: .right)
+
+        let image = try #require(BoundedImageDecode.image(from: data))
+
+        // Post-transform the image is 1500x3000; the long edge clamps to
+        // 2048 and the aspect ratio holds.
+        let size = pixelSize(of: image)
+        #expect(Int(size.width) == 1024)
+        #expect(Int(size.height) == BoundedImageDecode.defaultMaxPixelSize)
     }
 }
