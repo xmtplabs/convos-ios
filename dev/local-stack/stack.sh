@@ -90,7 +90,9 @@ sync_backend_url() {
 align_agent_key() {
   local dv="${WORKER_DIR}/.dev.vars" be="${BACKEND_DIR}/.env" key
   [[ -f "$be" ]] || { warn "backend/.env missing — can't align AGENT_ASSETS_API_KEY"; return; }
-  key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2-)"
+  # `|| true` keeps a missing key from aborting the script under set -e/pipefail;
+  # the guard below is the intended graceful path.
+  key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2- || true)"
   [[ -n "$key" ]] || { warn ".dev.vars CONVOS_API_KEY missing — can't align AGENT_ASSETS_API_KEY"; return; }
   [[ ${#key} -ge 32 ]] || { warn ".dev.vars CONVOS_API_KEY too short (${#key} < 32) — can't align"; return; }
   [[ "$(grep -E '^AGENT_ASSETS_API_KEY=' "$be" | cut -d= -f2-)" == "$key" ]] && { ok "backend AGENT_ASSETS_API_KEY aligned (current)"; return; }
@@ -104,7 +106,9 @@ align_agent_key() {
 # signing in. Idempotent: skips accounts already funded.
 seed_credits() {
   local key floor=1000000 grant=100000000 accts n=0 a bal
-  key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2-)"
+  # `|| true` keeps a missing key from aborting the script under set -e/pipefail;
+  # the guard below is the intended graceful path.
+  key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2- || true)"
   [[ -n "$key" ]] || { warn "no CONVOS_API_KEY; can't seed credits"; return; }
   accts="$(dc exec -T convos_db psql -U postgres -d postgres -tAc 'SELECT id FROM "Account";' 2>/dev/null | tr -d ' ')"
   [[ -z "$accts" ]] && { ok "no accounts yet — sign in via the app, then: make seed-credits"; return; }
