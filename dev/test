@@ -1,20 +1,32 @@
 #!/bin/bash
 set -eou pipefail
 
-# Usage: dev/test [--unit]
+# Usage: dev/test [--unit] [--down]
 #   --unit   Run only unit tests (no Docker required)
+#   --down   Stop the Docker stack after the test run
 #   (none)   Run all tests with local XMTP node (requires Docker)
+#
+# The Docker stack is shared by every checkout and worktree on this
+# machine (the compose project name is fixed), so by default the stack
+# is left running after the test run. Tearing it down here would kill
+# any other session's in-flight integration tests. Pass --down to stop
+# it anyway, or run ./dev/down when nothing else is using it.
 
 UNIT_TESTS=false
+TEARDOWN=false
 
 for arg in "$@"; do
     case $arg in
         --unit)
             UNIT_TESTS=true
             ;;
+        --down)
+            TEARDOWN=true
+            ;;
         --help|-h)
-            echo "Usage: dev/test [--unit]"
+            echo "Usage: dev/test [--unit] [--down]"
             echo "  --unit   Run only unit tests (no Docker required)"
+            echo "  --down   Stop the Docker stack after the test run"
             echo "  (none)   Run all tests with local XMTP node (requires Docker)"
             exit 0
             ;;
@@ -53,9 +65,15 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Start the XMTP node
-echo "🐳 Starting local XMTP node..."
-"$(dirname "$0")/up"
+# Start the XMTP node unless it is already serving. dev/up runs
+# `compose pull` + `up -d`, which can recreate the node container when a
+# newer image exists -- disruptive to other sessions mid-test-run.
+if nc -z localhost 5556 2>/dev/null; then
+    echo "🐳 Local XMTP node already running, reusing it."
+else
+    echo "🐳 Starting local XMTP node..."
+    "$(dirname "$0")/up"
+fi
 
 # Wait for the node to be ready
 echo "⏳ Waiting for XMTP node to be ready..."
@@ -89,19 +107,20 @@ cd "$SCRIPT_DIR/../ConvosCore"
 echo "📦 Building tests..."
 if ! swift build --build-tests -q 2>&1 | filter_xmtp_logs; then
     echo "❌ Build failed!"
-    cd "$SCRIPT_DIR"
-    ./compose down
     exit 1
 fi
 
 echo "🏃 Running tests..."
-swift test --skip-build || true
-test_exit_code=$?
+test_exit_code=0
+swift test --skip-build || test_exit_code=$?
 
-# Stop the XMTP node
 echo ""
-echo "🛑 Stopping Docker containers..."
-cd "$SCRIPT_DIR"
-./compose down
+if [ "$TEARDOWN" = true ]; then
+    echo "🛑 Stopping Docker containers..."
+    cd "$SCRIPT_DIR"
+    ./compose down
+else
+    echo "ℹ️  Leaving the Docker stack running (shared across sessions). Use ./dev/down to stop it."
+fi
 
 exit $test_exit_code

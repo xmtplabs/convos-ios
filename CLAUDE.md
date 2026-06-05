@@ -549,19 +549,18 @@ cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
 
 ```bash
-# Full test suite (starts Docker automatically)
+# Full test suite (starts Docker automatically, leaves the stack running)
 ./dev/test
 
-# Start Docker manually, run tests, then stop
+# Start Docker manually if needed, then run tests
 ./dev/up
 swift test --package-path ConvosCore
-./dev/down
 
 # Run a single test
-./dev/up  # Start Docker first
 swift test --filter "TestClassName" --package-path ConvosCore
-./dev/down  # Stop when done
 ```
+
+**The Docker stack is shared.** Every checkout, worktree, and agent session on the machine uses the same compose project, so do not run `./dev/down` (or `./dev/test --down`) as routine cleanup — tearing the stack down kills any other session's in-flight integration tests, which then fail with `Connection refused 127.0.0.1:5556` or hang. Leave the stack running; only stop it when you know nothing else is using it.
 
 **Docker is required.** If Docker is not running, start it with `./dev/up` before running tests. If Docker fails to start (not installed, daemon not running, port conflicts), **do not skip the tests** — stop and notify the user that Docker cannot start and tests cannot run. Never push untested code.
 
