@@ -104,6 +104,10 @@ final class MessagesViewController: UIViewController {
 
     private var isFirstStateUpdate: Bool = true
     private var hasPendingInterrupt: Bool = false
+    /// True from init until the view has fully appeared (the open transition
+    /// finished). While set, bar-height inset changes re-anchor instantly
+    /// instead of animating - see `applyBottomInsetInstantly`.
+    private var isSettlingInitialLayout: Bool = true
     private var previousLastMessageId: String?
     private var previousFocusState: MessagesViewInputFocus?
     private var pendingScrollToBottomAfterKeyboard: Bool = false
@@ -412,6 +416,11 @@ final class MessagesViewController: UIViewController {
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         handleViewTransition(to: size, with: coordinator)
         super.viewWillTransition(to: size, with: coordinator)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isSettlingInitialLayout = false
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1012,7 +1021,29 @@ extension MessagesViewController: KeyboardListenerDelegate {
     private func updateBottomInset(inset: CGFloat, info: KeyboardInfo?) {
         guard !contextMenuState.isPresented else { return }
         guard collectionView.contentInset.bottom != inset else { return }
+        if info == nil, isSettlingInitialLayout {
+            applyBottomInsetInstantly(inset)
+            return
+        }
         updateCollectionViewInsets(to: inset, with: info)
+    }
+
+    /// Applies a bar-height inset change with no animation and re-anchors the
+    /// list arithmetically. Used while the conversation-open transition is
+    /// still settling: the bar's measurement can land a render pass or two
+    /// after the list's first paint, and animating the catch-up re-anchor
+    /// (the steady-state behavior) visibly slides the messages up mid
+    /// transition. Both steps below are plain property assignments - no batch
+    /// updates, no snapshot restore, no forced layout - so this is also safe
+    /// inside an in-flight UIKit layout pass.
+    private func applyBottomInsetInstantly(_ inset: CGFloat) {
+        UIView.performWithoutAnimation {
+            collectionView.contentInset.bottom = inset
+            collectionView.verticalScrollIndicatorInsets.bottom = inset
+        }
+        if !isUserInitiatedScrolling {
+            scrollToBottom(animated: false)
+        }
     }
 
     func keyboardWillHide(info: KeyboardInfo) {
