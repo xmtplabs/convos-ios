@@ -44,7 +44,13 @@ public actor ConversationStateMachine {
         /// failure transitions to `.error(addMembersFailed(...))`, never
         /// half-built `.ready`. Empty means no hook call (default behavior
         /// for the "+" button flow).
-        case create(initialMemberInboxIds: [String])
+        /// `startsUnused`: when true, the created conversation's row is
+        /// written with `isUnused = true` before publish, keeping it hidden
+        /// from the chats list until a caller explicitly commits it (see
+        /// `SessionManagerProtocol.commitClaimedConversation`). Used by the
+        /// agent builder so its auto-created draft never surfaces as a
+        /// visible row before the user taps Make.
+        case create(initialMemberInboxIds: [String], startsUnused: Bool)
         /// `initialMemberInboxIds`: same semantics as `.create`, but for
         /// the warm-cached / resume-existing path. Required so the
         /// contacts picker flow can route a pre-warmed conversation
@@ -278,8 +284,8 @@ public actor ConversationStateMachine {
 
     // MARK: - Public Actions
 
-    func create(initialMemberInboxIds: [String] = []) {
-        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds))
+    func create(initialMemberInboxIds: [String] = [], startsUnused: Bool = false) {
+        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused))
     }
 
     func useExisting(conversationId: String, initialMemberInboxIds: [String] = []) {
@@ -349,11 +355,12 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, let .create(initialMemberInboxIds)), (.error, let .create(initialMemberInboxIds)):
+            case (.uninitialized, let .create(initialMemberInboxIds, startsUnused)),
+                 (.error, let .create(initialMemberInboxIds, startsUnused)):
                 if case .error = _state {
                     await handleStop()
                 }
-                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds)
+                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused)
 
             case (.uninitialized, let .useExisting(conversationId, initialMemberInboxIds)),
                  (.error, let .useExisting(conversationId, initialMemberInboxIds)):
@@ -404,7 +411,7 @@ public actor ConversationStateMachine {
 
     // MARK: - Action Handlers
 
-    private func handleCreate(initialMemberInboxIds: [String]) async throws {
+    private func handleCreate(initialMemberInboxIds: [String], startsUnused: Bool = false) async throws {
         emitStateChange(.creating)
 
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
@@ -417,6 +424,34 @@ public actor ConversationStateMachine {
         // here because prepareConversation() is a one-shot operation, not a long-running
         // stream that could overlap with other XMTP operations.
         nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
+
+        // Deferred-visibility creation: write the hidden row before publish
+        // so the conversation stream's echo of the new group preserves
+        // `isUnused = true` instead of inserting a fresh visible row. The
+        // row stays hidden until the owning flow commits it (agent builder's
+        // Make tap via `commitClaimedConversation`). The provisional invite
+        // tag satisfies the column's UNIQUE constraint until the stream
+        // processor's `ensureInviteTag` stores the real one. If publish
+        // below throws, the row stays - a thrown publish doesn't guarantee
+        // the group missed the network, and a hidden row is harmless (it is
+        // recycled as a future prewarm) while deleting it would let the
+        // stream echo re-insert it visible.
+        if startsUnused, let group = optimisticConversation as? XMTPiOS.Group {
+            let conversationId = group.id
+            let createdAt = group.createdAt
+            let inboxId = client.inboxId
+            let clientConversationId = self.clientConversationId
+            try await databaseWriter.write { db in
+                try UnusedConversationCache.writeUnusedConversationRow(
+                    db: db,
+                    conversationId: conversationId,
+                    clientConversationId: clientConversationId,
+                    inviteTag: UnusedConversationCache.provisionalInviteTag(for: conversationId),
+                    inboxId: inboxId,
+                    createdAt: createdAt
+                )
+            }
+        }
 
         // Publish the conversation
         try await optimisticConversation.publish()

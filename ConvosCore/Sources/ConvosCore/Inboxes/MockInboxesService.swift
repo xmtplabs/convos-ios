@@ -25,6 +25,9 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func releaseClaimedConversation(id conversationId: String) async {
     }
 
+    public func registerClaimedConversation(id conversationId: String) async {
+    }
+
     public func discardClaimedConversation(id conversationId: String) async {
     }
 

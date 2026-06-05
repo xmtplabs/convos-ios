@@ -650,7 +650,7 @@ final class AgentBuilderViewModel: Identifiable {
             withAnimation(.easeInOut(duration: 0.35)) {
                 self.hasCommitted = true
             }
-            // Promote the claimed cache row into a visible conversation
+            // Promote the hidden conversation row into a visible one
             // AFTER `hasCommitted` flips. The `.onChange(of: hasCommitted)`
             // inside `AgentBuilderView` fires the `onCommitted` callback,
             // which the inline-builder host (`ConversationsView`) uses to
@@ -659,11 +659,11 @@ final class AgentBuilderViewModel: Identifiable {
             // `isEmptyCTAActive` flips, the inline builder unmounts, and
             // the onChange handler never fires — leaving no sheet.
             // Sequencing the commit AFTER the state change keeps the
-            // host's callback intact, then the cache flip arrives once
-            // the sheet is already on its way up.
-            if let claimedId = self.newConversationViewModel.claimedConversationId {
-                await self.session.commitClaimedConversation(id: claimedId)
-            }
+            // host's callback intact, then the visibility flip arrives once
+            // the sheet is already on its way up. Covers both the cache-
+            // claimed row and the cache-miss auto-created row (queued until
+            // `.ready` if creation is still in flight).
+            await self.newConversationViewModel.commitConversationVisibility()
         }
 
         Task { @MainActor [weak self] in
