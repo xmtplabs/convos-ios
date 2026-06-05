@@ -45,6 +45,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
+    /// Read-only when the presenter asks for it (stale/removed device) or
+    /// when the local user was removed from this conversation but can still
+    /// view it (e.g. it was open when the removal landed).
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel.conversation.wasRemoved
+    }
+
     private func ensureNavigator() {
         guard navigator == nil else { return }
         navigator = ConversationCollector(
@@ -232,7 +239,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
-            isReadOnly: isReadOnly,
+            isReadOnly: effectiveReadOnly,
             onUserInteraction: {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
@@ -300,7 +307,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: isReadOnly ? .suppressed : headerMode,
+            headerMode: effectiveReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
@@ -387,7 +394,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         AddToConversationMenu(
             isFull: viewModel.isFull,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
+            isEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
             onConvoCode: {
                 if viewModel.isFull {
                     showingFullInfo = true
@@ -426,7 +433,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             Image(systemName: "viewfinder")
         }
         .buttonBorderShape(.circle)
-        .disabled(!messagesTopBarTrailingItemEnabled || isReadOnly)
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
         .accessibilityLabel("Scan invite code")
         .accessibilityIdentifier("scan-invite-button")
     }

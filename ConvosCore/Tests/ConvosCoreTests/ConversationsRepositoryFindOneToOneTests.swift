@@ -61,7 +61,8 @@ struct ConversationsRepositoryFindOneToOneTests {
             isUnreadUpdatedAt: createdAt,
             isMuted: false,
             pinnedOrder: nil,
-            hidesInviteCard: false
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
 
         try addMember(db: db, conversationId: id, inboxId: currentInboxId, role: .superAdmin)
@@ -299,7 +300,8 @@ struct ConversationsRepositoryFindOneToOneTests {
             isUnreadUpdatedAt: createdAt,
             isMuted: false,
             pinnedOrder: nil,
-            hidesInviteCard: false
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
         try addMember(db: db, conversationId: id, inboxId: currentInboxId, role: .member)
         try addMember(db: db, conversationId: id, inboxId: otherInboxId, role: .superAdmin)

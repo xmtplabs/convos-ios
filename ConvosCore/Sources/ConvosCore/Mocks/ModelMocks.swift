@@ -38,6 +38,7 @@ public extension Conversation {
             isMuted: isMuted,
             pinnedOrder: isPinned ? 0 : nil,
             hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: isUnread ? MessagePreview(
                 text: lastMessageText,
                 createdAt: Date()
@@ -88,6 +89,7 @@ public extension Conversation {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: nil,
             imageURL: nil,
             imageSalt: nil,
@@ -134,6 +136,7 @@ public extension Conversation {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: nil,
             imageURL: nil,
             imageSalt: nil,

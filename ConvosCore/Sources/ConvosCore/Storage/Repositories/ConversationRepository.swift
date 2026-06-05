@@ -68,7 +68,7 @@ fileprivate extension Database {
             .fetchOne(self) else {
             return nil
         }
-        let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         return dbConversation.hydrateConversation(currentInboxId: currentInboxId)
     }
 }
