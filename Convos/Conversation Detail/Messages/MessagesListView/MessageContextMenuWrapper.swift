@@ -30,6 +30,7 @@ struct MessageGestureModifier: ViewModifier {
     @State private var isPressed: Bool = false
     @State private var hasAppeared: Bool = false
     @State private var interactiveExclusionFrames: [CGRect] = []
+    @State private var mediaContentFrame: CGRect?
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
     @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
@@ -44,6 +45,7 @@ struct MessageGestureModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .coordinateSpace(name: MessageMediaContentFrameKey.coordinateSpaceName)
             .environment(\.messagePressed, isPressed)
             .scaleEffect(
                 isPressed && hasAppeared ? 1.03 : 1.0,
@@ -54,8 +56,11 @@ struct MessageGestureModifier: ViewModifier {
             .background { sourceBubbleFrameTracker }
             .onPreferenceChange(SourceFrameKey.self) { frame in
                 if isSourceBubble, let frame {
-                    contextMenuState.currentSourceFrame = frame
+                    contextMenuState.currentSourceFrame = bubbleFrame(within: frame)
                 }
+            }
+            .onPreferenceChange(MessageMediaContentFrameKey.self) { frame in
+                mediaContentFrame = frame
             }
             .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
                 interactiveExclusionFrames = frames
@@ -129,12 +134,21 @@ struct MessageGestureModifier: ViewModifier {
 
     private func handleLongPress(geometry: GeometryProxy) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let frame = geometry.frame(in: .global)
+        let frame = bubbleFrame(within: geometry.frame(in: .global))
         contextMenuState.present(
             message: message,
             bubbleFrame: frame,
             bubbleStyle: bubbleStyle
         )
+    }
+
+    /// Media attachments expand to the full row width while the visible photo
+    /// can be narrower (e.g. capped at a max width on iPad). When a media
+    /// frame is reported, offset it into the row's global frame so the
+    /// context menu anchors on the photo instead of the row.
+    private func bubbleFrame(within contentFrame: CGRect) -> CGRect {
+        guard let mediaContentFrame else { return contentFrame }
+        return mediaContentFrame.offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
     }
 
     private func handleSwipeOffsetChanged(_ offset: CGFloat) {
@@ -161,6 +175,19 @@ struct MessageGestureExclusionFrameKey: PreferenceKey {
 
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
         value.append(contentsOf: nextValue())
+    }
+}
+
+/// Reports the visible media content frame, relative to the message gesture
+/// coordinate space, so the context menu can anchor on the photo rather than
+/// the full-width attachment row. Measured in the named space (anchored below
+/// the press scale effect) to stay in pure layout coordinates.
+struct MessageMediaContentFrameKey: PreferenceKey {
+    static let coordinateSpaceName: String = "messageGestureContent"
+    static let defaultValue: CGRect? = nil
+
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
     }
 }
 
