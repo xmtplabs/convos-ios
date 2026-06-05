@@ -100,7 +100,8 @@ def analyze_log_file(path):
     lines = []
     try:
         text = path.read_text(errors="replace")
-    except OSError:
+    except OSError as exc:
+        print(f"warning: could not read {path}: {exc}", file=sys.stderr)
         return None
     raw = text.splitlines()
     errors = warnings = 0

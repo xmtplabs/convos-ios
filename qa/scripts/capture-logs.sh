@@ -50,7 +50,12 @@ resolve_workspace() {
     elif [ -f "$REPO_ROOT/.convos-stack" ]; then
         tr -d '\n' < "$REPO_ROOT/.convos-stack"
     else
-        main_root="$(dirname "$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" 2>/dev/null)" || true
+        # Resolve the shared .git dir first and only dirname a non-empty result:
+        # dirname "" returns "." which would falsely pass the -n check below.
+        main_root="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || true
+        if [ -n "$main_root" ]; then
+            main_root="$(dirname "$main_root")"
+        fi
         if [ -n "$main_root" ] && [ -f "$main_root/.convos-stack" ]; then
             tr -d '\n' < "$main_root/.convos-stack"
         fi
@@ -160,7 +165,9 @@ cmd_dump() {
         [ -n "$started_at" ] && [ "$started_at" != "unknown" ] && since_args=(--since "$started_at")
         for name in $(docker ps -a --filter "name=convos-stack" --format '{{.Names}}' 2>/dev/null); do
             short=$(echo "$name" | sed -E 's/^convos-stack[-_]//; s/[-_][0-9]+$//')
-            docker logs "${since_args[@]}" "$name" > "$LOG_DIR/$short.log" 2>&1 || true
+            # ${arr[@]+...} guards the expansion: plain "${since_args[@]}" on an
+            # empty array trips set -u under macOS system bash 3.2.
+            docker logs ${since_args[@]+"${since_args[@]}"} "$name" > "$LOG_DIR/$short.log" 2>&1 || true
             echo "captured $short.log ($(file_size "$LOG_DIR/$short.log") bytes)"
         done
     else

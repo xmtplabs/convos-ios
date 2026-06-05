@@ -31,7 +31,7 @@ SAFE_STEP=$(printf '%s' "$STEP_ID" | tr -c 'a-zA-Z0-9_-' '-' | cut -c1-48)
 FILE="${TS}-${TEST_ID}-${SAFE_STEP}-$$${RANDOM}.png"
 
 xcrun simctl io "$UDID" screenshot "$SHOT_DIR/$FILE" >/dev/null
-sips -Z 900 "$SHOT_DIR/$FILE" >/dev/null 2>&1 || true
+sips -Z 900 "$SHOT_DIR/$FILE" >/dev/null 2>&1 || echo "warn: sips downscale failed for $FILE (keeping full-size capture)" >&2
 
 [ -x "$CXDB" ] || chmod +x "$CXDB"
 "$CXDB" log-screenshot "$RUN_ID" "$TEST_ID" "$STEP_ID" "screenshots/$FILE" "$CAPTION" >/dev/null
