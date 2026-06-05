@@ -426,8 +426,8 @@ extension MessagingService {
             currentInboxId: currentInboxId
         )) ?? (try? group.name()).orUntitled
 
-        let senderName = try await getSenderDisplayName(
-            senderInboxId: decodedMessage.senderInboxId,
+        let senderName = try await getMemberDisplayName(
+            inboxId: decodedMessage.senderInboxId,
             conversationId: conversationId
         )
 
@@ -457,19 +457,6 @@ extension MessagingService {
             isReaction: isReaction,
             userInfo: userInfo
         )
-    }
-
-    private func getSenderDisplayName(
-        senderInboxId: String,
-        conversationId: String
-    ) async throws -> String {
-        try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
-            if let name = profile?.name, !name.isEmpty { return name }
-            // Mirror `Profile.displayName`: known agents read as "Agent",
-            // unknown / human profiles read as "Somebody".
-            return profile?.isAgent == true ? "Agent" : "Somebody"
-        }
     }
 
     private func getOtherMemberCount(
@@ -637,8 +624,8 @@ extension MessagingService {
         case .scheduled(let expiresAt):
             _ = try await storeConversation(group, inboxId: currentInboxId)
             let conversationName = (try? group.name()).orUntitled
-            let senderName = try await getSenderDisplayName(
-                senderInboxId: decodedMessage.senderInboxId,
+            let senderName = try await getMemberDisplayName(
+                inboxId: decodedMessage.senderInboxId,
                 conversationId: conversationId
             )
             let timeUntilExplosion = formatTimeUntilExplosion(expiresAt)
@@ -940,14 +927,24 @@ extension MessagingService {
                 return "New Convo"
             }
 
-            let namedProfiles = memberProfiles.compactMap { $0.name }.filter { !$0.isEmpty }.sorted()
-            // Bucket unnamed members by agent vs. human so the rendered title
-            // matches `Profile.formattedNamesString`: anonymous agents read
-            // as "Agent" / "Agents", anonymous humans as "Somebody" /
-            // "Somebodies".
-            let anonymousProfiles = memberProfiles.filter { ($0.name ?? "").isEmpty }
-            let anonymousAgentCount = anonymousProfiles.filter { $0.isAgent }.count
-            let anonymousHumanCount = anonymousProfiles.count - anonymousAgentCount
+            // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
+            // the contact's display name (the user's global profile snapshot
+            // for this inbox) wins over the per-conversation profile name.
+            // Unnamed members are bucketed by agent vs. human so the rendered
+            // title matches: anonymous agents read as "Agent" / "Agents",
+            // anonymous humans as "Somebody" / "Somebodies".
+            let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
+                if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
+                    return (contactName, profile.isAgent)
+                }
+                if let name = profile.name, !name.isEmpty {
+                    return (name, profile.isAgent)
+                }
+                return (nil, profile.isAgent)
+            }
+            let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+            let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+            let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
 
             var allNames = namedProfiles
             if anonymousAgentCount == 1 {
@@ -974,12 +971,28 @@ extension MessagingService {
         conversationId: String
     ) async throws -> String {
         try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-            if let name = profile?.name, !name.isEmpty { return name }
-            // Mirror `Profile.displayName`: known agents read as "Agent",
-            // unknown / human profiles read as "Somebody".
-            return profile?.isAgent == true ? "Agent" : "Somebody"
+            try Self.notificationMemberDisplayName(db: db, inboxId: inboxId, conversationId: conversationId)
         }
+    }
+
+    /// Resolves the name shown for a member in notification text, mirroring
+    /// `Profile.formattedNamesString(memberNameOverride:)`: the contact's
+    /// display name (the user's global profile snapshot for this inbox) wins
+    /// over the per-conversation profile name, and nameless members fall back
+    /// to "Agent" / "Somebody" keyed on the profile's agent flag.
+    static func notificationMemberDisplayName(
+        db: Database,
+        inboxId: String,
+        conversationId: String
+    ) throws -> String {
+        if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
+            return contactName
+        }
+        let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        if let name = profile?.name, !name.isEmpty { return name }
+        // Mirror `Profile.displayName`: known agents read as "Agent",
+        // unknown / human profiles read as "Somebody".
+        return profile?.isAgent == true ? "Agent" : "Somebody"
     }
 
     // MARK: - Welcome Message Tracking

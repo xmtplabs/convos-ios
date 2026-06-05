@@ -663,10 +663,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func getSenderDisplayName(senderInboxId: String, conversationId: String) async -> String {
         do {
-            let profile = try await databaseReader.read { db in
-                try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
+            // The contact's display name (the user's global profile snapshot
+            // for this inbox) wins over the per-conversation profile name,
+            // mirroring `Profile.formattedNamesString(memberNameOverride:)`.
+            let name: String? = try await databaseReader.read { db in
+                if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: senderInboxId) {
+                    return contactName
+                }
+                return try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)?.name
             }
-            if let name = profile?.name, !name.isEmpty {
+            if let name, !name.isEmpty {
                 return name
             }
         } catch {
