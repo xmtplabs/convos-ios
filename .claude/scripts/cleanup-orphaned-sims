@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Sweep orphaned convos-* simulator clones.
+
+Dry run by default: prints what would be deleted and why each kept sim is
+kept. Pass --delete to actually shut down and delete the orphans.
+
+Task simulators are created by /setup and `convos-task new` but only
+`convos-task cleanup` deletes one; the other paths leak clones (1-6 GB
+each of app data) on a disk that runs chronically near-full. This script
+finds clones whose task is done and removes them.
+
+A convos-* sim is kept when any of:
+- its UDID is pinned by a .claude/.simulator_id or .simulator_id_partner
+  file in this repo, any .claude/worktrees/* worktree, or any sibling
+  convos-ios* checkout in the workspace
+- its name matches an existing .claude/worktrees/* worktree or sibling
+  convos-ios-<task> checkout (convos-<name> or convos-worktree-<name>)
+- its name matches an open PR head branch (convos-<sanitized-branch>),
+  when gh is available
+- it was booted within --max-idle-hours (default 24; lastBootedAt is UTC)
+- it is protected by name: convos-main, convos-qa-partner
+
+Non-convos-* devices (stock iPhones etc.) are never touched.
+"""
+
+import argparse
+import datetime
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+PROTECTED_NAMES = {"convos-main", "convos-qa-partner"}
+
+
+def run(cmd, **kwargs):
+    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+
+
+def main_repo_root():
+    # Resolves to the main checkout even when run from a worktree copy.
+    out = run(["git", "-C", str(pathlib.Path(__file__).resolve().parent), "rev-parse", "--git-common-dir"])
+    if out.returncode != 0:
+        sys.exit(f"error: cannot locate main repo: {out.stderr.strip()}")
+    return pathlib.Path(out.stdout.strip()).resolve().parent
+
+
+def sanitize(name):
+    # Mirrors /setup's branch-to-sim-name derivation.
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def collect_pins(main_repo):
+    pins = {}
+    workspace = main_repo.parent
+    pin_files = []
+    for base in [main_repo, *main_repo.glob(".claude/worktrees/*"), *workspace.glob("convos-ios*")]:
+        pin_files += [base / ".claude/.simulator_id", base / ".claude/.simulator_id_partner"]
+    for f in pin_files:
+        try:
+            udid = f.read_text().strip().upper()
+        except OSError:
+            continue
+        if udid:
+            pins.setdefault(udid, str(f))
+    return pins
+
+
+def collect_task_names(main_repo):
+    names = set()
+    for d in main_repo.glob(".claude/worktrees/*"):
+        if d.is_dir():
+            names.add(sanitize(d.name))
+            names.add(f"worktree-{sanitize(d.name)}")
+    prefix = f"{main_repo.name}-"
+    for d in main_repo.parent.glob(f"{prefix}*"):
+        if d.is_dir():
+            names.add(sanitize(d.name[len(prefix):]))
+    return names
+
+
+def collect_open_pr_branches(main_repo):
+    out = run(["gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName"], cwd=main_repo)
+    if out.returncode != 0:
+        print("note: gh unavailable, skipping open-PR branch matching", file=sys.stderr)
+        return set()
+    return {sanitize(pr["headRefName"]) for pr in json.loads(out.stdout)}
+
+
+def list_devices():
+    out = run(["xcrun", "simctl", "list", "devices", "-j"])
+    if out.returncode != 0:
+        sys.exit(f"error: simctl list failed: {out.stderr.strip()}")
+    devices = []
+    for runtime_devices in json.loads(out.stdout)["devices"].values():
+        devices += [d for d in runtime_devices if d.get("isAvailable")]
+    return devices
+
+
+def keep_reason(device, pins, task_names, pr_branches, max_idle_hours):
+    name, udid = device["name"], device["udid"].upper()
+    if not name.startswith("convos-"):
+        return "not a convos clone"
+    if name in PROTECTED_NAMES:
+        return "protected name"
+    if udid in pins:
+        return f"pinned by {pins[udid]}"
+    suffix = sanitize(name[len("convos-"):])
+    if suffix in task_names:
+        return "matches existing worktree/checkout"
+    if suffix in pr_branches:
+        return "matches open PR branch"
+    last_booted = device.get("lastBootedAt")
+    if last_booted:
+        booted_at = datetime.datetime.fromisoformat(last_booted.replace("Z", "+00:00"))
+        idle = datetime.datetime.now(datetime.timezone.utc) - booted_at
+        if idle < datetime.timedelta(hours=max_idle_hours):
+            return f"booted {idle.total_seconds() / 3600:.1f}h ago (guard: {max_idle_hours}h)"
+    return None
+
+
+def delete_device(device):
+    udid = device["udid"]
+    run(["xcrun", "simctl", "shutdown", udid])
+    out = run(["xcrun", "simctl", "delete", udid])
+    if out.returncode != 0:
+        print(f"  failed to delete {device['name']}: {out.stderr.strip()}", file=sys.stderr)
+        return False
+    run(["pkill", "-f", f"idb_companion.*{udid}"])
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Sweep orphaned convos-* simulator clones (dry run by default).")
+    parser.add_argument("--delete", action="store_true", help="actually delete the orphans")
+    parser.add_argument("--max-idle-hours", type=float, default=24, help="keep sims booted within this window (default 24)")
+    args = parser.parse_args()
+
+    main_repo = main_repo_root()
+    pins = collect_pins(main_repo)
+    task_names = collect_task_names(main_repo)
+    pr_branches = collect_open_pr_branches(main_repo)
+
+    orphans = []
+    for device in sorted(list_devices(), key=lambda d: d["name"]):
+        if not device["name"].startswith("convos-"):
+            continue
+        size_gb = device.get("dataPathSize", 0) / 1e9
+        reason = keep_reason(device, pins, task_names, pr_branches, args.max_idle_hours)
+        if reason:
+            print(f"keep    {device['name']} ({size_gb:.1f} GB) - {reason}")
+        else:
+            print(f"orphan  {device['name']} ({size_gb:.1f} GB)")
+            orphans.append(device)
+
+    if not orphans:
+        print("\nno orphans found")
+        return
+    total_gb = sum(d.get("dataPathSize", 0) for d in orphans) / 1e9
+    if args.delete:
+        deleted = [d for d in orphans if delete_device(d)]
+        print(f"\ndeleted {len(deleted)}/{len(orphans)} orphans (~{total_gb:.1f} GB; APFS reclaims asynchronously)")
+    else:
+        print(f"\n{len(orphans)} orphans (~{total_gb:.1f} GB). Re-run with --delete to remove them.")
+
+
+if __name__ == "__main__":
+    main()
