@@ -23,6 +23,17 @@ final class FocusCoordinator {
     /// The current focus state - synchronized with SwiftUI's @FocusState
     private(set) var currentFocus: MessagesViewInputFocus?
 
+    /// Bumped by `moveFocus(to:)` only when the requested focus already equals
+    /// `currentFocus`. Observers (`ConversationPresenter`, `MessagesBottomBar`)
+    /// re-assert SwiftUI's `@FocusState` on this change, because a same-value
+    /// `moveFocus` leaves `currentFocus` unchanged and the value-driven
+    /// `onChange(of: currentFocus)` syncs never fire. This happens when the
+    /// messages list dismisses the keyboard via its interactive drag gesture
+    /// without SwiftUI clearing `@FocusState`, leaving the stored focus and the
+    /// real first responder out of sync - so a reply or attachment that asks to
+    /// re-focus `.message` would otherwise never raise the keyboard again.
+    private(set) var refocusNonce: Int = 0
+
     /// The type of keyboard currently detected
     private(set) var keyboardType: KeyboardType = .unknown
 
@@ -161,7 +172,18 @@ final class FocusCoordinator {
         Log.info("moveFocus called with: \(String(describing: focus)), saving previous: \(String(describing: currentFocus))")
         previousFocus = currentFocus
         beginProgrammaticTransition(to: focus)
-        currentFocus = focus
+        if currentFocus == focus {
+            // The stored value isn't changing, so the value-driven `@FocusState`
+            // syncs won't fire. Re-assert focus anyway: the real first responder
+            // may have been dropped (e.g. the messages list dismissed the
+            // keyboard via its interactive drag) without SwiftUI clearing
+            // `@FocusState`. The transition began above so the nil intermediate
+            // of the observers' re-assert is treated as an interrupted
+            // transition, not a manual dismissal.
+            refocusNonce &+= 1
+        } else {
+            currentFocus = focus
+        }
     }
 
     /// Called when a field finishes editing to determine next focus

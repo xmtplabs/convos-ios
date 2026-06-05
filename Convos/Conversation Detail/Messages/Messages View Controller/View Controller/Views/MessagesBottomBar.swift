@@ -119,6 +119,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             .onChange(of: focusCoordinator.currentFocus) { _, newValue in
                 handleFocusChanged(to: newValue)
             }
+            .onChange(of: focusCoordinator.refocusNonce) { _, _ in
+                // A same-value re-focus request (e.g. reply/attachment asking for
+                // `.message` when the coordinator already holds it) doesn't change
+                // `currentFocus`, so re-run the expand/collapse logic here too or
+                // the bar would stay collapsed.
+                handleFocusChanged(to: focusCoordinator.currentFocus)
+            }
             .onChange(of: messageText) { _, _ in
                 handleMessageTextChanged()
             }
