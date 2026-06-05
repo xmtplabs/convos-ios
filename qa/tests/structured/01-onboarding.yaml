@@ -16,23 +16,32 @@ setup:
     note: "Ensures clean state — no prior app data"
   - action: install_app
   - action: disable_animations
+  - action: seed_app_check_token
+    note: >
+      Erasing the simulator wipes the cached App Check attestation; without
+      re-seeding the registered debug token into the app container prefs the
+      first conversation create 403s (exchangeDebugToken PERMISSION_DENIED)
+      with a "Something went wrong" sheet. Seed the token before first launch
+      and verify the app log shows no appCheck errors before starting steps.
   - action: launch_app
 
 steps:
-  - id: empty_state
-    name: "App launches to empty conversations list"
+  - id: fresh_launch
+    name: "App launches to the home shell"
     actions:
-      - wait_for_element: { id: "start-convo-button", timeout: 15 }
-      - find_elements: { id: "join-convo-button" }
+      - wait_for_element: { id: "compose-button", timeout: 15 }
     verify:
-      - element_exists: { id: "start-convo-button" }
-      - element_exists: { id: "join-convo-button" }
-    criteria: app_launches_empty
+      - element_exists: { id: "compose-button" }
+    criteria: app_launches_fresh
+    note: >
+      The dedicated empty-state screen (start-convo-button / join-convo-button)
+      was removed from the app; a fresh install lands directly on the home
+      shell with the compose button available.
 
   - id: create_conversation
     name: "Create a new conversation"
     actions:
-      - tap: { id: "start-convo-button" }
+      - tap: { id: "compose-button" }
       - wait_for_element: { id: "invite-qr-code", timeout: 15 }
     verify:
       - element_exists: { id: "invite-qr-code" }
@@ -117,8 +126,8 @@ steps:
 teardown: []
 
 criteria:
-  app_launches_empty:
-    description: "App launches to an empty conversations list after simulator erase"
+  app_launches_fresh:
+    description: "App launches to the home shell after simulator erase (compose button available)"
   compose_opens_conversation:
     description: "Compose button opens a new conversation flow"
   profile_prompt_appears:
