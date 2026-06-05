@@ -502,6 +502,7 @@ private struct MediaAttachmentView: View {
                 }
             }
         }
+        .modifier(MediaRowAlignment(isOutgoing: isOutgoing))
         .messageGesture(
             message: message,
             bubbleStyle: .normal,
@@ -599,24 +600,20 @@ private actor VideoURLCache {
     }
 }
 
-/// Shared trailing layout for photo and video rows: rounds and caps the
-/// visible media (on regular width), reports its frame for context menu
-/// anchoring, then expands to the full row width with the proper alignment.
-private struct MediaRowLayout: ViewModifier {
-    let isRegularWidth: Bool
-    let isOutgoing: Bool
+/// Rounds and caps the visible media box (on regular width) and reports its
+/// frame for context menu anchoring. Applied inside each media content state
+/// so overlay chips and the context menu anchor on the photo, not the row.
+private struct MediaBoxLayout: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     func body(content: Content) -> some View {
+        let isRegularWidth: Bool = horizontalSizeClass == .regular
         let cornerRadius: CGFloat = isRegularWidth ? DesignConstants.CornerRadius.medium : 0
         let mediaMaxWidth: CGFloat = isRegularWidth ? AttachmentPlaceholder.maxPhotoWidth : .infinity
-        let rowAlignment: Alignment = isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading
-        let paddedEdges: Edge.Set = isRegularWidth ? (isOutgoing ? .trailing : .leading) : []
         content
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .background { mediaFrameReader }
             .frame(maxWidth: mediaMaxWidth)
-            .frame(maxWidth: .infinity, alignment: rowAlignment)
-            .padding(paddedEdges, DesignConstants.Spacing.step4x)
     }
 
     private var mediaFrameReader: some View {
@@ -626,6 +623,24 @@ private struct MediaRowLayout: ViewModifier {
                 value: geometry.frame(in: .named(MessageMediaContentFrameKey.coordinateSpaceName))
             )
         }
+    }
+}
+
+/// Expands a media box to the full row width with the proper alignment and
+/// edge padding for the current size class. Applied after the overlay chips
+/// so they stay anchored to the media box.
+private struct MediaRowAlignment: ViewModifier {
+    let isOutgoing: Bool
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
+    func body(content: Content) -> some View {
+        let isRegularWidth: Bool = horizontalSizeClass == .regular
+        let rowAlignment: Alignment = isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading
+        let paddedEdges: Edge.Set = isRegularWidth ? (isOutgoing ? .trailing : .leading) : []
+        content
+            .frame(maxWidth: .infinity, alignment: rowAlignment)
+            .padding(paddedEdges, DesignConstants.Spacing.step4x)
     }
 }
 
@@ -643,8 +658,6 @@ private struct AttachmentPlaceholder: View {
     @Binding var resolvedDuration: Double?
     @Binding var pendingPlayAfterReveal: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
-
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     @State private var loadedImage: UIImage?
     @State private var isLoading: Bool = true
@@ -665,10 +678,6 @@ private struct AttachmentPlaceholder: View {
 
     private var showBlurOverlay: Bool {
         shouldBlur
-    }
-
-    private var isRegularWidth: Bool {
-        horizontalSizeClass == .regular
     }
 
     private var blurRadius: CGFloat {
@@ -736,7 +745,7 @@ private struct AttachmentPlaceholder: View {
             .aspectRatio(placeholderAspectRatio, contentMode: .fit)
             .clipped()
             .compositingGroup()
-            .modifier(MediaRowLayout(isRegularWidth: isRegularWidth, isOutgoing: isOutgoing))
+            .modifier(MediaBoxLayout())
             .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
     }
 
@@ -752,7 +761,7 @@ private struct AttachmentPlaceholder: View {
                 }
             }
         }
-        .modifier(MediaRowLayout(isRegularWidth: isRegularWidth, isOutgoing: isOutgoing))
+        .modifier(MediaBoxLayout())
     }
 
     private func handleBlurChange() {
@@ -1095,10 +1104,7 @@ private struct AttachmentPlaceholder: View {
             .overlay {
                 ProgressView()
             }
-            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+            .modifier(MediaBoxLayout())
     }
 
     private var errorPlaceholder: some View {
@@ -1115,10 +1121,7 @@ private struct AttachmentPlaceholder: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+            .modifier(MediaBoxLayout())
     }
 }
 
