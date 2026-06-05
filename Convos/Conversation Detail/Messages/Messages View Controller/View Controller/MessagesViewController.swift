@@ -150,6 +150,11 @@ final class MessagesViewController: UIViewController {
                     let isNewMessage = currentLastMessageId != self.previousLastMessageId
                     self.previousLastMessageId = currentLastMessageId
 
+                    // Apply any pending deferred inset before reading
+                    // inset-dependent scroll heuristics below (`isNearBottom`)
+                    // or anchoring; this completion runs via the main queue,
+                    // never re-entrantly inside a UIKit layout pass.
+                    self.flushPendingBottomBarInsetUpdate()
                     let isInitialLoad = currentControllerActions.options.contains(.loadingInitialMessages)
                     let nearBottom = self.isNearBottom
                     let userScrolling = self.isUserInitiatedScrolling
@@ -184,20 +189,36 @@ final class MessagesViewController: UIViewController {
 
     /// `bottomBarHeight` is only written from `updateUIViewController`, which can run
     /// synchronously inside an in-flight UIKit layout pass (e.g. a sheet's keyboard
-    /// relayout in `UISheetPresentationController`). Animating inset changes and forcing
-    /// collection view layout re-entrantly from there crashes in UIKit's
+    /// relayout in `UISheetPresentationController`, which wraps it in
+    /// `performWithoutAnimation`). Animating inset changes and forcing collection view
+    /// layout re-entrantly from there crashes in UIKit's
     /// `_updateLayoutAttributesForExistingVisibleViewsFadingForBoundsChange:` assertion,
     /// because `restoreContentOffset` suppresses layout attributes while the collection
-    /// view is mid bounds change. Deferring to the next run loop tick keeps the update
-    /// out of the enclosing layout pass; rapid changes coalesce into one update.
+    /// view is mid bounds change. In that scope (animations disabled) the update is
+    /// deferred to the next run loop tick; rapid changes coalesce into one update.
+    /// Everywhere else the update applies synchronously - see
+    /// `scheduleBottomBarInsetUpdate`.
     ///
-    /// Initial layout stays correct because `updateUIViewController` assigns
-    /// `bottomBarHeight` before `state`, so this deferred inset block is enqueued ahead
-    /// of the initial load's scroll-to-bottom (which runs via the collection view
-    /// reload's async completion). Keep that assignment order in the representable.
+    /// Bottom-anchored positioning that runs while a deferred update is pending must
+    /// not compute against the stale inset; `flushPendingBottomBarInsetUpdate` applies
+    /// it first via the non-animated direct path.
     private var hasPendingBottomBarInsetUpdate: Bool = false
 
     private func scheduleBottomBarInsetUpdate() {
+        // The deferral below exists only for the crash scenario above, whose
+        // necessary ingredient is an enclosing `performWithoutAnimation`
+        // scope (the inset change becomes a non-animated bounds change and
+        // UIKit takes the fade-for-bounds-change path). When animations are
+        // enabled we are not in that scope, so the inset applies
+        // synchronously - keeping bottom-anchored positioning atomic with
+        // the height change that triggered it. Deferring in that case made
+        // the conversation-open layout re-anchor once per runloop tick as
+        // the bottom bar measured, which read as a scroll flicker.
+        if UIView.areAnimationsEnabled {
+            hasPendingBottomBarInsetUpdate = false
+            updateBottomInsetForBottomBarHeight()
+            return
+        }
         guard !hasPendingBottomBarInsetUpdate else { return }
         hasPendingBottomBarInsetUpdate = true
         DispatchQueue.main.async { [weak self] in
@@ -205,6 +226,25 @@ final class MessagesViewController: UIViewController {
             self.hasPendingBottomBarInsetUpdate = false
             self.updateBottomInsetForBottomBarHeight()
         }
+    }
+
+    /// Synchronously applies a deferred bottom-bar inset update, if one is
+    /// pending, using the same non-animated direct path as
+    /// `applyDeferredBottomInset` (no animated bounds change, no forced
+    /// collection view layout, so it stays safe inside an in-flight UIKit
+    /// layout pass).
+    ///
+    /// Bottom-anchored positioning (the initial load's restore-to-bottom and
+    /// `scrollToBottom`) reads `adjustedContentInset.bottom` at computation
+    /// time. With the inset application deferred a runloop tick, those
+    /// computations would otherwise use a stale inset and land the list short
+    /// of the real bottom, then visibly re-anchor once per tick as the
+    /// deferred updates apply - the "conversation opens slightly scrolled up,
+    /// then jumps" flicker. Flushing first keeps every paint self-consistent.
+    private func flushPendingBottomBarInsetUpdate() {
+        guard hasPendingBottomBarInsetUpdate else { return }
+        hasPendingBottomBarInsetUpdate = false
+        applyDeferredBottomInset()
     }
 
     /// Hosts that don't render a bottom bar (e.g. the thinking detail sheet)
@@ -604,6 +644,7 @@ final class MessagesViewController: UIViewController {
     }
 
     func scrollToBottom(animated: Bool = true, completion: (() -> Void)? = nil) {
+        flushPendingBottomBarInsetUpdate()
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
 
         let contentOffsetAtBottom = CGPoint(
@@ -817,6 +858,13 @@ extension MessagesViewController {
                         kind: .footer,
                         edge: .bottom
                     )
+                    // Safe to combine with the forced layout in
+                    // `restoreContentOffset` below: section inserts (the only
+                    // way into this interrupted-reload path) happen solely on
+                    // the initial load, never re-entrantly inside a sheet's
+                    // keyboard layout pass - the scenario the deferred inset
+                    // path exists to avoid.
+                    self.flushPendingBottomBarInsetUpdate()
                     self.collectionView.reloadData()
                     self.messagesLayout.restoreContentOffset(with: positionSnapshot)
                 },
