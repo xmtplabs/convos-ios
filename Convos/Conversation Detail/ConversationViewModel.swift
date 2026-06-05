@@ -323,7 +323,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
             syncVerifiedAgentToRepo()
-            presentingConversationForked = conversation.isForked
+            presentingConversationForked = shouldPresentConversationForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.
                 // Clearing it here can briefly show stale false values during async sync.
@@ -788,7 +788,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// link's resolved profile; the card's "New chat" action spawns a fresh
     /// instance of the template. Mirrors `presentingProfileForMember`.
     var presentingContactForAgentShare: Contact?
-    var presentingConversationForked: Bool = false
+    /// Conversation IDs whose forked info sheet was dismissed this app session.
+    /// The conversation row updates on every observed change (new message, read
+    /// receipt, metadata), so without this the sheet would re-present after
+    /// every dismissal. Cleared on app relaunch.
+    private static var forkedSheetDismissedConversationIds: Set<String> = []
+    var presentingConversationForked: Bool = false {
+        didSet {
+            guard oldValue, !presentingConversationForked, conversation.isForked else { return }
+            Self.forkedSheetDismissedConversationIds.insert(conversation.id)
+        }
+    }
+    private var shouldPresentConversationForked: Bool {
+        conversation.isForked && !Self.forkedSheetDismissedConversationIds.contains(conversation.id)
+    }
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
@@ -1063,7 +1076,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
 
-        presentingConversationForked = self.conversation.isForked
+        presentingConversationForked = shouldPresentConversationForked
 
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         let individualMessageCount = messages.reduce(0) { count, item in
