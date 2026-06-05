@@ -55,6 +55,16 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     }
 
     func setup(item: MessagesListItemType, config: CellConfig) {
+        // Top-anchor the hosting content (maxHeight + top alignment): when an
+        // in-cell animation grows the content, the cell frame jumps to the
+        // final height in one self-sizing invalidation while the SwiftUI
+        // content is still mid-animation. A height-hugging root re-centers
+        // in the taller bounds, shifting the visible rows down by half the
+        // height delta for a few frames; pinning to the top leaves the
+        // transient gap at the cell's bottom instead. Self-sizing
+        // measurement is unaffected: it proposes an unspecified height,
+        // where maxHeight .infinity still reports the content's ideal size.
+        let rootAlignment: Alignment = item.alignment == .center ? .top : .topLeading
         contentConfiguration = UIHostingConfiguration {
             Group {
                 switch item {
@@ -133,7 +143,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     EmptyView()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rootAlignment)
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
             .environment(\.agentShareResolver, config.agentShareResolver)

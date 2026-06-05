@@ -136,6 +136,34 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
 
     var hasPinnedHeaderOrFooter: Bool = false
 
+    /// Invoked (coalesced, on the next runloop tick) after the layout skips
+    /// the bottom-pinning compensation for out-of-band self-sizing growth
+    /// (see `invalidationContext(forPreferredLayoutAttributes:withOriginalAttributes:)`).
+    /// The owner reveals the growth with an animated scroll when the list
+    /// was pinned to the bottom.
+    var onOutOfBandBottomGrowth: (() -> Void)?
+
+    private var hasPendingOutOfBandGrowthNotification: Bool = false
+
+    private func notifyOutOfBandBottomGrowth() {
+        guard !hasPendingOutOfBandGrowthNotification else { return }
+        hasPendingOutOfBandGrowthNotification = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hasPendingOutOfBandGrowthNotification = false
+            onOutOfBandBottomGrowth?()
+        }
+    }
+
+    /// True while the layout is processing a batch update (between
+    /// `prepare(forCollectionViewUpdates:)` and the state switch after
+    /// `finalizeCollectionViewUpdates`). `MessagesCollectionView` uses this
+    /// to keep batch layout passes animated while applying all other passes
+    /// without inherited animations.
+    var isInBatchUpdates: Bool {
+        state == .afterUpdate
+    }
+
     // MARK: Constructors
 
     init(flipsHorizontallyInOppositeLayoutDirection: Bool = true) {
@@ -485,8 +513,30 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
                 + adjustedContentInset.bottom + adjustedContentInset.top,
                 heightDifference
             )
-            context.contentOffsetAdjustment.y += offsetCompensation
-            invalidationActions.formUnion([.shouldInvalidateOnBoundsChange])
+            // Large self-sizing growth that arrives outside a batch update
+            // (state .beforeUpdate, no inherited animation) comes from
+            // in-place cell content changes, e.g. a sent message appending
+            // to the bottom group's hosting view, or media finishing its
+            // async load. Compensating here would snap the whole list in a
+            // single frame; skipping lets the growth land below the fold,
+            // and the owner re-pins with an animated scroll via
+            // `onOutOfBandBottomGrowth`. Small deltas keep the immediate
+            // compensation: per-tick compensation of animated in-cell
+            // resizes is what keeps the list pinned while content slides.
+            // Shrinks also keep it: skipping those would leave the offset
+            // past the new content bottom and UIKit would clamp it in a
+            // hard jump.
+            let isOutOfBandBottomGrowth: Bool = heightDifference > Constant.outOfBandGrowthRevealThreshold
+                && state == .beforeUpdate
+                && UIView.inheritedAnimationDuration == 0
+                && !isUserInitiatedScrolling
+                && keepContentOffsetAtBottomOnBatchUpdates
+            if isOutOfBandBottomGrowth {
+                notifyOutOfBandBottomGrowth()
+            } else {
+                context.contentOffsetAdjustment.y += offsetCompensation
+                invalidationActions.formUnion([.shouldInvalidateOnBoundsChange])
+            }
         }
 
         if let attributes = controller.itemAttributes(for: preferredAttributesItemPath,
@@ -1076,6 +1126,16 @@ extension MessagesCollectionLayout {
             return false
         }
         return collectionView.isDragging || collectionView.isDecelerating
+    }
+
+    private enum Constant {
+        // Out-of-band growth at or above this size is revealed with an
+        // animated scroll instead of immediate offset compensation. Sized
+        // to pass through the few-points-per-frame deltas of in-cell layout
+        // animations (which need per-tick compensation to stay pinned,
+        // including a dropped frame's double delta) while catching one-shot
+        // content growth like a sent message.
+        static let outOfBandGrowthRevealThreshold: CGFloat = 12.0
     }
 }
 

@@ -141,7 +141,7 @@ let menuPresented = contextMenuState.isPresented
             messagesViewController.collectionView.panGestureRecognizer.isEnabled = true
         }
         if wasMenuPresented, !menuPresented {
-            messagesViewController.applyDeferredBottomInset()
+            messagesViewController.restoreBottomInsetAfterContextMenu()
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.state = .init(

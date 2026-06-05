@@ -41,13 +41,36 @@ struct MessagesGroupView: View {
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
+    /// Animated mirror of `group.readByMembers` for the status row. Cell
+    /// reconfigures evaluate this view in a sizing pass before the render
+    /// pass, which consumes value-based `.animation(value:)` triggers, so
+    /// the Sent -> Read swap would render without animation. Mutating this
+    /// mirror inside `withAnimation` from `onChange` creates a fresh
+    /// transaction that survives the two-pass update and drives the
+    /// `.blurReplace` morph. nil until the first change so the initial
+    /// render falls through to the live value without a flash.
+    @State private var animatedReadByMembers: [ConversationMember]?
+    /// Animated mirror of the whole `group`, same mechanism as
+    /// `animatedReadByMembers` but covering every within-group change: a
+    /// sent message appending to the group, the status caption moving to
+    /// the new last message, reactions, etc. The sizing pass renders the
+    /// old mirror value (so the cell reports its old height and the batch
+    /// update applies no instant offset jump), then `onChange` mutates the
+    /// mirror inside `withAnimation`, animating the content and height
+    /// through self-sizing invalidation. nil until the first change so the
+    /// initial render uses the live value.
+    @State private var animatedGroup: MessagesGroup?
+
+    /// The group value the body renders: the animated mirror once seeded,
+    /// the live configuration value before that.
+    private var displayGroup: MessagesGroup { animatedGroup ?? group }
 
     private var animates: Bool {
-        group.messages.first?.origin == .inserted
+        displayGroup.messages.first?.origin == .inserted
     }
 
     private var avatarWidth: CGFloat {
-        group.sender.isCurrentUser ? 0 : DesignConstants.ImageSizes.smallAvatar + DesignConstants.Spacing.step2x
+        displayGroup.sender.isCurrentUser ? 0 : DesignConstants.ImageSizes.smallAvatar + DesignConstants.Spacing.step2x
     }
 
     private var avatarSize: CGFloat {
@@ -65,17 +88,17 @@ struct MessagesGroupView: View {
             .offset(x: 0.0, y: isAppearing ? 100 : 0)
             .blur(radius: isAppearing ? 10.0 : 0.0)
             .font(.footnote)
-            .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
+            .foregroundColor(displayGroup.sender.isAgent ? displayGroup.sender.agentVerification.nameColor : .secondary)
             .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
             .padding(.bottom, DesignConstants.Spacing.stepHalf)
     }
 
     private var senderLabelContent: some View {
-        let tapAction = { onTapSender(group.sender) }
+        let tapAction = { onTapSender(displayGroup.sender) }
         return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(group.sender.profile.displayName)
-                if group.sender.isAgent && creditsDepleted {
+                Text(displayGroup.sender.profile.displayName)
+                if displayGroup.sender.isAgent && creditsDepleted {
                     Image(systemName: "bolt.fill")
                         .foregroundStyle(.colorLava)
                 }
@@ -85,7 +108,7 @@ struct MessagesGroupView: View {
     }
 
     private func avatarOverlay(onTap: (() -> Void)? = nil) -> some View {
-        MessageAvatarView(profile: group.sender.profile, size: avatarSize, agentVerification: group.sender.agentVerification)
+        MessageAvatarView(profile: displayGroup.sender.profile, size: avatarSize, agentVerification: displayGroup.sender.agentVerification)
             .offset(x: -(avatarSize + avatarSpacing))
             .onTapGesture { onTap?() }
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -94,63 +117,63 @@ struct MessagesGroupView: View {
                 x: isAppearing ? -80 : 0,
                 y: 0.0
             )
-            .id("profile-\(group.id)")
-            .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
+            .id("profile-\(displayGroup.id)")
+            .accessibilityLabel("View \(displayGroup.sender.profile.displayName)'s profile")
             .accessibilityAddTraits(.isButton)
     }
 
     private var singleTyperIndicator: some View {
-        let isTypingOnly = group.allMessages.isEmpty
+        let isTypingOnly = displayGroup.allMessages.isEmpty
 
         return Group {
-            if isTypingOnly && !group.sender.isCurrentUser {
+            if isTypingOnly && !displayGroup.sender.isCurrentUser {
                 senderLabel
             }
 
             HStack(alignment: .bottom, spacing: avatarSpacing) {
-                if !group.sender.isCurrentUser {
+                if !displayGroup.sender.isCurrentUser {
                     Color.clear
                         .frame(width: avatarSize, height: avatarSize)
                 }
 
-                TypingIndicatorBubbleView(senderName: group.sender.profile.displayName)
+                TypingIndicatorBubbleView(senderName: displayGroup.sender.profile.displayName)
                     .overlay(alignment: .bottomLeading) {
-                        if !group.sender.isCurrentUser {
+                        if !displayGroup.sender.isCurrentUser {
                             avatarOverlay()
                         }
                     }
             }
-            .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .padding(.leading, !displayGroup.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
-        .id("typing-indicator-\(group.id)")
+        .id("typing-indicator-\(displayGroup.id)")
     }
 
     private var thinkingIndicator: some View {
         HStack(alignment: .bottom, spacing: avatarSpacing) {
-            if !group.sender.isCurrentUser {
+            if !displayGroup.sender.isCurrentUser {
                 Color.clear
                     .frame(width: avatarSize, height: avatarSize)
             }
 
             ThinkingIndicatorBubbleView(
-                content: group.thinkingContent ?? "",
-                senderName: group.sender.profile.displayName,
+                content: displayGroup.thinkingContent ?? "",
+                senderName: displayGroup.sender.profile.displayName,
                 hidesContent: true
             )
             .overlay(alignment: .bottomLeading) {
-                if !group.sender.isCurrentUser {
+                if !displayGroup.sender.isCurrentUser {
                     avatarOverlay()
                 }
             }
         }
-        .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        .padding(.leading, !displayGroup.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
         .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
-        .id("thinking-indicator-bubble-\(group.id)")
+        .id("thinking-indicator-bubble-\(displayGroup.id)")
     }
 
     private var multiTyperIndicator: some View {
-        let typers = group.allTypingMembers
+        let typers = displayGroup.allTypingMembers
         let names = typers.compactMap(\.profile.displayName)
         let accessibilityText: String = {
             switch names.count {
@@ -195,19 +218,26 @@ struct MessagesGroupView: View {
         // The sender label is hoisted to the body via `shouldShowSenderLabelAtTop`
         // so it can sit above the agent contact card prefix as well as the
         // first message bubble.
-        if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply
-            && group.agentContactCard == nil && !group.hidesSenderLabel {
+        if index == 0 && !displayGroup.sender.isCurrentUser && !isFullWidthAttachment && !isReply
+            && displayGroup.agentContactCard == nil && !displayGroup.hidesSenderLabel {
             senderLabel
         }
 
-        let isLastInGroup: Bool = message == group.messages.last
-        let isLast: Bool = isLastInGroup && !group.showsTypingIndicator && !group.showsThinkingIndicator
+        let isLastInGroup: Bool = message == displayGroup.messages.last
+        let isLast: Bool = isLastInGroup && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
         // When the last message is a voice memo with a transcript row attached, the
         // transcript becomes the visual bottom of the group, so the tail moves from
         // the voice memo bubble down onto the transcript row.
-        let transcriptIsTailed: Bool = isLast && group.voiceMemoTranscripts[message.messageId] != nil
+        let transcriptIsTailed: Bool = isLast && displayGroup.voiceMemoTranscripts[message.messageId] != nil
         let bubbleType: MessageBubbleType = (isLast && !transcriptIsTailed) ? .tailed : .normal
-        let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
+        // Include unpublished (optimistic) sends so the caption row's layout
+        // space is reserved at append time; the row content stays invisible
+        // until the message publishes (see statusRow's opacity). Inserting
+        // the row only at publish allocated its space in a single frame --
+        // SwiftUI transitions animate a view's appearance, not the layout
+        // space it occupies -- which read as a vertical jump of the list.
+        let showsSentStatus: Bool = isLastInGroup && (displayGroup.isLastGroupSentByCurrentUser || displayGroup.isLastGroupBeforeOtherMembers)
+            && (message.status == .published || message.status == .unpublished)
         let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
 
         messageRowContent(
@@ -220,8 +250,13 @@ struct MessagesGroupView: View {
         )
         reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
 
-        let thinkingDescriptor: ThinkingSessionDescriptor? = group.thinkingByMessageId[message.messageId]
-        let mergesThinkingIntoStatus: Bool = showsSentStatus && thinkingDescriptor != nil && !group.onlyVisibleToSender
+        let thinkingDescriptor: ThinkingSessionDescriptor? = displayGroup.thinkingByMessageId[message.messageId]
+        // Requires .published (unlike the plain status row, which reserves
+        // invisible space for unpublished sends): the merged row has no
+        // opacity gate, so rendering it for an optimistic message would
+        // reintroduce the layout pop the reservation exists to prevent.
+        let mergesThinkingIntoStatus: Bool = showsSentStatus && message.status == .published
+            && thinkingDescriptor != nil && !displayGroup.onlyVisibleToSender
         if mergesThinkingIntoStatus, let descriptor = thinkingDescriptor {
             mergedThinkingStatusRow(message: message, descriptor: descriptor)
         } else {
@@ -233,7 +268,7 @@ struct MessagesGroupView: View {
     @ViewBuilder
     private func mergedThinkingStatusRow(message: AnyMessage, descriptor: ThinkingSessionDescriptor) -> some View {
         let agent: ConversationMember = descriptor.sender
-        let dedupedReaders: [ConversationMember] = group.readByMembers.filter { $0.profile.inboxId != agent.profile.inboxId }
+        let dedupedReaders: [ConversationMember] = displayGroup.readByMembers.filter { $0.profile.inboxId != agent.profile.inboxId }
         let hasOtherReaders: Bool = !dedupedReaders.isEmpty
         let tap: () -> Void = { onTapThinkingIndicator?(descriptor) }
 
@@ -268,14 +303,14 @@ struct MessagesGroupView: View {
         // agent hasn't sent any messages yet (synthesized empty group).
         // Otherwise the regular `messageRowContent` avatar overlay handles
         // the leading avatar on the last message — we don't want to double up.
-        let cardIsLast: Bool = group.allMessages.isEmpty && !group.showsTypingIndicator && !group.showsThinkingIndicator
+        let cardIsLast: Bool = displayGroup.allMessages.isEmpty && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
         HStack(alignment: .bottom, spacing: avatarSpacing) {
-            if !group.sender.isCurrentUser {
+            if !displayGroup.sender.isCurrentUser {
                 Color.clear
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            let cardTap = { onTapSender(group.sender) }
+            let cardTap = { onTapSender(displayGroup.sender) }
             // Mirrors `MessageContainer` so the card caps at the same max
             // width as text bubbles - natural sizing for short content,
             // bounded by a 50pt trailing spacer with lower layout priority,
@@ -285,8 +320,8 @@ struct MessagesGroupView: View {
                     .contentShape(Rectangle())
                     .onTapGesture(perform: cardTap)
                     .overlay(alignment: .bottomLeading) {
-                        if cardIsLast && !group.sender.isCurrentUser {
-                            avatarOverlay { onTapSender(group.sender) }
+                        if cardIsLast && !displayGroup.sender.isCurrentUser {
+                            avatarOverlay { onTapSender(displayGroup.sender) }
                         }
                     }
 
@@ -296,7 +331,7 @@ struct MessagesGroupView: View {
             }
             .bubbleRowWidthCap(alignment: .leading)
         }
-        .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        .padding(.leading, !displayGroup.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
     }
 
     @ViewBuilder
@@ -309,12 +344,12 @@ struct MessagesGroupView: View {
         voiceMemoTranscriptIsTailed: Bool
     ) -> some View {
         HStack(alignment: .bottom, spacing: avatarSpacing) {
-            if !group.sender.isCurrentUser && !isFullWidthAttachment {
+            if !displayGroup.sender.isCurrentUser && !isFullWidthAttachment {
                 Color.clear
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            if group.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
+            if displayGroup.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
                 ThoughtBubbleAppearance(animates: message.origin == .inserted) {
                     HStack(spacing: 0.0) {
                         ThoughtBubble {
@@ -338,7 +373,7 @@ struct MessagesGroupView: View {
                 .zIndex(100)
                 .id("messages-group-item-\(message.differenceIdentifier)")
                 .overlay(alignment: .bottomLeading) {
-                    if isLast && !group.sender.isCurrentUser {
+                    if isLast && !displayGroup.sender.isCurrentUser {
                         avatarOverlay { onTapAvatar(message) }
                     }
                 }
@@ -359,7 +394,7 @@ struct MessagesGroupView: View {
                     onTapReactions: onTapReactions,
                     onReaction: onReaction,
                     onToggleReaction: onToggleReaction,
-                    voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
+                    voiceMemoTranscript: displayGroup.voiceMemoTranscripts[message.messageId],
                     voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                     onRetryTranscript: onRetryTranscript,
                     parentAudioTranscriptText: parentAudioTranscriptText(for: message),
@@ -374,7 +409,7 @@ struct MessagesGroupView: View {
                     )
                 )
                 .overlay(alignment: .bottomLeading) {
-                    if isLast && !group.sender.isCurrentUser {
+                    if isLast && !displayGroup.sender.isCurrentUser {
                         avatarOverlay { onTapAvatar(message) }
                     }
                 }
@@ -390,7 +425,7 @@ struct MessagesGroupView: View {
                 .padding(.trailing, DesignConstants.Spacing.step4x)
             }
         }
-        .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
+        .padding(.leading, !displayGroup.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
     }
 
     /// Returns the plain text of `message` when it should render in a
@@ -412,13 +447,22 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func reactionRow(message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
-        if !message.reactions.isEmpty, !isFullWidthAttachment {
+        // Reactions render from the live group, not the animatedGroup
+        // mirror: with live data the row's height change is measured during
+        // the reconfigure's sizing pass and lands inside the batch update,
+        // where UIKit animates the surrounding cells and the bottom-pinning
+        // compensation natively (the smooth pre-existing behavior). Routing
+        // it through the mirror would move the growth out of the batch into
+        // the out-of-band reveal path that exists for message appends.
+        let liveReactions: [MessageReaction] = group.rawMessages
+            .first(where: { $0.messageId == message.messageId })?.reactions ?? message.reactions
+        if !liveReactions.isEmpty, !isFullWidthAttachment {
             ReactionIndicatorView(
-                reactions: message.reactions,
+                reactions: liveReactions,
                 isOutgoing: message.sender.isCurrentUser,
                 onTap: { onTapReactions(message) }
             )
-            .padding(.leading, message.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
+            .padding(.leading, message.sender.isCurrentUser ? 0 : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x)
             .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
             .padding(.bottom, DesignConstants.Spacing.stepX)
             .transition(.identity)
@@ -451,7 +495,7 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func thinkingFooterRow(message: AnyMessage) -> some View {
-        if let descriptor = group.thinkingByMessageId[message.messageId] {
+        if let descriptor = displayGroup.thinkingByMessageId[message.messageId] {
             let isOutgoing: Bool = message.sender.isCurrentUser
             // Skip the leading avatar when the thinker is also the message's
             // sender — the message's avatar already conveys "who" on that side
@@ -499,24 +543,29 @@ struct MessagesGroupView: View {
             .id("failed-status-\(message.differenceIdentifier)")
             .accessibilityLabel("Message not delivered")
         } else if showsSentStatus {
+            let readByMembers: [ConversationMember] = animatedReadByMembers ?? group.readByMembers
+            // Reserve the row's layout space while the message is still
+            // unpublished but keep it invisible; publishing fades it in
+            // without shifting the list (see showsSentStatus).
+            let statusOpacity: Double = message.status == .published ? 1 : 0
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Spacer()
-                if group.onlyVisibleToSender {
+                if displayGroup.onlyVisibleToSender {
                     Text("Only visible to you")
                         .font(.caption)
                     ProfileAvatarView(
-                        profile: group.sender.profile,
+                        profile: displayGroup.sender.profile,
                         profileImage: ProfileSettingsViewModel.shared.profileImage,
                         useSystemPlaceholder: false
                     )
                     .frame(width: 16, height: 16)
-                } else if !group.readByMembers.isEmpty {
+                } else if !readByMembers.isEmpty {
                     let readReceiptTap: () -> Void = { onTapReadReceipts?(group) }
                     Button(action: readReceiptTap) {
                         HStack(spacing: DesignConstants.Spacing.stepX) {
                             Text("Read")
                                 .font(.caption)
-                            ReadReceiptAvatarsView(members: group.readByMembers)
+                            ReadReceiptAvatarsView(members: readByMembers)
                         }
                         .contentShape(Rectangle())
                     }
@@ -530,6 +579,8 @@ struct MessagesGroupView: View {
                         .frame(width: 16, height: 16)
                 }
             }
+            .opacity(statusOpacity)
+            .animation(.easeInOut(duration: 0.2), value: statusOpacity)
             .transition(.blurReplace)
             .padding(.vertical, DesignConstants.Spacing.stepX)
             .padding(.leading, DesignConstants.Spacing.step2x)
@@ -538,52 +589,84 @@ struct MessagesGroupView: View {
             .zIndex(-1)
             .id("sent-status-\(message.differenceIdentifier)")
             .accessibilityLabel(
-                group.onlyVisibleToSender
+                displayGroup.onlyVisibleToSender
                     ? "Only visible to you"
-                    : (group.readByMembers.isEmpty
+                    : (readByMembers.isEmpty
                         ? "Message sent"
-                        : "Message read by \(group.readByMembers.count) \(group.readByMembers.count == 1 ? "member" : "members")")
+                        : "Message read by \(readByMembers.count) \(readByMembers.count == 1 ? "member" : "members")")
             )
+            .accessibilityHidden(message.status != .published)
+            .onAppear {
+                if animatedReadByMembers == nil {
+                    animatedReadByMembers = group.readByMembers
+                }
+            }
+            .onChange(of: group.readByMembers) { _, newValue in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    animatedReadByMembers = newValue
+                }
+            }
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            if let card = group.agentContactCard {
+            if let card = displayGroup.agentContactCard {
                 senderLabel
                 contactCardRow(card: card)
-                if let descriptor = group.contactCardThinkingDescriptor {
+                if let descriptor = displayGroup.contactCardThinkingDescriptor {
                     contactCardThinkingFooterRow(descriptor: descriptor)
                 }
             }
 
-            ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
+            ForEach(Array(displayGroup.allMessages.enumerated()), id: \.element.messageId) { index, message in
                 messageGroup(index: index, message: message)
             }
 
-            if group.showsTypingIndicator {
-                if group.isMultiTyper {
+            if displayGroup.showsTypingIndicator {
+                if displayGroup.isMultiTyper {
                     multiTyperIndicator
                 } else {
                     singleTyperIndicator
                 }
             }
 
-            if group.showsThinkingIndicator {
+            if displayGroup.showsThinkingIndicator {
                 thinkingIndicator
             }
         }
-        .id("message-group-container-\(group.id)")
+        .id("message-group-container-\(displayGroup.id)")
         .transition(
             .asymmetric(
                 insertion: .identity,
                 removal: .opacity
             )
         )
-        .padding(.top, group.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
-        .padding(.bottom, group.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
+        .padding(.top, displayGroup.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.bottom, displayGroup.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        // Apply group changes through the mirror without animating layout:
+        // the mirror only updates in `onChange` -- after the reconfigure's
+        // sizing pass -- so the cell reports its old height during the batch
+        // update and the new content lands below the fold unanimated (no
+        // single-frame jump, no transient re-centering while the cell frame
+        // snaps). The view controller then reveals the appended content
+        // with an animated scroll-to-bottom. Height-neutral changes that
+        // should still animate (read receipts, the status caption fade)
+        // carry their own scoped animations.
+        .onChange(of: group) { _, newValue in
+            animatedGroup = newValue
+        }
+        // Snap the read-receipt mirror without animation when the status row
+        // moves to a different message (a new send) so the fresh row starts
+        // from "Sent" instead of morphing out of the previous message's
+        // "Read" state.
+        .onChange(of: group.messages.last?.messageId) { _, _ in
+            animatedReadByMembers = group.readByMembers
+        }
         .onAppear {
+            if animatedGroup == nil {
+                animatedGroup = group
+            }
             guard isAppearing, !hasAnimated else { return }
             hasAnimated = true
 
@@ -597,7 +680,7 @@ struct MessagesGroupView: View {
                 }
             }
         }
-        .id("messages-group-\(group.id)")
+        .id("messages-group-\(displayGroup.id)")
     }
 }
 
