@@ -53,7 +53,10 @@ wait_http() { local url="$1" t="${2:-60}" i=0; while (( i < t )); do local c; c=
 start_svc() { local name="$1" dir="$2"; shift 2; if svc_running "$name"; then ok "$name already running"; return 0; fi; [[ -d "$dir" ]] || die "$name dir missing: $dir"; log "starting $name ${c_dim}($dir)${c_rst}"; ( cd "$dir" && nohup bash -lc "$*" >"$RUN_DIR/$name.log" 2>&1 & echo $! >"$RUN_DIR/$name.pid" ); }
 svc_running() { local n="$1"; [[ -f "$RUN_DIR/$n.pid" ]] && kill -0 "$(cat "$RUN_DIR/$n.pid")" 2>/dev/null; }
 stop_svc() { local name="$1" pat="${2:-}"; [[ -f "$RUN_DIR/$name.pid" ]] && kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true; [[ -n "$pat" ]] && pkill -f "$pat" 2>/dev/null || true; rm -f "$RUN_DIR/$name.pid"; }
-disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR}/.env" 2>/dev/null | cut -d= -f2-)"; [[ -z "$tok" ]] && { warn "no DEV_API_TOKEN; can't disable App Check"; return; }; curl -s -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"enabled":false}' "http://localhost:${BACKEND_PORT}/api/v2/dev/app-attest" >/dev/null 2>&1 && ok "App Check disabled" || warn "couldn't disable App Check"; }
+# Note: key/token lookups below use `|| true` so a missing line degrades to the
+# guarded warn-and-return path instead of set -e killing the whole script (the
+# grep in a $(...) assignment otherwise propagates its non-zero exit status).
+disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR}/.env" 2>/dev/null | cut -d= -f2-)" || true; [[ -z "$tok" ]] && { warn "no DEV_API_TOKEN; can't disable App Check"; return; }; curl -s -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"enabled":false}' "http://localhost:${BACKEND_PORT}/api/v2/dev/app-attest" >/dev/null 2>&1 && ok "App Check disabled" || warn "couldn't disable App Check"; }
 
 # Host IP reachable from BOTH the worker (a host process) and the Hermes
 # container. `localhost` only works from the host, `host.docker.internal`
@@ -90,7 +93,7 @@ sync_backend_url() {
 align_agent_key() {
   local dv="${WORKER_DIR}/.dev.vars" be="${BACKEND_DIR}/.env" key
   [[ -f "$be" ]] || { warn "backend/.env missing — can't align AGENT_ASSETS_API_KEY"; return; }
-  key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2-)"
+  key="$(grep -E '^CONVOS_API_KEY=' "$dv" 2>/dev/null | cut -d= -f2-)" || true
   [[ -n "$key" ]] || { warn ".dev.vars CONVOS_API_KEY missing — can't align AGENT_ASSETS_API_KEY"; return; }
   [[ ${#key} -ge 32 ]] || { warn ".dev.vars CONVOS_API_KEY too short (${#key} < 32) — can't align"; return; }
   [[ "$(grep -E '^AGENT_ASSETS_API_KEY=' "$be" | cut -d= -f2-)" == "$key" ]] && { ok "backend AGENT_ASSETS_API_KEY aligned (current)"; return; }
@@ -104,7 +107,7 @@ align_agent_key() {
 # signing in. Idempotent: skips accounts already funded.
 seed_credits() {
   local key floor=1000000 grant=100000000 accts n=0 a bal
-  key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2-)"
+  key="$(grep -E '^CONVOS_API_KEY=' "${WORKER_DIR}/.dev.vars" 2>/dev/null | cut -d= -f2-)" || true
   [[ -n "$key" ]] || { warn "no CONVOS_API_KEY; can't seed credits"; return; }
   accts="$(dc exec -T convos_db psql -U postgres -d postgres -tAc 'SELECT id FROM "Account";' 2>/dev/null | tr -d ' ')"
   [[ -z "$accts" ]] && { ok "no accounts yet — sign in via the app, then: make seed-credits"; return; }
