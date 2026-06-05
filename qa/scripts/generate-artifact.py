@@ -221,6 +221,38 @@ def order_screenshots(data, artifact_dir):
     return shots
 
 
+def known_test_ids():
+    ids = set()
+    for p in (REPO_ROOT / "qa" / "tests" / "structured").glob("*.yaml"):
+        m = re.match(r"^(\d+[a-z]?)-", p.name)
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
+def run_scope_title(data):
+    """Human title for what the run covered: a test name, 'Full Suite', etc."""
+    tests = data["tests"]
+    if not tests:
+        return "QA Run"
+    names = []
+    seen = set()
+    for t in tests:
+        if t["test_id"] not in seen:
+            seen.add(t["test_id"])
+            names.append(t["test_name"] or f"Test {t['test_id']}")
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} + {names[1]}"
+    known = known_test_ids()
+    if known and len(seen & known) >= len(known) * 0.8:
+        return "Full Suite"
+    ids = sorted(seen)
+    shown = ", ".join(ids[:6]) + ("…" if len(ids) > 6 else "")
+    return f"{len(seen)} Tests ({shown})"
+
+
 def narrative_html(text):
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
     return "".join(f"<p>{esc(p)}</p>" for p in paragraphs)
@@ -248,14 +280,14 @@ def render_hero(data):
     bugs = len(data["bugs"])
     if bugs:
         dek += f" {bugs} bug{'s' if bugs != 1 else ''} filed."
-    byline = " · ".join(x for x in [run.get("device_type"), run.get("build_commit"), date] if x)
+    byline = " · ".join(x for x in [f"run {run['id']}", run.get("device_type"), run.get("build_commit"), date] if x)
     return f"""
   <header class="hero">
     <div class="eyebrow-row">
       <p class="eyebrow">{BRAND_MARK}<span>QA Run</span></p>
       <p class="byline">{esc(byline)}</p>
     </div>
-    <h1 class="title">Run {esc(run['id'])} {status_pill(run['status'])}</h1>
+    <h1 class="title">{esc(run_scope_title(data))} {status_pill(run['status'])}</h1>
     <p class="dek">{esc(dek)}</p>
   </header>
   <hr class="divider">"""
@@ -751,7 +783,7 @@ JS = """
 
 def render_page(data, layers, shots):
     run = data["run"]
-    title = f"QA Run {run['id']}"
+    title = f"{run_scope_title(data)} — QA Run {run['id']}"
     desc = f"Convos iOS QA run {run['id']} — {run['status']}"
     return f"""<!DOCTYPE html>
 <html lang="en">
