@@ -141,6 +141,7 @@ claude-code-resources/
 *.profraw
 .simulator-setup.log
 qa/reports/
+qa/artifacts/
 qa/cxdb/qa.sqlite
 qa/cxdb/qa.sqlite-wal
 qa/cxdb/qa.sqlite-shm
