@@ -21,16 +21,16 @@ final class ConversationListItemCell: UICollectionViewListCell {
         memberContactOverride: @escaping @Sendable (String) -> Contact? = { _ in nil }
     ) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation, isSelected: isSelected)
+            wrapper.update(conversation: conversation, isSelected: isSelected, memberContactOverride: memberContactOverride)
         } else {
             let wrapper = ConversationListItemWrapper(
                 conversation: conversation,
-                isSelected: isSelected
+                isSelected: isSelected,
+                memberContactOverride: memberContactOverride
             )
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 ConversationListItemWrapperView(wrapper: wrapper)
-                    .memberContactOverride(memberContactOverride)
             }
             .margins(.all, 0)
             .background(.clear)
@@ -68,15 +68,31 @@ final class ConversationListItemWrapper {
     var isSelected: Bool
     var isSwiped: Bool = false
     var isHighlighted: Bool = false
+    // Held on the wrapper (not injected once at build time) so a recycled cell
+    // applies the latest resolver: `configure(with:)` reuses this wrapper via
+    // `update(...)`, and the view controller reassigns its
+    // `memberContactOverride` when contacts load, so a build-time injection
+    // would leave reused rows resolving names/avatars through a stale closure.
+    var memberContactOverride: @Sendable (String) -> Contact?
 
-    init(conversation: Conversation, isSelected: Bool) {
+    init(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 
-    func update(conversation: Conversation, isSelected: Bool) {
+    func update(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 }
 
@@ -109,5 +125,6 @@ struct ConversationListItemWrapperView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: wrapper.isSwiped)
+            .memberContactOverride(wrapper.memberContactOverride)
     }
 }

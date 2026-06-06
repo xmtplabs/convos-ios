@@ -36,13 +36,16 @@ final class PinnedConversationCell: UICollectionViewCell {
         memberContactOverride: @escaping @Sendable (String) -> Contact? = { _ in nil }
     ) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation, isSelected: isSelected)
+            wrapper.update(conversation: conversation, isSelected: isSelected, memberContactOverride: memberContactOverride)
         } else {
-            let wrapper = PinnedConversationWrapper(conversation: conversation, isSelected: isSelected)
+            let wrapper = PinnedConversationWrapper(
+                conversation: conversation,
+                isSelected: isSelected,
+                memberContactOverride: memberContactOverride
+            )
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 PinnedConversationWrapperView(wrapper: wrapper)
-                    .memberContactOverride(memberContactOverride)
             }
             .margins(.all, 0)
             .background(.clear)
@@ -75,15 +78,28 @@ final class PinnedConversationCell: UICollectionViewCell {
 final class PinnedConversationWrapper {
     var conversation: Conversation
     var isSelected: Bool
+    // Held on the wrapper so reuse applies the latest resolver - see the note
+    // in `ConversationListItemWrapper`.
+    var memberContactOverride: @Sendable (String) -> Contact?
 
-    init(conversation: Conversation, isSelected: Bool) {
+    init(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 
-    func update(conversation: Conversation, isSelected: Bool) {
+    func update(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 }
 
@@ -97,5 +113,6 @@ struct PinnedConversationWrapperView: View {
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation, avatarSize: avatarSize)
             .padding(.vertical, UIDevice.current.userInterfaceIdiom == .phone ? 0 : DesignConstants.Spacing.step2x)
+            .memberContactOverride(wrapper.memberContactOverride)
     }
 }
