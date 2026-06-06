@@ -1,3 +1,4 @@
+import ConvosCoreiOS
 import Foundation
 import Observation
 import SwiftUI
@@ -221,77 +222,14 @@ final class FocusCoordinator {
     /// the backing text view keeps the old text and the keyboard's next
     /// commit point syncs the stale text back into the binding.
     ///
-    /// Two settle strategies:
-    /// - `endingInputSession == false` (plain typing): re-assert the
-    ///   selection at the UIKit level. A selection change runs the same
-    ///   settle path the keyboard uses when the caret moves, with no first
-    ///   responder change, so the keyboard never hides or re-shows.
-    /// - `endingInputSession == true` (caller believes dictation is active):
-    ///   the selection nudge does not stop a dictation session - it keeps
-    ///   streaming hypothesis updates into the field after the mutation -
-    ///   so the input session has to end first. Resigning first responder
-    ///   does that but leaves a no-responder gap that visibly hides and
-    ///   re-shows the keyboard, so instead first responder is handed to a
-    ///   zero-frame off-screen text field in the same window: a text input
-    ///   stays focused throughout, the keyboard never moves, and the
-    ///   composer's input session is torn down exactly as on resign. Focus
-    ///   returns to the original field after the mutation. (Dictation is
-    ///   not detectable directly: on iOS 26.2 `textInputMode` stays the
-    ///   regular language during dictation and no input-mode-change
-    ///   notification fires, so callers infer it behaviorally - see
-    ///   `ConversationViewModel`.)
+    /// The settle strategies live in `KeyboardInputSettling` (ConvosCoreiOS).
+    /// Pass `endingInputSession: true` when dictation is believed active.
+    /// (Dictation is not detectable directly: on iOS 26.2 `textInputMode`
+    /// stays the regular language during dictation and no input-mode-change
+    /// notification fires, so callers infer it behaviorally - see
+    /// `ConversationViewModel`.)
     func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
-        guard let input = Self.currentFirstResponder() as? (UIResponder & UITextInput) else {
-            work()
-            return
-        }
-        if endingInputSession {
-            endInputSessionKeepingKeyboard(for: input, work)
-        } else {
-            Log.info("Settling keyboard input via selection nudge")
-            let end = input.endOfDocument
-            input.selectedTextRange = input.textRange(from: end, to: end)
-            work()
-        }
-    }
-
-    /// Ends `input`'s input session (terminating any active dictation and
-    /// committing pending input) without letting the keyboard hide, by
-    /// handing first responder to a temporary off-screen text field while
-    /// `work` runs. Falls back to a plain resign/restore round-trip when the
-    /// input has no window or the handoff field refuses focus.
-    private func endInputSessionKeepingKeyboard(for input: UIResponder & UITextInput, _ work: () -> Void) {
-        guard let inputView = input as? UIView, let window = inputView.window else {
-            Log.info("Settling keyboard input via resign/restore (no window for handoff)")
-            input.resignFirstResponder()
-            work()
-            input.becomeFirstResponder()
-            return
-        }
-        // The handoff field deliberately keeps default input traits. The
-        // composer uses a default keyboard, so a default handoff field
-        // takes focus with no keyboard relayout (frame analysis shows no
-        // keyboard movement beyond the keycap shift-case recompute that
-        // every composer-clearing send produces, handoff or not). Revisit
-        // if a field with a non-default keyboard ever uses this settle
-        // path.
-        let handoff = UITextField(frame: .zero)
-        handoff.isAccessibilityElement = false
-        handoff.accessibilityElementsHidden = true
-        window.addSubview(handoff)
-        defer { handoff.removeFromSuperview() }
-        guard handoff.becomeFirstResponder() else {
-            Log.info("Settling keyboard input via resign/restore (handoff refused focus)")
-            input.resignFirstResponder()
-            work()
-            input.becomeFirstResponder()
-            return
-        }
-        Log.info("Settling keyboard input via focus handoff (ending input session)")
-        work()
-        if !input.becomeFirstResponder() {
-            Log.error("Focus handoff could not restore the original input; keyboard may dismiss")
-        }
+        KeyboardInputSettling.withSettledInput(endingInputSession: endingInputSession, work)
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated
@@ -418,18 +356,6 @@ final class FocusCoordinator {
     }
 
     // MARK: - Private Methods
-
-    private static func currentFirstResponder() -> UIResponder? {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
-            for window in windowScene.windows {
-                if let responder = window.firstResponderDescendant() {
-                    return responder
-                }
-            }
-        }
-        return nil
-    }
 
     private func setupKeyboardObservation() {
         KeyboardListener.shared.add(delegate: self)
@@ -618,20 +544,6 @@ extension FocusCoordinator: KeyboardListenerDelegate {
             let isShowingKeyboard = info.frameEnd.origin.y < screenHeight
             updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen)
         }
-    }
-}
-
-// MARK: - First Responder Lookup
-
-private extension UIView {
-    func firstResponderDescendant() -> UIResponder? {
-        if isFirstResponder { return self }
-        for subview in subviews {
-            if let responder = subview.firstResponderDescendant() {
-                return responder
-            }
-        }
-        return nil
     }
 }
 
