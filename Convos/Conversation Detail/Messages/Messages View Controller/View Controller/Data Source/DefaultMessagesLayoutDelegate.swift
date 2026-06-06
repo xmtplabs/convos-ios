@@ -60,6 +60,17 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var height: CGFloat = 16.0
         var childCount: Int = 0
 
+        // Agent contact card prefix (sender label + standard-style card:
+        // 32pt padding x2 + 40pt avatar + 16pt spacing + ~28pt name +
+        // ~2 subtitle lines). Without this, a card-only group is estimated
+        // at the bare 16pt baseline and self-sizes ~10x larger on first
+        // layout, which is exactly the growth the bottom anchor can't absorb
+        // during the open transition.
+        if group.agentContactCard != nil {
+            height += 164.0
+            childCount += 1
+        }
+
         for (index, message) in group.messages.enumerated() {
             let isFullBleed = message.content.isFullBleedAttachment
 
@@ -168,8 +179,14 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = estimatedAttachmentHeight(for: first, width: width)
         case .emoji:
             height = 80.0
-        case .text:
-            height = 40.0
+        case .text(let text):
+            // One bubble line is ~21pt plus ~22pt of padding; scale by a
+            // rough characters-per-line so multi-line messages don't all
+            // collapse to a single-line estimate (long agent replies were
+            // off by hundreds of points, far outside what the layout's
+            // offset compensation can hide).
+            let estimatedLines = max(1.0, (CGFloat(text.count) / 35.0).rounded(.up))
+            height = 22.0 + estimatedLines * 21.0
         case .invite:
             height = 240.0
         case .agentShare:

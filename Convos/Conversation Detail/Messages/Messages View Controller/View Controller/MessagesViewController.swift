@@ -235,6 +235,20 @@ final class MessagesViewController: UIViewController {
     private var pendingComposerBottomInset: CGFloat?
 
     private func scheduleBottomBarInsetUpdate() {
+        // While the open transition is settling, the bar's measurement often
+        // arrives inside a `performWithoutAnimation` scope (SwiftUI updating
+        // the representable mid-transition), which the deferral branch below
+        // would postpone by a runloop tick - long enough for the list to
+        // paint anchored against the stale inset and then visibly snap when
+        // the initial load's completion flushes (the conversation-open
+        // flicker). Apply synchronously instead: the settling path routes to
+        // `applyBottomInsetInstantly`, which is plain property assignments
+        // and safe inside an in-flight layout pass.
+        if isSettlingInitialLayout {
+            hasPendingBottomBarInsetUpdate = false
+            updateBottomInsetForBottomBarHeight()
+            return
+        }
         // The deferral below exists only for the crash scenario above, whose
         // necessary ingredient is an enclosing `performWithoutAnimation`
         // scope (the inset change becomes a non-animated bounds change and
@@ -474,6 +488,19 @@ final class MessagesViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isSettlingInitialLayout = false
+        messagesLayout.compensatesAllSelfSizingGrowth = false
+    }
+
+    /// The SwiftUI bottom bar mounts into the safe area a render pass or two
+    /// after the list's first bottom anchor during the open transition, which
+    /// silently grows `adjustedContentInset.bottom` without re-anchoring -
+    /// the list paints short of the bottom until something else scrolls it.
+    /// Re-anchor arithmetically while settling; `scrollToBottom(animated:
+    /// false)` is plain property assignments, safe mid-layout.
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        guard isSettlingInitialLayout, isViewLoaded, !isUserInitiatedScrolling else { return }
+        scrollToBottom(animated: false)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -719,6 +746,19 @@ final class MessagesViewController: UIViewController {
         onLoadPreviousMessages()
     }
 
+    /// `adjustedContentInset.bottom`, except while the open transition is
+    /// settling: the SwiftUI bottom bar transiently registers in the safe
+    /// area on top of the contentInset mirror of the same bar, and anchoring
+    /// against that double-counted inset over-pins the list, which then
+    /// steps back down in a visible snap when the duplicate resolves. Cap
+    /// the anchor at the settled target (bar inset + window safe area).
+    private var bottomAnchorInset: CGFloat {
+        let adjusted = collectionView.adjustedContentInset.bottom
+        guard isSettlingInitialLayout, let window = view.window else { return adjusted }
+        let settledMax = collectionView.contentInset.bottom + window.safeAreaInsets.bottom
+        return min(adjusted, settledMax)
+    }
+
     func scrollToBottom(animated: Bool = true, completion: (() -> Void)? = nil) {
         // Deferred insets must land first so the bottom target below
         // reflects the final bar height.
@@ -729,7 +769,7 @@ final class MessagesViewController: UIViewController {
             x: collectionView.contentOffset.x,
             y: (messagesLayout.collectionViewContentSize.height -
                 collectionView.frame.height +
-                collectionView.adjustedContentInset.bottom)
+                bottomAnchorInset)
         )
 
         // Exit before cancelling in-flight animations: when the layout's
@@ -745,7 +785,15 @@ final class MessagesViewController: UIViewController {
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
 
         if !animated {
-            collectionView.contentOffset = contentOffsetAtBottom
+            // Plain assignment would inherit an enclosing animated context -
+            // during the open transition this method runs from
+            // viewSafeAreaInsetsDidChange inside the push's animation scope,
+            // and an implicitly animated offset change makes the whole list
+            // ride the bottom bar's entrance for the length of the push
+            // spring instead of anchoring instantly.
+            UIView.performWithoutAnimation {
+                collectionView.contentOffset = contentOffsetAtBottom
+            }
             completion?()
             return
         }
@@ -1167,8 +1215,10 @@ extension MessagesViewController: KeyboardListenerDelegate {
         let reach = collectionView.contentSize.height
             - (collectionView.contentOffset.y + collectionView.frame.height - adjustedTarget)
         if reach >= -0.5 {
-            collectionView.contentInset.bottom = target
-            collectionView.verticalScrollIndicatorInsets.bottom = target
+            UIView.performWithoutAnimation {
+                collectionView.contentInset.bottom = target
+                collectionView.verticalScrollIndicatorInsets.bottom = target
+            }
         } else {
             updateCollectionViewInsets(to: target, with: nil)
         }

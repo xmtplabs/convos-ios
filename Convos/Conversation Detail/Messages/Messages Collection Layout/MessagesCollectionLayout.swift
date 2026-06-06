@@ -145,6 +145,15 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
 
     private var hasPendingOutOfBandGrowthNotification: Bool = false
 
+    /// While the owning controller's open transition is settling, initial
+    /// self-sizing of estimated cells produces large out-of-band growth whose
+    /// reveal callback is gated off (the controller is still loading or
+    /// applying the initial update). Skipping compensation then leaves the
+    /// bottom of the list below the fold until the load completion snaps it -
+    /// the conversation-open flicker. The controller sets this true until
+    /// `viewDidAppear`, restoring the immediate compensation for that window.
+    var compensatesAllSelfSizingGrowth: Bool = true
+
     private func notifyOutOfBandBottomGrowth() {
         guard !hasPendingOutOfBandGrowthNotification else { return }
         hasPendingOutOfBandGrowthNotification = true
@@ -526,7 +535,17 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
             // Shrinks also keep it: skipping those would leave the offset
             // past the new content bottom and UIKit would clamp it in a
             // hard jump.
+            // Only growth of the final item takes the reveal path: that is
+            // the case it exists for (a send appending to the bottom group,
+            // media loading in the newest message). Growth anywhere else -
+            // e.g. a contact card's description arriving for a cell the user
+            // scrolled back to - keeps the immediate compensation so the
+            // visible content doesn't shift mid-read.
+            let isLastItem: Bool = preferredAttributesItemPath.section == (collectionView?.numberOfSections ?? 1) - 1
+                && preferredAttributesItemPath.item == (collectionView?.numberOfItems(inSection: preferredAttributesItemPath.section) ?? 0) - 1
             let isOutOfBandBottomGrowth: Bool = heightDifference > Constant.outOfBandGrowthRevealThreshold
+                && !compensatesAllSelfSizingGrowth
+                && isLastItem
                 && state == .beforeUpdate
                 && UIView.inheritedAnimationDuration == 0
                 && !isUserInitiatedScrolling
