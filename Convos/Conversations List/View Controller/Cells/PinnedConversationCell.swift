@@ -25,11 +25,10 @@ final class PinnedConversationCell: UICollectionViewCell {
         layoutAttributes
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-        hostingWrapper = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing the hosting wrapper:
+    // `configure(with:)` reuses it via the in-place `wrapper.update(...)` path on
+    // recycle instead of rebuilding the `UIHostingConfiguration`. See the
+    // matching note in `ConversationListItemCell`.
 
     func configure(
         with conversation: Conversation,

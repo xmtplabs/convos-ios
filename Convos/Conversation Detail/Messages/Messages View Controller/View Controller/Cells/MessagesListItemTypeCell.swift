@@ -41,10 +41,15 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         contentView.layer.borderWidth = 2
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        self.contentConfiguration = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing `contentConfiguration`.
+    // `setup(item:)` runs synchronously on every dequeue (see `CellFactory`) and
+    // assigns a fresh `UIHostingConfiguration` of the same generic type, which
+    // UIKit applies as an in-place update of the existing hosting controller
+    // rather than a teardown-and-rebuild. Per-item SwiftUI state still resets
+    // via the content's `.id("message-cell-\(differenceIdentifier)")`. Clearing
+    // the configuration on reuse cost a measurable chunk of scroll time: a full
+    // hosting teardown plus a fresh self-sizing measurement for every recycled
+    // cell.
 
     override func layoutSubviews() {
         super.layoutSubviews()

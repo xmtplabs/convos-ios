@@ -51,11 +51,14 @@ final class ConversationListItemCell: UICollectionViewListCell {
         backgroundConfiguration = bg
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-        hostingWrapper = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing `contentConfiguration`
+    // / `hostingWrapper`. `configure(with:)` runs synchronously on every dequeue
+    // and reconfigure (see the cell registration in
+    // `ConversationsViewController.makeDataSource`); keeping the wrapper lets it
+    // take the cheap `wrapper.update(...)` path (an in-place observable mutation)
+    // instead of rebuilding a fresh `UIHostingConfiguration` for every recycled
+    // row. Clearing them on reuse defeated that fast path and forced a hosting
+    // teardown plus a self-sizing re-measurement on every scroll recycle.
 }
 
 @Observable
