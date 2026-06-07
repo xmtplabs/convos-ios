@@ -19,10 +19,11 @@ final class EmptyStateCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-    }
+    // No `prepareForReuse` clearing `contentConfiguration`: `configure(with:)`
+    // runs synchronously on every dequeue (cell registration) and reassigns a
+    // same-typed `UIHostingConfiguration` - including the fresh `onShowAll`
+    // closure - which UIKit applies in place rather than rebuilding the hosting
+    // controller. Matches the other list cells.
 
     func configure(with type: EmptyStateType) {
         switch type {
