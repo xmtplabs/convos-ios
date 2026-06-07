@@ -29,7 +29,7 @@ struct PinnedConversationItem: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
-            ConversationAvatarView(conversation: conversation, conversationImage: nil)
+            ConversationAvatarView(conversation: conversation, conversationImage: nil, size: avatarSize)
                 .frame(width: avatarSize, height: avatarSize)
                 .padding(.top, DesignConstants.Spacing.stepX)
                 .overlay(alignment: .top) {
@@ -144,7 +144,7 @@ struct PinnedConversationContextPreview: View {
                     )
             }
 
-            ConversationAvatarView(conversation: conversation, conversationImage: nil)
+            ConversationAvatarView(conversation: conversation, conversationImage: nil, size: avatarSize)
                 .frame(width: avatarSize, height: avatarSize)
 
             HStack(spacing: DesignConstants.Spacing.stepX) {
