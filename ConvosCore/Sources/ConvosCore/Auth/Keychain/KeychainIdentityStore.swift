@@ -147,6 +147,14 @@ public enum KeychainIdentityStoreError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .keychainOperationFailed(status, operation):
+            if status == errSecMissingEntitlement {
+                return """
+                Keychain \(operation) failed: missing entitlement (errSecMissingEntitlement, -34018). \
+                The running build lacks a keychain-access-groups entitlement that grants the requested \
+                access group. This is not a simulator limitation -- verify the build was signed with its \
+                keychain-access-groups entitlement (simulator builds need -configuration Local or Dev).
+                """
+            }
             return "Keychain \(operation) failed with status: \(status)"
         case let .dataDecodingFailed(context):
             return "Failed to decode data for \(context)"
