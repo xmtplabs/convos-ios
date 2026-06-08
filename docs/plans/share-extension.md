@@ -1,6 +1,9 @@
 # Share Extension + Share-Sheet Conversation Suggestions
 
-Status: investigation + spike (not yet wired into the Xcode project)
+Status: spike wired + compiling. The ShareExtension target is in the Xcode
+project and builds clean for the simulator (send call chain + memory probe
+included). Device build is blocked only at code signing: the new App ID needs
+its App Groups capability registered (one-time account/portal step, below).
 
 Goal: let users share content from other apps into Convos, with agent
 conversations surfacing as one-tap suggestions in the top row of the native
@@ -138,27 +141,53 @@ and resurrects on restart - so donation teardown is unreliable for the same
 reason. This is the same teardown-lifecycle problem flagged for the App-Intents
 message-search indexing feature; track them together.
 
-## Wiring the target (not yet done)
+## Wiring the target (done programmatically)
 
-The project uses Xcode synchronized-folder targets (`fileSystemSynchronizedGroups`)
-and manual `match` code signing. Add the target via the Xcode GUI (safer than
-scripting the pbxproj):
+The target was added with the `xcodeproj` gem (script:
+`Scripts/add_share_extension_target.rb`, idempotent - re-run to regenerate),
+mirroring the NotificationService target:
 
-1. File -> New -> Target -> Share Extension, name `ShareExtension`, embed in Convos.
-2. Replace the generated files with the ones in `ShareExtension/` (this folder).
-3. Set per-config (Local/Dev/Prod/PR), mirroring the NotificationService target:
-   - `PRODUCT_BUNDLE_IDENTIFIER = $(SHARE_EXTENSION_BUNDLE_ID)`
-   - `CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements`
-   - `INFOPLIST_FILE = ShareExtension/Info.plist`
-   - `IPHONEOS_DEPLOYMENT_TARGET = 26.0`, `SWIFT_VERSION = 6.0`, `SKIP_INSTALL = YES`
-4. Add package dependencies `ConvosCore` and `ConvosCoreiOS`.
-5. The `SHARE_EXTENSION_BUNDLE_ID` var is already added to the xcconfigs.
+- product type app-extension, 4 configs (Dev/PR Preview/Local/Release) each
+  with the matching base xcconfig (Dev->Dev, PR Preview->PR, Local->Local,
+  Release->Prod), `PRODUCT_BUNDLE_IDENTIFIER = $(SHARE_EXTENSION_BUNDLE_ID)`,
+  `INFOPLIST_FILE` / `CODE_SIGN_ENTITLEMENTS` pointing at `ShareExtension/`.
+- local SPM product deps `ConvosCore` + `ConvosCoreiOS`.
+- embedded in the Convos app's "Embed Foundation Extensions" phase + added as
+  an app target dependency.
+- `SWIFT_TREAT_WARNINGS_AS_ERRORS = NO` on this target only (spike concession;
+  flip back before shipping).
+- a shared `ShareExtension` scheme for building the extension in isolation.
 
-Out-of-band prerequisite for device/TestFlight (NOT needed for simulator):
-register new App IDs `org.convos.ios{,-preview,-local,-preview.pr}.ShareExtension`
-with App Group + keychain group capabilities, and create `match` provisioning
-profiles for them. App Groups work on the simulator with no profiles, so the
-memory spike can run on a sim build without any portal work.
+Signing per config mirrors the app/NSE: Dev + Local = Automatic (team
+FY4NZR34Z3), Release + PR Preview = Manual.
+
+## Validation results
+
+- Simulator build (`-scheme ShareExtension -sdk iphonesimulator`,
+  Local config): BUILD SUCCEEDED, zero errors/warnings. Confirms the send
+  call chain, `os_proc_available_memory()` probe, and target wiring compile.
+- Device build (`-destination generic/platform=iOS -allowProvisioningUpdates`):
+  fails at the provisioning gate (before compile) with:
+    - `No Accounts: Add a new account in Accounts settings`
+    - `Provisioning profile ... doesn't include the App Groups capability`
+    - `... doesn't support the group.org.convos.ios-local App Group`
+  i.e. Automatic signing could not register the new App ID's App Groups
+  capability from a headless build with no signed-in account.
+
+### The one remaining device-signing step (account/portal, done by a human)
+
+The existing app + NSE device-build fine because their App IDs already have the
+app group registered. The new `org.convos.ios{,-preview,-local,-preview.pr}.ShareExtension`
+App IDs do not yet exist with the App Groups capability. Either:
+
+- Open the project in Xcode (signed-in account) and build to a device once -
+  Automatic signing registers the App ID and adds the `group.org.convos.ios-*`
+  App Group to it; or
+- Register the App IDs + App Group capability in the developer portal (and add
+  `match` profiles) for device/TestFlight.
+
+App Groups work on the simulator with no profiles, so the memory spike can run
+on a sim build with no portal work at all.
 
 ## Spike runbook (get the memory number)
 
