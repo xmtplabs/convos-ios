@@ -722,7 +722,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         notificationChangeReporter.notifyChangesInDatabase()
     }
 
-    public func wakeInboxForNotification(conversationId: String) {
+    public func wakeInboxForNotification() {
         _ = loadOrCreateService()
     }
 

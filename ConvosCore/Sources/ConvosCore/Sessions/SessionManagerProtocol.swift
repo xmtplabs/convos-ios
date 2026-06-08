@@ -156,9 +156,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// redundant.
     func setIsOnConversationsList(_ isOn: Bool)
 
-    /// Ensures the messaging service is ready before processing a notification
-    /// for the given conversation. Safe to call from the NSE.
-    func wakeInboxForNotification(conversationId: String)
+    /// Ensures the single messaging service is loaded before processing a
+    /// notification. Safe to call from the NSE.
+    func wakeInboxForNotification()
 
     // MARK: Helpers
 

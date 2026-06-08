@@ -94,7 +94,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         let conversationId = notification.request.content.threadIdentifier
 
         if !conversationId.isEmpty, let session = session {
-            session.wakeInboxForNotification(conversationId: conversationId)
+            session.wakeInboxForNotification()
         }
 
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
@@ -151,7 +151,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             return
         }
 
-        session.wakeInboxForNotification(conversationId: conversationId)
+        session.wakeInboxForNotification()
         await clearDeliveredNotifications(for: conversationId)
 
         Log
