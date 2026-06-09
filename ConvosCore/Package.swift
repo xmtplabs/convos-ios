@@ -90,6 +90,9 @@ let package = Package(
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosComposer",
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .define("DEBUG", .when(configuration: .debug)),
