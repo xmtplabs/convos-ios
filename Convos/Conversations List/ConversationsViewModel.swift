@@ -584,6 +584,8 @@ final class ConversationsViewModel {
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
+                ShareSuggestionDonator.donate(self.conversations)
+
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
