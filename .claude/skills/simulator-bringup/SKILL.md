@@ -1,15 +1,16 @@
 ---
 name: simulator-bringup
-description: Use when building, upgrading a dependency (e.g. libxmtp), or installing the Convos iOS app in a local simulator - especially if the app crashes on launch or shows the generic "Something went wrong" sheet when starting a new convo. Encodes the issue #843 bring-up procedure (scheme choice; app-group, Keychain, and App Check accommodations; the local backend on :4000) plus the build-contention type-check workaround learned in practice.
+description: Use when building, upgrading a dependency (e.g. libxmtp), or installing the Convos iOS app in a local simulator - especially if the app crashes on launch or shows the generic "Something went wrong" sheet when starting a new convo. Encodes the issue #843 bring-up procedure (scheme choice; the configuration:Dev gotcha behind the NotificationService, app-group, Keychain, and App Check failures; the local backend on :4000) plus the build-contention type-check workaround learned in practice.
 ---
 
 # Convos iOS simulator bring-up
 
-A clean simulator bring-up needs a few simulator-specific accommodations. Without
-them, `Convos (Local)` crashes on launch and `Convos (Dev)` reaches the UI but
-shows the generic `Something went wrong` sheet when starting a new convo. This
-skill is the procedure for getting a build running in a local simulator and
-verifying it, e.g. after a dependency upgrade or a fresh install.
+This skill is the procedure for getting a build running in a local simulator and
+verifying it, e.g. after a dependency upgrade or a fresh install. The two things
+that bite a clean bring-up are building under the wrong configuration (which
+shows up as a NotificationService module-resolution failure, then an app-group
+crash on launch, then a `Something went wrong` sheet on new-convo) and
+type-check timeouts under machine load. Both are covered below.
 
 Source of record: GitHub issue
 [#843](https://github.com/xmtplabs/convos-ios/issues/843).
@@ -106,69 +107,67 @@ For contention only:
    committed or used to paper over a genuinely slow expression - only for
    provably environmental timeouts on trivial code.
 
-## Step 2 - launch crash: app group container fallback
+## Step 2 - launch / new-convo failures are a configuration symptom
 
-Symptom on launch:
+The #843 runbook originally proposed simulator-only accommodations (app-group
+`Application Support` fallback, a `FileBackedIdentityStore`, a dummy JWT
+override) for the failures below. PRs [#1019] and [#1018] (both merged)
+established those are **mis-targeted**: the simulator honors app-group and
+keychain-access-group entitlements exactly like a device. Do not add the
+fallbacks. Each symptom below means you built under the wrong configuration -
+the fix is Step 1's `configuration: Dev` (or `Local`), not a code workaround.
+
+Confirmed on a clean `Convos (Dev)` build (no local patches): launch reaches a
+live conversation with none of these accommodations.
+
+**Launch crash - app group container:**
 ```
-EXC_BREAKPOINT / _assertionFailure
-AppEnvironment.defaultXMTPLogsDirectoryURL.getter   (AppEnvironment.swift)
-fatalError("Failed getting container URL for group identifier...")
+fatalError  AppEnvironment.appGroupContainerURL   (AppEnvironment.swift)
+"... entitlement not applied / config mismatch / built without -configuration ..."
 ```
-The XMTP logs / databases dirs come from the app group container via
-`FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:)`, which
-can be unavailable in the simulator.
+The app-group container is nil because the build's entitlements don't match the
+runtime app-group id. Same root cause as the NotificationService
+module-resolution failure in Step 1. Build with `configuration: Dev`. The
+message is self-diagnosing as of #1019 (it names the app-group id and bundle id).
 
-Accommodation: use the app group container when available, else fall back to
-`Application Support/<bundle id>/` (`AppEnvironment.swift`,
-`defaultXMTPLogsDirectoryURL` / `defaultDatabasesDirectoryURL`).
-
-## Step 3 - new-convo fails: file-backed identity store on simulator
-
-Symptom:
+**New-convo fails - Keychain `-34018`:**
 ```
 Keychain identity read failed (keychainOperationFailed(-34018, "load"))
 ```
-`-34018` (`errSecMissingEntitlement`) is the simulator Keychain access-group
-blocker.
+`-34018` (`errSecMissingEntitlement`) is the keychain-access-group entitlement
+not being applied - the other face of the wrong-configuration build, not a
+simulator Keychain limitation. Build with `configuration: Dev`. #1019 special-
+cases this error with actionable guidance.
 
-Accommodation (simulator builds only): use a `FileBackedIdentityStore` instead of
-`KeychainIdentityStore`, persisting under the app data/database dir (e.g.
-`SimulatorIdentity/identity.json`). Device behavior stays on the Keychain path.
-Touches `Auth/Keychain/KeychainIdentityStore.swift` and `ConvosClient+App.swift`.
-
-## Step 4 - backend auth blocked: App Check
-
-Symptom once an identity exists:
+**Backend auth - App Check 403:**
 ```
 Firebase App Check debug token: '<uuid>'
 HTTP 403  "App attestation failed."
 ```
-This blocks `SessionStateMachine.authenticateBackend()` from reaching authorized.
-
-Two options:
-
-- Register the printed App Check debug token in Firebase (preferred) - see the
-  `/firebase-token` flow.
-- Or, simulator builds only (`.local` / `.dev`): return a dummy
-  `defaultOverrideJWTToken` so `authenticateBackend()` follows the existing
-  override path and skips App Check-backed auth.
+The printed `<uuid>` is a random, unregistered token. On fresh-install first
+launch this was the token-wipe bug fixed in #1018 (`LegacyDataWipe` was deleting
+the pinned `GACAppCheckDebugToken` within the same `init()`). With #1018 merged
+the pinned token survives; if you still see a 403, register the printed debug
+token via the `/firebase-token` flow.
 
 ## Verification
 
-Expected console after the accommodations:
+Expected console on a healthy build:
 ```
-JWT override mode: skipping authentication, will use JWT from push payload
 Starting message and conversation streams...
 syncAllConversations completed, sync ready
 ```
-The app reaches the Convos home screen with no error modal. Push/device
-registration may still log an App Check 403 - expected, and it does not block
-initial simulator use. Take a screenshot to confirm.
+The app reaches the Convos home screen with no error modal. Take a screenshot to
+confirm - do not trust "launched" alone.
 
 ## Notes
 
-- Steps 2-4 are pragmatic simulator-only accommodations from #843, not
-  production implementations, and may not currently be committed on `dev`. If a
-  launch works but new-convo fails, that is where to look.
+- The Step 2 symptoms are now self-diagnosing in code (#1019) and the App Check
+  fresh-install bug is fixed (#1018). If you hit any of them, re-check the build
+  configuration first - the historical simulator-only accommodations are not the
+  fix and should not be reintroduced.
 - The contention workaround in Step 1 is a local escape hatch only. Genuinely
   slow expressions still get fixed in code per CLAUDE.md.
+
+[#1018]: https://github.com/xmtplabs/convos-ios/pull/1018
+[#1019]: https://github.com/xmtplabs/convos-ios/pull/1019
