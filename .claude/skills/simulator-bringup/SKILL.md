@@ -49,9 +49,26 @@ up the shared local stack before a `Convos (Local)` run.
      -scheme "Convos (Dev)" -derivedDataPath .derivedData
    ```
 3. Build, install, and launch (XcodeBuildMCP `build_run_sim`, or `/run`). Keep
-   builds isolated to this worktree with `-derivedDataPath .derivedData`.
+   builds isolated to this worktree with `-derivedDataPath .derivedData`, and
+   **set `configuration: Dev`** (session defaults or `-configuration Dev`) - see
+   the NotificationService note below.
 4. Confirm it actually came up with a screenshot - do not trust "launched"
    alone. Expected: the Chats home screen, no error modal.
+
+### First build fails: NotificationService module resolution
+
+Symptom on the first `Convos (Dev)` simulator build:
+```
+unable to resolve module dependency: 'ConvosCore' / 'ConvosCoreiOS' / 'XMTPiOS'
+```
+in the NotificationService extension, even though ConvosCore itself compiled
+fine. This is a build-configuration mismatch, not stale DerivedData. With no
+configuration set, SPM packages land in `Debug-iphonesimulator/` while the
+extension looks in `Release-iphonesimulator/PackageFrameworks/` (empty). `rm -rf
+.derivedData` does **not** fix it.
+
+Fix: set `configuration: Dev` so everything lands in `Dev-iphonesimulator/`.
+Setting it up front (step 3) avoids the wasted first build entirely.
 
 ### Build under machine load (type-check contention)
 
@@ -67,6 +84,11 @@ slow type-check is a hard build failure. Two very different causes:
   bool, a `guard let`), the reported time hovers just over the limit
   (~305-370ms), and which file trips it *changes between builds*. This is the
   machine being starved (e.g. OrbStack/Docker, browser), not the code.
+
+Confirm it is contention before touching anything: `sysctl -n vm.loadavg` and
+`ps -Ao %cpu,comm -r | head` against `sysctl -n hw.ncpu`. A load average near or
+above the core count, with heavy non-build processes on top, is the tell - then
+treat it as contention, not slow code.
 
 For contention only:
 
