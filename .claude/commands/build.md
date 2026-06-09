@@ -55,17 +55,19 @@ Build, launch in simulator, and notify when running:
 
 > **NEVER use the MCP `build_sim` tool.** It has a known bug where app extension targets (NotificationService) fail to find SPM module dependencies (ConvosCore, ConvosCoreiOS, XMTPiOS) on fresh worktrees. **ALWAYS use xcodebuild directly via Bash.**
 
-Run this exact command via the Bash tool (on a single line):
+Pass an explicit `-configuration` matching the scheme (`Convos (Dev)` -> `Dev`, `Convos (Local)` -> `Local`, `Convos (Prod)` -> `Prod`). Without it the scheme can build targets under mismatched configurations -- the NotificationService extension fails with `unable to resolve module dependency: ConvosCore` (packages and extension land in different config dirs), and the app's entitlements/identifiers stop matching `config.json`, surfacing at runtime as a nil app-group container crash (`Failed getting container URL`) or `-34018` (`errSecMissingEntitlement`) on first identity read. That is a configuration signature, not a simulator limitation (issue #843, #1019); `rm -rf .derivedData` does not fix it, an explicit `-configuration` does.
+
+Run this command via the Bash tool:
 
 ```bash
-xcodebuild build -project Convos.xcodeproj -scheme "Convos (Dev)" -destination "platform=iOS Simulator,id=SIMULATOR_ID" -derivedDataPath .derivedData 2>&1 | tail -100
+xcodebuild build -project Convos.xcodeproj -scheme "Convos (Dev)" -configuration Dev -destination "platform=iOS Simulator,id=SIMULATOR_ID" -derivedDataPath .derivedData 2>&1 | tail -100
 ```
 
 Replace:
 - `SIMULATOR_ID` with the selected simulator UUID
-- `"Convos (Dev)"` with the requested scheme if different
+- `"Convos (Dev)" -configuration Dev` with the requested scheme and its matching configuration if different
 
-Set a timeout of 300000ms (5 minutes) for the build command.
+Set a timeout of 300000ms (5 minutes) for the build command. A `took NNNms to type-check` failure on a *trivial* expression that *moves between files* between builds is CPU contention, not a code problem -- rebuild with `-jobs 2`, do not edit the flagged code.
 
 **Why xcodebuild via Bash works but MCP fails:**
 - The MCP tool's parallelization breaks extension target dependency ordering
