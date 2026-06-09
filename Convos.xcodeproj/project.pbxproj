@@ -28,9 +28,11 @@
 		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 		87DE7D5E9A3C3863A90989B9 /* GoogleService-Info.Dev.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A9157E38499DBC9147DAB6A /* GoogleService-Info.Dev.plist */; };
 		A0C6AA6175B2F6D54EB08BF8 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 212806B32B1CD0BDB80FB47B /* Secrets.swift */; };
+		A7A3EBA84220CBC46A5E4E5C /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = 1AEE475B3FE0066D11742B75 /* ConvosComposer */; };
 		B25AB1932E32B65678BA64B6 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54CE25088361C2F195BEABC /* ShareViewController.swift */; };
 		C549ED799F2562031183CF09 /* MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A8795E706DC576F5D73319 /* MemoryProbe.swift */; };
 		C6DB12C50C74FA7E73E95796 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F674D719A434DEB7A1875508 /* Foundation.framework */; };
+		C88FE7B7DA58D9FF0141A0F6 /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = CAABDAA52472593D92D2FAB3 /* ConvosComposer */; };
 		D1719B20BD585B9545B790C0 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F93C5E4BA5FB5D5C698E2EAC /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -289,6 +291,7 @@
 				C6DB12C50C74FA7E73E95796 /* Foundation.framework in Frameworks */,
 				3D9C9D84CE7FFFD0AE31D80B /* ConvosCore in Frameworks */,
 				59C5B9E583F74517B2B888B7 /* ConvosCoreiOS in Frameworks */,
+				C88FE7B7DA58D9FF0141A0F6 /* ConvosComposer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -358,6 +361,7 @@
 				7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */,
 				7A5D3E992E43B82400DA9B86 /* PostHog in Frameworks */,
 				D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */,
+				A7A3EBA84220CBC46A5E4E5C /* ConvosComposer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -505,6 +509,7 @@
 			packageProductDependencies = (
 				5B30289554C63E131F8FDA14 /* ConvosCore */,
 				6295E0ABD82D9105D8ECF82F /* ConvosCoreiOS */,
+				CAABDAA52472593D92D2FAB3 /* ConvosComposer */,
 			);
 			productName = ShareExtension;
 			productReference = F93C5E4BA5FB5D5C698E2EAC /* ShareExtension.appex */;
@@ -717,6 +722,7 @@
 				7AD5458F2E4EA8BE00500ADF /* ConvosCore */,
 				7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */,
 				7A5D3E982E43B82400DA9B85 /* PostHog */,
+				1AEE475B3FE0066D11742B75 /* ConvosComposer */,
 			);
 			productName = Convos;
 			productReference = D8A2B6912DA4BA4B00EF8577 /* Convos.app */;
@@ -3028,6 +3034,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1AEE475B3FE0066D11742B75 /* ConvosComposer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosComposer;
+		};
 		5B30289554C63E131F8FDA14 /* ConvosCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosCore;
@@ -3083,6 +3093,10 @@
 		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosCoreiOS;
+		};
+		CAABDAA52472593D92D2FAB3 /* ConvosComposer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosComposer;
 		};
 		D8084BA82DC9193A00E708B0 /* DifferenceKit */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -19,6 +19,10 @@ let package = Package(
             targets: ["ConvosCoreiOS"]
         ),
         .library(
+            name: "ConvosComposer",
+            targets: ["ConvosComposer"]
+        ),
+        .library(
             name: "ConvosConnectionsXMTP",
             targets: ["ConvosConnectionsXMTP"]
         ),
@@ -73,6 +77,19 @@ let package = Package(
                 .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosCoreiOS",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .define("DEBUG", .when(configuration: .debug)),
+                .unsafeFlags(["-Onone"], .when(configuration: .debug)),
+            ]
+        ),
+        .target(
+            name: "ConvosComposer",
+            dependencies: [
+                .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
+                .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+            ],
+            path: "Sources/ConvosComposer",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .define("DEBUG", .when(configuration: .debug)),
