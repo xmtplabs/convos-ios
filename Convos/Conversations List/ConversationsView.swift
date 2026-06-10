@@ -32,19 +32,10 @@ struct ConversationsView: View {
     /// Bottom counterpart to `topChromeInset`, used when the builder bar
     /// pins to the bottom edge (iPad, where the tab bar is at the top).
     var bottomChromeInset: CGFloat = 0
-    /// Binding into the shell's "present this conversation as a sheet"
-    /// slot. Set by the inline agent builder (rendered in the chats
-    /// list's empty state) right after `commit()` lands a brand-new
-    /// conversation. `MainTabView` listens for non-nil here and shows
-    /// the conversation in a sheet, mirroring how the bottom-bar
-    /// builder is presented over the tabs.
-    @Binding var presentingCommittedConversation: ConversationViewModel?
-
-    /// Dedicated builder VM for the chats-list empty state. Created
-    /// lazily once the user is in the no-convos-yet state and torn down
-    /// the moment they ship their first convo (which also flips the
-    /// empty state off, so the inline builder unmounts naturally).
-    @State private var inlineBuilderViewModel: AgentBuilderViewModel?
+    /// Invoked when the user taps "Explore agents in Contacts" in the
+    /// empty-state CTA. The shell switches to the Contacts tab and scrolls
+    /// it to the "Suggested agents" section. Nil hides the link (previews).
+    var onExploreAgents: (() -> Void)?
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -87,62 +78,16 @@ struct ConversationsView: View {
         viewModel.session.messagingServiceSync().contactsRepository().contact(for:)
     }
 
-    var emptyConversationsViewScrollable: some View {
-        emptyConversationsView
-    }
-
-    @ViewBuilder
+    /// Empty chats state: the new-user CTA (animated mock conversations,
+    /// headline, "Make an agent", "Explore agents in Contacts"). The Make
+    /// button opens the same agent-builder sheet the builder bar opens.
     var emptyConversationsView: some View {
-        if let inlineBuilderViewModel {
-            AgentBuilderView(
-                viewModel: inlineBuilderViewModel,
-                profileSettingsViewModel: profileSettingsViewModel,
-                mode: .inline,
-                onCommitted: handleInlineBuilderCommit(_:)
-            )
-        }
-        // Until the inline builder VM has been spun up by
-        // `ensureInlineBuilder()`, the empty state renders nothing.
-        // The previous "Pop-up private convo" fallback CTA caused a
-        // visible flash on cold launch and has been removed in favor
-        // of a blank empty state for that one frame.
+        ConversationsEmptyStateView(
+            onMakeAgent: { viewModel.onStartAgent() },
+            onExploreAgents: onExploreAgents
+        )
     }
 
-    private func ensureInlineBuilder() {
-        // Recreate the VM when it's nil, when the previous one has
-        // already committed, or when it's been discarded. A committed
-        // VM renders `Color.clear` in `inlineBody`. A discarded VM had
-        // `discard()` called on it (e.g. by `AgentBuilderView.onDisappear`
-        // when the user left the chats tab without committing), so its
-        // tasks are cancelled and its conversation has been torn down.
-        // Either case leaves the empty state non-functional until we
-        // spin up a fresh VM.
-        let needsFresh: Bool = inlineBuilderViewModel == nil
-            || inlineBuilderViewModel?.hasCommitted == true
-            || inlineBuilderViewModel?.didDiscard == true
-        if needsFresh {
-            inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session, coreActions: viewModel.coreActions)
-        }
-    }
-
-    private func handleInlineBuilderCommit(_ convoVM: ConversationViewModel) {
-        presentingCommittedConversation = convoVM
-        // Intentionally keep `inlineBuilderViewModel` around (in its
-        // committed state). The chats list will update with the new
-        // conversation shortly, at which point `isEmptyCTAActive` flips
-        // false and `sidebarContent` swaps from the empty branch to the
-        // collection view, unmounting the builder naturally. Clearing
-        // here eagerly would leave a blank `Color` behind the sheet if
-        // the user dismisses before the list catches up — see the
-        // `onChange` below that recreates a fresh VM in that race.
-    }
-
-    /// Called whenever the post-commit conversation sheet dismisses.
-    /// If the chats list is still in its empty state at that moment
-    /// (DB sync race — the new convo hasn't landed in
-    /// `conversations` yet), swap the committed inline builder VM out
-    /// for a fresh one so the user sees an interactive composer
-    /// instead of a stuck post-commit gray rect.
     /// Bridges `selectedConversationViewModel` (driven by the
     /// `selectedConversationId` setter) to a `navigationDestination(item:)`
     /// Binding so SwiftUI pushes / pops the `ConversationView` onto the
@@ -184,11 +129,6 @@ struct ConversationsView: View {
                 bottomBarContent: { EmptyView() }
             )
         }
-    }
-
-    private func handleCommittedSheetDidDismiss() {
-        guard viewModel.isEmptyCTAActive else { return }
-        inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session, coreActions: viewModel.coreActions)
     }
 
     var filteredEmptyStateView: some View {
@@ -256,7 +196,7 @@ struct ConversationsView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         if viewModel.isEmptyCTAActive {
-            emptyConversationsViewScrollable
+            emptyConversationsView
         } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty {
             ScrollView {
                 filteredEmptyStateView
@@ -295,22 +235,6 @@ struct ConversationsView: View {
             }
             .onAppear {
                 viewModel.onAppear()
-                if viewModel.isEmptyCTAActive {
-                    ensureInlineBuilder()
-                }
-            }
-            .onChange(of: viewModel.isEmptyCTAActive) { _, isActive in
-                // Re-fire whenever the chats list flips back to empty
-                // (e.g. user just deleted the last conversation, or a
-                // post-commit sheet just dismissed and the new convo
-                // hasn't landed in the list yet). `.task` attached to
-                // the conditional empty view branch doesn't reliably
-                // fire when the branch's `if let` body is empty
-                // (committed VM or nil VM), so the trigger lives here
-                // on the parent body where firing is deterministic.
-                if isActive {
-                    ensureInlineBuilder()
-                }
             }
             .task {
                 // Refresh credits + subscription on every conversations-list
@@ -324,10 +248,6 @@ struct ConversationsView: View {
             }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
-            .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
-                guard !wasNil, isNil else { return }
-                handleCommittedSheetDidDismiss()
-            }
             .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
                 guard let newState, case .exploded = newState else { return }
                 viewModel.selectedConversationId = nil
@@ -471,8 +391,7 @@ private struct ConversationsSheetModifier: ViewModifier {
         profileSettingsViewModel: profileSettingsViewModel,
         appIndicatorContext: AppIndicatorContext(
             profileImage: profileSettingsViewModel.profileImage
-        ),
-        presentingCommittedConversation: .constant(nil)
+        )
     )
 }
 
@@ -485,7 +404,6 @@ private struct ConversationsSheetModifier: ViewModifier {
         profileSettingsViewModel: profileSettingsViewModel,
         appIndicatorContext: AppIndicatorContext(
             profileImage: profileSettingsViewModel.profileImage
-        ),
-        presentingCommittedConversation: .constant(nil)
+        )
     )
 }

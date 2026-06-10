@@ -25,7 +25,7 @@ struct MainTabView: View {
     /// `TabView` selection. The system tab bar is hidden only while a
     /// conversation / Stuff detail is pushed (so the detail owns the full
     /// screen) via `.toolbar(_:for: .tabBar)`. It stays visible during the
-    /// inline empty-state builder so the user can still switch tabs.
+    /// empty-state CTA so the user can still switch tabs.
     @State private var activeTab: ConvosTab = .chats
     /// NavigationStack path for the Stuff tab. Lifted to this shell so
     /// the bottom chrome can hide when Stuff has a detail pushed, same
@@ -107,15 +107,6 @@ struct MainTabView: View {
     @State var contactsNavState: ContactsNavigatorImpl = .init()
     @State var contactsNavigator: ContactsCollector?
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
-    /// Set when the inline builder (rendered inside the chats list's
-    /// empty state) commits its first conversation. The shell presents
-    /// the new conversation as a sheet, mirroring how the bottom-bar
-    /// builder itself is presented over the tabs. The inline builder VM
-    /// lives inside `ConversationsView` (so it's scoped to the chats tab);
-    /// only the post-commit sheet has to bubble up to this level.
-    @State private var presentingCommittedConversation: ConversationViewModel?
-    @State private var committedConversationFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    @State private var committedConversationSidebarWidth: CGFloat = 0
     /// Live subscription drives the app-indicator subtitle (plan name,
     /// or "Basic" when not subscribed). Seeded from the service's current
     /// value so the first render doesn't flicker, then kept in sync via
@@ -209,10 +200,9 @@ struct MainTabView: View {
     }
 
     /// Mirrors [[ConversationsViewModel.isEmptyCTAActive]]. When true the
-    /// chats list is empty and we render an inline agent builder as the
-    /// primary content (instead of the tabs) so the user is guided
-    /// straight into making their first agent.
-    private var isInlineBuilderActive: Bool {
+    /// chats list is empty and renders the new-user empty-state CTA
+    /// (animated mocks + "Make an agent") instead of the conversation list.
+    private var isEmptyChatsCTAActive: Bool {
         conversationsViewModel.isEmptyCTAActive
     }
 
@@ -266,12 +256,12 @@ struct MainTabView: View {
     private func handleConversationNotificationTapped() {
         activeTab = .chats
         presentingAppSettings = false
-        presentingCommittedConversation = nil
     }
 
-    /// "See suggested agents" from the empty Stuff state: jump to the Contacts
-    /// tab and ask it to scroll to the suggested-agents section. `ContactsView`
-    /// performs the scroll once the section has loaded, then clears the target.
+    /// "Explore agents in Contacts" from either tab's empty-state CTA: jump to
+    /// the Contacts tab and ask it to scroll to the suggested-agents section.
+    /// `ContactsView` performs the scroll once the section has loaded, then
+    /// clears the target.
     private func showSuggestedAgents() {
         activeTab = .contacts
         contactsScrollTarget = SuggestedAgentsSection.id
@@ -285,43 +275,6 @@ struct MainTabView: View {
                 navStateForTab(activeTab).markScreenAppeared()
             }
             .modifier(metricsObserversModifier)
-    }
-
-    @ViewBuilder
-    private func committedConversationSheetContent(viewModel convoVM: ConversationViewModel) -> some View {
-        ConversationPresenter(
-            viewModel: convoVM,
-            focusCoordinator: committedConversationFocusCoordinator,
-            insetsTopSafeArea: false,
-            sidebarColumnWidth: $committedConversationSidebarWidth
-        ) { focusState, coordinator in
-            NavigationStack {
-                ConversationView(
-                    viewModel: convoVM,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    focusState: focusState,
-                    focusCoordinator: coordinator,
-                    onScanInviteCode: {},
-                    onDeleteConversation: { presentingCommittedConversation = nil },
-                    messagesTopBarTrailingItem: .share,
-                    messagesTopBarTrailingItemEnabled: true,
-                    messagesTextFieldEnabled: true,
-                    bottomBarContent: { EmptyView() }
-                )
-                .toolbar { committedConversationCloseToolbarItem }
-            }
-        }
-        .presentationSizing(.page)
-    }
-
-    @ToolbarContentBuilder
-    private var committedConversationCloseToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(role: .close) {
-                presentingCommittedConversation = nil
-            }
-            .accessibilityIdentifier("close-committed-agent-conversation")
-        }
     }
 
     @ViewBuilder
@@ -342,7 +295,7 @@ struct MainTabView: View {
                         },
                         topChromeInset: chromeTopInset,
                         bottomChromeInset: chromeBottomInset,
-                        presentingCommittedConversation: $presentingCommittedConversation
+                        onExploreAgents: showSuggestedAgents
                     )
                 }
             }
@@ -428,8 +381,10 @@ struct MainTabView: View {
                 // inset belongs to the tab root's layout, so a pushed detail
                 // covers it and the bar rides offscreen with the root during
                 // the push. Removing it here instead collapsed the inset and
-                // reflowed the list mid-transition.
-                if tab != .contacts && !isInlineBuilderActive {
+                // reflowed the list mid-transition. The bar also stays up
+                // during the empty-state CTA (it is the same builder entry
+                // point the CTA's "Make an agent" button opens).
+                if tab != .contacts {
                     builderBar
                         .transition(.blurReplace)
                 }
@@ -482,20 +437,18 @@ struct MainTabView: View {
     /// The compact "add agent" nav-bar button replaces the builder bar once
     /// it has faded out on scroll. iPhone only (compact width): on iPad the
     /// bar collapses to its own circle instead, so no nav-bar button. Also
-    /// hidden while the bar is revealed, while a conversation is pushed, and
-    /// during the inline empty-state builder.
+    /// hidden while the bar is revealed and while a conversation is pushed.
     ///
     /// The Contacts tab is the exception: it never shows the builder bar (the
     /// contacts search bar owns the top), so the "add agent" button lives in
     /// the nav bar permanently there, on every size class.
     private func showsToolbarBuilderButton(for tab: ConvosTab) -> Bool {
         if tab == .contacts {
-            return !isConversationSelected && !isInlineBuilderActive
+            return !isConversationSelected
         }
         return horizontalSizeClass == .compact
             && !isBuilderBarRevealed
             && !isConversationSelected
-            && !isInlineBuilderActive
     }
 
     /// AppIndicatorPill rendered as an overlay above the entire app
@@ -1031,7 +984,7 @@ extension MainTabView {
             sharedAppIndicatorOverlay
         }
         .animation(.smooth(duration: 0.35), value: isConversationSelected)
-        .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
+        .animation(.smooth(duration: 0.35), value: isEmptyChatsCTAActive)
         .onChange(of: stuffPushedItems) { _, newItems in
             syncStuffPushedConvoVM(with: newItems)
         }
@@ -1043,9 +996,6 @@ extension MainTabView {
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
             handleConversationNotificationTapped()
-        }
-        .sheet(item: $presentingCommittedConversation) { convoVM in
-            committedConversationSheetContent(viewModel: convoVM)
         }
         .modifier(mainTabSheetsModifier)
     }

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packing list</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F0F6FF;
+    --text: #16202E;
+    --muted: #7A8699;
+    --accent: #2E6BE6;
+    --row: #FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161B24;
+      --text: #EFF3F9;
+      --muted: #939DAD;
+      --row: #232B38;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, system-ui, sans-serif;
+    padding: 10px;
+  }
+  h1 { font-size: 13px; font-weight: 700; }
+  .sub { font-size: 9px; color: var(--muted); margin: 2px 0 8px; }
+  .item {
+    background: var(--row);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 7px;
+    margin-bottom: 4px;
+    font-size: 9px;
+  }
+  .box {
+    width: 11px;
+    height: 11px;
+    border-radius: 4px;
+    border: 1.5px solid var(--muted);
+    flex: none;
+  }
+  .done .box {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .done span { text-decoration: line-through; color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>🎒 Tahoe packing list</h1>
+  <p class="sub">Shared with everyone in the convo</p>
+  <div class="item done"><div class="box"></div><span>Ski jackets &amp; gloves</span></div>
+  <div class="item done"><div class="box"></div><span>Snow boots</span></div>
+  <div class="item"><div class="box"></div><span>Board games</span></div>
+  <div class="item"><div class="box"></div><span>Groceries for Saturday</span></div>
+  <div class="item"><div class="box"></div><span>Sunscreen</span></div>
+</body>
+</html>

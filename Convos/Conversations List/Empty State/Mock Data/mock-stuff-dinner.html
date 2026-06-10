@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dinner suggestion</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #FFF7F0;
+    --card: #FFFFFF;
+    --text: #1C1B1A;
+    --muted: #8A8580;
+    --accent: #FC4F37;
+    --chip: #FCEFE4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1C1816;
+      --card: #2A2522;
+      --text: #F5F1ED;
+      --muted: #A39C95;
+      --chip: #3A322C;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, system-ui, sans-serif;
+    padding: 10px;
+  }
+  .hero {
+    background: linear-gradient(135deg, #FFB37A, #FC4F37);
+    border-radius: 10px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+  }
+  h1 { font-size: 13px; font-weight: 700; margin: 8px 2px 2px; }
+  .sub { font-size: 9px; color: var(--muted); margin: 0 2px 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    background: var(--chip);
+    border-radius: 999px;
+    font-size: 8px;
+    padding: 3px 7px;
+    white-space: nowrap;
+  }
+  .time {
+    margin-top: 7px;
+    font-size: 9px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+  <div class="hero">🥗</div>
+  <h1>Crispy salmon bowls</h1>
+  <p class="sub">Fresh, fast, and kid-approved</p>
+  <div class="chips">
+    <span class="chip">salmon</span>
+    <span class="chip">rice</span>
+    <span class="chip">avocado</span>
+    <span class="chip">cucumber</span>
+  </div>
+  <p class="time">25 min &middot; serves 4</p>
+</body>
+</html>

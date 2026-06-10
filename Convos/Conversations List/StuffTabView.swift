@@ -35,9 +35,9 @@ struct StuffTabView: View {
     /// `MainTabView` aggregates this with the Chats tab's offset to drive
     /// the builder bar's expand/collapse state.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Invoked when the user taps "See suggested agents" in the empty state.
-    /// The shell switches to the Contacts tab and scrolls it to the
-    /// "Suggested agents" section. Nil hides the button (e.g. previews).
+    /// Invoked when the user taps "Explore agents in Contacts" in the empty
+    /// state. The shell switches to the Contacts tab and scrolls it to the
+    /// "Suggested agents" section. Nil hides the link (e.g. previews).
     var onSeeSuggestedAgents: (() -> Void)?
     @State private var viewModel: StuffOverviewViewModel
     @State private var pushedConvoVM: ConversationViewModel?
@@ -173,31 +173,15 @@ struct StuffTabView: View {
         }
     }
 
+    /// New-user CTA shown while no conversation has produced stuff yet.
+    /// Mirrors the chats-tab empty state's structure exactly (shared
+    /// [[EmptyStateCTAView]] scaffold) so switching tabs never shifts the
+    /// "Make an agent" button or the surrounding components.
     private var emptyState: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 56, weight: .regular))
-                .foregroundStyle(.colorTextSecondary)
-            Text("When agents make stuff, it will show up here.")
-                .multilineTextAlignment(.center)
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step8x)
-            if let onSeeSuggestedAgents {
-                let action = { onSeeSuggestedAgents() }
-                Button(action: action) {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text("See suggested agents")
-                        Image(systemName: "chevron.right")
-                    }
-                }
-                .convosButtonStyle(.rounded(fullWidth: false))
-                .padding(.top, DesignConstants.Spacing.step2x)
-                .accessibilityIdentifier("see-suggested-agents-button")
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.colorBackgroundSurfaceless)
+        StuffEmptyStateView(
+            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onExploreAgents: onSeeSuggestedAgents
+        )
     }
 
     // Compose button now lives in `MainTabView.sharedTopBar`.

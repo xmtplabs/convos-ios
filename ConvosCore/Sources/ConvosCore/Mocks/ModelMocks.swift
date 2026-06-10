@@ -70,6 +70,64 @@ public extension Conversation {
         )
     }
 
+    /// Mock conversation backing the chats-tab empty-state CTA carousel.
+    /// Built as a group with two other members so `avatarType` resolves to
+    /// the supplied emoji rather than a single member's profile, and the
+    /// rendered title is the supplied name. `lastMessageText` is attached
+    /// whenever present; the pinned-item preview bubble only shows it once
+    /// `isUnread` flips true.
+    static func emptyStateMock(
+        id: String,
+        name: String,
+        emoji: String,
+        isUnread: Bool = false,
+        lastMessageText: String? = nil
+    ) -> Conversation {
+        let members: [ConversationMember] = [
+            .mock(isCurrentUser: true),
+            .mock(isCurrentUser: false),
+            .mock(isCurrentUser: false),
+        ]
+        let creator: ConversationMember = members.first(where: { $0.isCurrentUser }) ?? .mock(isCurrentUser: true)
+        var lastMessage: MessagePreview?
+        if let lastMessageText {
+            lastMessage = MessagePreview(text: lastMessageText, createdAt: Date())
+        }
+        return Conversation(
+            id: id,
+            clientConversationId: "client-\(id)",
+            creator: creator,
+            createdAt: Date(),
+            consent: .allowed,
+            kind: .group,
+            name: name,
+            description: nil,
+            members: members,
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: isUnread,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            lastMessage: lastMessage,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: emoji,
+            includeInfoInPublicPreview: false,
+            isDraft: false,
+            invite: nil,
+            expiresAt: nil,
+            debugInfo: ConversationDebugInfo.empty,
+            isLocked: false,
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
+        )
+    }
+
     static func empty(id: String = "") -> Conversation {
         Conversation(
             id: id,
