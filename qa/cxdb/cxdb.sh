@@ -11,13 +11,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DB="$SCRIPT_DIR/qa.sqlite"
 SCHEMA="$SCRIPT_DIR/schema.sql"
 
-# Initialize DB if it doesn't exist or has no tables
+# Initialize DB if it doesn't exist or has no tables. Existing DBs re-apply
+# the schema (every statement is CREATE ... IF NOT EXISTS) so new tables
+# added to schema.sql migrate in without a manual step.
 init_db() {
     local table_count
     table_count=$(sqlite3 "$DB" "SELECT count(*) FROM sqlite_master WHERE type='table';" 2>/dev/null || echo "0")
     if [ "$table_count" -eq 0 ]; then
         sqlite3 "$DB" < "$SCHEMA" >/dev/null
         echo "Created $DB" >&2
+    else
+        sqlite3 "$DB" < "$SCHEMA" >/dev/null 2>&1 || true
     fi
 }
 
@@ -198,6 +202,32 @@ case "$cmd" in
         local_data="${5:-}"
         sqlite3 "$DB" "INSERT INTO app_events (run_id, test_id, timestamp, event_name, event_data) VALUES ('$local_run', '$local_test', '$local_ts', '$local_name', '$(echo "$local_data" | sed "s/'/''/g")');"
         echo "ok"
+        ;;
+
+    log-screenshot)
+        # Record a screenshot captured during a test. Path should be relative
+        # to the run's artifact dir (e.g. "screenshots/0042-05-react.png").
+        # Prefer qa/scripts/snap.sh, which captures + registers in one call.
+        # Usage: cxdb.sh log-screenshot <run_id> <test_id> <step_id> <path> [caption]
+        local_run="${1:?run_id required}"
+        local_test="${2:?test_id required}"
+        local_step="${3:?step_id required}"
+        local_path="${4:?path required}"
+        local_caption="${5:-}"
+        sqlite3 "$DB" "INSERT INTO screenshots (run_id, test_id, step_id, path, caption) VALUES ('$local_run', '$local_test', '$(echo "$local_step" | sed "s/'/''/g")', '$(echo "$local_path" | sed "s/'/''/g")', '$(echo "$local_caption" | sed "s/'/''/g")');"
+        echo "ok"
+        ;;
+
+    screenshots)
+        # List screenshots for a run, optionally filtered by test.
+        # Usage: cxdb.sh screenshots <run_id> [test_id]
+        local_run="${1:?run_id required}"
+        local_test="${2:-}"
+        local_where="run_id='$local_run'"
+        if [ -n "$local_test" ]; then
+            local_where="$local_where AND test_id='$local_test'"
+        fi
+        sqlite3 -header -column "$DB" "SELECT taken_at, test_id, step_id, path, caption FROM screenshots WHERE $local_where ORDER BY id;"
         ;;
 
     events)
@@ -410,7 +440,9 @@ case "$cmd" in
         echo "  log-bug <run_id> <test_id> <severity> <title> [desc]"
         echo "  log-a11y <run_id> <test_id> <purpose> <recommendation>"
         echo "  log-perf <run_id> <test_id> <metric> <value_ms> <target_ms>"
+        echo "  log-screenshot <run_id> <test_id> <step_id> <path> [caption]"
         echo "  events <run_id> [test_id] [event_name_pattern]  List app events"
+        echo "  screenshots <run_id> [test_id]              List screenshots"
         echo ""
         echo "Reporting:"
         echo "  summary <run_id>                            Print summary"

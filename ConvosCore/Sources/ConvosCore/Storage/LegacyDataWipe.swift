@@ -65,9 +65,15 @@ enum LegacyDataWipe {
         "hasRegisteredDevice_",
         "lastRegisteredDevicePushToken_"
     ]
+    /// `GACAppCheckDebugToken` is deliberately not wiped here. It is a
+    /// build-time constant that `FirebaseHelperCore.configure` re-pins on
+    /// every launch, and that pin happens *before* this wipe runs in the
+    /// launch sequence. Wiping it deletes the freshly pinned token on the
+    /// first launch of a fresh install, so App Check falls back to an
+    /// unregistered random UUID until the next launch -- the exact
+    /// "force-quit-and-relaunch to recognize the debug token" bug.
     private static let standardDefaultsKeys: [String] = [
-        "convos_fallback_device_id",
-        "GACAppCheckDebugToken"
+        "convos_fallback_device_id"
     ]
 
     /// Checks whether a wipe is needed for the current install and runs it before

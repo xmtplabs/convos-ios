@@ -28,6 +28,7 @@ If any are missing, stop and ask the caller.
 3. **Verify the app is running.** Take a screenshot via `xcrun simctl io $UDID screenshot /tmp/qa-probe.png` (or the screenshot MCP if available). If the app isn't up or the simulator isn't booted, install and launch via `xcrun simctl install / launch` using the already-built app at `.derivedData/Build/Products/Dev-iphonesimulator/Convos.app`. You do not rebuild — the orchestrator has done that.
 4. **Verify the CLI.** `convos identity list`. If it errors, `convos init --env dev --force`.
 5. **Initialize the log marker:** `LOG_MARKER=$(date -u +%Y-%m-%dT%H:%M:%S)`. Save it to CXDB test_state for recovery across context resets.
+6. **Artifact frames.** Step screenshots are captured with `qa/scripts/snap.sh` — it screenshots the simulator into `qa/artifacts/run-<run_id>/screenshots/`, downscales, and registers the frame in CXDB so the run artifact's carousel can render the sequence. No setup needed; the script creates directories on first use.
 
 ## Execution loop
 
@@ -43,9 +44,10 @@ Between tests, simulator state, `_run` CXDB state (shared_conversation_id, etc.)
 **Per step:**
 1. Execute the step's `actions:` via MCP/Bash.
 2. Run the `verify:` checks.
-3. `$CXDB record-criterion "$TR" "<criteria key>" "<pass|fail>" "<description>" "<evidence>"`
-4. Persist any `save:` values: `$CXDB set-state "$run_id" "$test_id" "<key>" "<value>"`. Run-level state (e.g. `shared_conversation_id`) goes under `_run`.
-5. After non-trivial UI actions, sweep the log: `xcrun simctl spawn "$udid" log show --predicate 'processImagePath CONTAINS "Convos" AND messageType == error' --start "$LOG_MARKER" --style compact`. Classify each error per RULES ("Log Monitoring") and `$CXDB log-error` every occurrence.
+3. Capture the frame: `qa/scripts/snap.sh "$run_id" "$test_id" "<step id>" "$udid" "<short caption>"` — one per step, after the step's actions settle. The caption is what the carousel shows under the frame; describe what the screen should prove (e.g. "CLI text visible in conversation"). If a verify fails, capture one extra frame with a caption describing the failure before moving on.
+4. `$CXDB record-criterion "$TR" "<criteria key>" "<pass|fail>" "<description>" "<evidence>"`
+5. Persist any `save:` values: `$CXDB set-state "$run_id" "$test_id" "<key>" "<value>"`. Run-level state (e.g. `shared_conversation_id`) goes under `_run`.
+6. After non-trivial UI actions, sweep the log: `xcrun simctl spawn "$udid" log show --predicate 'processImagePath CONTAINS "Convos" AND messageType == error' --start "$LOG_MARKER" --style compact`. Classify each error per RULES ("Log Monitoring") and `$CXDB log-error` every occurrence.
 
 **Verifying events:** for steps with `expect_event:` or `expect_events:`, run:
 ```bash

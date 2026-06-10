@@ -158,6 +158,26 @@ struct LegacyDataWipeTests {
         #expect(fixture.standardDefaults.string(forKey: "unrelated_user_pref") == "keep")
     }
 
+    @Test("App Check debug token survives a generation bump (re-pinned before the wipe)")
+    func appCheckDebugTokenSurvivesWipe() throws {
+        let fixture = try TempFixture()
+        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
+
+        // FirebaseHelperCore.configure pins this build-time constant before the
+        // wipe runs in the launch sequence. Wiping it broke App Check on the
+        // first launch of a fresh install until a force-quit-and-relaunch.
+        fixture.standardDefaults.set("pinned-debug-token", forKey: "GACAppCheckDebugToken")
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(fixture.standardDefaults.string(forKey: "GACAppCheckDebugToken") == "pinned-debug-token")
+    }
+
     @Test("Cold install but with legacy artifacts (no marker): still wipes + marks")
     func noMarkerButArtifactsTriggersWipe() throws {
         let fixture = try TempFixture()

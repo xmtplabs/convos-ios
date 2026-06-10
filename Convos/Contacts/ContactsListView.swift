@@ -103,13 +103,13 @@ struct ContactsListSectionHeader: View {
 /// Header for the trailing "Suggested agents" section, shared by the contacts
 /// browser and the picker. A single caption line that aligns with the
 /// alphabetical letter headers: the title in `.colorTextSecondary` followed by
-/// a "Chat to customize" hint in `.colorTextTertiary`.
+/// a "Chat to personalize" hint in `.colorTextTertiary`.
 struct SuggestedAgentsSectionHeader: View {
     var body: some View {
         HStack(spacing: 0.0) {
             Text(SuggestedAgentsSection.title)
                 .foregroundStyle(.colorTextSecondary)
-            Text(" · Chat to customize")
+            Text(" · Chat to personalize")
                 .foregroundStyle(.colorTextTertiary)
         }
         .font(.caption)

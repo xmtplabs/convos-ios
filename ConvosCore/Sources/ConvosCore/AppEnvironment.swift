@@ -241,24 +241,41 @@ public extension AppEnvironment {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }
-
-        guard let groupUrl = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupIdentifier
-        ) else {
-            fatalError("Failed getting container URL for group identifier: \(appGroupIdentifier)")
-        }
-        return groupUrl.appendingPathComponent("logs", isDirectory: true)
+        return appGroupContainerURL.appendingPathComponent("logs", isDirectory: true)
     }
 
     var defaultDatabasesDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }
+        return appGroupContainerURL
+    }
 
+    /// Shared app-group container, used for logs and databases.
+    ///
+    /// A nil container is not a simulator limitation -- the simulator honors
+    /// app-group entitlements like a device. It means the running build was
+    /// not signed with an app-group entitlement that grants
+    /// `appGroupIdentifier`. Common causes: the app was built or installed
+    /// without the entitlement applied (a simulator build needs
+    /// `-configuration Local` or `Dev`, not the default Release), or
+    /// config.json's `appGroupIdentifier` does not match the build
+    /// configuration's `APP_GROUP_IDENTIFIER` entitlement. The message names
+    /// the requested identifier and bundle id so the mismatch is obvious.
+    private var appGroupContainerURL: URL {
         guard let groupUrl = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) else {
-            fatalError("Failed getting container URL for group identifier: \(appGroupIdentifier)")
+            let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
+            let message = """
+            Could not resolve the app group container for '\(appGroupIdentifier)'. \
+            The running build's app-group entitlement does not grant this identifier. \
+            Verify the app was built and installed with its entitlement applied \
+            (simulator builds need -configuration Local or Dev) and that config.json's \
+            appGroupIdentifier matches the build configuration's APP_GROUP_IDENTIFIER. \
+            Bundle id: \(bundleId).
+            """
+            fatalError(message)
         }
         return groupUrl
     }

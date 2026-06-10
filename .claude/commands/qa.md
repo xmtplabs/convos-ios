@@ -43,6 +43,7 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
    # cxdb.sh — exec bit can be dropped by git on some checkouts
    [ -x qa/cxdb/cxdb.sh ] || chmod +x qa/cxdb/cxdb.sh
    ```
+2b. **Local stack (preferred).** Runs should exercise the local stack when possible so every layer's logs (backend, herald, worker, Postgres, MinIO) can be captured into the run artifact. If a stack workspace is configured (`.convos-stack` in this checkout or the main checkout), check `make -C dev/local-stack status` and bring it up with `make -C dev/local-stack up` if it's down. Without a workspace the run still works — log capture degrades to the app layer.
 3. **Verify the app is running.** Take a quick screenshot. If it isn't, run `/run` to build + install + launch. This may take a few minutes; report progress.
 4. **Prepare the simulator once** per session (idempotent — safe to re-run):
    ```bash
@@ -61,6 +62,11 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
      ```bash
      RUN=$($CXDB new-run "$UDID" "$(git rev-parse --short HEAD)" "iPhone")
      ```
+5a. **Start log capture markers** (new runs only — resumes keep the original markers):
+   ```bash
+   qa/scripts/capture-logs.sh start "$RUN" "$UDID"
+   ```
+   This records byte-offset/time markers for every reachable layer (app-group `convos.log`, local stack host services, docker containers, QA debug agents) so the post-run dump only captures this run's window.
 6. **Verify `convos` CLI.** `convos identity list`. If it errors, `convos init --env dev --force`.
 
 ## `/qa --dry-run`
@@ -190,12 +196,29 @@ If you kill a runner, the `_run` state in CXDB remains intact. You can re-dispat
 ## After all runners complete
 
 1. **Finish the run.** `$CXDB finish-run "$RUN"` — derives status from test results.
-2. **Render the report.** `$CXDB report-md "$RUN" > qa/reports/run-$RUN.md`.
-3. **Print the summary to chat.**
+2. **Capture logs from every layer.**
+   ```bash
+   qa/scripts/capture-logs.sh dump "$RUN" "$UDID"
+   ```
+3. **Analyze the logs and write the narrative.** Get the mechanical per-layer error extraction first:
+   ```bash
+   python3 qa/scripts/generate-artifact.py "$RUN" --analyze
+   ```
+   Read anything suspicious in `qa/artifacts/run-$RUN/logs/` directly (the dump is sliced to this run's window). Then write a short narrative — 3 to 6 sentences covering notable errors per layer, likely correlations (e.g. an app decrypt error lining up with a worker timeout), and anything a human should look out for — into run state so the artifact embeds it in its Summary section:
+   ```bash
+   $CXDB set-state "$RUN" "_run" "analysis_md" "<narrative>"
+   ```
+4. **Render the artifacts.**
+   ```bash
+   $CXDB report-md "$RUN" > qa/reports/run-$RUN.md
+   python3 qa/scripts/generate-artifact.py "$RUN"
+   ```
+   The second command writes the self-contained HTML run artifact to `qa/artifacts/run-$RUN/index.html` — screenshot carousel, run summary with log analysis, and Tests / Logs / Findings tabs. The `run-$RUN/` directory is portable (relative paths only) and gitignored.
+5. **Print the summary to chat.**
    ```bash
    $CXDB summary "$RUN"
    ```
-   Then a short narrative: overall status, headline failures, any new bugs/accessibility findings. Point the user at `qa/reports/run-$RUN.md` for the full report.
+   Then a short narrative: overall status, headline failures, any new bugs/accessibility findings. Point the user at `qa/artifacts/run-$RUN/index.html` (openable directly in a browser) and `qa/reports/run-$RUN.md`.
 
 ## `/qa list`
 
@@ -216,10 +239,11 @@ Print the pending list plus a status table pulled from CXDB.
 CXDB=qa/cxdb/cxdb.sh
 RUN=$($CXDB history 1 | awk 'NR==2 {print $1}')
 $CXDB report-md "$RUN" > qa/reports/run-$RUN.md
+python3 qa/scripts/generate-artifact.py "$RUN"
 $CXDB summary "$RUN"
 ```
 
-Then show the path to the rendered report.
+Then show the paths to the rendered markdown report and the HTML artifact (`qa/artifacts/run-$RUN/index.html`).
 
 ## Failure modes to handle
 

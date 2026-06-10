@@ -198,6 +198,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
             syncVerifiedAgentToRepo()
+            trackAssistantJoinedIfNeeded(oldValue: oldValue)
             presentingConversationForked = shouldPresentConversationForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.
@@ -424,6 +425,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             try? await Task.sleep(for: .seconds(remaining))
             guard !Task.isCancelled else { return }
             self?.agentBuilderPlaceholderExpired = true
+        }
+        // The builder's agents/join call happens in AgentBuilderViewModel,
+        // so the wait measurement is anchored here instead, on the summary's
+        // persisted Make commit time. Only within the placeholder window -
+        // a stale rehydrated summary isn't a join the user is watching.
+        if !conversation.members.contains(where: \.isVerifiedConvosAgent) {
+            beginAssistantJoinWait(surface: .builderPlaceholder, startedAt: summary.cutoffDate)
         }
     }
 
@@ -781,6 +789,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var agentJoinTaskId: String?
 
+    /// Telemetry anchors for the assistant joining/verifying wait: set when
+    /// an agents/join call succeeds (or rebased on the agent builder's Make
+    /// commit time), cleared when the verified assistant arrives or the wait
+    /// window elapses. Session-scoped - a relaunch mid-wait drops the sample.
+    @ObservationIgnored
+    private var assistantJoinWaitStartedAt: Date?
+    @ObservationIgnored
+    private var assistantJoinWaitSurface: AssistantJoinSurface?
+    @ObservationIgnored
+    private var assistantJoinTimeoutTask: Task<Void, Never>?
+
     var autoRevealPhotos: Bool = GlobalConvoDefaults.shared.autoRevealPhotos
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
@@ -908,6 +927,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
+        assistantJoinTimeoutTask?.cancel()
     }
 
     // MARK: - Init
@@ -1982,6 +2002,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// write inside it (a paste, or the first hypothesis of the next
         /// dictation) would be cleared too.
         static let dictationReclearWindow: TimeInterval = 1.5
+        /// How long the assistant join wait is measured before emitting
+        /// `assistant_join_timed_out`. Matches the join-request polling
+        /// window in SyncingManager, which itself covers the assistant
+        /// backend's roughly two-minute give-up with margin.
+        static let assistantJoinWaitWindow: TimeInterval = 150
     }
 }
 
@@ -2988,6 +3013,13 @@ extension ConversationViewModel {
 
         agentJoinTask?.cancel()
 
+        // Anchor the wait measurement at request time (the pending UI starts
+        // here too), not at API success - a fast agent can arrive via the
+        // stream before agents/join returns, which would otherwise lose the
+        // assistant_joined sample.
+        let surface: AssistantJoinSurface = templateId == nil ? .statusMessage : .contactCard
+        beginAssistantJoinWait(surface: surface)
+
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let requestId = UUID().uuidString
@@ -3006,7 +3038,13 @@ extension ConversationViewModel {
             let memberCount: Int = await MainActor.run { self?.conversation.members.count ?? 0 }
             await MainActor.run {
                 guard let self else { return }
-                if outcome == .failed { self.onAgentJoinError() }
+                if outcome == .failed {
+                    self.onAgentJoinError()
+                    // The user is watching the failure UI now, not a join
+                    // wait. A superseding retap exits as .cancelled, so this
+                    // never clears a newer request's anchor.
+                    self.clearAssistantJoinWait()
+                }
                 self.clearAgentJoinTask(id: taskId)
             }
             if outcome == .succeeded {
@@ -3046,11 +3084,18 @@ extension ConversationViewModel {
         guard !slug.isEmpty else { return }
         Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
 
+        // Batch adds return to the chat, so the join progress shows as
+        // in-stream pending status bubbles. Anchored at request time for the
+        // same fast-arrival reason as requestAgentJoin; the first verified
+        // arrival ends the wait measurement.
+        beginAssistantJoinWait(surface: .statusMessage)
+
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
         Task { [weak self] in
             var anyFailed = false
+            var anySucceeded = false
             for (index, templateId) in templateIds.enumerated() {
                 if index > 0 {
                     // Brief gap between calls so the previous broadcast's
@@ -3068,11 +3113,82 @@ extension ConversationViewModel {
                     session: session
                 )
                 if outcome == .failed { anyFailed = true }
+                if outcome == .succeeded { anySucceeded = true }
             }
             if anyFailed {
                 await MainActor.run { self?.onAgentJoinError() }
             }
+            if !anySucceeded {
+                // Every call failed or was cancelled - nothing is joining,
+                // so stop measuring the wait.
+                await MainActor.run { self?.clearAssistantJoinWait() }
+            }
         }
+    }
+
+    // MARK: - Assistant Join Wait Telemetry
+
+    /// Starts (or rebases the timeout of) the assistant joining/verifying
+    /// wait measurement. Anchored at `startedAt` so the agent-builder flow
+    /// can use the persisted Make commit time; an already-running wait keeps
+    /// its earlier anchor so retries don't shrink the measured duration.
+    private func beginAssistantJoinWait(surface: AssistantJoinSurface, startedAt: Date = Date()) {
+        if assistantJoinWaitStartedAt == nil {
+            assistantJoinWaitStartedAt = startedAt
+            assistantJoinWaitSurface = surface
+        }
+        armAssistantJoinTimeout()
+    }
+
+    private func armAssistantJoinTimeout() {
+        assistantJoinTimeoutTask?.cancel()
+        guard let startedAt = assistantJoinWaitStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining: TimeInterval = max(0, Constant.assistantJoinWaitWindow - elapsed)
+        assistantJoinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.emitAssistantJoinTimedOut()
+        }
+    }
+
+    /// Emits `assistant_join_timed_out` when the wait window elapses without
+    /// a verified assistant appearing. The measurement stops here - an
+    /// assistant that arrives later is not counted as a completed wait (the
+    /// user already watched the joining state fail).
+    private func emitAssistantJoinTimedOut() {
+        guard let startedAt = assistantJoinWaitStartedAt else { return }
+        guard !conversation.members.contains(where: \.isVerifiedConvosAgent) else {
+            clearAssistantJoinWait()
+            return
+        }
+        let waitDuration = Float(Date().timeIntervalSince(startedAt))
+        let surface: AssistantJoinSurface = assistantJoinWaitSurface ?? .statusMessage
+        clearAssistantJoinWait()
+        let actions: any CoreActions = coreActions
+        Task { await actions.assistantJoinTimedOut(waitDuration: waitDuration, surface: surface) }
+    }
+
+    /// Emits `assistant_joined` when a verified assistant transitions into
+    /// the member list while a wait is being measured. Called from the
+    /// `conversation` didSet.
+    private func trackAssistantJoinedIfNeeded(oldValue: Conversation) {
+        guard let startedAt = assistantJoinWaitStartedAt,
+              !oldValue.members.contains(where: \.isVerifiedConvosAgent),
+              conversation.members.contains(where: \.isVerifiedConvosAgent) else { return }
+        let waitDuration = Float(Date().timeIntervalSince(startedAt))
+        let surface: AssistantJoinSurface = assistantJoinWaitSurface ?? .statusMessage
+        let memberCount = conversation.members.count
+        clearAssistantJoinWait()
+        let actions: any CoreActions = coreActions
+        Task { await actions.assistantJoined(waitDuration: waitDuration, surface: surface, memberCount: memberCount) }
+    }
+
+    private func clearAssistantJoinWait() {
+        assistantJoinTimeoutTask?.cancel()
+        assistantJoinTimeoutTask = nil
+        assistantJoinWaitStartedAt = nil
+        assistantJoinWaitSurface = nil
     }
 
     /// Discriminates the three outcomes of an `agents/join` call so callers
@@ -3652,6 +3768,7 @@ extension ConversationViewModel {
             }
         }
     }
+
 }
 
 extension UNUserNotificationCenter {

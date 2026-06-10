@@ -13,9 +13,30 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
         source: ConversationSource
     ) async {}
 
+    public func conversationJoinTimedOut(
+        waitDuration: Float,
+        source: ConversationSource
+    ) async {}
+
     public func invitedToConversation(memberCount: Int, hasAssistant: Bool) async {}
 
     public func addedAssistant(memberCount: Int) async {}
+
+    public func assistantJoined(
+        waitDuration: Float,
+        surface: AssistantJoinSurface,
+        memberCount: Int
+    ) async {}
+
+    public func assistantJoinTimedOut(
+        waitDuration: Float,
+        surface: AssistantJoinSurface
+    ) async {}
+
+    public func assistantJoinRescuedByPolling(
+        streamAgeSecs: Float,
+        pollTick: Int
+    ) async {}
 
     public func sentMessage(
         sendingTime: Float,
