@@ -3768,7 +3768,6 @@ extension ConversationViewModel {
             }
         }
     }
-
 }
 
 extension UNUserNotificationCenter {

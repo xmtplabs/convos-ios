@@ -7,12 +7,16 @@ source "${SRCROOT}/Scripts/secrets-utils.sh"
 # The extension runs in its own process and cannot read the main app's
 # Secrets.swift or its GACAppCheckDebugToken, so it needs its own copy of the
 # Firebase App Check debug token to authorize against its own Firebase app.
+# Secrets.swift is a compiled source of the target, so it must exist for every
+# configuration (CI archives PR Preview with a clean checkout). The debug token
+# is only resolved for Local/Dev; other configs get an empty value.
+echo "🔧 $CONFIGURATION build - generating Share Extension secrets"
+
+SECRETS_FILE="${SRCROOT}/ShareExtension/Config/Secrets.swift"
+mkdir -p "${SRCROOT}/ShareExtension/Config"
+
+FIREBASE_TOKEN=""
 if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
-    echo "🔧 $CONFIGURATION build - generating Share Extension secrets from .env"
-
-    SECRETS_FILE="${SRCROOT}/ShareExtension/Config/Secrets.swift"
-    mkdir -p "${SRCROOT}/ShareExtension/Config"
-
     # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
     FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
 
@@ -21,6 +25,7 @@ if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
     else
         echo "⚠️  No Firebase debug token from 1Password or .env"
     fi
+fi
 
     cat > "$SECRETS_FILE" << EOF
 import Foundation
@@ -39,8 +44,7 @@ enum Secrets {
 // swiftlint:enable all
 EOF
 
-    echo "🏁 Generated Share Extension Secrets.swift"
-fi
+echo "🏁 Generated Share Extension Secrets.swift"
 
 # Part 2: Copy the environment's config.json into the extension bundle. The
 # extension's ConfigManager reads config.json from its own bundle; CONFIG_FILE
