@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 /// Identity-aware description of the optimistic "pending agent" rendering a
@@ -79,3 +80,4 @@ public extension PendingAgentPresentation {
         return identity.hasContent ? identity : nil
     }
 }
+#endif

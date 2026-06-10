@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -16,3 +17,4 @@ public extension EnvironmentValues {
         set { self[ForcedAgentVerificationKey.self] = newValue }
     }
 }
+#endif

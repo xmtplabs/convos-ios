@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 import SwiftUI
@@ -56,3 +57,4 @@ public extension View {
         environment(\.memberContactOverride, resolver)
     }
 }
+#endif

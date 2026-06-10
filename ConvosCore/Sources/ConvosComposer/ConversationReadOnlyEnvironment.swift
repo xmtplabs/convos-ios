@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 private struct ConversationReadOnlyEnvironmentKey: EnvironmentKey {
@@ -15,3 +16,4 @@ public extension EnvironmentValues {
         set { self[ConversationReadOnlyEnvironmentKey.self] = newValue }
     }
 }
+#endif
