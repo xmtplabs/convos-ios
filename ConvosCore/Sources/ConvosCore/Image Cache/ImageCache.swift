@@ -357,9 +357,11 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         }
 
         // Cold path: nothing in memory or on disk. Block on the network so
-        // the caller gets the image rather than a placeholder.
+        // the caller gets the image rather than a placeholder. Interactive
+        // priority: the UI is waiting on this fetch, so it must not queue
+        // behind background sync's prefetch burst.
         if object.isEncryptedImage {
-            return await fetchEncryptedImageInline(for: object, url: url, identifier: identifier)
+            return await fetchEncryptedImageInline(for: object, url: url, identifier: identifier, priority: .interactive)
         }
         if let networkImage = await fetchImageFromNetwork(url: url, identifier: identifier) {
             _ = await urlTracker.track(url, for: identifier)
@@ -376,7 +378,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     private func scheduleBackgroundRefresh(for object: any ImageCacheable, url: URL, identifier: String) {
         Task.detached(priority: .background) {
             if object.isEncryptedImage {
-                _ = await self.fetchEncryptedImageInline(for: object, url: url, identifier: identifier)
+                _ = await self.fetchEncryptedImageInline(for: object, url: url, identifier: identifier, priority: .background)
                 return
             }
             if await self.fetchImageFromNetwork(url: url, identifier: identifier) != nil {
@@ -527,8 +529,9 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 Log.error("Invalid URL for cacheAfterUpload: \(url), caching without URL tracking")
             }
 
-            // Create image from data for memory cache
-            guard let image = UIImage(data: imageData) else {
+            // Create image from data for memory cache (bounded decode:
+            // the data came off the network and is sender-controlled)
+            guard let image = BoundedImageDecode.image(from: imageData) else {
                 Log.error("Failed to create UIImage from data: \(identifier)")
                 return
             }
@@ -567,7 +570,10 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             }
 
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                // Stream to a temporary file so the encoded payload is never
+                // fully buffered in memory, then decode with a bounded size.
+                let (tempFileURL, response) = try await URLSession.shared.download(from: url)
+                defer { try? FileManager.default.removeItem(at: tempFileURL) }
 
                 // Validate response
                 guard let httpResponse = response as? HTTPURLResponse,
@@ -576,7 +582,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     return nil
                 }
 
-                guard let image = UIImage(data: data) else {
+                guard let image = BoundedImageDecode.image(contentsOf: tempFileURL) else {
                     Log.error("Failed to decode image from URL: \(url)")
                     return nil
                 }
@@ -613,7 +619,8 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     private func fetchEncryptedImageInline(
         for object: any ImageCacheable,
         url: URL,
-        identifier: String
+        identifier: String,
+        priority: EncryptedImageFetchPriority
     ) async -> UIImage? {
         guard let key = object.encryptionKey,
               let salt = object.encryptionSalt,
@@ -628,10 +635,11 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 url: url,
                 salt: salt,
                 nonce: nonce,
-                groupKey: key
+                groupKey: key,
+                priority: priority
             )
 
-            guard let image = UIImage(data: decryptedData) else {
+            guard let image = BoundedImageDecode.image(from: decryptedData) else {
                 Log.error("Failed to create UIImage from decrypted data: \(identifier)")
                 return nil
             }
@@ -749,7 +757,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     // MARK: - Persistent Storage (chat photo attachments)
 
     public func cacheData(_ data: Data, for identifier: String, storageTier: ImageStorageTier) {
-        guard let image = UIImage(data: data) else {
+        guard let image = BoundedImageDecode.image(from: data) else {
             Log.error("Failed to create UIImage from data for persistent cache: \(identifier)")
             return
         }
@@ -857,26 +865,34 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         let persistentURL = persistentCacheURL.appendingPathComponent(filename)
         let cacheURL = diskCacheURL.appendingPathComponent(filename)
 
-        return await performDiskOperation(default: nil) { cache in
+        // Only the existence checks and access-date touches run on the serial
+        // disk queue; decodes run on the caller's task so concurrent loads
+        // (e.g. a screenful of avatars) don't serialize their decodes behind
+        // one another.
+        let existingFileURLs: [URL] = await performDiskOperation(default: []) { cache in
+            var existing: [URL] = []
             for fileURL in [persistentURL, cacheURL] {
                 guard cache.fileManager.fileExists(atPath: fileURL.path) else { continue }
-                do {
-                    let data = try Data(contentsOf: fileURL)
-                    guard let image = UIImage(data: data) else {
-                        Log.error("Failed to decode image from disk: \(identifier)")
-                        continue
-                    }
-                    var mutableURL = fileURL
-                    var resourceValues = URLResourceValues()
-                    resourceValues.contentAccessDate = Date()
-                    try? mutableURL.setResourceValues(resourceValues)
-                    return image
-                } catch {
-                    Log.error("Failed to load image from disk: \(identifier) - \(error)")
-                }
+                var mutableURL = fileURL
+                var resourceValues = URLResourceValues()
+                resourceValues.contentAccessDate = Date()
+                try? mutableURL.setResourceValues(resourceValues)
+                existing.append(fileURL)
             }
-            return nil
+            return existing
         }
+
+        // Decode straight from the file (bounded) instead of reading the
+        // encoded bytes into memory first. The bound matters here too:
+        // persistent-tier files store the original sender-controlled payload.
+        for fileURL in existingFileURLs {
+            guard let image = BoundedImageDecode.image(contentsOf: fileURL) else {
+                Log.error("Failed to decode image from disk: \(identifier)")
+                continue
+            }
+            return image
+        }
+        return nil
     }
 
     private func directoryURL(for tier: ImageStorageTier) -> URL {

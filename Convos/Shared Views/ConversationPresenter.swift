@@ -112,6 +112,9 @@ struct ConversationPresenter<Content: View>: View {
             // The transition flags will prevent race conditions in the opposite direction
             focusState = newFocus
         }
+        .onChange(of: focusCoordinator.refocusNonce) { _, _ in
+            reassertFocus()
+        }
         .onChange(of: focusState) { _, newFocus in
             // Delegate all synchronization logic to the coordinator
             focusCoordinator.syncFocusState(newFocus)
@@ -119,6 +122,23 @@ struct ConversationPresenter<Content: View>: View {
         .task(id: viewModel?.conversation.id) {
             // Set default focus when conversation changes
             focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
+        }
+    }
+
+    /// Re-applies `@FocusState` for a same-value `moveFocus` request (see
+    /// `FocusCoordinator.refocusNonce`). When `@FocusState` already equals the
+    /// target the real first responder may still be gone, so bounce through nil
+    /// on the next runloop tick to force SwiftUI to re-acquire it; otherwise a
+    /// plain assignment is enough.
+    private func reassertFocus() {
+        let target = focusCoordinator.currentFocus
+        guard focusState == target else {
+            focusState = target
+            return
+        }
+        focusState = nil
+        DispatchQueue.main.async {
+            focusState = target
         }
     }
 

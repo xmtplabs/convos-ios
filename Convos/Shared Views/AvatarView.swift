@@ -8,6 +8,10 @@ struct AvatarView: View {
     let placeholderEmoji: String?
     let placeholderImageName: String?
     let agentVerification: AgentVerification
+    /// Forwarded to the emoji/monogram fallbacks so they render without a
+    /// `GeometryReader` when the caller already knows the avatar size (see
+    /// `EmojiAvatarView.size`). Nil keeps the self-sizing path.
+    let explicitSize: CGFloat?
     @State private var cachedImage: UIImage?
 
     init(
@@ -16,7 +20,8 @@ struct AvatarView: View {
         placeholderImage: UIImage?,
         placeholderEmoji: String? = nil,
         placeholderImageName: String?,
-        agentVerification: AgentVerification = .unverified
+        agentVerification: AgentVerification = .unverified,
+        explicitSize: CGFloat? = nil
     ) {
         self.fallbackName = fallbackName
         self.cacheableObject = cacheableObject
@@ -24,6 +29,7 @@ struct AvatarView: View {
         self.placeholderEmoji = placeholderEmoji
         self.placeholderImageName = placeholderImageName
         self.agentVerification = agentVerification
+        self.explicitSize = explicitSize
         _cachedImage = State(initialValue: ImageCache.shared.image(for: cacheableObject))
     }
 
@@ -35,7 +41,7 @@ struct AvatarView: View {
                     .scaledToFit()
                     .aspectRatio(contentMode: .fill)
             } else if let placeholderEmoji, !placeholderEmoji.isEmpty {
-                EmojiAvatarView(emoji: placeholderEmoji, agentVerification: agentVerification)
+                EmojiAvatarView(emoji: placeholderEmoji, agentVerification: agentVerification, size: explicitSize)
             } else if let placeholderImageName {
                 Image(systemName: placeholderImageName)
                     .resizable()
@@ -46,7 +52,7 @@ struct AvatarView: View {
                     .foregroundStyle(.colorTextPrimaryInverted)
                     .background(agentVerification.avatarBackgroundColor)
             } else {
-                MonogramView(name: fallbackName, agentVerification: agentVerification)
+                MonogramView(name: fallbackName, agentVerification: agentVerification, size: explicitSize)
             }
         }
         .aspectRatio(1.0, contentMode: .fit)
@@ -61,6 +67,9 @@ struct ProfileAvatarView: View {
     let profileImage: UIImage?
     let useSystemPlaceholder: Bool
     var agentVerification: AgentVerification = .unverified
+    /// Forwarded to `AvatarView` so the emoji/monogram fallbacks skip their
+    /// `GeometryReader` when the size is already known (clustered avatars).
+    var size: CGFloat?
 
     var body: some View {
         AvatarView(
@@ -69,7 +78,8 @@ struct ProfileAvatarView: View {
             placeholderImage: profileImage,
             placeholderEmoji: profile.profileEmoji,
             placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil,
-            agentVerification: profile.isAgent ? agentVerification : .unverified
+            agentVerification: profile.isAgent ? agentVerification : .unverified,
+            explicitSize: size
         )
     }
 }
@@ -79,6 +89,11 @@ struct ProfileAvatarView: View {
 struct ConversationAvatarView: View {
     let conversation: Conversation
     let conversationImage: UIImage?
+    /// Forwarded to the emoji/monogram/clustered fallbacks so they render
+    /// without a `GeometryReader` when the caller knows the avatar size (the
+    /// pinned cell passes its fixed avatar size). Nil keeps the self-sizing
+    /// path for list rows that only constrain with an outer `.frame`.
+    var size: CGFloat?
 
     @Environment(\.forcedAgentVerification) private var forcedVerification: AgentVerification?
     @Environment(\.pendingAgentIdentity) private var pendingAgentIdentity: PendingAgentAvatarIdentity?
@@ -145,21 +160,21 @@ struct ConversationAvatarView: View {
     private var fallbackContent: some View {
         switch conversation.avatarType {
         case .customImage:
-            MonogramView(name: conversation.computedDisplayName(memberNameOverride: memberNameOverride))
+            MonogramView(name: conversation.computedDisplayName(memberNameOverride: memberNameOverride), size: size)
         case let .profile(profile, verification):
             if let emoji = profile.profileEmoji, !emoji.isEmpty {
-                EmojiAvatarView(emoji: emoji, agentVerification: verification)
+                EmojiAvatarView(emoji: emoji, agentVerification: verification, size: size)
             } else if verification == .unverified {
-                EmojiAvatarView(emoji: conversation.defaultEmoji)
+                EmojiAvatarView(emoji: conversation.defaultEmoji, size: size)
             } else {
-                MonogramView(name: profile.displayName, agentVerification: verification)
+                MonogramView(name: profile.displayName, agentVerification: verification, size: size)
             }
         case .clustered(let profiles):
-            ClusteredAvatarView(profiles: profiles)
+            ClusteredAvatarView(profiles: profiles, size: size)
         case .emoji(let emoji):
-            EmojiAvatarView(emoji: emoji)
+            EmojiAvatarView(emoji: emoji, size: size)
         case .monogram(let name):
-            MonogramView(name: name)
+            MonogramView(name: name, size: size)
         case .pendingAgent:
             PendingAgentAvatarView()
         }

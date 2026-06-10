@@ -41,10 +41,15 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         contentView.layer.borderWidth = 2
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        self.contentConfiguration = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing `contentConfiguration`.
+    // `setup(item:)` runs synchronously on every dequeue (see `CellFactory`) and
+    // assigns a fresh `UIHostingConfiguration` of the same generic type, which
+    // UIKit applies as an in-place update of the existing hosting controller
+    // rather than a teardown-and-rebuild. Per-item SwiftUI state still resets
+    // via the content's `.id("message-cell-\(differenceIdentifier)")`. Clearing
+    // the configuration on reuse cost a measurable chunk of scroll time: a full
+    // hosting teardown plus a fresh self-sizing measurement for every recycled
+    // cell.
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -55,6 +60,16 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     }
 
     func setup(item: MessagesListItemType, config: CellConfig) {
+        // Top-anchor the hosting content (maxHeight + top alignment): when an
+        // in-cell animation grows the content, the cell frame jumps to the
+        // final height in one self-sizing invalidation while the SwiftUI
+        // content is still mid-animation. A height-hugging root re-centers
+        // in the taller bounds, shifting the visible rows down by half the
+        // height delta for a few frames; pinning to the top leaves the
+        // transient gap at the cell's bottom instead. Self-sizing
+        // measurement is unaffected: it proposes an unspecified height,
+        // where maxHeight .infinity still reports the content's ideal size.
+        let rootAlignment: Alignment = item.alignment == .center ? .top : .topLeading
         contentConfiguration = UIHostingConfiguration {
             Group {
                 switch item {
@@ -133,7 +148,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     EmptyView()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rootAlignment)
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
             .environment(\.agentShareResolver, config.agentShareResolver)

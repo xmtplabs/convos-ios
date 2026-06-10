@@ -4,15 +4,21 @@ import SwiftUI
 struct MonogramView: View {
     private let initials: String
     private let agentVerification: AgentVerification
+    /// When set, renders at this exact side length without a `GeometryReader`.
+    /// See the matching note on `EmojiAvatarView.size` - the clustered avatar
+    /// passes it so each member sub-avatar skips a per-avatar geometry pass.
+    private let size: CGFloat?
 
-    init(text: String, agentVerification: AgentVerification = .unverified) {
+    init(text: String, agentVerification: AgentVerification = .unverified, size: CGFloat? = nil) {
         self.initials = text
         self.agentVerification = agentVerification
+        self.size = size
     }
 
-    init(name: String, agentVerification: AgentVerification = .unverified) {
+    init(name: String, agentVerification: AgentVerification = .unverified, size: CGFloat? = nil) {
         self.initials = Self.initials(from: name)
         self.agentVerification = agentVerification
+        self.size = size
     }
 
     private var isAgent: Bool {
@@ -20,19 +26,24 @@ struct MonogramView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let side = min(geometry.size.width, geometry.size.height)
-            let fontSize = side * 0.5
-            let padding = side * 0.25
-
-            Group {
-                Text(initials)
-                    .font(.system(size: fontSize, weight: .semibold, design: .rounded))
-                    .minimumScaleFactor(0.01)
-                    .lineLimit(1)
-                    .foregroundColor(.colorTextPrimaryInverted)
-                    .padding(padding)
+        if let size {
+            circle(side: size).accessibilityHidden(true)
+        } else {
+            GeometryReader { geometry in
+                circle(side: min(geometry.size.width, geometry.size.height))
             }
+            .aspectRatio(1.0, contentMode: .fit)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func circle(side: CGFloat) -> some View {
+        Text(initials)
+            .font(.system(size: side * 0.5, weight: .semibold, design: .rounded))
+            .minimumScaleFactor(0.01)
+            .lineLimit(1)
+            .foregroundColor(.colorTextPrimaryInverted)
+            .padding(side * 0.25)
             .frame(width: side, height: side)
             .background {
                 if !isAgent {
@@ -45,9 +56,6 @@ struct MonogramView: View {
             }
             .background(agentVerification.avatarBackgroundColor)
             .clipShape(Circle())
-        }
-        .aspectRatio(1.0, contentMode: .fit)
-        .accessibilityHidden(true)
     }
 
     private static func initials(from fullName: String) -> String {

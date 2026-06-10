@@ -66,11 +66,11 @@ xcrun simctl boot "$SIM_UUID" 2>/dev/null || true
 
 Use `xcodebuild` via Bash. Do **not** use `mcp__XcodeBuildMCP__build_sim` — it mis-sequences SPM extension dependencies (`ConvosCore`, `ConvosCoreiOS`, `XMTPiOS`) on fresh worktrees. See `CLAUDE.md`.
 
-**Dev / Prod schemes** (team signing):
+**Dev / Prod schemes** (team signing). Pass an explicit `-configuration` (`Convos (Dev)` -> `Dev`, `Convos (Prod)` -> `Prod`). Without it the scheme can build targets under mismatched configurations: the SPM packages land in one config dir while the NotificationService extension looks in another (`unable to resolve module dependency: ConvosCore`), and the app's entitlements/identifiers stop matching `config.json`, surfacing at runtime as a nil app-group container crash (`Failed getting container URL`) or `-34018` (`errSecMissingEntitlement`) on first identity read. Those three are one configuration signature, not simulator limitations (issue #843, #1019); `rm -rf .derivedData` does not fix them, an explicit `-configuration` does.
 ```bash
 xcodebuild build \
   -project Convos.xcodeproj \
-  -scheme "Convos (Dev)" \
+  -scheme "Convos (Dev)" -configuration Dev \
   -destination "platform=iOS Simulator,id=$SIM_UUID" \
   -derivedDataPath .derivedData 2>&1 | tail -100
 ```
@@ -88,7 +88,9 @@ xcodebuild build \
 
 Set a 600s timeout. If the build fails:
 - Surface the compilation errors from the tail.
-- For `module not found` errors, `rm -rf .derivedData` and rebuild once.
+- `unable to resolve module dependency` in the NotificationService extension almost always means `-configuration` was omitted (config split, see above), not stale build artifacts -- set `-configuration` first; `rm -rf .derivedData` does not fix this one.
+- For other `module not found` errors, `rm -rf .derivedData` and rebuild once.
+- A `took NNNms to type-check` failure on a *trivial* expression that *moves between files* across builds is CPU contention, not a code problem -- rebuild with `-jobs 2` (and close heavy apps if you can); do not edit the flagged code or raise the threshold. See `CLAUDE.md` "If type-check timeouts are firing everywhere".
 - Stop if it still fails.
 
 ### Step 3: Install and launch

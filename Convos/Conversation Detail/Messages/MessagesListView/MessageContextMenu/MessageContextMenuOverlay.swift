@@ -25,6 +25,7 @@ struct MessageContextMenuOverlay: View {
     @State private var isDragDismissing: Bool = false
     @State private var isPoofDismissing: Bool = false
     @State private var keyboardHeight: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -635,10 +636,16 @@ struct MessageContextMenuOverlay: View {
                 profile: profile
             )
         } else {
+            // Match the list's resting corner radius (rounded on regular
+            // width, full bleed on compact) so dismissal lands seamlessly.
+            let restingRadius: CGFloat = horizontalSizeClass == .regular ? DesignConstants.CornerRadius.medium : 0
+            let previewRadius: CGFloat = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : (appeared ? C.photoCornerRadius : restingRadius)
             ContextMenuPhotoPreview(
                 attachmentKey: attachment.key,
                 shouldBlur: shouldBlurPhoto,
-                cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+                cornerRadius: previewRadius,
                 isVideo: attachment.mediaType == .video,
                 isReplyParent: state.isReplyParent
             )

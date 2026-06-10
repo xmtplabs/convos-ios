@@ -323,7 +323,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
             syncVerifiedAgentToRepo()
-            presentingConversationForked = conversation.isForked
+            presentingConversationForked = shouldPresentConversationForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.
                 // Clearing it here can briefly show stale false values during async sync.
@@ -617,8 +617,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var messageText: String = "" {
         didSet {
             handleTextChanged()
+            trackBulkTextChange(oldValue: oldValue)
+            reclearResurrectedDictationTextIfNeeded(oldValue: oldValue)
         }
     }
+    /// When the composer last received a multi-character insertion in a
+    /// single update. Dictation streams hypothesis updates as bulk
+    /// replacements while typing changes one character at a time, so a
+    /// recent bulk change is the available signal that a send is
+    /// interrupting dictation - iOS exposes no direct way to ask
+    /// (`textInputMode` stays the regular language during dictation and no
+    /// input-mode notification fires). Autocorrect commits, QuickType taps,
+    /// pastes, and coalesced fast typing also set this; that false positive
+    /// is invisible (the send ends the input session via an off-screen
+    /// focus handoff that never moves the keyboard), so the heuristic
+    /// deliberately overtriggers rather than miss real dictation. Cleared
+    /// whenever the composer empties (sends and programmatic clears like
+    /// link-strips), so stale activity never flags a later send.
+    private var lastBulkTextChangeAt: Date?
+    /// Armed by a send that interrupted likely-dictation. The recognizer's
+    /// final transcription can arrive after the composer was already cleared
+    /// and re-insert text (no public API can cancel the in-flight result),
+    /// so for a short window after such a send any multi-character
+    /// repopulation of the emptied composer is cleared again.
+    private var dictationReclearArmedAt: Date?
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
@@ -631,6 +653,48 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pastedLinkPreview = preview
         messageText = ""
         previousMessageTextLength = 0
+    }
+
+    private func trackBulkTextChange(oldValue: String) {
+        guard !messageText.isEmpty else {
+            lastBulkTextChangeAt = nil
+            return
+        }
+        if messageText.count - oldValue.count > 1 {
+            lastBulkTextChangeAt = Date()
+        }
+    }
+
+    /// `true` when the composer recently received dictation-style bulk
+    /// writes, meaning a send right now is likely interrupting an active
+    /// dictation session (see `lastBulkTextChangeAt`).
+    private var isLikelyDictating: Bool {
+        guard let lastBulkTextChangeAt else { return false }
+        return Date().timeIntervalSince(lastBulkTextChangeAt) < Constant.dictationActivityWindow
+    }
+
+    /// Clears the composer again when the dictation recognizer's late
+    /// transcription repopulates it after a mid-dictation send (see
+    /// `dictationReclearArmedAt`). The re-insert arrives as one
+    /// multi-character write into the emptied composer; its content is
+    /// unpredictable (the recognizer revises and continues the sent
+    /// hypothesis), so the check is content-free. Disarms on the first
+    /// single-character edit, so normal typing after a send is never
+    /// touched.
+    private func reclearResurrectedDictationTextIfNeeded(oldValue: String) {
+        guard let armedAt = dictationReclearArmedAt else { return }
+        guard Date().timeIntervalSince(armedAt) < Constant.dictationReclearWindow else {
+            dictationReclearArmedAt = nil
+            return
+        }
+        guard oldValue.isEmpty, !messageText.isEmpty else { return }
+        guard messageText.count > 1 else {
+            dictationReclearArmedAt = nil
+            return
+        }
+        Log.info("Re-clearing dictation text resurrected after send")
+        dictationReclearArmedAt = nil
+        messageText = ""
     }
 
     var typingMembers: [ConversationMember] = []
@@ -788,7 +852,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// link's resolved profile; the card's "New chat" action spawns a fresh
     /// instance of the template. Mirrors `presentingProfileForMember`.
     var presentingContactForAgentShare: Contact?
-    var presentingConversationForked: Bool = false
+    /// Conversation IDs whose forked info sheet was dismissed this app session.
+    /// The conversation row updates on every observed change (new message, read
+    /// receipt, metadata), so without this the sheet would re-present after
+    /// every dismissal. Cleared on app relaunch.
+    private static var forkedSheetDismissedConversationIds: Set<String> = []
+    var presentingConversationForked: Bool = false {
+        didSet {
+            guard oldValue, !presentingConversationForked, conversation.isForked else { return }
+            Self.forkedSheetDismissedConversationIds.insert(conversation.id)
+        }
+    }
+    private var shouldPresentConversationForked: Bool {
+        conversation.isForked && !Self.forkedSheetDismissedConversationIds.contains(conversation.id)
+    }
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
@@ -1063,7 +1140,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
 
-        presentingConversationForked = self.conversation.isForked
+        presentingConversationForked = shouldPresentConversationForked
 
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         let individualMessageCount = messages.reduce(0) { count, item in
@@ -2018,6 +2095,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         isEditingConversationName = false
         focusCoordinator.endEditing(for: .conversationName, context: context)
     }
+
+    private enum Constant {
+        /// How recently the composer must have received a bulk write for a
+        /// send to be treated as interrupting an active dictation session.
+        static let dictationActivityWindow: TimeInterval = 3.0
+        /// How long after a likely-dictation send a multi-character composer
+        /// repopulation is treated as the recognizer's late re-insert.
+        /// Observed re-inserts land within roughly a second of the send;
+        /// the window is kept tight because a legitimate multi-character
+        /// write inside it (a paste, or the first hypothesis of the next
+        /// dictation) would be cleared too.
+        static let dictationReclearWindow: TimeInterval = 1.5
+    }
 }
 
 // MARK: - Conversation Settings Actions
@@ -2400,6 +2490,26 @@ extension ConversationViewModel {
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
+        // Settle the keyboard before reading and clearing messageText. If the
+        // send lands while the keyboard still holds uncommitted input (a
+        // pending autocorrect right after a keystroke, or an active dictation
+        // session), clearing the binding can be lost entirely and the sent
+        // text resurrects in the composer at the keyboard's next commit
+        // point.
+        //
+        // The session-ending handoff is reserved for likely-dictation sends
+        // rather than used for every send deliberately: the selection nudge
+        // changes no responder state at all, so the common typed path keeps
+        // zero focus churn (VoiceOver, third-party keyboards, responder
+        // restore edge cases), while the handoff's responder round-trip is
+        // confined to sends that actually need the input session ended.
+        let endingDictation = isLikelyDictating
+        focusCoordinator.withSettledKeyboardInput(endingInputSession: endingDictation) {
+            sendComposerContents(focusCoordinator: focusCoordinator, endedDictation: endingDictation)
+        }
+    }
+
+    private func sendComposerContents(focusCoordinator: FocusCoordinator, endedDictation: Bool) {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
@@ -2430,6 +2540,9 @@ extension ConversationViewModel {
         pendingInviteImage = nil
         pendingAgentShare = nil
         pastedLinkPreview = nil
+        if endedDictation {
+            dictationReclearArmedAt = Date()
+        }
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter

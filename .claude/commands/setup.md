@@ -73,6 +73,23 @@ Inform the user:
 Ready to build! Use /build or /build --run
 ```
 
+## Teardown (when the task is done)
+
+The simulator created here is task-scoped. Delete it from disk once the task
+is done - PR merged or work abandoned, not merely session end:
+
+```bash
+xcrun simctl shutdown "$(cat .claude/.simulator_id)" 2>/dev/null
+xcrun simctl delete "$(cat .claude/.simulator_id)"
+rm -f .claude/.simulator_id
+```
+
+Each clone holds 1-6 GB of app data and the shared disk runs chronically
+near-full. `convos-task cleanup` already deletes its task's sim; every other
+creation path (worktree /setup, branch /setup, ad-hoc QA clones) must clean
+up after itself. To sweep accumulated orphans, run
+`.claude/scripts/cleanup-orphaned-sims` (dry run by default; add `--delete`).
+
 ## Example Flows
 
 **In a convos-task worktree:**

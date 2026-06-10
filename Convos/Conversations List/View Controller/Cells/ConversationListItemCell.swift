@@ -21,16 +21,16 @@ final class ConversationListItemCell: UICollectionViewListCell {
         memberContactOverride: @escaping @Sendable (String) -> Contact? = { _ in nil }
     ) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation, isSelected: isSelected)
+            wrapper.update(conversation: conversation, isSelected: isSelected, memberContactOverride: memberContactOverride)
         } else {
             let wrapper = ConversationListItemWrapper(
                 conversation: conversation,
-                isSelected: isSelected
+                isSelected: isSelected,
+                memberContactOverride: memberContactOverride
             )
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 ConversationListItemWrapperView(wrapper: wrapper)
-                    .memberContactOverride(memberContactOverride)
             }
             .margins(.all, 0)
             .background(.clear)
@@ -51,11 +51,14 @@ final class ConversationListItemCell: UICollectionViewListCell {
         backgroundConfiguration = bg
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-        hostingWrapper = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing `contentConfiguration`
+    // / `hostingWrapper`. `configure(with:)` runs synchronously on every dequeue
+    // and reconfigure (see the cell registration in
+    // `ConversationsViewController.makeDataSource`); keeping the wrapper lets it
+    // take the cheap `wrapper.update(...)` path (an in-place observable mutation)
+    // instead of rebuilding a fresh `UIHostingConfiguration` for every recycled
+    // row. Clearing them on reuse defeated that fast path and forced a hosting
+    // teardown plus a self-sizing re-measurement on every scroll recycle.
 }
 
 @Observable
@@ -65,15 +68,31 @@ final class ConversationListItemWrapper {
     var isSelected: Bool
     var isSwiped: Bool = false
     var isHighlighted: Bool = false
+    // Held on the wrapper (not injected once at build time) so a recycled cell
+    // applies the latest resolver: `configure(with:)` reuses this wrapper via
+    // `update(...)`, and the view controller reassigns its
+    // `memberContactOverride` when contacts load, so a build-time injection
+    // would leave reused rows resolving names/avatars through a stale closure.
+    var memberContactOverride: @Sendable (String) -> Contact?
 
-    init(conversation: Conversation, isSelected: Bool) {
+    init(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 
-    func update(conversation: Conversation, isSelected: Bool) {
+    func update(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 }
 
@@ -106,5 +125,6 @@ struct ConversationListItemWrapperView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: wrapper.isSwiped)
+            .memberContactOverride(wrapper.memberContactOverride)
     }
 }

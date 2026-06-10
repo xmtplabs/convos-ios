@@ -104,19 +104,35 @@ final class MessagesViewController: UIViewController {
 
     private var isFirstStateUpdate: Bool = true
     private var hasPendingInterrupt: Bool = false
+    /// True from init until the view has fully appeared (the open transition
+    /// finished). While set, bar-height inset changes re-anchor instantly
+    /// instead of animating - see `applyBottomInsetInstantly`.
+    private var isSettlingInitialLayout: Bool = true
     private var previousLastMessageId: String?
     private var previousFocusState: MessagesViewInputFocus?
     private var pendingScrollToBottomAfterKeyboard: Bool = false
 
     /// Whether the user is near the bottom of the scroll view (within one screen height)
     private var isNearBottom: Bool {
+        distanceFromBottom <= collectionView.frame.height
+    }
+
+    private var distanceFromBottom: CGFloat {
         let contentHeight = collectionView.contentSize.height
         let scrollViewHeight = collectionView.frame.height
         let currentOffset = collectionView.contentOffset.y
         let bottomInset = collectionView.adjustedContentInset.bottom
-        let distanceFromBottom = contentHeight - (currentOffset + scrollViewHeight - bottomInset)
-        return distanceFromBottom <= scrollViewHeight
+        return contentHeight - (currentOffset + scrollViewHeight - bottomInset)
     }
+
+    /// Whether the list sat at the very bottom the last time the content
+    /// offset changed. Unlike a live distance check, this is not fooled by
+    /// in-place content growth at the bottom (which changes the content size
+    /// but not the offset), so it answers "was the user pinned before this
+    /// update?" -- the gate for the re-pin scroll that reveals such growth.
+    /// Scrolling up flips it false via `scrollViewDidScroll`; programmatic
+    /// scrolls to the bottom flip it back.
+    private var isPinnedToBottom: Bool = true
 
     // MARK: - Public
 
@@ -169,6 +185,17 @@ final class MessagesViewController: UIViewController {
                         } else if nearBottom && !userScrolling {
                             self.scrollToBottom()
                         }
+                    } else if self.isPinnedToBottom && !userScrolling {
+                        // Re-pin after in-place growth at the bottom (e.g. a
+                        // message appending to the last group or a reaction
+                        // landing on it). The growth renders below the fold
+                        // unanimated (see MessagesGroupView's animatedGroup
+                        // mirror); this scroll reveals it. Gated on the
+                        // pinned flag, not a live distance check, so a user
+                        // who scrolled up to read is never pulled back down
+                        // by receipts, reactions, or typing changes. No-ops
+                        // when the list is already at the bottom.
+                        self.scrollToBottom()
                     }
                 }
             isFirstStateUpdate = false
@@ -203,8 +230,25 @@ final class MessagesViewController: UIViewController {
     /// not compute against the stale inset; `flushPendingBottomBarInsetUpdate` applies
     /// it first via the non-animated direct path.
     private var hasPendingBottomBarInsetUpdate: Bool = false
+    private var pendingContextMenuInsetFallback: DispatchWorkItem?
+    private var pendingComposerSettleFallback: DispatchWorkItem?
+    private var pendingComposerBottomInset: CGFloat?
 
     private func scheduleBottomBarInsetUpdate() {
+        // While the open transition is settling, the bar's measurement often
+        // arrives inside a `performWithoutAnimation` scope (SwiftUI updating
+        // the representable mid-transition), which the deferral branch below
+        // would postpone by a runloop tick - long enough for the list to
+        // paint anchored against the stale inset and then visibly snap when
+        // the initial load's completion flushes (the conversation-open
+        // flicker). Apply synchronously instead: the settling path routes to
+        // `applyBottomInsetInstantly`, which is plain property assignments
+        // and safe inside an in-flight layout pass.
+        if isSettlingInitialLayout {
+            hasPendingBottomBarInsetUpdate = false
+            updateBottomInsetForBottomBarHeight()
+            return
+        }
         // The deferral below exists only for the crash scenario above, whose
         // necessary ingredient is an enclosing `performWithoutAnimation`
         // scope (the inset change becomes a non-animated bounds change and
@@ -245,6 +289,33 @@ final class MessagesViewController: UIViewController {
         guard hasPendingBottomBarInsetUpdate else { return }
         hasPendingBottomBarInsetUpdate = false
         applyDeferredBottomInset()
+    }
+
+    /// Silently applies the current bar-height inset target, preserving the
+    /// content offset. Plain property assignments only, so it stays safe
+    /// inside an in-flight UIKit layout pass. A shrink while pinned to the
+    /// bottom (outside the open transition) is converted into the
+    /// composer-collapse deferral instead: applying it here would leave the
+    /// offset past the new maximum and UIKit would clamp it down in a hard
+    /// jump; the deferral applies it clamp-free once the content has grown.
+    private func applyDeferredBottomInset() {
+        let targetInset: CGFloat
+        if let lastKeyboardFrameChange {
+            targetInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
+        } else {
+            targetInset = bottomBarHeight
+        }
+        guard abs(collectionView.contentInset.bottom - targetInset) > 0.5 else { return }
+        if targetInset < collectionView.contentInset.bottom, isPinnedToBottom, !isSettlingInitialLayout {
+            pendingComposerBottomInset = targetInset
+            return
+        }
+        let offset = collectionView.contentOffset
+        UIView.performWithoutAnimation {
+            collectionView.contentInset.bottom = targetInset
+            collectionView.verticalScrollIndicatorInsets.bottom = targetInset
+            collectionView.contentOffset = offset
+        }
     }
 
     /// Hosts that don't render a bottom bar (e.g. the thinking detail sheet)
@@ -299,7 +370,7 @@ final class MessagesViewController: UIViewController {
 
     init() {
         self.dataSource = MessagesCollectionViewDataSource()
-        self.collectionView = UICollectionView(
+        self.collectionView = MessagesCollectionView(
             frame: .zero,
             collectionViewLayout: messagesLayout
         )
@@ -414,6 +485,24 @@ final class MessagesViewController: UIViewController {
         super.viewWillTransition(to: size, with: coordinator)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isSettlingInitialLayout = false
+        messagesLayout.compensatesAllSelfSizingGrowth = false
+    }
+
+    /// The SwiftUI bottom bar mounts into the safe area a render pass or two
+    /// after the list's first bottom anchor during the open transition, which
+    /// silently grows `adjustedContentInset.bottom` without re-anchoring -
+    /// the list paints short of the bottom until something else scrolls it.
+    /// Re-anchor arithmetically while settling; `scrollToBottom(animated:
+    /// false)` is plain property assignments, safe mid-layout.
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        guard isSettlingInitialLayout, isViewLoaded, !isUserInitiatedScrolling else { return }
+        scrollToBottom(animated: false)
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Drop the flag so an interrupted keyboard transition doesn't surface a
@@ -482,6 +571,20 @@ final class MessagesViewController: UIViewController {
         )
         messagesLayout.keepContentOffsetAtBottomOnBatchUpdates = true
         messagesLayout.processOnlyVisibleItemsOnAnimatedBatchUpdates = true
+        // Covers bottom growth that never produces a state update (e.g. an
+        // attachment finishing its async load while the list sits at the
+        // bottom); state-driven growth is re-pinned by the state-update
+        // completion, and scrollToBottom no-ops if that already ran.
+        messagesLayout.onOutOfBandBottomGrowth = { [weak self] in
+            guard let self,
+                  isPinnedToBottom,
+                  !isUserInitiatedScrolling,
+                  !currentControllerActions.options.contains(.loadingInitialMessages),
+                  // Growth from a state update is revealed by that update's
+                  // completion; scrolling here too would restart it mid-flight.
+                  !currentControllerActions.options.contains(.updatingCollection) else { return }
+            scrollToBottom()
+        }
     }
 
     private func setupCollectionViewInstance() {
@@ -643,25 +746,54 @@ final class MessagesViewController: UIViewController {
         onLoadPreviousMessages()
     }
 
+    /// `adjustedContentInset.bottom`, except while the open transition is
+    /// settling: the SwiftUI bottom bar transiently registers in the safe
+    /// area on top of the contentInset mirror of the same bar, and anchoring
+    /// against that double-counted inset over-pins the list, which then
+    /// steps back down in a visible snap when the duplicate resolves. Cap
+    /// the anchor at the settled target (bar inset + window safe area).
+    private var bottomAnchorInset: CGFloat {
+        let adjusted = collectionView.adjustedContentInset.bottom
+        guard isSettlingInitialLayout, let window = view.window else { return adjusted }
+        let settledMax = collectionView.contentInset.bottom + window.safeAreaInsets.bottom
+        return min(adjusted, settledMax)
+    }
+
     func scrollToBottom(animated: Bool = true, completion: (() -> Void)? = nil) {
+        // Deferred insets must land first so the bottom target below
+        // reflects the final bar height.
         flushPendingBottomBarInsetUpdate()
-        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+        flushPendingComposerInset()
 
         let contentOffsetAtBottom = CGPoint(
             x: collectionView.contentOffset.x,
             y: (messagesLayout.collectionViewContentSize.height -
                 collectionView.frame.height +
-                collectionView.adjustedContentInset.bottom)
+                bottomAnchorInset)
         )
 
+        // Exit before cancelling in-flight animations: when the layout's
+        // animated bottom-pinning compensation is already scrolling to the
+        // bottom, the model offset is at the target and this call must not
+        // stamp the presentation mid-flight (which would snap the scroll).
         guard contentOffsetAtBottom.y > 0,
               abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
             completion?()
             return
         }
 
+        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+
         if !animated {
-            collectionView.contentOffset = contentOffsetAtBottom
+            // Plain assignment would inherit an enclosing animated context -
+            // during the open transition this method runs from
+            // viewSafeAreaInsetsDidChange inside the push's animation scope,
+            // and an implicitly animated offset change makes the whole list
+            // ride the bottom bar's entrance for the length of the push
+            // spring instead of anchoring instantly.
+            UIView.performWithoutAnimation {
+                collectionView.contentOffset = contentOffsetAtBottom
+            }
             completion?()
             return
         }
@@ -922,6 +1054,8 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
     }
 
     private func handleScrollViewDidScroll(_ scrollView: UIScrollView) {
+        isPinnedToBottom = distanceFromBottom <= Constant.pinnedToBottomTolerance
+
         if currentControllerActions.options.contains(.updatingCollection), collectionView.isDragging {
             interruptCurrentUpdateAnimation()
         }
@@ -954,20 +1088,28 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
         }
     }
 
-    func applyDeferredBottomInset() {
-        let targetInset: CGFloat
-        if let lastKeyboardFrameChange {
-            targetInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
-        } else {
-            targetInset = bottomBarHeight
+    /// Called when the message context menu dismisses. Keyboard-driven
+    /// inset updates are suppressed while the menu is up (see
+    /// `updateBottomInset`), so the keyboard's dismissal under the overlay
+    /// left the inset at its keyboard-up value and the list never moved.
+    /// iOS usually restores first responder right after the menu goes away,
+    /// and the returning keyboard matches the preserved inset -- zero
+    /// motion. Dropping the inset eagerly here instead would clamp the
+    /// offset down and the returning keyboard would push it back up, a
+    /// visible down/up bounce. So wait briefly, and only if no keyboard
+    /// change arrives settle the inset with the regular animated update.
+    func restoreBottomInsetAfterContextMenu() {
+        pendingContextMenuInsetFallback?.cancel()
+        let fallback = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            pendingContextMenuInsetFallback = nil
+            updateBottomInsetForBottomBarHeight()
         }
-        guard collectionView.contentInset.bottom != targetInset else { return }
-        let offset = collectionView.contentOffset
-        UIView.performWithoutAnimation {
-            collectionView.contentInset.bottom = targetInset
-            collectionView.verticalScrollIndicatorInsets.bottom = targetInset
-            collectionView.contentOffset = offset
-        }
+        pendingContextMenuInsetFallback = fallback
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Constant.contextMenuInsetFallbackDelay,
+            execute: fallback
+        )
     }
 
     private func updateBottomInsetForBottomBarHeight() {
@@ -977,9 +1119,9 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         if let lastKeyboardFrameChange {
             let newBottomInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
-            updateBottomInset(inset: newBottomInset, info: lastKeyboardFrameChange)
+            updateBottomInset(inset: newBottomInset, info: lastKeyboardFrameChange, isComposerDriven: true)
         } else {
-            updateBottomInset(inset: bottomBarHeight, info: nil)
+            updateBottomInset(inset: bottomBarHeight, info: nil, isComposerDriven: true)
         }
     }
 }
@@ -989,6 +1131,14 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 extension MessagesViewController: KeyboardListenerDelegate {
     func keyboardWillChangeFrame(info: KeyboardInfo) {
         self.lastKeyboardFrameChange = info
+
+        // The keyboard taking over again after a context-menu dismissal is
+        // the no-motion path; the deferred fallback is only for when it
+        // never comes back.
+        if !contextMenuState.isPresented {
+            pendingContextMenuInsetFallback?.cancel()
+            pendingContextMenuInsetFallback = nil
+        }
 
         guard shouldHandleKeyboardFrameChange(info: info) else { return }
 
@@ -1009,10 +1159,88 @@ extension MessagesViewController: KeyboardListenerDelegate {
         updateBottomInset(inset: newBottomInset, info: info)
     }
 
-    private func updateBottomInset(inset: CGFloat, info: KeyboardInfo?) {
+    private func updateBottomInset(inset: CGFloat, info: KeyboardInfo?, isComposerDriven: Bool = false) {
         guard !contextMenuState.isPresented else { return }
-        guard collectionView.contentInset.bottom != inset else { return }
+        if isComposerDriven, isSettlingInitialLayout {
+            // Bar-height changes during the open transition re-anchor
+            // instantly (see applyBottomInsetInstantly); the send-time
+            // deferral below is steady-state behavior.
+            pendingComposerBottomInset = nil
+            guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return }
+            applyBottomInsetInstantly(inset)
+            return
+        }
+        if isComposerDriven, inset < collectionView.contentInset.bottom, isPinnedToBottom {
+            // The composer collapsed while the list was pinned -- typically
+            // a multi-line draft being sent. Neither immediate option works
+            // here: the anchored update drags the list down behind the
+            // receding bar and the reveal scroll pulls it back up, and a
+            // silent inset change clamps the pinned offset down by the
+            // shrink in a single frame. So defer the change entirely: the
+            // outgoing message lands a beat later and its reveal scroll
+            // flushes the pending inset first (no clamp once the content
+            // has grown) and settles in one motion. The fallback only fires
+            // when no message follows (e.g. the user deleted their draft).
+            pendingComposerBottomInset = inset
+            pendingComposerSettleFallback?.cancel()
+            let settle = DispatchWorkItem { [weak self] in
+                self?.settlePendingComposerInset()
+            }
+            pendingComposerSettleFallback = settle
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Constant.composerSettleFallbackDelay,
+                execute: settle
+            )
+            return
+        }
+        pendingComposerBottomInset = nil
+        guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return }
         updateCollectionViewInsets(to: inset, with: info)
+    }
+
+    private func settlePendingComposerInset() {
+        guard !currentInterfaceActions.options.contains(.scrollingToBottom) else { return }
+        guard flushPendingComposerInset() else { return }
+        scrollToBottom()
+    }
+
+    /// Applies a deferred composer-collapse inset, silently when the content
+    /// reaches the new bottom (no clamp, nothing moves) and via the anchored
+    /// animated update otherwise. Returns whether an inset was applied.
+    @discardableResult
+    private func flushPendingComposerInset() -> Bool {
+        guard let target = pendingComposerBottomInset else { return false }
+        pendingComposerBottomInset = nil
+        let adjustedTarget = target + collectionView.safeAreaInsets.bottom
+        let reach = collectionView.contentSize.height
+            - (collectionView.contentOffset.y + collectionView.frame.height - adjustedTarget)
+        if reach >= -0.5 {
+            UIView.performWithoutAnimation {
+                collectionView.contentInset.bottom = target
+                collectionView.verticalScrollIndicatorInsets.bottom = target
+            }
+        } else {
+            updateCollectionViewInsets(to: target, with: nil)
+        }
+        return true
+    }
+
+    /// Applies a bar-height inset change with no animation and re-anchors the
+    /// list arithmetically. Used while the conversation-open transition is
+    /// still settling: the bar's measurement can land a render pass or two
+    /// after the list's first paint, and animating the catch-up re-anchor
+    /// (the steady-state behavior) visibly slides the messages up mid
+    /// transition. Both steps below are plain property assignments - no batch
+    /// updates, no snapshot restore, no forced layout - so this is also safe
+    /// inside an in-flight UIKit layout pass.
+    private func applyBottomInsetInstantly(_ inset: CGFloat) {
+        UIView.performWithoutAnimation {
+            collectionView.contentInset.bottom = inset
+            collectionView.verticalScrollIndicatorInsets.bottom = inset
+        }
+        if !isUserInitiatedScrolling {
+            scrollToBottom(animated: false)
+        }
     }
 
     func keyboardWillHide(info: KeyboardInfo) {
@@ -1102,6 +1330,17 @@ extension MessagesViewController: KeyboardListenerDelegate {
         // micro adjustments (e.g. autocorrect bar resizes, sub-point
         // accessory-view recalculations).
         static let minKeyboardInsetGrowthForScrollAnchor: CGFloat = 1.0
+        // How close to the bottom (in points) the last settled offset must
+        // be for the list to count as pinned. Covers float fuzz and inset
+        // micro adjustments without absorbing intentional scrolling.
+        static let pinnedToBottomTolerance: CGFloat = 8.0
+        // How long after a context-menu dismissal to wait for the keyboard
+        // to take back over before settling the bottom inset ourselves.
+        // First-responder restoration lands well within this on device.
+        static let contextMenuInsetFallbackDelay: TimeInterval = 0.6
+        // How long after a composer collapse to wait for the outgoing
+        // message's reveal scroll before settling to the bottom ourselves.
+        static let composerSettleFallbackDelay: TimeInterval = 0.35
     }
 }
 

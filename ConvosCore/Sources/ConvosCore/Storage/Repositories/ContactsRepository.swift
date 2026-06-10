@@ -126,6 +126,18 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         }
     }
 
+    /// In-transaction variant of `contactName(for:)` for callers already
+    /// inside a database read (e.g. notification display-name resolution).
+    /// Returns the contact's display name when present and non-empty,
+    /// otherwise `nil` so the caller's fallback chain (per-conversation
+    /// profile name, then "Agent" / "Somebody") applies.
+    static func contactNameInTransaction(db: Database, inboxId: String) throws -> String? {
+        guard let name = try DBContact.fetchOne(db, key: inboxId)?.displayName, !name.isEmpty else {
+            return nil
+        }
+        return name
+    }
+
     func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation] {
         guard !ids.isEmpty else { return [:] }
         return try databaseReader.read { db in
