@@ -92,7 +92,7 @@ struct EmptyStateMockThingCell: View {
                         .transition(.opacity)
                 }
             }
-            .overlay(alignment: .bottomLeading) {
+            .overlay(alignment: .bottom) {
                 labelPill
             }
             .clipShape(RoundedRectangle(cornerRadius: Constant.cornerRadius, style: .continuous))
@@ -112,28 +112,29 @@ struct EmptyStateMockThingCell: View {
         }
     }
 
-    private var labelText: String {
-        if let emoji = item.emoji, !emoji.isEmpty {
-            return "\(emoji) \(item.title)"
-        }
-        return item.title
-    }
-
+    /// Per the design spec: a bottom-centered pill, white at 60% over a
+    /// backdrop blur, no border, with a small gap between the emoji and
+    /// the label. Fixed dark text because the fill stays light in both
+    /// appearances.
     private var labelPill: some View {
-        Text(labelText)
-            .font(.caption2)
-            .foregroundStyle(.colorTextPrimary)
-            .lineLimit(1)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .background(Color.colorBackgroundRaised)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .inset(by: 0.5)
-                    .stroke(Color.colorBorderSubtle, lineWidth: 1)
-            )
-            .padding(DesignConstants.Spacing.step2x)
+        HStack(spacing: Constant.pillGap) {
+            if let emoji = item.emoji, !emoji.isEmpty {
+                Text(emoji)
+            }
+            Text(item.title)
+                .foregroundStyle(.black)
+        }
+        .font(.footnote)
+        .lineLimit(1)
+        .padding(.horizontal, Constant.pillPadding)
+        .frame(height: Constant.pillHeight)
+        .background {
+            Capsule(style: .continuous)
+                .fill(.ultraThinMaterial)
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.6))
+        }
+        .padding(.bottom, Constant.pillBottomInset)
     }
 
     /// Includes the color scheme so the `.task(id:)` re-fires and swaps in
@@ -165,5 +166,9 @@ struct EmptyStateMockThingCell: View {
     private enum Constant {
         static let previewSize: CGFloat = 160.0
         static let cornerRadius: CGFloat = 28.0
+        static let pillHeight: CGFloat = 29.0
+        static let pillPadding: CGFloat = 7.3
+        static let pillGap: CGFloat = 3.6
+        static let pillBottomInset: CGFloat = 7.3
     }
 }
