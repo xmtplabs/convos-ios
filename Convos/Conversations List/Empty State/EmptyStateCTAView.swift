@@ -18,10 +18,12 @@ struct EmptyStateCTAView<MockContent: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
+            // Bottom-aligned in the fixed slot so the gap between the mock
+            // and the headline is exactly the step4x below, per the design.
             mockContent()
-                .frame(height: Constant.mockSlotHeight)
+                .frame(height: Constant.mockSlotHeight, alignment: .bottom)
             headlineText
-                .padding(.top, DesignConstants.Spacing.step6x)
+                .padding(.top, DesignConstants.Spacing.step4x)
             subtitleText
                 .padding(.top, DesignConstants.Spacing.step2x)
             makeAgentButton
@@ -93,7 +95,11 @@ struct EmptyStateCTAView<MockContent: View>: View {
     // Computed because generic types do not support static stored
     // properties.
     private enum Constant {
-        static var mockSlotHeight: CGFloat { 200.0 }
+        /// Matches the visible mock heights (the 160pt stuff card; the
+        /// conversation mock is a few points shorter) so the equal spacers
+        /// above and below center the visible content, with no phantom
+        /// slot headroom pushing the block down.
+        static var mockSlotHeight: CGFloat { 160.0 }
         static var headlineFontSize: CGFloat { 40.0 }
         static var headlineLineHeight: CGFloat { 40.0 }
         /// Two lines at the tight 40pt line height.
