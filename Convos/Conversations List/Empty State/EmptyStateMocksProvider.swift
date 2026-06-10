@@ -23,7 +23,9 @@ struct EmptyStateMockConversation: Decodable, Hashable, Identifiable {
 /// - `html`: inline markup (the remote payload)
 struct EmptyStateMockThing: Decodable, Hashable, Identifiable {
     let id: String
-    let title: String
+    /// Caption for the tile's title pill; nil hides the pill (some mock
+    /// things, like the streak tracker, carry their label in the artwork).
+    let title: String?
     let emoji: String?
     let conversationName: String?
     let htmlFile: String?
@@ -43,7 +45,7 @@ struct EmptyStateMockPayload: Decodable {
 /// so an updated payload re-renders instead of hitting a stale thumbnail.
 struct EmptyStateResolvedMockThing: Hashable, Identifiable {
     let id: String
-    let title: String
+    let title: String?
     let emoji: String?
     let conversationName: String?
     let fileURL: URL

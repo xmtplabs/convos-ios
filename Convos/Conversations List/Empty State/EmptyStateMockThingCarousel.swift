@@ -115,26 +115,30 @@ struct EmptyStateMockThingCell: View {
     /// Per the design spec: a bottom-centered pill, white at 60% over a
     /// backdrop blur, no border, with a small gap between the emoji and
     /// the label. Fixed dark text because the fill stays light in both
-    /// appearances.
+    /// appearances. Only rendered for things that carry a title; the
+    /// others (streak tracker, countdown) label themselves in the artwork.
+    @ViewBuilder
     private var labelPill: some View {
-        HStack(spacing: Constant.pillGap) {
-            if let emoji = item.emoji, !emoji.isEmpty {
-                Text(emoji)
+        if let title = item.title, !title.isEmpty {
+            HStack(spacing: Constant.pillGap) {
+                if let emoji = item.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                }
+                Text(title)
+                    .foregroundStyle(.black)
             }
-            Text(item.title)
-                .foregroundStyle(.black)
+            .font(.footnote)
+            .lineLimit(1)
+            .padding(.horizontal, Constant.pillPadding)
+            .frame(height: Constant.pillHeight)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(.ultraThinMaterial)
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.6))
+            }
+            .padding(.bottom, Constant.pillBottomInset)
         }
-        .font(.footnote)
-        .lineLimit(1)
-        .padding(.horizontal, Constant.pillPadding)
-        .frame(height: Constant.pillHeight)
-        .background {
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.6))
-        }
-        .padding(.bottom, Constant.pillBottomInset)
     }
 
     /// Includes the color scheme so the `.task(id:)` re-fires and swaps in

@@ -35,15 +35,11 @@
     },
     {
       "id": "pushup-streak",
-      "title": "Pushup tracker",
-      "emoji": "💪",
       "conversationName": "Pushup Party",
       "htmlFile": "mock-thing-pushups.html"
     },
     {
       "id": "departure-countdown",
-      "title": "Trip countdown",
-      "emoji": "✈️",
       "conversationName": "Sedona Weekend",
       "htmlFile": "mock-thing-countdown.html"
     }
