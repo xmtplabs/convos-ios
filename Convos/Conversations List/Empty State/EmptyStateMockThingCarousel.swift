@@ -102,7 +102,7 @@ struct EmptyStateMockThingCell: View {
     private var conversationNameLabel: some View {
         if let conversationName = item.conversationName, !conversationName.isEmpty {
             Text(conversationName)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
