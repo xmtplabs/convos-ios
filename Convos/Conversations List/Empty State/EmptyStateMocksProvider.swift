@@ -71,7 +71,9 @@ final class EmptyStateMocksProvider {
 
     /// Fetches the remote payload the first time it is called; later calls
     /// are no-ops. Any failure (endpoint missing, offline, bad payload)
-    /// leaves the bundled data in place.
+    /// leaves the bundled data in place. A cancelled fetch (the hosting
+    /// empty-state view disappeared, cancelling its `.task`) does not
+    /// count as the once-per-launch attempt; the next appearance retries.
     func refreshFromRemoteIfNeeded() async {
         guard !hasStartedRemoteRefresh else { return }
         hasStartedRemoteRefresh = true
@@ -87,6 +89,14 @@ final class EmptyStateMocksProvider {
             let payload = try JSONDecoder().decode(EmptyStateMockPayload.self, from: data)
             apply(payload)
         } catch {
+            // URLSession surfaces task cancellation as URLError.cancelled
+            // rather than CancellationError, so check both.
+            let wasCancelled: Bool = error is CancellationError
+                || (error as? URLError)?.code == .cancelled
+            if wasCancelled {
+                hasStartedRemoteRefresh = false
+                return
+            }
             Log.info("EmptyStateMocksProvider: remote refresh failed, keeping bundled payload: \(error)")
         }
     }
