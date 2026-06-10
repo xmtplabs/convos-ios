@@ -60,8 +60,8 @@ final class ShareComposeModel {
     var isReady: Bool = false
     var isSending: Bool = false
     var messages: [MessagesListItemType] = []
-    /// The sharer's profile, for the composer's avatar. Spike: a placeholder
-    /// profile until the extension wires up the real profile repository.
+    /// The sharer's per-conversation profile, for the composer's avatar.
+    /// Resolved from the target conversation's members; placeholder until then.
     var profile: Profile = .mock(name: "You")
 
     private var client: ConvosClient?
@@ -121,6 +121,9 @@ final class ShareComposeModel {
             targetTitle = intent?.speakableGroupName?.spokenPhrase ?? fallbackTitle ?? "Convo"
 
             if let target {
+                if let myProfile = target.members.first(where: { $0.isCurrentUser })?.profile {
+                    profile = myProfile
+                }
                 startObservingMessages(for: target, client: client)
             }
 
@@ -277,7 +280,7 @@ struct ShareComposeView: View {
             conversation: conversation,
             placeholderName: model.targetTitle,
             untitledConversationPlaceholder: model.targetTitle,
-            subtitle: "Convo",
+            subtitle: conversation.membersCountString,
             scheduledExplosionDate: conversation.scheduledExplosionDate,
             conversationName: $conversationName,
             conversationImage: $conversationImage,
