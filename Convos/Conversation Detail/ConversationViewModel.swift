@@ -26,71 +26,6 @@ struct PendingAgentShare {
     var resolved: AgentShareInfo?
 }
 
-struct PendingFileAttachment: Identifiable, Equatable {
-    let id: UUID
-    let url: URL
-    let filename: String
-    let mimeType: String
-    let fileSize: Int
-
-    init(id: UUID = UUID(), url: URL, filename: String, mimeType: String, fileSize: Int) {
-        self.id = id
-        self.url = url
-        self.filename = filename
-        self.mimeType = mimeType
-        self.fileSize = fileSize
-    }
-
-    /// Mirrors `HydratedAttachment.isHTMLFile` so the composer's staged-file
-    /// preview can match the in-chat HTML tile (square thumbnail) instead of
-    /// the generic filename + type chip.
-    var isHTMLFile: Bool {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        if ext == "html" || ext == "htm" {
-            return true
-        }
-        return mimeType.lowercased() == "text/html"
-    }
-
-    static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct PendingPhotoAttachment: Identifiable, Equatable {
-    let id: UUID
-    let image: UIImage
-    var eagerUploadKey: String?
-
-    init(id: UUID = UUID(), image: UIImage, eagerUploadKey: String? = nil) {
-        self.id = id
-        self.image = image
-        self.eagerUploadKey = eagerUploadKey
-    }
-
-    static func == (lhs: PendingPhotoAttachment, rhs: PendingPhotoAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct PendingVideoAttachment: Identifiable, Equatable {
-    let id: UUID
-    let url: URL
-    var thumbnail: UIImage?
-    var eagerUploadKey: String?
-
-    init(id: UUID = UUID(), url: URL, thumbnail: UIImage? = nil, eagerUploadKey: String? = nil) {
-        self.id = id
-        self.url = url
-        self.thumbnail = thumbnail
-        self.eagerUploadKey = eagerUploadKey
-    }
-
-    static func == (lhs: PendingVideoAttachment, rhs: PendingVideoAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
 /// Snapshot of a recorded voice memo handed from the agent builder to
 /// `sendBuilderBundle`. Carries the source URL, duration, and waveform
 /// levels so the builder can release its recorder state before the bundle
@@ -99,67 +34,6 @@ struct BuilderVoiceMemoSnapshot: Sendable {
     let url: URL
     let duration: TimeInterval
     let levels: [Float]
-}
-
-enum PendingMediaAttachment: Identifiable, Equatable {
-    case photo(PendingPhotoAttachment)
-    case video(PendingVideoAttachment)
-    case file(PendingFileAttachment)
-
-    var id: UUID {
-        switch self {
-        case .photo(let p): return p.id
-        case .video(let v): return v.id
-        case .file(let f): return f.id
-        }
-    }
-}
-
-let maxPendingMediaAttachments: Int = 8
-
-enum ExplodeDuration: CaseIterable {
-    case sixtySeconds
-    case oneHour
-    case twentyFourHours
-    case sundayAtMidnight
-
-    var label: String {
-        switch self {
-        case .sixtySeconds: return "60 seconds"
-        case .oneHour: return "1 hour"
-        case .twentyFourHours: return "24 hours"
-        case .sundayAtMidnight: return "Sunday at midnight"
-        }
-    }
-
-    var shortLabel: String {
-        switch self {
-        case .sixtySeconds: return "60s"
-        case .oneHour: return "1h"
-        case .twentyFourHours: return "24h"
-        case .sundayAtMidnight: return "Sun"
-        }
-    }
-
-    var timeInterval: TimeInterval {
-        switch self {
-        case .sixtySeconds: return 60
-        case .oneHour: return 3600
-        case .twentyFourHours: return 86400
-        case .sundayAtMidnight:
-            let calendar = Calendar.current
-            let now = Date()
-            var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-            components.weekday = 1
-            components.hour = 0
-            components.minute = 0
-            components.second = 0
-            if let nextSunday = calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0, weekday: 1), matchingPolicy: .nextTime) {
-                return nextSunday.timeIntervalSince(now)
-            }
-            return 604800
-        }
-    }
 }
 
 @MainActor
