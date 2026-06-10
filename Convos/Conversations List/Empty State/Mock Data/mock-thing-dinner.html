@@ -7,66 +7,95 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #FFF7F0;
-    --card: #FFFFFF;
-    --text: #1C1B1A;
-    --muted: #8A8580;
-    --accent: #FC4F37;
-    --chip: #FCEFE4;
+    --color-primary: #000000;
+    --color-secondary: #666666;
+    --color-tertiary: #B2B2B2;
+    --color-surface: #FFFFFF;
+    --color-muted: #F5F5F5;
+    --color-edge: #EBEBEB;
+    --color-accent: #FC4F37;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1C1816;
-      --card: #2A2522;
-      --text: #F5F1ED;
-      --muted: #A39C95;
-      --chip: #3A322C;
+      --color-primary: #FFFFFF;
+      --color-secondary: #999999;
+      --color-tertiary: #4D4D4D;
+      --color-surface: #262626;
+      --color-muted: #333333;
+      --color-edge: #333333;
     }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, system-ui, sans-serif;
-    padding: 10px;
+    background: var(--color-muted);
+    color: var(--color-primary);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    padding: 8px;
+  }
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-edge);
+    border-radius: 12px;
+    padding: 12px 10px;
   }
   .hero {
-    background: linear-gradient(135deg, #FFB37A, #FC4F37);
-    border-radius: 10px;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
+    font-size: 34px;
+    text-align: center;
+    line-height: 1.2;
   }
-  h1 { font-size: 13px; font-weight: 700; margin: 8px 2px 2px; }
-  .sub { font-size: 9px; color: var(--muted); margin: 0 2px 6px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip {
-    background: var(--chip);
-    border-radius: 999px;
+  .eyebrow {
+    margin-top: 8px;
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-secondary);
+    text-align: center;
+  }
+  .eyebrow .dot { color: var(--color-accent); }
+  h1 {
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    text-align: center;
+  }
+  .dek {
+    margin-top: 3px;
     font-size: 8px;
+    line-height: 1.4;
+    color: var(--color-secondary);
+    text-align: center;
+  }
+  .badges {
+    margin-top: 9px;
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+  }
+  .badge {
+    background: var(--color-muted);
+    color: var(--color-secondary);
+    border-radius: 9999px;
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
     padding: 3px 7px;
     white-space: nowrap;
-  }
-  .time {
-    margin-top: 7px;
-    font-size: 9px;
-    color: var(--accent);
-    font-weight: 600;
   }
 </style>
 </head>
 <body>
-  <div class="hero">🥗</div>
-  <h1>Crispy salmon bowls</h1>
-  <p class="sub">Fresh, fast, and kid-approved</p>
-  <div class="chips">
-    <span class="chip">salmon</span>
-    <span class="chip">rice</span>
-    <span class="chip">avocado</span>
-    <span class="chip">cucumber</span>
+  <div class="card">
+    <div class="hero">🌮</div>
+    <p class="eyebrow"><span class="dot">●</span> Taco night</p>
+    <h1>Al pastor street tacos</h1>
+    <p class="dek">Pineapple salsa, charred corn tortillas, lime wedges</p>
+    <div class="badges">
+      <span class="badge">25 min</span>
+      <span class="badge">Serves 4</span>
+    </div>
   </div>
-  <p class="time">25 min &middot; serves 4</p>
 </body>
 </html>

@@ -29,23 +29,23 @@
     {
       "id": "dinner-suggestion",
       "title": "Dinner suggestion",
-      "emoji": "🍴",
-      "conversationName": "Fam",
+      "emoji": "🌮",
+      "conversationName": "The Kitchen",
       "htmlFile": "mock-thing-dinner.html"
     },
     {
-      "id": "packing-list",
-      "title": "Packing list",
-      "emoji": "🎒",
-      "conversationName": "Tahoe Trip",
-      "htmlFile": "mock-thing-packing.html"
+      "id": "pushup-streak",
+      "title": "Pushup tracker",
+      "emoji": "💪",
+      "conversationName": "Pushup Party",
+      "htmlFile": "mock-thing-pushups.html"
     },
     {
-      "id": "week-plan",
-      "title": "Weekly plan",
-      "emoji": "🗓️",
-      "conversationName": "Roommates",
-      "htmlFile": "mock-thing-plan.html"
+      "id": "departure-countdown",
+      "title": "Trip countdown",
+      "emoji": "✈️",
+      "conversationName": "Sedona Weekend",
+      "htmlFile": "mock-thing-countdown.html"
     }
   ]
 }
