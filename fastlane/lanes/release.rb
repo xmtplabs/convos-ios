@@ -23,7 +23,7 @@ platform :ios do
     match(
       type: "appstore",
       git_url: MATCH_GIT_URL,
-      app_identifier: [PROD_BUNDLE_ID, PROD_NSE_BUNDLE_ID],
+      app_identifier: [PROD_BUNDLE_ID, PROD_NSE_BUNDLE_ID, PROD_SHARE_EXTENSION_BUNDLE_ID],
       readonly: is_ci,
     )
 
@@ -35,9 +35,11 @@ platform :ios do
     # into the Manual-signing build settings just before archiving.
     app_profile = match_profile_name(PROD_BUNDLE_ID)
     nse_profile = match_profile_name(PROD_NSE_BUNDLE_ID)
+    share_extension_profile = match_profile_name(PROD_SHARE_EXTENSION_BUNDLE_ID)
 
     apply_prod_signing("Convos", app_profile)
     apply_prod_signing("NotificationService", nse_profile)
+    apply_prod_signing("ShareExtension", share_extension_profile)
 
     build_app(
       project: PROJECT,
@@ -57,6 +59,7 @@ platform :ios do
         provisioningProfiles: {
           PROD_BUNDLE_ID     => app_profile,
           PROD_NSE_BUNDLE_ID => nse_profile,
+          PROD_SHARE_EXTENSION_BUNDLE_ID => share_extension_profile,
         },
       },
     )

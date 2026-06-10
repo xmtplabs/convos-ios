@@ -8,6 +8,7 @@ PR_SCHEME        = "Convos (PR Preview)"
 PR_CONFIG        = "PR Preview"
 PR_BUNDLE_ID     = "org.convos.ios-preview.pr"
 PR_NSE_BUNDLE_ID = "org.convos.ios-preview.pr.ConvosNSE"
+PR_SHARE_EXTENSION_BUNDLE_ID = "org.convos.ios-preview.pr.ShareExtension"
 
 # Prod (App Store, TestFlight) flavor. Built on every push to `dev`; talks
 # to the prod backend via config.prod.json. The Convos (Prod) scheme does not
@@ -16,6 +17,7 @@ PROD_SCHEME          = "Convos (Prod)"
 PROD_CONFIG          = "Release"
 PROD_BUNDLE_ID       = "org.convos.ios"
 PROD_NSE_BUNDLE_ID   = "org.convos.ios.ConvosNSE"
+PROD_SHARE_EXTENSION_BUNDLE_ID = "org.convos.ios.ShareExtension"
 
 MATCH_GIT_URL    = ENV["MATCH_GIT_URL"] || "git@github.com:xmtplabs/convos-certificates.git"
 OUTPUT_DIR       = "build"

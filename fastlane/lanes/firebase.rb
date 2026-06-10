@@ -6,7 +6,7 @@ platform :ios do
     match(
       type: "adhoc",
       git_url: MATCH_GIT_URL,
-      app_identifier: [PR_BUNDLE_ID, PR_NSE_BUNDLE_ID],
+      app_identifier: [PR_BUNDLE_ID, PR_NSE_BUNDLE_ID, PR_SHARE_EXTENSION_BUNDLE_ID],
       readonly: true,
     )
 
@@ -30,6 +30,7 @@ platform :ios do
         provisioningProfiles: {
           PR_BUNDLE_ID => "match AdHoc #{PR_BUNDLE_ID}",
           PR_NSE_BUNDLE_ID => "match AdHoc #{PR_NSE_BUNDLE_ID}",
+          PR_SHARE_EXTENSION_BUNDLE_ID => "match AdHoc #{PR_SHARE_EXTENSION_BUNDLE_ID}",
         },
       },
     )

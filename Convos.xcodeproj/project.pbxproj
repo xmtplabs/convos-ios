@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		135B573B4849DD24E2D06BCF /* ShareExtension/Config/GoogleService-Info.Prod.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0B162F7572F0FDE15E01274B /* ShareExtension/Config/GoogleService-Info.Prod.plist */; };
-		35CACCBAF4613827FC5AA890 /* ShareExtension/Config/GoogleService-Info.Local.plist in Resources */ = {isa = PBXBuildFile; fileRef = FDACCA8BD884BEB47A777438 /* ShareExtension/Config/GoogleService-Info.Local.plist */; };
+		135B573B4849DD24E2D06BCF /* GoogleService-Info.Prod.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0B162F7572F0FDE15E01274B /* GoogleService-Info.Prod.plist */; };
+		35CACCBAF4613827FC5AA890 /* GoogleService-Info.Local.plist in Resources */ = {isa = PBXBuildFile; fileRef = FDACCA8BD884BEB47A777438 /* GoogleService-Info.Local.plist */; };
 		3D9C9D84CE7FFFD0AE31D80B /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5B30289554C63E131F8FDA14 /* ConvosCore */; };
 		464BE38BF2716A7102CB8A42 /* QAAutomationServerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F8A01968F96A821BA6CCE7 /* QAAutomationServerTest.swift */; };
 		59C5B9E583F74517B2B888B7 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 6295E0ABD82D9105D8ECF82F /* ConvosCoreiOS */; };
-		62AC312533556741C99C016D /* ShareExtension/ForegroundUploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1311F369060B2E8A6D88E211 /* ShareExtension/ForegroundUploadManager.swift */; };
-		641E0F249FB9BBBC16281F43 /* ShareExtension/Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = C61FF76E33794FCB740C5169 /* ShareExtension/Log.swift */; };
+		62AC312533556741C99C016D /* ForegroundUploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1311F369060B2E8A6D88E211 /* ForegroundUploadManager.swift */; };
+		641E0F249FB9BBBC16281F43 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = C61FF76E33794FCB740C5169 /* Log.swift */; };
 		7A15D61C2EEBB0CF00627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */; };
 		7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */; };
 		7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5579AF2E7B4C0800882661 /* DifferenceKit */; };
@@ -26,11 +26,11 @@
 		7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD545932E4EA8F300500ADF /* ConvosCore */; };
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
-		87DE7D5E9A3C3863A90989B9 /* ShareExtension/Config/GoogleService-Info.Dev.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A9157E38499DBC9147DAB6A /* ShareExtension/Config/GoogleService-Info.Dev.plist */; };
-		A0C6AA6175B2F6D54EB08BF8 /* ShareExtension/Config/Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 212806B32B1CD0BDB80FB47B /* ShareExtension/Config/Secrets.swift */; };
+		87DE7D5E9A3C3863A90989B9 /* GoogleService-Info.Dev.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A9157E38499DBC9147DAB6A /* GoogleService-Info.Dev.plist */; };
+		A0C6AA6175B2F6D54EB08BF8 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 212806B32B1CD0BDB80FB47B /* Secrets.swift */; };
 		A7A3EBA84220CBC46A5E4E5C /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = 1AEE475B3FE0066D11742B75 /* ConvosComposer */; };
-		B25AB1932E32B65678BA64B6 /* ShareExtension/ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54CE25088361C2F195BEABC /* ShareExtension/ShareViewController.swift */; };
-		C549ED799F2562031183CF09 /* ShareExtension/MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A8795E706DC576F5D73319 /* ShareExtension/MemoryProbe.swift */; };
+		B25AB1932E32B65678BA64B6 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54CE25088361C2F195BEABC /* ShareViewController.swift */; };
+		C549ED799F2562031183CF09 /* MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A8795E706DC576F5D73319 /* MemoryProbe.swift */; };
 		C6DB12C50C74FA7E73E95796 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F674D719A434DEB7A1875508 /* Foundation.framework */; };
 		C88FE7B7DA58D9FF0141A0F6 /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = CAABDAA52472593D92D2FAB3 /* ConvosComposer */; };
 		D1719B20BD585B9545B790C0 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F93C5E4BA5FB5D5C698E2EAC /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -137,22 +137,22 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		028AE636177F0670DBF8B39F /* Config/PR.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/PR.xcconfig; sourceTree = SOURCE_ROOT; };
-		0B162F7572F0FDE15E01274B /* ShareExtension/Config/GoogleService-Info.Prod.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Prod.plist"; sourceTree = SOURCE_ROOT; };
-		1311F369060B2E8A6D88E211 /* ShareExtension/ForegroundUploadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ForegroundUploadManager.swift; sourceTree = SOURCE_ROOT; };
-		16BB7B83D82FAB80633F9891 /* Convos/Config/Dev.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Dev.xcconfig; sourceTree = SOURCE_ROOT; };
-		212806B32B1CD0BDB80FB47B /* ShareExtension/Config/Secrets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Config/Secrets.swift; sourceTree = SOURCE_ROOT; };
-		23A7EDD82517202F19181ACC /* ShareExtension/MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
-		2A9157E38499DBC9147DAB6A /* ShareExtension/Config/GoogleService-Info.Dev.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Dev.plist"; sourceTree = SOURCE_ROOT; };
-		2F63AB403B8817413997889B /* ShareExtension/Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = SOURCE_ROOT; };
+		028AE636177F0670DBF8B39F /* PR.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/PR.xcconfig; sourceTree = SOURCE_ROOT; };
+		0B162F7572F0FDE15E01274B /* GoogleService-Info.Prod.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Prod.plist"; sourceTree = SOURCE_ROOT; };
+		1311F369060B2E8A6D88E211 /* ForegroundUploadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ForegroundUploadManager.swift; sourceTree = SOURCE_ROOT; };
+		16BB7B83D82FAB80633F9891 /* Dev.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Dev.xcconfig; sourceTree = SOURCE_ROOT; };
+		212806B32B1CD0BDB80FB47B /* Secrets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Config/Secrets.swift; sourceTree = SOURCE_ROOT; };
+		23A7EDD82517202F19181ACC /* MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
+		2A9157E38499DBC9147DAB6A /* GoogleService-Info.Dev.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Dev.plist"; sourceTree = SOURCE_ROOT; };
+		2F63AB403B8817413997889B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
-		37A7AE26E2644C7202ADCF25 /* Convos/Config/PR.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/PR.xcconfig; sourceTree = SOURCE_ROOT; };
-		38D87119A9E53700CB7B54D2 /* Config/Dev.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Dev.xcconfig; sourceTree = SOURCE_ROOT; };
+		37A7AE26E2644C7202ADCF25 /* PR.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/PR.xcconfig; sourceTree = SOURCE_ROOT; };
+		38D87119A9E53700CB7B54D2 /* Dev.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Dev.xcconfig; sourceTree = SOURCE_ROOT; };
 		3B696FDE2FA9315B006BE4F3 /* GoogleService-Info.PR.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.PR.plist"; path = "Convos/Config/GoogleService-Info.PR.plist"; sourceTree = "<group>"; };
-		47C6192FDC4BC3F8F1CECEC6 /* Config/Prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Prod.xcconfig; sourceTree = SOURCE_ROOT; };
+		47C6192FDC4BC3F8F1CECEC6 /* Prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Prod.xcconfig; sourceTree = SOURCE_ROOT; };
 		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
 		5C0B8D5E2EE4B5A100EF1234 /* Convos.storekit */ = {isa = PBXFileReference; lastKnownFileType = text.json.storekit; path = Convos.storekit; sourceTree = "<group>"; };
-		6D1E8EC5EB7BE077057DC601 /* Convos/Config/Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Local.xcconfig; sourceTree = SOURCE_ROOT; };
+		6D1E8EC5EB7BE077057DC601 /* Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Local.xcconfig; sourceTree = SOURCE_ROOT; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychainIdentityStoreExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -163,28 +163,28 @@
 		7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7BE1CF8D52008121A8B8F1B0 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		7C2200F64A8822526E861838 /* ShareExtension/ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = SOURCE_ROOT; };
-		80A8795E706DC576F5D73319 /* ShareExtension/MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
+		7C2200F64A8822526E861838 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = SOURCE_ROOT; };
+		80A8795E706DC576F5D73319 /* MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
 		9C8D28BAC891D4F758D75C7B /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A6E685B0C5F9DBE3A4D221D3 /* Config/Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Local.xcconfig; sourceTree = SOURCE_ROOT; };
-		A9FB875F680F4C56EDABF9EB /* ShareExtension/Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Log.swift; sourceTree = SOURCE_ROOT; };
+		A6E685B0C5F9DBE3A4D221D3 /* Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Local.xcconfig; sourceTree = SOURCE_ROOT; };
+		A9FB875F680F4C56EDABF9EB /* Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Log.swift; sourceTree = SOURCE_ROOT; };
 		AF84D6D930CB5CAFCFC28127 /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B01DAB4025D870B76205DF31 /* ShareExtension/ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension/ShareExtension.entitlements; sourceTree = SOURCE_ROOT; };
-		BFD99E3CDF82BCB336F67F9C /* ShareExtension/ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension/ShareExtension.entitlements; sourceTree = SOURCE_ROOT; };
-		C54CE25088361C2F195BEABC /* ShareExtension/ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = SOURCE_ROOT; };
-		C61FF76E33794FCB740C5169 /* ShareExtension/Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Log.swift; sourceTree = SOURCE_ROOT; };
-		D17C5E6F4A2B1FF4A9311EDF /* Convos/Config/Prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Prod.xcconfig; sourceTree = SOURCE_ROOT; };
+		B01DAB4025D870B76205DF31 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension/ShareExtension.entitlements; sourceTree = SOURCE_ROOT; };
+		BFD99E3CDF82BCB336F67F9C /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension/ShareExtension.entitlements; sourceTree = SOURCE_ROOT; };
+		C54CE25088361C2F195BEABC /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = SOURCE_ROOT; };
+		C61FF76E33794FCB740C5169 /* Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Log.swift; sourceTree = SOURCE_ROOT; };
+		D17C5E6F4A2B1FF4A9311EDF /* Prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Prod.xcconfig; sourceTree = SOURCE_ROOT; };
 		D4F8A01968F96A821BA6CCE7 /* QAAutomationServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServerTest.swift; sourceTree = "<group>"; };
 		D80850342DC94F4C00E708B0 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8477AD42DCBA52F00E31E54 /* .env */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env; sourceTree = "<group>"; };
 		D8477AD52DCBA52F00E31E54 /* .env.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env.example; sourceTree = "<group>"; };
 		D8A2B6912DA4BA4B00EF8577 /* Convos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Convos.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		DFB0D71E3E5448CD813348A6 /* ShareExtension/Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = SOURCE_ROOT; };
+		DFB0D71E3E5448CD813348A6 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 		E2BAB42D28E2775319A9E2C8 /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1ECE0E13304632905605A04 /* QAAutomationServer */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = QAAutomationServer; sourceTree = BUILT_PRODUCTS_DIR; };
 		F674D719A434DEB7A1875508 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		F93C5E4BA5FB5D5C698E2EAC /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		FDACCA8BD884BEB47A777438 /* ShareExtension/Config/GoogleService-Info.Local.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Local.plist"; sourceTree = SOURCE_ROOT; };
+		FDACCA8BD884BEB47A777438 /* GoogleService-Info.Local.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Local.plist"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -224,16 +224,22 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7AC599322E5592F900D65D07 /* KeychainIdentityStoreExample */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = KeychainIdentityStoreExample;
 			sourceTree = "<group>";
 		};
 		7AC599402E5592FA00D65D07 /* KeychainIdentityStoreTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = KeychainIdentityStoreTests;
 			sourceTree = "<group>";
 		};
 		7ACA8BA42DE16DE200848799 /* ConvosTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ConvosTests;
 			sourceTree = "<group>";
 		};
@@ -247,11 +253,15 @@
 		};
 		7ADC0C7F2E2977810053978A /* ConvosAppClipTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ConvosAppClipTests;
 			sourceTree = "<group>";
 		};
 		7ADC0C892E2977810053978A /* ConvosAppClipUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ConvosAppClipUITests;
 			sourceTree = "<group>";
 		};
@@ -377,16 +387,16 @@
 		3DA28822CA90CD6CAC79B568 /* ShareExtension */ = {
 			isa = PBXGroup;
 			children = (
-				7C2200F64A8822526E861838 /* ShareExtension/ShareViewController.swift */,
-				23A7EDD82517202F19181ACC /* ShareExtension/MemoryProbe.swift */,
-				A9FB875F680F4C56EDABF9EB /* ShareExtension/Log.swift */,
-				2F63AB403B8817413997889B /* ShareExtension/Info.plist */,
-				BFD99E3CDF82BCB336F67F9C /* ShareExtension/ShareExtension.entitlements */,
-				C54CE25088361C2F195BEABC /* ShareExtension/ShareViewController.swift */,
-				80A8795E706DC576F5D73319 /* ShareExtension/MemoryProbe.swift */,
-				C61FF76E33794FCB740C5169 /* ShareExtension/Log.swift */,
-				DFB0D71E3E5448CD813348A6 /* ShareExtension/Info.plist */,
-				B01DAB4025D870B76205DF31 /* ShareExtension/ShareExtension.entitlements */,
+				7C2200F64A8822526E861838 /* ShareViewController.swift */,
+				23A7EDD82517202F19181ACC /* MemoryProbe.swift */,
+				A9FB875F680F4C56EDABF9EB /* Log.swift */,
+				2F63AB403B8817413997889B /* Info.plist */,
+				BFD99E3CDF82BCB336F67F9C /* ShareExtension.entitlements */,
+				C54CE25088361C2F195BEABC /* ShareViewController.swift */,
+				80A8795E706DC576F5D73319 /* MemoryProbe.swift */,
+				C61FF76E33794FCB740C5169 /* Log.swift */,
+				DFB0D71E3E5448CD813348A6 /* Info.plist */,
+				B01DAB4025D870B76205DF31 /* ShareExtension.entitlements */,
 			);
 			name = ShareExtension;
 			sourceTree = SOURCE_ROOT;
@@ -441,20 +451,20 @@
 				7ACA8BC42DE17F2E00848799 /* Frameworks */,
 				D8A2B6922DA4BA4B00EF8577 /* Products */,
 				1ED22F8D2CD49B78948B9250 /* QAAutomationServer */,
-				38D87119A9E53700CB7B54D2 /* Config/Dev.xcconfig */,
-				028AE636177F0670DBF8B39F /* Config/PR.xcconfig */,
-				A6E685B0C5F9DBE3A4D221D3 /* Config/Local.xcconfig */,
-				47C6192FDC4BC3F8F1CECEC6 /* Config/Prod.xcconfig */,
+				38D87119A9E53700CB7B54D2 /* Dev.xcconfig */,
+				028AE636177F0670DBF8B39F /* PR.xcconfig */,
+				A6E685B0C5F9DBE3A4D221D3 /* Local.xcconfig */,
+				47C6192FDC4BC3F8F1CECEC6 /* Prod.xcconfig */,
 				3DA28822CA90CD6CAC79B568 /* ShareExtension */,
-				16BB7B83D82FAB80633F9891 /* Convos/Config/Dev.xcconfig */,
-				37A7AE26E2644C7202ADCF25 /* Convos/Config/PR.xcconfig */,
-				6D1E8EC5EB7BE077057DC601 /* Convos/Config/Local.xcconfig */,
-				D17C5E6F4A2B1FF4A9311EDF /* Convos/Config/Prod.xcconfig */,
-				212806B32B1CD0BDB80FB47B /* ShareExtension/Config/Secrets.swift */,
-				2A9157E38499DBC9147DAB6A /* ShareExtension/Config/GoogleService-Info.Dev.plist */,
-				FDACCA8BD884BEB47A777438 /* ShareExtension/Config/GoogleService-Info.Local.plist */,
-				0B162F7572F0FDE15E01274B /* ShareExtension/Config/GoogleService-Info.Prod.plist */,
-				1311F369060B2E8A6D88E211 /* ShareExtension/ForegroundUploadManager.swift */,
+				16BB7B83D82FAB80633F9891 /* Dev.xcconfig */,
+				37A7AE26E2644C7202ADCF25 /* PR.xcconfig */,
+				6D1E8EC5EB7BE077057DC601 /* Local.xcconfig */,
+				D17C5E6F4A2B1FF4A9311EDF /* Prod.xcconfig */,
+				212806B32B1CD0BDB80FB47B /* Secrets.swift */,
+				2A9157E38499DBC9147DAB6A /* GoogleService-Info.Dev.plist */,
+				FDACCA8BD884BEB47A777438 /* GoogleService-Info.Local.plist */,
+				0B162F7572F0FDE15E01274B /* GoogleService-Info.Prod.plist */,
+				1311F369060B2E8A6D88E211 /* ForegroundUploadManager.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -869,9 +879,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				87DE7D5E9A3C3863A90989B9 /* ShareExtension/Config/GoogleService-Info.Dev.plist in Resources */,
-				35CACCBAF4613827FC5AA890 /* ShareExtension/Config/GoogleService-Info.Local.plist in Resources */,
-				135B573B4849DD24E2D06BCF /* ShareExtension/Config/GoogleService-Info.Prod.plist in Resources */,
+				87DE7D5E9A3C3863A90989B9 /* GoogleService-Info.Dev.plist in Resources */,
+				35CACCBAF4613827FC5AA890 /* GoogleService-Info.Local.plist in Resources */,
+				135B573B4849DD24E2D06BCF /* GoogleService-Info.Prod.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1023,11 +1033,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B25AB1932E32B65678BA64B6 /* ShareExtension/ShareViewController.swift in Sources */,
-				C549ED799F2562031183CF09 /* ShareExtension/MemoryProbe.swift in Sources */,
-				641E0F249FB9BBBC16281F43 /* ShareExtension/Log.swift in Sources */,
-				A0C6AA6175B2F6D54EB08BF8 /* ShareExtension/Config/Secrets.swift in Sources */,
-				62AC312533556741C99C016D /* ShareExtension/ForegroundUploadManager.swift in Sources */,
+				B25AB1932E32B65678BA64B6 /* ShareViewController.swift in Sources */,
+				C549ED799F2562031183CF09 /* MemoryProbe.swift in Sources */,
+				641E0F249FB9BBBC16281F43 /* Log.swift in Sources */,
+				A0C6AA6175B2F6D54EB08BF8 /* Secrets.swift in Sources */,
+				62AC312533556741C99C016D /* ForegroundUploadManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1595,7 +1605,7 @@
 		};
 		6D6016C1731016DB14DB0A84 /* Local */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6D1E8EC5EB7BE077057DC601 /* Convos/Config/Local.xcconfig */;
+			baseConfigurationReference = 6D1E8EC5EB7BE077057DC601 /* Local.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
@@ -2176,14 +2186,15 @@
 		};
 		7FC6C1F23FF6167BE1119FCA /* PR Preview */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 37A7AE26E2644C7202ADCF25 /* Convos/Config/PR.xcconfig */;
+			baseConfigurationReference = 37A7AE26E2644C7202ADCF25 /* PR.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ShareExtension;
@@ -2197,6 +2208,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(SHARE_EXTENSION_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AdHoc org.convos.ios-preview.pr.ShareExtension";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -2227,12 +2239,12 @@
 		};
 		87672CC051CE0CB29321146F /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D17C5E6F4A2B1FF4A9311EDF /* Convos/Config/Prod.xcconfig */;
+			baseConfigurationReference = D17C5E6F4A2B1FF4A9311EDF /* Prod.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -2846,7 +2858,7 @@
 		};
 		ECA835702AD296BADD483C72 /* Dev */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 16BB7B83D82FAB80633F9891 /* Convos/Config/Dev.xcconfig */;
+			baseConfigurationReference = 16BB7B83D82FAB80633F9891 /* Dev.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
