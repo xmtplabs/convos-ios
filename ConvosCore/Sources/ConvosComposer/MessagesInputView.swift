@@ -1,10 +1,10 @@
-import ConvosComposer
+#if canImport(UIKit)
 import ConvosCore
 import PhotosUI
 import SwiftUI
 import UIKit
 
-struct MessagesInputView: View {
+public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
     let profile: Profile
     @Binding var profileImage: UIImage?
     @Binding var displayName: String
@@ -23,11 +23,6 @@ struct MessagesInputView: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
-    /// Set when a pasted agent-share link is staged as a composer chip. Name /
-    /// emoji are nil until the resolver returns (chip shows its placeholder).
-    var pendingAgentShareName: String?
-    var pendingAgentShareEmoji: String?
-    var pendingAgentShareSummary: String?
     var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
@@ -39,15 +34,82 @@ struct MessagesInputView: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
-    var onClearAgentShare: (() -> Void)?
     var onClearLinkPreview: (() -> Void)?
     var onClearMediaAttachment: ((UUID) -> Void)?
+    /// App-provided content for a staged (not-yet-sent) file attachment chip.
+    /// The package wraps it with the shared poof animation and remove button.
+    @ViewBuilder let fileAttachmentPreview: (PendingFileAttachment) -> FilePreview
+    /// App-provided chip for a staged agent-share link. Rendered when
+    /// `isShowingAgentShareChip` is true.
+    @ViewBuilder let agentShareChip: () -> AgentChip
 
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var poofingAttachmentIds: Set<UUID> = []
     @State private var isPoofingInvite: Bool = false
 
-    static var defaultHeight: CGFloat {
+    public init(
+        profile: Profile,
+        profileImage: Binding<UIImage?>,
+        displayName: Binding<String>,
+        emptyDisplayNamePlaceholder: String,
+        messageText: Binding<String>,
+        pendingMediaAttachments: [PendingMediaAttachment] = [],
+        composerLinkPreview: LinkPreview? = nil,
+        pendingInviteURL: String? = nil,
+        pendingInviteIsEditable: Bool = true,
+        pendingInviteEmoji: String? = nil,
+        pendingInviteConvoName: Binding<String>,
+        pendingInviteImage: Binding<UIImage?>,
+        pendingInviteExplodeDuration: ExplodeDuration? = nil,
+        onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)? = nil,
+        onInviteConvoNameEditingEnded: ((String) -> Void)? = nil,
+        isShowingAgentShareChip: Bool = false,
+        sendButtonEnabled: Bool,
+        focusState: FocusState<MessagesViewInputFocus?>.Binding,
+        animateAvatarForProfileSetup: Bool,
+        messagesTextFieldEnabled: Bool,
+        isCollapsed: Bool,
+        canEditProfile: Bool,
+        onProfilePhotoTap: @escaping () -> Void,
+        onSendMessage: @escaping () -> Void,
+        onClearInvite: @escaping () -> Void,
+        onClearLinkPreview: (() -> Void)? = nil,
+        onClearMediaAttachment: ((UUID) -> Void)? = nil,
+        @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
+        @ViewBuilder agentShareChip: @escaping () -> AgentChip
+    ) {
+        self.profile = profile
+        _profileImage = profileImage
+        _displayName = displayName
+        self.emptyDisplayNamePlaceholder = emptyDisplayNamePlaceholder
+        _messageText = messageText
+        self.pendingMediaAttachments = pendingMediaAttachments
+        self.composerLinkPreview = composerLinkPreview
+        self.pendingInviteURL = pendingInviteURL
+        self.pendingInviteIsEditable = pendingInviteIsEditable
+        self.pendingInviteEmoji = pendingInviteEmoji
+        _pendingInviteConvoName = pendingInviteConvoName
+        _pendingInviteImage = pendingInviteImage
+        self.pendingInviteExplodeDuration = pendingInviteExplodeDuration
+        self.onSetInviteExplodeDuration = onSetInviteExplodeDuration
+        self.onInviteConvoNameEditingEnded = onInviteConvoNameEditingEnded
+        self.isShowingAgentShareChip = isShowingAgentShareChip
+        self.sendButtonEnabled = sendButtonEnabled
+        _focusState = focusState
+        self.animateAvatarForProfileSetup = animateAvatarForProfileSetup
+        self.messagesTextFieldEnabled = messagesTextFieldEnabled
+        self.isCollapsed = isCollapsed
+        self.canEditProfile = canEditProfile
+        self.onProfilePhotoTap = onProfilePhotoTap
+        self.onSendMessage = onSendMessage
+        self.onClearInvite = onClearInvite
+        self.onClearLinkPreview = onClearLinkPreview
+        self.onClearMediaAttachment = onClearMediaAttachment
+        self.fileAttachmentPreview = fileAttachmentPreview
+        self.agentShareChip = agentShareChip
+    }
+
+    public static var defaultHeight: CGFloat {
         32.0
     }
 
@@ -144,7 +206,7 @@ struct MessagesInputView: View {
         .frame(maxHeight: .infinity, alignment: .center)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if hasAttachments {
                 attachmentPreviewArea
@@ -171,12 +233,7 @@ struct MessagesInputView: View {
                     inviteAttachmentPreview(url: pendingInviteURL)
                 }
                 if isShowingAgentShareChip {
-                    AgentContactCardChip(
-                        displayName: pendingAgentShareName ?? "Agent",
-                        emoji: pendingAgentShareEmoji,
-                        summary: pendingAgentShareSummary,
-                        onRemove: { onClearAgentShare?() }
-                    )
+                    agentShareChip()
                 }
                 if let composerLinkPreview {
                     linkPreviewAttachment(preview: composerLinkPreview)
@@ -197,32 +254,21 @@ struct MessagesInputView: View {
         case .video(let video):
             photoVideoPreview(image: video.thumbnail, isVideo: true, attachmentId: attachment.id)
         case .file(let file):
-            if file.isHTMLFile {
-                htmlFilePreview(file: file)
-            } else {
-                filePreview(file: file)
-            }
+            stagedFilePreview(file: file)
         }
     }
 
     @ViewBuilder
-    private func htmlFilePreview(file: PendingFileAttachment) -> some View {
+    private func stagedFilePreview(file: PendingFileAttachment) -> some View {
         let isPoof: Bool = poofingAttachmentIds.contains(file.id)
         let scale: CGFloat = isPoof ? 1.3 : 1.0
         let blur: CGFloat = isPoof ? 12.0 : 0.0
         let opacity: Double = isPoof ? 0.0 : 1.0
         ZStack(alignment: .topTrailing) {
-            ComposerHTMLThumbnail(
-                fileURL: file.url,
-                cacheKey: "composer-html-\(file.id.uuidString)"
-            )
-            .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
-            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-            .scaleEffect(scale)
-            .blur(radius: blur)
-            .opacity(opacity)
-            .accessibilityLabel("HTML attachment preview")
-            .accessibilityIdentifier("html-attachment-preview")
+            fileAttachmentPreview(file)
+                .scaleEffect(scale)
+                .blur(radius: blur)
+                .opacity(opacity)
 
             removeAttachmentButton(
                 attachmentId: file.id,
@@ -271,37 +317,6 @@ struct MessagesInputView: View {
                 attachmentId: attachmentId,
                 label: "Remove attachment",
                 identifier: "remove-attachment-button"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func filePreview(file: PendingFileAttachment) -> some View {
-        let isPoof: Bool = poofingAttachmentIds.contains(file.id)
-        let scale: CGFloat = isPoof ? 1.3 : 1.0
-        let blur: CGFloat = isPoof ? 12.0 : 0.0
-        let opacity: Double = isPoof ? 0.0 : 1.0
-        ZStack(alignment: .topTrailing) {
-            FileAttachmentRow(
-                filename: file.filename,
-                mimeType: file.mimeType,
-                fileSize: file.fileSize
-            )
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .frame(maxWidth: 240.0)
-            .background(.colorFillSubtle)
-            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-            .scaleEffect(scale)
-            .blur(radius: blur)
-            .opacity(opacity)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("file-attachment-preview")
-
-            removeAttachmentButton(
-                attachmentId: file.id,
-                label: "Remove file attachment",
-                identifier: "remove-file-attachment-button"
             )
         }
     }
@@ -659,7 +674,7 @@ private struct ComposerSideConvoCard: View {
                 Text(emoji)
                     .font(.system(size: 120))
             } else {
-                Image("convosOrangeIcon")
+                Image("convosOrangeIcon", bundle: .module)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .foregroundStyle(.colorTextPrimaryInverted)
@@ -720,51 +735,6 @@ private struct ComposerSideConvoCard: View {
     }
 }
 
-#Preview {
-    @Previewable @State var profile: Profile = .mock()
-    @Previewable @State var displayName: String = "Andrew"
-    @Previewable @State var messageText: String = ""
-    @Previewable @State var sendButtonEnabled: Bool = false
-    @Previewable @State var profileImage: UIImage?
-    @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
-    @Previewable @State var animateAvatarForProfileSetup: Bool = false
-    @Previewable @FocusState var focusState: MessagesViewInputFocus?
-
-    VStack {
-        Spacer()
-        Button {
-            withAnimation {
-                animateAvatarForProfileSetup.toggle()
-            }
-        } label: {
-            Text("Toggle Profile Setup")
-        }
-        Spacer()
-    }
-    .safeAreaBar(edge: .bottom) {
-        MessagesInputView(
-            profile: profile,
-            profileImage: $profileImage,
-            displayName: $displayName,
-            emptyDisplayNamePlaceholder: "Somebody",
-            messageText: $messageText,
-            pendingInviteURL: pendingInviteURLPreview,
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: sendButtonEnabled,
-            focusState: $focusState,
-            animateAvatarForProfileSetup: animateAvatarForProfileSetup,
-            messagesTextFieldEnabled: true,
-            isCollapsed: true,
-            canEditProfile: true,
-            onProfilePhotoTap: {},
-            onSendMessage: {},
-            onClearInvite: { pendingInviteURLPreview = nil }
-        )
-        .padding(DesignConstants.Spacing.step2x)
-    }
-}
-
 struct ExplodeCountdownBadge: View {
     let duration: ExplodeDuration
 
@@ -781,74 +751,4 @@ struct ExplodeCountdownBadge: View {
         .background(.colorCaution.opacity(0.15), in: Capsule())
     }
 }
-
-/// Square HTML thumbnail for a staged (not-yet-sent) file attachment in the
-/// composer. Renders the same `HTMLThumbnailRenderer` preview the in-chat
-/// `HTMLAttachmentBubble` uses, loaded from the local file URL, so a staged
-/// HTML file reads as a small page tile instead of the generic filename +
-/// "HTML" file chip. Keyed on a composer-local key (the staged attachment id),
-/// distinct from the content-addressed key the sent attachment later uses.
-private struct ComposerHTMLThumbnail: View {
-    let fileURL: URL
-    let cacheKey: String
-
-    @Environment(\.colorScheme) private var colorScheme: ColorScheme
-    @State private var renderedImage: UIImage?
-    @State private var hasLoadFailed: Bool = false
-
-    var body: some View {
-        Group {
-            if let renderedImage {
-                Image(uiImage: renderedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                ZStack {
-                    Color.colorFillSubtle
-                    if hasLoadFailed {
-                        Image(systemName: "globe")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ProgressView()
-                    }
-                }
-            }
-        }
-        .onAppear(perform: seedFromMemoryCache)
-        .task(id: AttachmentColorSchemeKey(key: cacheKey, scheme: colorScheme)) {
-            await loadThumbnail()
-        }
-    }
-
-    private func seedFromMemoryCache() {
-        guard renderedImage == nil else { return }
-        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
-            for: cacheKey,
-            appearance: colorScheme.uiUserInterfaceStyle
-        ) {
-            renderedImage = cached
-            hasLoadFailed = false
-        }
-    }
-
-    private func loadThumbnail() async {
-        let appearance = colorScheme.uiUserInterfaceStyle
-        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: cacheKey, appearance: appearance) {
-            renderedImage = cached
-            hasLoadFailed = false
-            return
-        }
-        let image = await HTMLThumbnailRenderer.shared.thumbnail(
-            for: cacheKey,
-            fileURL: fileURL,
-            appearance: appearance
-        )
-        if let image {
-            renderedImage = image
-            hasLoadFailed = false
-        } else if renderedImage == nil {
-            hasLoadFailed = true
-        }
-    }
-}
+#endif

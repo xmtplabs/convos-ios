@@ -119,6 +119,44 @@ struct MessagesView<BottomBarContent: View>: View {
     /// the sheet's `.navigationTransition(.zoom(...))` destination.
     @Namespace private var htmlAttachmentTransitionNamespace: Namespace.ID
 
+    private var isSettingUpProfile: Bool {
+        onboardingCoordinator.state == .settingUpProfile
+    }
+
+    @MainActor
+    private var canEditProfile: Bool {
+        ProfileSettingsViewModel.shared.profileSettings.isDefault
+    }
+
+    @MainActor @ViewBuilder
+    private func composerQuickEditView(placeholderText: String, isImagePickerPresented: Binding<Bool>) -> some View {
+        QuickEditView(
+            placeholderText: placeholderText,
+            text: $displayName,
+            image: $profileImage,
+            isImagePickerPresented: isImagePickerPresented,
+            imageAssetIdentifier: Binding(
+                get: { ProfileSettingsViewModel.shared.profileImageAssetIdentifier },
+                set: { ProfileSettingsViewModel.shared.profileImageAssetIdentifier = $0 }
+            ),
+            focusState: $focusState,
+            focused: .displayName,
+            settingsSymbolName: "lanyardcard.fill",
+            showsSettingsButton: false,
+            onSubmit: onDisplayNameEndedEditing,
+            onSettings: onProfileSettings
+        )
+    }
+
+    private var composerAgentShareChip: some View {
+        AgentContactCardChip(
+            displayName: pendingAgentShareName ?? "Agent",
+            emoji: pendingAgentShareEmoji,
+            summary: pendingAgentShareSummary,
+            onRemove: { onClearAgentShare?() }
+        )
+    }
+
     var body: some View {
         MessagesViewRepresentable(
             conversation: conversation,
@@ -205,17 +243,15 @@ struct MessagesView<BottomBarContent: View>: View {
                     pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                     onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                     onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                    pendingAgentShareName: pendingAgentShareName,
-                    pendingAgentShareEmoji: pendingAgentShareEmoji,
-                    pendingAgentShareSummary: pendingAgentShareSummary,
                     isShowingAgentShareChip: isShowingAgentShareChip,
-                    onClearAgentShare: onClearAgentShare,
                     sendButtonEnabled: sendButtonEnabled,
                     profileImage: $profileImage,
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
-                    onboardingCoordinator: onboardingCoordinator,
+                    isSettingUpProfile: isSettingUpProfile,
+                    animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
+                    canEditProfile: canEditProfile,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     onProfilePhotoTap: onProfilePhotoTap,
                     onSendMessage: {
@@ -252,6 +288,18 @@ struct MessagesView<BottomBarContent: View>: View {
                             // bar (same reason the context-menu overlay does).
                             .environment(\.agentShareResolver, agentShareResolver)
                         }
+                    },
+                    quickEditView: { placeholderText, isImagePickerPresented in
+                        composerQuickEditView(
+                            placeholderText: placeholderText,
+                            isImagePickerPresented: isImagePickerPresented
+                        )
+                    },
+                    fileAttachmentPreview: { file in
+                        ComposerFileAttachmentPreview(file: file)
+                    },
+                    agentShareChip: {
+                        composerAgentShareChip
                     }
                 )
                 .opacity(contextMenuState.isPresented ? 0.0 : 1.0)

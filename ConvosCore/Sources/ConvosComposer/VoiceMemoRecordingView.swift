@@ -1,9 +1,8 @@
-import ConvosComposer
-import ConvosCore
+#if canImport(UIKit)
 import ConvosCoreiOS
 import SwiftUI
 
-struct VoiceMemoRecordingView: View {
+public struct VoiceMemoRecordingView: View {
     @Bindable var recorder: VoiceMemoRecorder
     /// When false, hide the inline stop button so the caller can render
     /// its own stop affordance elsewhere (used by the Agent Builder,
@@ -13,7 +12,12 @@ struct VoiceMemoRecordingView: View {
     private let barWidth: CGFloat = 2
     private let barSpacing: CGFloat = 1.5
 
-    var body: some View {
+    public init(recorder: VoiceMemoRecorder, showsInlineStopButton: Bool = true) {
+        self.recorder = recorder
+        self.showsInlineStopButton = showsInlineStopButton
+    }
+
+    public var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Canvas { context, size in
@@ -105,3 +109,4 @@ struct VoiceMemoKeyboardFocusKeeper: View {
     VoiceMemoRecordingView(recorder: VoiceMemoRecorder())
         .padding()
 }
+#endif

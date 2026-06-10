@@ -1,6 +1,7 @@
+#if canImport(UIKit)
 import SwiftUI
 
-struct MessagesMediaButtonsView: View {
+public struct MessagesMediaButtonsView: View {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
     let onVoiceMemoTap: () -> Void
@@ -20,6 +21,36 @@ struct MessagesMediaButtonsView: View {
     /// Only rendered in DEBUG builds — the button is hidden when nil or in Release.
     var onDebugAttachmentTap: (() -> Void)?
 
+    public init(
+        isPhotoPickerPresented: Binding<Bool>,
+        isCameraPresented: Binding<Bool>,
+        onVoiceMemoTap: @escaping () -> Void,
+        onFilePickerTap: @escaping () -> Void,
+        onConvosAction: @escaping () -> Void,
+        isMediaCapacityFull: Bool = false,
+        isVoiceMemoDisabled: Bool = false,
+        isSideConvoDisabled: Bool = false,
+        showsSideConvoButton: Bool = true,
+        showsFileButton: Bool = true,
+        buttonSpacing: CGFloat = DesignConstants.Spacing.step2x,
+        onConnectionsTap: (() -> Void)? = nil,
+        onDebugAttachmentTap: (() -> Void)? = nil
+    ) {
+        _isPhotoPickerPresented = isPhotoPickerPresented
+        _isCameraPresented = isCameraPresented
+        self.onVoiceMemoTap = onVoiceMemoTap
+        self.onFilePickerTap = onFilePickerTap
+        self.onConvosAction = onConvosAction
+        self.isMediaCapacityFull = isMediaCapacityFull
+        self.isVoiceMemoDisabled = isVoiceMemoDisabled
+        self.isSideConvoDisabled = isSideConvoDisabled
+        self.showsSideConvoButton = showsSideConvoButton
+        self.showsFileButton = showsFileButton
+        self.buttonSpacing = buttonSpacing
+        self.onConnectionsTap = onConnectionsTap
+        self.onDebugAttachmentTap = onDebugAttachmentTap
+    }
+
     private var mediaTint: Color {
         isMediaCapacityFull ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary
     }
@@ -28,7 +59,7 @@ struct MessagesMediaButtonsView: View {
         isVoiceMemoDisabled ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary
     }
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: buttonSpacing) {
             Button {
                 isPhotoPickerPresented = true
@@ -116,7 +147,7 @@ struct MessagesMediaButtonsView: View {
                 Button {
                     onConvosAction()
                 } label: {
-                    Image("convosOrangeIcon")
+                    Image("convosOrangeIcon", bundle: .module)
                         .renderingMode(.template)
                         .resizable()
                         .scaledToFit()
@@ -173,3 +204,4 @@ struct MessagesMediaButtonsView: View {
     )
     .padding()
 }
+#endif

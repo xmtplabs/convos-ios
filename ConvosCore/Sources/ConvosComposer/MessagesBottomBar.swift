@@ -1,4 +1,4 @@
-import ConvosComposer
+#if canImport(UIKit)
 import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
@@ -34,7 +34,7 @@ private struct FilePickerModifier: ViewModifier {
     }
 }
 
-struct MessagesBottomBar<BottomBarContent: View>: View {
+public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePreview: View, AgentChip: View>: View {
     let profile: Profile
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
@@ -49,17 +49,15 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
-    var pendingAgentShareName: String?
-    var pendingAgentShareEmoji: String?
-    var pendingAgentShareSummary: String?
     var isShowingAgentShareChip: Bool = false
-    var onClearAgentShare: (() -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
-    let onboardingCoordinator: ConversationOnboardingCoordinator
+    let isSettingUpProfile: Bool
+    let animateAvatarForProfileSetup: Bool
+    let canEditProfile: Bool
     let messagesTextFieldEnabled: Bool
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
@@ -80,8 +78,16 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var onDebugAttachmentTap: (() -> Void)?
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
-
-    @State private var profileSettings: ProfileSettingsViewModel = .shared
+    /// App-provided quick-edit profile editor shown when the bar expands for
+    /// display-name editing. Receives the placeholder text and a binding to
+    /// the bar's image-picker presentation state.
+    @ViewBuilder let quickEditView: (String, Binding<Bool>) -> QuickEdit
+    /// App-provided content for a staged file attachment chip, forwarded to
+    /// `MessagesInputView`.
+    @ViewBuilder let fileAttachmentPreview: (PendingFileAttachment) -> FilePreview
+    /// App-provided chip for a staged agent-share link, forwarded to
+    /// `MessagesInputView`.
+    @ViewBuilder let agentShareChip: () -> AgentChip
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -97,11 +103,101 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
 
-    var profilePlaceholderText: String {
-        onboardingCoordinator.state == .settingUpProfile ? "Add your name" : "Your name"
+    public init(
+        profile: Profile,
+        displayName: Binding<String>,
+        messageText: Binding<String>,
+        pendingMediaAttachments: [PendingMediaAttachment] = [],
+        composerLinkPreview: LinkPreview? = nil,
+        pendingInviteURL: String? = nil,
+        pendingInviteIsEditable: Bool = true,
+        pendingInviteEmoji: String? = nil,
+        pendingInviteConvoName: Binding<String>,
+        pendingInviteImage: Binding<UIImage?>,
+        pendingInviteExplodeDuration: ExplodeDuration? = nil,
+        onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)? = nil,
+        onInviteConvoNameEditingEnded: ((String) -> Void)? = nil,
+        isShowingAgentShareChip: Bool = false,
+        sendButtonEnabled: Bool,
+        profileImage: Binding<UIImage?>,
+        isPhotoPickerPresented: Binding<Bool>,
+        focusState: FocusState<MessagesViewInputFocus?>.Binding,
+        focusCoordinator: FocusCoordinator,
+        isSettingUpProfile: Bool,
+        animateAvatarForProfileSetup: Bool,
+        canEditProfile: Bool,
+        messagesTextFieldEnabled: Bool,
+        onProfilePhotoTap: @escaping () -> Void,
+        onSendMessage: @escaping () -> Void,
+        onClearInvite: @escaping () -> Void,
+        onClearLinkPreview: @escaping () -> Void,
+        onClearMediaAttachment: @escaping (UUID) -> Void,
+        onDisplayNameEndedEditing: @escaping () -> Void,
+        onPhotoSelected: @escaping (UIImage) -> Void,
+        onVideoSelected: @escaping (URL) -> Void,
+        onFileSelected: @escaping (URL, String, String, Int) -> Void,
+        onProfileSettings: @escaping () -> Void,
+        onVoiceMemoTap: @escaping () -> Void,
+        voiceMemoRecorder: VoiceMemoRecorder,
+        onSendVoiceMemo: @escaping () -> Void,
+        onConvosAction: @escaping () -> Void,
+        onDebugAttachmentTap: (() -> Void)? = nil,
+        onBaseHeightChanged: @escaping (CGFloat) -> Void,
+        @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
+        @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit,
+        @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
+        @ViewBuilder agentShareChip: @escaping () -> AgentChip
+    ) {
+        self.profile = profile
+        _displayName = displayName
+        _messageText = messageText
+        self.pendingMediaAttachments = pendingMediaAttachments
+        self.composerLinkPreview = composerLinkPreview
+        self.pendingInviteURL = pendingInviteURL
+        self.pendingInviteIsEditable = pendingInviteIsEditable
+        self.pendingInviteEmoji = pendingInviteEmoji
+        _pendingInviteConvoName = pendingInviteConvoName
+        _pendingInviteImage = pendingInviteImage
+        self.pendingInviteExplodeDuration = pendingInviteExplodeDuration
+        self.onSetInviteExplodeDuration = onSetInviteExplodeDuration
+        self.onInviteConvoNameEditingEnded = onInviteConvoNameEditingEnded
+        self.isShowingAgentShareChip = isShowingAgentShareChip
+        self.sendButtonEnabled = sendButtonEnabled
+        _profileImage = profileImage
+        _isPhotoPickerPresented = isPhotoPickerPresented
+        _focusState = focusState
+        self.focusCoordinator = focusCoordinator
+        self.isSettingUpProfile = isSettingUpProfile
+        self.animateAvatarForProfileSetup = animateAvatarForProfileSetup
+        self.canEditProfile = canEditProfile
+        self.messagesTextFieldEnabled = messagesTextFieldEnabled
+        self.onProfilePhotoTap = onProfilePhotoTap
+        self.onSendMessage = onSendMessage
+        self.onClearInvite = onClearInvite
+        self.onClearLinkPreview = onClearLinkPreview
+        self.onClearMediaAttachment = onClearMediaAttachment
+        self.onDisplayNameEndedEditing = onDisplayNameEndedEditing
+        self.onPhotoSelected = onPhotoSelected
+        self.onVideoSelected = onVideoSelected
+        self.onFileSelected = onFileSelected
+        self.onProfileSettings = onProfileSettings
+        self.onVoiceMemoTap = onVoiceMemoTap
+        self.voiceMemoRecorder = voiceMemoRecorder
+        self.onSendVoiceMemo = onSendVoiceMemo
+        self.onConvosAction = onConvosAction
+        self.onDebugAttachmentTap = onDebugAttachmentTap
+        self.onBaseHeightChanged = onBaseHeightChanged
+        self.bottomBarContent = bottomBarContent
+        self.quickEditView = quickEditView
+        self.fileAttachmentPreview = fileAttachmentPreview
+        self.agentShareChip = agentShareChip
     }
 
-    var body: some View {
+    var profilePlaceholderText: String {
+        isSettingUpProfile ? "Add your name" : "Your name"
+    }
+
+    public var body: some View {
         bodyContent
             .modifier(filePickerModifier)
     }
@@ -443,22 +539,20 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                pendingAgentShareName: pendingAgentShareName,
-                pendingAgentShareEmoji: pendingAgentShareEmoji,
-                pendingAgentShareSummary: pendingAgentShareSummary,
                 isShowingAgentShareChip: isShowingAgentShareChip,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
-                animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
+                animateAvatarForProfileSetup: animateAvatarForProfileSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 isCollapsed: !isMessageInputFocused,
-                canEditProfile: profileSettings.profileSettings.isDefault,
+                canEditProfile: canEditProfile,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
-                onClearAgentShare: onClearAgentShare,
                 onClearLinkPreview: onClearLinkPreview,
-                onClearMediaAttachment: onClearMediaAttachment
+                onClearMediaAttachment: onClearMediaAttachment,
+                fileAttachmentPreview: fileAttachmentPreview,
+                agentShareChip: agentShareChip
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -480,122 +574,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
     @ViewBuilder
     private var expandedQuickEditView: some View {
-        QuickEditView(
-            placeholderText: profilePlaceholderText,
-            text: $displayName,
-            image: $profileImage,
-            isImagePickerPresented: $isImagePickerPresented,
-            imageAssetIdentifier: Binding(
-                get: { profileSettings.profileImageAssetIdentifier },
-                set: { profileSettings.profileImageAssetIdentifier = $0 }
-            ),
-            focusState: $focusState,
-            focused: .displayName,
-            settingsSymbolName: "lanyardcard.fill",
-            showsSettingsButton: false,
-            onSubmit: onDisplayNameEndedEditing,
-            onSettings: onProfileSettings
-        )
-        .frame(maxWidth: 320.0)
-        .padding(DesignConstants.Spacing.step6x)
-        .clipShape(.rect(cornerRadius: 40.0))
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
-        .glassEffectID("profileEditor", in: namespace)
-        .glassEffectTransition(.matchedGeometry)
+        quickEditView(profilePlaceholderText, $isImagePickerPresented)
+            .frame(maxWidth: 320.0)
+            .padding(DesignConstants.Spacing.step6x)
+            .clipShape(.rect(cornerRadius: 40.0))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
+            .glassEffectID("profileEditor", in: namespace)
+            .glassEffectTransition(.matchedGeometry)
     }
 }
-
-#Preview {
-    @Previewable @State var profile: Profile = .mock()
-    @Previewable @State var profileName: String = ""
-    @Previewable @State var messageText: String = ""
-    @Previewable @State var pendingInviteURLPreview: String?
-    @Previewable @State var sendButtonEnabled: Bool = false
-    @Previewable @State var profileImage: UIImage?
-    @Previewable @State var isPhotoPickerPresented: Bool = false
-    @Previewable @State var onboardingCoordinator: ConversationOnboardingCoordinator = .init()
-    @Previewable @FocusState var focusState: MessagesViewInputFocus?
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    @Previewable @State var bottomBarHeight: CGFloat = 0.0
-
-    Group {
-        MessagesViewRepresentable(
-            conversation: .mock(),
-            messages: [],
-            invite: .mock(),
-            onUserInteraction: {},
-            hasLoadedAllMessages: true,
-            shouldBlurPhotos: false,
-            focusCoordinator: focusCoordinator,
-            onTapAvatar: { _ in },
-            onLoadPreviousMessages: {},
-            onTapInvite: { _ in },
-            onReaction: { _, _ in },
-            onToggleReaction: { _, _ in },
-            onTapReactions: { _ in },
-            onTapReadReceipts: { _ in },
-            onTapThinkingIndicator: { _ in },
-            onReply: { _ in },
-            contextMenuState: .init(),
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in },
-            onAgentOutOfCredits: {},
-            creditsDepleted: false,
-            onTapUpdateMember: { _ in },
-            onRetryMessage: { _ in },
-            onDeleteMessage: { _ in },
-            onRetryAgentJoin: {},
-            onCopyInviteLink: {},
-            onConvoCode: {},
-            onInviteAgent: {},
-            onRetryTranscript: { _ in },
-            profileSheetForMember: { _ in AnyView(EmptyView()) },
-            memberContactOverride: { _ in nil },
-            isAgentJoinPending: false,
-            bottomBarHeight: bottomBarHeight,
-            scrollToBottomTrigger: { _ in },
-            messageInputFocusTrigger: { _ in }
-        )
-        .ignoresSafeArea()
-    }
-    .safeAreaBar(edge: .bottom) {
-        MessagesBottomBar(
-            profile: profile,
-            displayName: $profileName,
-            messageText: $messageText,
-            pendingInviteURL: pendingInviteURLPreview,
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: sendButtonEnabled,
-            profileImage: $profileImage,
-            isPhotoPickerPresented: $isPhotoPickerPresented,
-            focusState: $focusState,
-            focusCoordinator: focusCoordinator,
-            onboardingCoordinator: onboardingCoordinator,
-            messagesTextFieldEnabled: true,
-            onProfilePhotoTap: {
-                focusCoordinator.moveFocus(to: .displayName)
-            },
-            onSendMessage: {},
-            onClearInvite: { pendingInviteURLPreview = nil },
-            onClearLinkPreview: {},
-            onClearMediaAttachment: { _ in },
-            onDisplayNameEndedEditing: {
-                focusCoordinator.endEditing(for: .displayName)
-            },
-            onPhotoSelected: { _ in },
-            onVideoSelected: { _ in },
-            onFileSelected: { _, _, _, _ in },
-            onProfileSettings: {},
-            onVoiceMemoTap: {},
-            voiceMemoRecorder: VoiceMemoRecorder(),
-            onSendVoiceMemo: {},
-            onConvosAction: {},
-            onBaseHeightChanged: { height in
-                bottomBarHeight = height
-            },
-            bottomBarContent: { EmptyView() }
-        )
-    }
-}
+#endif

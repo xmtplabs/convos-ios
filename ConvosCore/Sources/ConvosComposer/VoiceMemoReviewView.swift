@@ -1,7 +1,8 @@
-import ConvosCore
+#if canImport(UIKit)
+import AVFoundation
 import SwiftUI
 
-struct VoiceMemoReviewView: View {
+public struct VoiceMemoReviewView: View {
     let audioURL: URL
     let duration: TimeInterval
     let levels: [Float]
@@ -15,7 +16,14 @@ struct VoiceMemoReviewView: View {
         levels
     }
 
-    var body: some View {
+    public init(audioURL: URL, duration: TimeInterval, levels: [Float], onSend: @escaping () -> Void) {
+        self.audioURL = audioURL
+        self.duration = duration
+        self.levels = levels
+        self.onSend = onSend
+    }
+
+    public var body: some View {
         HStack(spacing: 0) {
             Button {
                 togglePlayback()
@@ -122,8 +130,6 @@ struct VoiceMemoReviewView: View {
     }
 }
 
-import AVFoundation
-
 #Preview {
     let levels: [Float] = (0 ..< 60).map { _ in Float.random(in: 0.05 ... 1.0) }
     VoiceMemoReviewView(
@@ -134,3 +140,4 @@ import AVFoundation
     )
     .padding()
 }
+#endif
