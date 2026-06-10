@@ -136,17 +136,22 @@ struct AttachmentShareLink: View {
     }
 
     private func writeSharePNG(image: UIImage, basename: String) async -> URL? {
-        guard let pngData = image.pngData() else {
-            Log.error("AttachmentShareLink: failed to encode share image PNG")
-            return nil
-        }
         let url: URL = FileManager.default.temporaryDirectory.appendingPathComponent("\(basename).png")
-        do {
-            try pngData.write(to: url, options: .atomic)
-            return url
-        } catch {
-            Log.error("AttachmentShareLink: failed to write share PNG: \(error)")
-            return nil
-        }
+        // Full-page renders are large bitmaps; encode and write off the main
+        // actor so the share button does not stall the UI.
+        let written: Bool = await Task.detached(priority: .utility) {
+            guard let pngData = image.pngData() else {
+                Log.error("AttachmentShareLink: failed to encode share image PNG")
+                return false
+            }
+            do {
+                try pngData.write(to: url, options: .atomic)
+                return true
+            } catch {
+                Log.error("AttachmentShareLink: failed to write share PNG: \(error)")
+                return false
+            }
+        }.value
+        return written ? url : nil
     }
 }
