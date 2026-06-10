@@ -58,6 +58,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     let isSettingUpProfile: Bool
     let animateAvatarForProfileSetup: Bool
     let canEditProfile: Bool
+    /// Pins the input bar in its expanded (full-width) state and disables the
+    /// collapse chevron. Used by hosts without focus-coordinator-driven
+    /// expand/collapse, like the share extension.
+    let pinsExpandedInput: Bool
     let messagesTextFieldEnabled: Bool
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
@@ -126,6 +130,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         isSettingUpProfile: Bool,
         animateAvatarForProfileSetup: Bool,
         canEditProfile: Bool,
+        pinsExpandedInput: Bool = false,
         messagesTextFieldEnabled: Bool,
         onProfilePhotoTap: @escaping () -> Void,
         onSendMessage: @escaping () -> Void,
@@ -170,6 +175,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.isSettingUpProfile = isSettingUpProfile
         self.animateAvatarForProfileSetup = animateAvatarForProfileSetup
         self.canEditProfile = canEditProfile
+        self.pinsExpandedInput = pinsExpandedInput
+        self._isMessageInputFocused = State(initialValue: pinsExpandedInput)
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
         self.onProfilePhotoTap = onProfilePhotoTap
         self.onSendMessage = onSendMessage
@@ -291,7 +298,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         guard !isImagePickerPresented else { return }
         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
             isExpanded = newValue == .displayName
-            isMessageInputFocused = newValue == .message
+            isMessageInputFocused = pinsExpandedInput
+                || newValue == .message
                 || newValue == .voiceMemoRecording
                 || newValue == .sideConvoName
         }
@@ -483,7 +491,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 .buttonStyle(.plain)
                 .accessibilityLabel("Show media buttons")
                 .accessibilityIdentifier("collapse-input-button")
-                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+                .disabled(pinsExpandedInput)
+                .opacity(messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4)
                 .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
                 .clipShape(.circle)
                 .glassEffect(.regular.interactive(), in: .circle)

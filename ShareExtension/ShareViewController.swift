@@ -117,7 +117,8 @@ final class ShareComposeModel {
             targetConversation = target
             // The donated intent carries the conversation's display name
             // (Conversation.title lives in the app target, not here).
-            targetTitle = intent?.speakableGroupName?.spokenPhrase ?? target?.name ?? "Convo"
+            let fallbackTitle: String? = target.map { $0.computedDisplayName(memberNameOverride: { _ in nil }) }
+            targetTitle = intent?.speakableGroupName?.spokenPhrase ?? fallbackTitle ?? "Convo"
 
             if let target {
                 startObservingMessages(for: target, client: client)
@@ -241,10 +242,19 @@ struct ShareComposeView: View {
     @State private var contextMenuState: MessageContextMenuState = MessageContextMenuState()
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            transcript
-            composerBar
+        NavigationStack {
+            VStack(spacing: 0) {
+                transcript
+                composerBar
+            }
+            .toolbar { closeToolbarItem }
+            .toolbarTitleDisplayMode(.inline)
+        }
+        .overlay(alignment: .top) {
+            if let conversation = model.targetConversation {
+                conversationIndicator(for: conversation)
+                    .padding(.top, DesignConstants.Spacing.step2x)
+            }
         }
         .onAppear { focusState = .message }
         .onChange(of: model.targetTitle) { _, newValue in
@@ -254,21 +264,6 @@ struct ShareComposeView: View {
 
     /// App-chrome top bar: the conversation indicator pill centered (once a
     /// target conversation is resolved), with a glass-circle close button
-    /// pinned trailing.
-    private var topBar: some View {
-        ZStack {
-            if let conversation = model.targetConversation {
-                conversationIndicator(for: conversation)
-            }
-            HStack {
-                Spacer()
-                closeButton
-            }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step2x)
-    }
-
     private func conversationIndicator(for conversation: Conversation) -> some View {
         ConversationIndicator(
             conversation: conversation,
@@ -295,18 +290,12 @@ struct ShareComposeView: View {
         )
     }
 
-    private var closeButton: some View {
-        let action = { onCancel() }
-        return Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.primary)
-                .frame(width: DesignConstants.Spacing.step11x, height: DesignConstants.Spacing.step11x)
+    @ToolbarContentBuilder
+    private var closeToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(role: .close, action: onCancel)
+                .accessibilityIdentifier("share-cancel-button")
         }
-        .clipShape(.circle)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("Cancel")
-        .accessibilityIdentifier("share-cancel-button")
     }
 
     @ViewBuilder
@@ -348,6 +337,7 @@ struct ShareComposeView: View {
                 isAgentJoinPending: false,
                 headerMode: .suppressed,
                 bottomBarHeight: 0,
+                hasBottomBar: false,
                 scrollToBottomTrigger: { _ in },
                 messageInputFocusTrigger: { _ in }
             )
@@ -378,6 +368,7 @@ struct ShareComposeView: View {
             isSettingUpProfile: false,
             animateAvatarForProfileSetup: false,
             canEditProfile: false,
+            pinsExpandedInput: true,
             messagesTextFieldEnabled: model.isReady,
             onProfilePhotoTap: {},
             onSendMessage: { _ = handleSend() },
