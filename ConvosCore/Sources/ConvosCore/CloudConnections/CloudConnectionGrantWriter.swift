@@ -72,6 +72,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         try await databaseWriter.write { db in
             try grant.save(db)
         }
+
+        await pushGrantToBackend(grant, connection: connection)
     }
 
     func revokeGrant(
@@ -91,7 +93,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 )
                 .fetchOne(db)
         }
-        guard existing != nil else {
+        guard let existing else {
             // Nothing to revoke, no-op.
             return
         }
@@ -114,6 +116,62 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                         && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
                 )
                 .deleteAll(db)
+        }
+
+        if let backendGrantId = existing.backendGrantId {
+            await revokeBackendGrant(backendGrantId, for: existing)
+        }
+    }
+
+    /// Pushes one per-agent consent record to the backend grant store and
+    /// remembers the returned id on the local row so revocation can target it.
+    /// Best-effort with no retry: on failure the local grant stands, but the
+    /// backend will deny the agent's tool execution (403) until the user
+    /// re-grants, so the failure is logged at error level.
+    private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            let response = try await inboxReady.apiClient.createConnectionGrant(
+                ownerInboxId: inboxReady.client.inboxId,
+                granteeInboxId: grant.grantedToInboxId,
+                conversationId: grant.conversationId,
+                toolkit: connection.serviceId,
+                connectionId: connection.composioConnectionId
+            )
+            let updated = DBCloudConnectionGrant(
+                connectionId: grant.connectionId,
+                conversationId: grant.conversationId,
+                serviceId: grant.serviceId,
+                grantedToInboxId: grant.grantedToInboxId,
+                grantedAt: grant.grantedAt,
+                backendGrantId: response.id
+            )
+            try await databaseWriter.write { db in
+                try updated.save(db)
+            }
+        } catch {
+            Log.error(
+                "[CloudConnections] backend grant push failed; agent will get 403 from backend-mediated " +
+                "execution until the user re-grants (connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
+            )
+        }
+    }
+
+    /// Revokes the backend consent record for a grant that was just removed
+    /// locally. Best-effort: a failure is logged and not retried; the backend
+    /// connection-level revoke (disconnect) independently cuts off execution.
+    private func revokeBackendGrant(_ backendGrantId: String, for grant: DBCloudConnectionGrant) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            try await inboxReady.apiClient.revokeConnectionGrant(id: backendGrantId)
+        } catch {
+            Log.warning(
+                "[CloudConnections] backend grant revoke failed (backendGrantId=\(backendGrantId), " +
+                "connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+            )
         }
     }
 

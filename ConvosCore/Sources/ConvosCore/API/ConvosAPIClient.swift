@@ -121,6 +121,24 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse]
     func revokeCloudConnection(connectionId: String) async throws
 
+    /// Pushes one per-agent consent record to the backend grant store. The
+    /// backend uses these records to authorize agent tool execution; without
+    /// the push the agent gets 403. Re-posting the same (owner, grantee,
+    /// conversation, toolkit) tuple upserts (also un-revokes) and returns the
+    /// same id.
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        connectionId: String?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse
+
+    /// Revokes a backend consent record previously created by
+    /// `createConnectionGrant`. The backend returns 404 for unknown or
+    /// not-owned ids; that surfaces here as an error the caller can log.
+    func revokeConnectionGrant(id: String) async throws
+
     // IAP credits + subscriptions
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
@@ -842,6 +860,41 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func revokeCloudConnection(connectionId: String) async throws {
         let request = try authenticatedRequest(for: "v2/connections/\(connectionId)", method: "DELETE")
+        let _: EmptyResponse = try await performRequest(request)
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        connectionId: String?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        var request = try authenticatedRequest(for: "v2/connections/grants", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct GrantBody: Codable {
+            let ownerInboxId: String
+            let granteeInboxId: String
+            let conversationId: String
+            let toolkit: String
+            let connectionId: String?
+        }
+        request.httpBody = try JSONEncoder().encode(
+            GrantBody(
+                ownerInboxId: ownerInboxId,
+                granteeInboxId: granteeInboxId,
+                conversationId: conversationId,
+                toolkit: toolkit,
+                connectionId: connectionId
+            )
+        )
+
+        return try await performRequest(request)
+    }
+
+    func revokeConnectionGrant(id: String) async throws {
+        let request = try authenticatedRequest(for: "v2/connections/grants/\(id)", method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
     }
 

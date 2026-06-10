@@ -10,6 +10,7 @@ struct DBCloudConnectionGrant: Codable, FetchableRecord, PersistableRecord, Hash
         static let serviceId: Column = Column(CodingKeys.serviceId)
         static let grantedToInboxId: Column = Column(CodingKeys.grantedToInboxId)
         static let grantedAt: Column = Column(CodingKeys.grantedAt)
+        static let backendGrantId: Column = Column(CodingKeys.backendGrantId)
     }
 
     let connectionId: String
@@ -17,6 +18,26 @@ struct DBCloudConnectionGrant: Codable, FetchableRecord, PersistableRecord, Hash
     let serviceId: String
     let grantedToInboxId: String
     let grantedAt: Date
+    /// Id of the backend ConnectionGrant record created when this grant was
+    /// pushed to the server. Nil when the push hasn't happened or failed;
+    /// backend revocation is skipped for those rows.
+    let backendGrantId: String?
+
+    init(
+        connectionId: String,
+        conversationId: String,
+        serviceId: String,
+        grantedToInboxId: String,
+        grantedAt: Date,
+        backendGrantId: String? = nil
+    ) {
+        self.connectionId = connectionId
+        self.conversationId = conversationId
+        self.serviceId = serviceId
+        self.grantedToInboxId = grantedToInboxId
+        self.grantedAt = grantedAt
+        self.backendGrantId = backendGrantId
+    }
 }
 
 extension DBCloudConnectionGrant {
@@ -36,5 +57,6 @@ extension DBCloudConnectionGrant {
         self.serviceId = grant.serviceId
         self.grantedToInboxId = grant.grantedToInboxId
         self.grantedAt = grant.grantedAt
+        self.backendGrantId = nil
     }
 }

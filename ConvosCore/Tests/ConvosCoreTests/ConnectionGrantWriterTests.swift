@@ -20,11 +20,11 @@ struct ConnectionGrantWriterTests {
         let profileWriter: MockMyProfileWriter
         let writer: CloudConnectionGrantWriter
 
-        init(inboxId: String = "mock-inbox-id") {
+        init(inboxId: String = "mock-inbox-id", apiClient: (any ConvosAPIClientProtocol)? = nil) {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
             let profileWriter = MockMyProfileWriter()
             let mockClient = MockXMTPClientProvider(inboxId: inboxId)
-            let sessionStateManager = MockSessionStateManager(mockClient: mockClient)
+            let sessionStateManager = MockSessionStateManager(mockClient: mockClient, mockAPIClient: apiClient)
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager
             self.profileWriter = profileWriter
@@ -91,14 +91,16 @@ struct ConnectionGrantWriterTests {
             connectionId: String,
             conversationId: String,
             serviceId: String,
-            grantedToInboxId: String = "agent-1"
+            grantedToInboxId: String = "agent-1",
+            backendGrantId: String? = nil
         ) throws {
             let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
                 grantedToInboxId: grantedToInboxId,
-                grantedAt: Date()
+                grantedAt: Date(),
+                backendGrantId: backendGrantId
             )
             try databaseManager.dbWriter.write { db in
                 try grant.save(db)
@@ -306,5 +308,131 @@ struct ConnectionGrantWriterTests {
         #expect(payload.grants.count == 2)
         let serviceIds = Set(payload.grants.map(\.service))
         #expect(serviceIds == ["googlecalendar", "googledrive"])
+    }
+
+    // MARK: - Backend grant push
+
+    @Test("Grant: pushes one backend consent record and stores the returned id")
+    func grantPushesBackendGrantAndStoresId() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.ownerInboxId == "mock-inbox-id")
+        #expect(call.granteeInboxId == "agent-1")
+        #expect(call.conversationId == conversationId)
+        #expect(call.toolkit == connection.serviceId)
+        #expect(call.connectionId == connection.composioConnectionId)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
+    @Test("Grant: backend push failure keeps the local grant with a nil backend id")
+    func grantSurvivesBackendPushFailure() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "local grant should stand when the backend push fails")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Revoke: revokes the backend consent record when an id is stored")
+    func revokeRevokesBackendGrant() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_rev"
+        try fixture.seedConversation(id: conversationId)
+        try fixture.seedGrant(
+            connectionId: connection.id,
+            conversationId: conversationId,
+            serviceId: connection.serviceId,
+            backendGrantId: "backend-grant-42"
+        )
+
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(recordingClient.revokeCalls == ["backend-grant-42"])
+    }
+
+    @Test("Revoke: skips the backend call when no backend id is stored")
+    func revokeSkipsBackendWithoutId() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_skip"
+        try fixture.seedConversation(id: conversationId)
+        try fixture.seedGrant(
+            connectionId: connection.id,
+            conversationId: conversationId,
+            serviceId: connection.serviceId
+        )
+
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(recordingClient.revokeCalls.isEmpty)
+    }
+}
+
+/// Records backend grant push/revoke calls made by `CloudConnectionGrantWriter`
+/// so tests can assert the consent records sent to the server.
+private final class RecordingGrantAPIClient: TestStubAPIClient {
+    struct CreateCall: Sendable {
+        let ownerInboxId: String
+        let granteeInboxId: String
+        let conversationId: String
+        let toolkit: String
+        let connectionId: String?
+    }
+
+    var createCalls: [CreateCall] = []
+    var revokeCalls: [String] = []
+    var createError: Error?
+
+    override func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        connectionId: String?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        if let createError {
+            throw createError
+        }
+        createCalls.append(CreateCall(
+            ownerInboxId: ownerInboxId,
+            granteeInboxId: granteeInboxId,
+            conversationId: conversationId,
+            toolkit: toolkit,
+            connectionId: connectionId
+        ))
+        return CloudConnectionsAPI.CreateGrantResponse(id: "backend-grant-\(createCalls.count)")
+    }
+
+    override func revokeConnectionGrant(id: String) async throws {
+        revokeCalls.append(id)
     }
 }
