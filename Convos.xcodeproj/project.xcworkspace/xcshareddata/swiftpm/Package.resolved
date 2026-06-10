@@ -1,5 +1,5 @@
 {
-  "originHash" : "6d7728d9b1fb7fa0ef24007891317f13cfbd2082accdfa2aae24097c13efe508",
+  "originHash" : "bda0ed788167ae17f3a13ebcf47c374b7d3fb34bc58c18aed3aa73fa0c42c049",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "8b7bfe0e865239b6b018dbfad75398e8ebcfd3bb"
+        "branch" : "jarod/assistant-join-metrics",
+        "revision" : "db0dde49c87c670758ca7a14488d863701a9be1d"
       }
     },
     {
@@ -222,8 +222,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "2aed77ae5ec9a86d8fe42c12275e4c2653a286ee",
+        "version" : "1.13.1"
       }
     },
     {

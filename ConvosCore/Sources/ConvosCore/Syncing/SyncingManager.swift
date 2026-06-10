@@ -1039,11 +1039,13 @@ extension SyncingManager {
             }
             let acceptedCount = await runAgentJoinPollBatch(params: params, since: cursor)
             if acceptedCount > 0 {
-                let lastStreamEvent: String = lastMessageStreamEventDate.map { "\(Int(Date().timeIntervalSince($0)))s ago" } ?? "never"
+                let streamAgeSecs: Float = lastMessageStreamEventDate.map { Float(Date().timeIntervalSince($0)) } ?? -1
+                let lastStreamEvent: String = streamAgeSecs >= 0 ? "\(Int(streamAgeSecs))s ago" : "never"
                 Log.warning(
                     "[agent-join-poll] tick \(tick): accepted \(acceptedCount) join request(s) the message stream had not processed" +
                     " (last stream message: \(lastStreamEvent)) - message stream is likely dead"
                 )
+                await coreActions.assistantJoinRescuedByPolling(streamAgeSecs: streamAgeSecs, pollTick: tick)
             } else {
                 Log.debug("[agent-join-poll] tick \(tick): no unprocessed join requests")
             }

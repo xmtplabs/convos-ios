@@ -264,6 +264,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     private var newConversationTask: Task<Void, Error>?
     @ObservationIgnored
     private var joinConversationTask: Task<Void, Error>?
+    /// Emits `conversation_join_timed_out` when the join is still unverified
+    /// after the wait window - the conversation creator's device never
+    /// approved the join request while the user watched the "Verifying"
+    /// state. Cancelled on success, failure, and teardown.
+    @ObservationIgnored
+    private var joinTimeoutTask: Task<Void, Never>?
     @ObservationIgnored
     private var resetTask: Task<Void, Never>?
     @ObservationIgnored
@@ -396,6 +402,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         inboxAcquisitionTask?.cancel()
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        joinTimeoutTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
         optimisticAgentResolveTask?.cancel()
@@ -718,6 +725,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
 
         joinConversationTask?.cancel()
+        armJoinTimeout()
         joinConversationTask = Task { [weak self, conversationStateManager] in
             guard self != nil else { return }
             guard !Task.isCancelled else { return }
@@ -792,10 +800,35 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    private func armJoinTimeout() {
+        joinTimeoutTask?.cancel()
+        joinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Constant.joinWaitWindow))
+            guard !Task.isCancelled else { return }
+            self?.emitConversationJoinTimedOut()
+        }
+    }
+
+    /// The join request is still unapproved after the wait window: the user
+    /// has watched the "Verifying" state the whole time. Emits the
+    /// stuck-wait sample; `verificationStartedAt` is left in place so a
+    /// late approval still reports its true duration via
+    /// `joinedConversation` on success.
+    @MainActor
+    private func emitConversationJoinTimedOut() {
+        guard let startedAt = verificationStartedAt else { return }
+        let waitDuration = Float(CFAbsoluteTimeGetCurrent() - startedAt)
+        let source: ConversationSource = joinSource
+        let actions: any CoreActions = coreActions
+        Task { await actions.conversationJoinTimedOut(waitDuration: waitDuration, source: source) }
+    }
+
     // MARK: - Private
 
     @MainActor
     private func handleJoinSuccess() {
+        joinTimeoutTask?.cancel()
+        joinTimeoutTask = nil
         presentingJoinConversationSheet = false
         displayError = nil
 
@@ -817,6 +850,9 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     @MainActor
     private func handleJoinError(_ error: Error) {
+        // The user is watching the failure UI now, not the verifying state.
+        joinTimeoutTask?.cancel()
+        joinTimeoutTask = nil
         withAnimation {
             qrScannerViewModel.resetScanning()
 
@@ -890,6 +926,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         static let retryDelayShort: TimeInterval = 2
         static let retryDelayMedium: TimeInterval = 4
         static let retryDelayMax: TimeInterval = 8
+        /// How long an invite join may sit in the "Verifying" state before
+        /// `conversation_join_timed_out` is emitted. Matches the assistant
+        /// join wait window so the two stuck-wait metrics are comparable.
+        static let joinWaitWindow: TimeInterval = 150
     }
 }
 
@@ -936,6 +976,7 @@ extension NewConversationViewModel {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        joinTimeoutTask?.cancel()
         // A queued visibility commit must not survive dismissal - the user
         // abandoned the builder, so a late `.ready` shouldn't promote the
         // conversation into the chats list.
