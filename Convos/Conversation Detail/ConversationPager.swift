@@ -4,12 +4,12 @@ import SwiftUIIntrospect
 
 enum ConversationPagerPage: Int, CaseIterable, Identifiable {
     case messages
-    case stuff
+    case things
 
     var id: Int { rawValue }
 }
 
-struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
+struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
     /// Whether the dots are mounted at all. Drives the `safeAreaInset`
     /// itself, so flipping this resizes the pager content — only set it
@@ -23,13 +23,13 @@ struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
     /// presented so the dots fade out without resizing anything around
     /// them.
     var dotsHidden: Bool = false
-    /// When true, horizontal paging between `messages` and `stuff` is
+    /// When true, horizontal paging between `messages` and `things` is
     /// blocked. Used while the message long-press context menu is
     /// presented — without it the user can drag past the menu into the
-    /// stuff page mid-interaction.
+    /// things page mid-interaction.
     var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
-    @ViewBuilder let stuffPage: () -> StuffPage
+    @ViewBuilder let thingsPage: () -> ThingsPage
 
     var body: some View {
         GeometryReader { proxy in
@@ -39,9 +39,9 @@ struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .id(ConversationPagerPage.messages)
 
-                    stuffPage()
+                    thingsPage()
                         .frame(width: proxy.size.width, height: proxy.size.height)
-                        .id(ConversationPagerPage.stuff)
+                        .id(ConversationPagerPage.things)
                 }
                 .scrollTargetLayout()
             }
@@ -106,7 +106,7 @@ private struct ConversationPagerDots: View {
                 bottomTrailing: 8.0,
                 topTrailing: 8.0
             ))
-        case .stuff:
+        case .things:
             return UnevenRoundedRectangle(cornerRadii: .init(
                 topLeading: 2.0,
                 bottomLeading: 2.0,
@@ -119,7 +119,7 @@ private struct ConversationPagerDots: View {
     private func label(for page: ConversationPagerPage) -> String {
         switch page {
         case .messages: return "Messages"
-        case .stuff: return "Things"
+        case .things: return "Things"
         }
     }
 }

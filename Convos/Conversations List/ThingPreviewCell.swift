@@ -1,12 +1,12 @@
 import ConvosCore
 import SwiftUI
 
-/// One square cell in the Stuff tab's 2-column grid. Renders the most
+/// One square cell in the Things tab's 2-column grid. Renders the most
 /// recent HTML attachment from the conversation as a square preview
 /// (28pt corner radius, `.colorFillTertiary` placeholder while loading)
 /// with the conversation's display name + unread dot under it.
-struct StuffPreviewCell: View {
-    let item: StuffOverviewItem
+struct ThingPreviewCell: View {
+    let item: ThingOverviewItem
 
     @State private var renderedImage: UIImage?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
@@ -18,7 +18,7 @@ struct StuffPreviewCell: View {
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
             preview
-            // Unread dot intentionally hidden for now — tapping a Stuff
+            // Unread dot intentionally hidden for now — tapping a Things
             // cell pushes the file detail view, which doesn't mark the
             // underlying conversation as read. Re-enable once the tap
             // either marks-as-read or routes through the messages list.
@@ -80,7 +80,7 @@ struct StuffPreviewCell: View {
                 }
             }
         } catch {
-            Log.error("StuffPreviewCell: failed to load thumbnail for \(item.conversation.id): \(error)")
+            Log.error("ThingPreviewCell: failed to load thumbnail for \(item.conversation.id): \(error)")
         }
     }
 

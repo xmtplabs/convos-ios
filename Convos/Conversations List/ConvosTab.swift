@@ -5,13 +5,13 @@ import SwiftUI
 /// tab bar for Convos, Things, and Contacts.
 enum ConvosTab: Hashable {
     case chats
-    case stuff
+    case things
     case contacts
 
     var title: String {
         switch self {
         case .chats: "Convos"
-        case .stuff: "Things"
+        case .things: "Things"
         case .contacts: "Contacts"
         }
     }
@@ -19,7 +19,7 @@ enum ConvosTab: Hashable {
     var symbol: String {
         switch self {
         case .chats: "message.fill"
-        case .stuff: "square.grid.2x2.fill"
+        case .things: "square.grid.2x2.fill"
         case .contacts: "person.fill"
         }
     }

@@ -441,7 +441,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return $showingDebugInjector
     }
 
-    private var stuffPage: some View {
+    private var thingsPage: some View {
         AgentFilesLinksView(
             conversationId: viewModel.conversation.id,
             repository: viewModel.makeAgentFilesLinksRepository(),
@@ -533,7 +533,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             dotsHidden: contextMenuPresented,
             scrollingDisabled: contextMenuPresented,
             messagesPage: { messagesView },
-            stuffPage: { stuffPage }
+            thingsPage: { thingsPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
@@ -542,8 +542,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isKeyboardVisible = false
         }
         .onChange(of: pagerSelectedPage) { _, newPage in
-            if newPage != .stuff {
-                focusCoordinator.dismissStuffSearchIfNeeded()
+            if newPage != .things {
+                focusCoordinator.dismissThingsSearchIfNeeded()
             }
         }
         .onChange(of: viewModel.messageText) { _, _ in
@@ -559,7 +559,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.onConversationAppeared()
         }
         .onDisappear {
-            focusCoordinator.dismissStuffSearchIfNeeded()
+            focusCoordinator.dismissThingsSearchIfNeeded()
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
         }

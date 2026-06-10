@@ -10,8 +10,8 @@ enum MessagesViewTopBarTrailingItem {
 struct MessagesView<BottomBarContent: View>: View {
     /// Owned by the parent (`ConversationView`) so it can react to the
     /// long-press context menu being presented — currently used to lock
-    /// the conversation/stuff pager so a swipe mid-press doesn't drag the
-    /// user out of the conversation into the stuff page.
+    /// the conversation/things pager so a swipe mid-press doesn't drag the
+    /// user out of the conversation into the things page.
     @Bindable var contextMenuState: MessageContextMenuState
     let conversation: Conversation
     let messages: [MessagesListItemType]

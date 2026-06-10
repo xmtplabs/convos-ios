@@ -62,7 +62,7 @@ struct EmptyStateMockThingCarousel: View {
     }
 }
 
-/// Mock counterpart of [[StuffPreviewCell]]: the same square preview with
+/// Mock counterpart of [[ThingPreviewCell]]: the same square preview with
 /// the 28pt continuous corner radius, loading its thumbnail from a local
 /// example HTML file instead of a conversation attachment, with a label
 /// pill ("Dinner suggestion" etc.) over the bottom-leading corner.
@@ -118,7 +118,7 @@ struct EmptyStateMockThingCell: View {
 
     /// Includes the color scheme so the `.task(id:)` re-fires and swaps in
     /// the matching appearance's render when the user toggles light/dark,
-    /// mirroring [[StuffPreviewCell]].
+    /// mirroring [[ThingPreviewCell]].
     private var thumbnailTaskId: String {
         "\(item.thumbnailKey)-\(colorScheme == .dark ? "dark" : "light")"
     }

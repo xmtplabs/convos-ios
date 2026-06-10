@@ -5,15 +5,15 @@ import SwiftUI
 
 /// Push-friendly companion to `AttachmentPreviewSheet`: shows the same
 /// rendered HTML preview the in-conversation tap shows, but inside the
-/// Stuff tab's navigation stack (no inner NavigationStack of its own —
+/// Things tab's navigation stack (no inner NavigationStack of its own —
 /// the parent stack owns the back button).
 ///
 /// On appear, loads the local file URL for the attachment via
 /// `FileAttachmentLoader`. While the file is downloading we render a
 /// `colorFillTertiary` placeholder so the push transition has something
 /// to land on.
-struct StuffDetailView: View {
-    let item: StuffOverviewItem
+struct ThingDetailView: View {
+    let item: ThingOverviewItem
 
     @State private var fileURL: URL?
     @State private var htmlBodyBackgroundColor: Color?
@@ -86,7 +86,7 @@ struct StuffDetailView: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .accessibilityLabel("Share")
-                .accessibilityIdentifier("stuff-detail-share")
+                .accessibilityIdentifier("thing-detail-share")
             }
         }
     }
@@ -96,7 +96,7 @@ struct StuffDetailView: View {
             let url = try await FileAttachmentLoader.loadFile(for: item.hydratedAttachment)
             fileURL = url
         } catch {
-            Log.error("StuffDetailView: failed to load file for \(item.conversation.id): \(error)")
+            Log.error("ThingDetailView: failed to load file for \(item.conversation.id): \(error)")
             loadError = error.localizedDescription
         }
     }

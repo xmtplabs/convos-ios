@@ -11,7 +11,7 @@ extension MainTabView {
     struct MetricsObservers: ViewModifier {
         let activeTab: ConvosTab
         let scenePhase: ScenePhase
-        let stuffPushedItemId: String?
+        let thingsPushedItemId: String?
         let contactsPushedItemId: String?
         let presentingAppSettings: Bool
         let selectedConversationId: String?
@@ -20,7 +20,7 @@ extension MainTabView {
 
         let onActiveTabChanged: (ConvosTab, ConvosTab) -> Void
         let onScenePhaseChanged: (ScenePhase) -> Void
-        let onStuffPushChanged: (String?, String?) -> Void
+        let onThingsPushChanged: (String?, String?) -> Void
         let onContactsPushChanged: (String?, String?) -> Void
         let onAppSettingsPresented: (Bool) -> Void
         let onSelectedConversationChanged: (String?, String?) -> Void
@@ -31,7 +31,7 @@ extension MainTabView {
             content
                 .onChange(of: activeTab) { o, n in onActiveTabChanged(o, n) }
                 .onChange(of: scenePhase) { _, n in onScenePhaseChanged(n) }
-                .onChange(of: stuffPushedItemId) { o, n in onStuffPushChanged(o, n) }
+                .onChange(of: thingsPushedItemId) { o, n in onThingsPushChanged(o, n) }
                 .onChange(of: contactsPushedItemId) { o, n in onContactsPushChanged(o, n) }
                 .onChange(of: presentingAppSettings) { _, n in onAppSettingsPresented(n) }
                 .onChange(of: selectedConversationId) { o, n in onSelectedConversationChanged(o, n) }

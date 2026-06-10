@@ -2,11 +2,11 @@ import Combine
 import ConvosCore
 import Foundation
 
-/// One cell in the cross-conversation Stuff grid: the most recent
+/// One cell in the cross-conversation Things grid: the most recent
 /// agent-sent HTML attachment in `conversation`, plus enough info to
 /// render the preview thumbnail and the convo's display name + unread
 /// dot under it.
-struct StuffOverviewItem: Identifiable, Hashable {
+struct ThingOverviewItem: Identifiable, Hashable {
     let conversation: Conversation
     let attachmentKey: String
     let filename: String?
@@ -26,11 +26,11 @@ struct StuffOverviewItem: Identifiable, Hashable {
     }
 }
 
-/// View model for the Stuff tab's cross-conversation grid. Subscribes to
+/// View model for the Things tab's cross-conversation grid. Subscribes to
 /// the conversations list and, for each conversation, to that convo's
 /// `AgentFilesLinksRepository.filesPublisher` so we can pull out the
 /// latest HTML file. Builds a deduped, date-sorted array of
-/// [[StuffOverviewItem]] for the grid to render.
+/// [[ThingOverviewItem]] for the grid to render.
 ///
 /// One subscription per conversation is acceptable scale for v1; if list
 /// sizes ever grow past a couple hundred conversations the right next
@@ -39,8 +39,8 @@ struct StuffOverviewItem: Identifiable, Hashable {
 /// shot.
 @MainActor
 @Observable
-final class StuffOverviewViewModel {
-    var items: [StuffOverviewItem] = []
+final class ThingsOverviewViewModel {
+    var items: [ThingOverviewItem] = []
 
     @ObservationIgnored private let session: any SessionManagerProtocol
     @ObservationIgnored private var conversationsCancellable: AnyCancellable?
@@ -100,9 +100,9 @@ final class StuffOverviewViewModel {
     }
 
     private func rebuildItems() {
-        items = latestHTMLPerConvo.compactMap { id, file -> StuffOverviewItem? in
+        items = latestHTMLPerConvo.compactMap { id, file -> ThingOverviewItem? in
             guard let convo = conversationsById[id] else { return nil }
-            return StuffOverviewItem(
+            return ThingOverviewItem(
                 conversation: convo,
                 attachmentKey: file.attachmentKey,
                 filename: file.filename,
