@@ -229,7 +229,7 @@ struct AgentFilesLinksView: View {
     private var bodyContent: some View {
         if usesInlineHeader {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Stuff")
+                Text("Things")
                     .font(.largeTitle.bold())
                     .foregroundStyle(.colorTextPrimary)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -560,7 +560,7 @@ private extension View {
             self
         } else {
             self
-                .navigationTitle("Stuff")
+                .navigationTitle("Things")
                 .toolbarTitleDisplayMode(.large)
         }
     }

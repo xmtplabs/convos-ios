@@ -119,7 +119,7 @@ private struct ConversationPagerDots: View {
     private func label(for page: ConversationPagerPage) -> String {
         switch page {
         case .messages: return "Messages"
-        case .stuff: return "Stuff"
+        case .stuff: return "Things"
         }
     }
 }

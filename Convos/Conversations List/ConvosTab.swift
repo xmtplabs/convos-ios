@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Source of truth for which lane of the main shell is active. Used as the
 /// `selection` of the standard SwiftUI `TabView` that renders the system
-/// tab bar for Chats, Stuff, and Contacts.
+/// tab bar for Chats, Things, and Contacts.
 enum ConvosTab: Hashable {
     case chats
     case stuff
@@ -11,7 +11,7 @@ enum ConvosTab: Hashable {
     var title: String {
         switch self {
         case .chats: "Chats"
-        case .stuff: "Stuff"
+        case .stuff: "Things"
         case .contacts: "Contacts"
         }
     }

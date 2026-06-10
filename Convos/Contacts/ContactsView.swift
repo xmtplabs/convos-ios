@@ -88,7 +88,7 @@ struct ContactsView: View {
                 .safeAreaBar(edge: .top) {
                     ContactsSearchBar(
                         query: $viewModel.searchQuery,
-                        placeholder: "Search contacts",
+                        placeholder: "People and agents",
                         accessibilityIdentifier: "contacts-search-field",
                         filter: $viewModel.filter,
                         showBlocked: $viewModel.showBlocked
