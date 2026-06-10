@@ -29,6 +29,10 @@ CMD="${1:?usage: capture-logs.sh <start|dump> <run_id> <udid>}"
 RUN_ID="${2:?run_id required}"
 UDID="${3:?udid required}"
 
+# RUN_ID is a CXDB uuid in practice, but it builds a path below; strip anything
+# that could escape qa/artifacts/ (matches snap.sh's sanitization).
+RUN_ID=$(printf '%s' "$RUN_ID" | tr -c 'a-zA-Z0-9_-' '-')
+
 LOG_DIR="$REPO_ROOT/qa/artifacts/run-$RUN_ID/logs"
 MARKERS="$LOG_DIR/.markers"
 mkdir -p "$LOG_DIR"

@@ -21,6 +21,12 @@ STEP_ID="${3:?step_id required}"
 UDID="${4:?udid required}"
 CAPTION="${5:-}"
 
+# Sanitize anything that lands in a path: RUN_ID is a CXDB uuid and TEST_ID a
+# YAML id in practice, but a stray "../" or "/" would let mkdir/file writes
+# escape qa/artifacts/ or misdirect the screenshot. Same treatment as STEP_ID.
+RUN_ID=$(printf '%s' "$RUN_ID" | tr -c 'a-zA-Z0-9_-' '-')
+TEST_ID=$(printf '%s' "$TEST_ID" | tr -c 'a-zA-Z0-9_-' '-')
+
 SHOT_DIR="$REPO_ROOT/qa/artifacts/run-$RUN_ID/screenshots"
 mkdir -p "$SHOT_DIR"
 
