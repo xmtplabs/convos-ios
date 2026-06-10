@@ -92,9 +92,6 @@ struct EmptyStateMockThingCell: View {
                         .transition(.opacity)
                 }
             }
-            .overlay(alignment: .bottom) {
-                labelPill
-            }
             .clipShape(RoundedRectangle(cornerRadius: Constant.cornerRadius, style: .continuous))
             .task(id: thumbnailTaskId) {
                 await loadThumbnail()
@@ -109,35 +106,6 @@ struct EmptyStateMockThingCell: View {
                 .foregroundStyle(.colorTextSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-        }
-    }
-
-    /// Per the design spec: a bottom-centered pill, white at 60% over a
-    /// backdrop blur, no border, with a small gap between the emoji and
-    /// the label. Fixed dark text because the fill stays light in both
-    /// appearances. Only rendered for things that carry a title; the
-    /// others (streak tracker, countdown) label themselves in the artwork.
-    @ViewBuilder
-    private var labelPill: some View {
-        if let title = item.title, !title.isEmpty {
-            HStack(spacing: Constant.pillGap) {
-                if let emoji = item.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                }
-                Text(title)
-                    .foregroundStyle(.black)
-            }
-            .font(.footnote)
-            .lineLimit(1)
-            .padding(.horizontal, Constant.pillPadding)
-            .frame(height: Constant.pillHeight)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.6))
-            }
-            .padding(.bottom, Constant.pillBottomInset)
         }
     }
 
@@ -170,9 +138,5 @@ struct EmptyStateMockThingCell: View {
     private enum Constant {
         static let previewSize: CGFloat = 160.0
         static let cornerRadius: CGFloat = 28.0
-        static let pillHeight: CGFloat = 29.0
-        static let pillPadding: CGFloat = 7.3
-        static let pillGap: CGFloat = 3.6
-        static let pillBottomInset: CGFloat = 7.3
     }
 }

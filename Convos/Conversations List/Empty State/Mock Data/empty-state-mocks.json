@@ -28,8 +28,6 @@
   "things": [
     {
       "id": "dinner-suggestion",
-      "title": "Dinner suggestion",
-      "emoji": "🌮",
       "conversationName": "The Kitchen",
       "htmlFile": "mock-thing-dinner.html"
     },

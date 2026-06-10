@@ -16,17 +16,14 @@ struct EmptyStateMockConversation: Decodable, Hashable, Identifiable {
 
 /// One mock "thing" item cycled through by the Things-tab empty-state
 /// carousel. The preview is rendered from real HTML, the same way actual
-/// thing cells render agent-produced files, with the name of the mock
-/// conversation the thing came from captioned underneath. Exactly one of
-/// the two HTML sources is expected:
+/// thing cells render agent-produced files; any in-tile chrome (like the
+/// dinner suggestion's label pill) lives inside the artifact HTML itself.
+/// The name of the mock conversation the thing came from is captioned
+/// underneath. Exactly one of the two HTML sources is expected:
 /// - `htmlFile`: name of a bundled resource (the payload the app ships with)
 /// - `html`: inline markup (the remote payload)
 struct EmptyStateMockThing: Decodable, Hashable, Identifiable {
     let id: String
-    /// Caption for the tile's title pill; nil hides the pill (some mock
-    /// things, like the streak tracker, carry their label in the artwork).
-    let title: String?
-    let emoji: String?
     let conversationName: String?
     let htmlFile: String?
     let html: String?
@@ -45,8 +42,6 @@ struct EmptyStateMockPayload: Decodable {
 /// so an updated payload re-renders instead of hitting a stale thumbnail.
 struct EmptyStateResolvedMockThing: Hashable, Identifiable {
     let id: String
-    let title: String?
-    let emoji: String?
     let conversationName: String?
     let fileURL: URL
     let thumbnailKey: String
@@ -184,8 +179,6 @@ final class EmptyStateMocksProvider {
     ) -> EmptyStateResolvedMockThing {
         EmptyStateResolvedMockThing(
             id: thing.id,
-            title: thing.title,
-            emoji: thing.emoji,
             conversationName: thing.conversationName,
             fileURL: fileURL,
             thumbnailKey: "empty-state-mock-thing-\(thing.id)-\(contentHash)"
