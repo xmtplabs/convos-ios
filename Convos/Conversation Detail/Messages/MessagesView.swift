@@ -157,6 +157,12 @@ struct MessagesView<BottomBarContent: View>: View {
         )
     }
 
+    private var representableAgentBuilderSummaryProvider: (AgentBuilderCardContent, Namespace.ID?) -> AnyView {
+        { content, transitionNamespace in
+            AnyView(AgentBuilderSummaryView(content: content, transitionNamespace: transitionNamespace))
+        }
+    }
+
     var body: some View {
         MessagesViewRepresentable(
             conversation: conversation,
@@ -207,6 +213,9 @@ struct MessagesView<BottomBarContent: View>: View {
                     sentAt: sentAt
                 )
             },
+            agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
+            currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
+            backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
             // `safeAreaBar` below), so the controller must not wait for a
