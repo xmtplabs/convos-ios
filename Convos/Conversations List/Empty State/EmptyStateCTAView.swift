@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shared scaffold for the new-user empty states on the Chats and Stuff
+/// Shared scaffold for the new-user empty states on the Chats and Things
 /// tabs: an animated mock area on top, a headline, a subtitle, the
 /// "Make an agent" CTA, and an "Explore agents in Contacts" link.
 ///
@@ -95,7 +95,7 @@ struct EmptyStateCTAView<MockContent: View>: View {
     // Computed because generic types do not support static stored
     // properties.
     private enum Constant {
-        /// Matches the visible mock heights (the 160pt stuff card; the
+        /// Matches the visible mock heights (the 160pt thing card; the
         /// conversation mock is a few points shorter) so the equal spacers
         /// above and below center the visible content, with no phantom
         /// slot headroom pushing the block down.
@@ -130,9 +130,9 @@ struct ConversationsEmptyStateView: View {
     }
 }
 
-/// Stuff-tab empty state: the mock slot cycles through mock stuff cells
+/// Things-tab empty state: the mock slot cycles through mock thing cells
 /// whose previews are rendered from real example HTML files.
-struct StuffEmptyStateView: View {
+struct ThingsEmptyStateView: View {
     let onMakeAgent: () -> Void
     var onExploreAgents: (() -> Void)?
 
@@ -143,7 +143,7 @@ struct StuffEmptyStateView: View {
             onMakeAgent: onMakeAgent,
             onExploreAgents: onExploreAgents
         ) {
-            EmptyStateMockStuffCarousel(mocks: EmptyStateMocksProvider.shared.stuffs)
+            EmptyStateMockThingCarousel(mocks: EmptyStateMocksProvider.shared.things)
         }
         .task {
             await EmptyStateMocksProvider.shared.refreshFromRemoteIfNeeded()
@@ -155,6 +155,6 @@ struct StuffEmptyStateView: View {
     ConversationsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
 }
 
-#Preview("Stuff") {
-    StuffEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
+#Preview("Things") {
+    ThingsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
 }

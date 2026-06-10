@@ -178,7 +178,7 @@ struct StuffTabView: View {
     /// [[EmptyStateCTAView]] scaffold) so switching tabs never shifts the
     /// "Make an agent" button or the surrounding components.
     private var emptyState: some View {
-        StuffEmptyStateView(
+        ThingsEmptyStateView(
             onMakeAgent: { conversationsViewModel.onStartAgent() },
             onExploreAgents: onSeeSuggestedAgents
         )

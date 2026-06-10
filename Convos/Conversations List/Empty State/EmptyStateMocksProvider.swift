@@ -14,13 +14,13 @@ struct EmptyStateMockConversation: Decodable, Hashable, Identifiable {
     let messageText: String
 }
 
-/// One mock "stuff" item cycled through by the Stuff-tab empty-state
+/// One mock "thing" item cycled through by the Things-tab empty-state
 /// carousel. The preview is rendered from real HTML, the same way actual
-/// stuff cells render agent-produced files. Exactly one of the two HTML
+/// thing cells render agent-produced files. Exactly one of the two HTML
 /// sources is expected:
 /// - `htmlFile`: name of a bundled resource (the payload the app ships with)
 /// - `html`: inline markup (the remote payload)
-struct EmptyStateMockStuff: Decodable, Hashable, Identifiable {
+struct EmptyStateMockThing: Decodable, Hashable, Identifiable {
     let id: String
     let title: String
     let emoji: String?
@@ -33,13 +33,13 @@ struct EmptyStateMockStuff: Decodable, Hashable, Identifiable {
 /// `GET v2/empty-state-mocks` response.
 struct EmptyStateMockPayload: Decodable {
     let conversations: [EmptyStateMockConversation]
-    let stuffs: [EmptyStateMockStuff]
+    let things: [EmptyStateMockThing]
 }
 
-/// A mock stuff item resolved to a local HTML file URL that
+/// A mock thing item resolved to a local HTML file URL that
 /// [[HTMLThumbnailRenderer]] can load, plus a content-versioned cache key
 /// so an updated payload re-renders instead of hitting a stale thumbnail.
-struct EmptyStateResolvedMockStuff: Hashable, Identifiable {
+struct EmptyStateResolvedMockThing: Hashable, Identifiable {
     let id: String
     let title: String
     let emoji: String?
@@ -47,7 +47,7 @@ struct EmptyStateResolvedMockStuff: Hashable, Identifiable {
     let thumbnailKey: String
 }
 
-/// Source of the mock data shown in the Chats and Stuff empty-state CTAs.
+/// Source of the mock data shown in the Chats and Things empty-state CTAs.
 /// Bundled data loads synchronously at init so the carousels render on
 /// first appearance; `refreshFromRemoteIfNeeded()` then fetches the same
 /// payload shape from the API once per launch, replacing the bundled data
@@ -61,7 +61,7 @@ final class EmptyStateMocksProvider {
     static let shared: EmptyStateMocksProvider = EmptyStateMocksProvider()
 
     private(set) var conversations: [EmptyStateMockConversation] = []
-    private(set) var stuffs: [EmptyStateResolvedMockStuff] = []
+    private(set) var things: [EmptyStateResolvedMockThing] = []
 
     @ObservationIgnored private var hasStartedRemoteRefresh: Bool = false
 
@@ -109,70 +109,70 @@ final class EmptyStateMocksProvider {
     /// Replaces the current data with the payload's, keeping whichever
     /// current section the payload would empty out.
     private func apply(_ payload: EmptyStateMockPayload) {
-        let resolvedStuffs: [EmptyStateResolvedMockStuff] = payload.stuffs.compactMap(resolve(_:))
+        let resolvedThings: [EmptyStateResolvedMockThing] = payload.things.compactMap(resolve(_:))
         if !payload.conversations.isEmpty {
             conversations = payload.conversations
         }
-        if !resolvedStuffs.isEmpty {
-            stuffs = resolvedStuffs
+        if !resolvedThings.isEmpty {
+            things = resolvedThings
         }
     }
 
-    // MARK: - Stuff HTML resolution
+    // MARK: - Thing HTML resolution
 
-    private func resolve(_ stuff: EmptyStateMockStuff) -> EmptyStateResolvedMockStuff? {
-        if let html = stuff.html, !html.isEmpty {
-            return resolveInline(stuff, html: html)
+    private func resolve(_ thing: EmptyStateMockThing) -> EmptyStateResolvedMockThing? {
+        if let html = thing.html, !html.isEmpty {
+            return resolveInline(thing, html: html)
         }
-        if let htmlFile = stuff.htmlFile, !htmlFile.isEmpty {
-            return resolveBundled(stuff, fileName: htmlFile)
+        if let htmlFile = thing.htmlFile, !htmlFile.isEmpty {
+            return resolveBundled(thing, fileName: htmlFile)
         }
-        Log.error("EmptyStateMocksProvider: stuff \(stuff.id) has neither html nor htmlFile")
+        Log.error("EmptyStateMocksProvider: thing \(thing.id) has neither html nor htmlFile")
         return nil
     }
 
-    private func resolveBundled(_ stuff: EmptyStateMockStuff, fileName: String) -> EmptyStateResolvedMockStuff? {
+    private func resolveBundled(_ thing: EmptyStateMockThing, fileName: String) -> EmptyStateResolvedMockThing? {
         let baseName: String = (fileName as NSString).deletingPathExtension
         let fileExtension: String = (fileName as NSString).pathExtension
         guard let url = Bundle.main.url(
             forResource: baseName,
             withExtension: fileExtension.isEmpty ? "html" : fileExtension
         ), let data = try? Data(contentsOf: url) else {
-            Log.error("EmptyStateMocksProvider: bundled HTML \(fileName) missing for stuff \(stuff.id)")
+            Log.error("EmptyStateMocksProvider: bundled HTML \(fileName) missing for thing \(thing.id)")
             return nil
         }
-        return resolved(stuff, fileURL: url, contentHash: Self.shortHash(of: data))
+        return resolved(thing, fileURL: url, contentHash: Self.shortHash(of: data))
     }
 
     /// Persists inline HTML from the remote payload into the caches
     /// directory so the thumbnail renderer has a file URL to load.
-    private func resolveInline(_ stuff: EmptyStateMockStuff, html: String) -> EmptyStateResolvedMockStuff? {
+    private func resolveInline(_ thing: EmptyStateMockThing, html: String) -> EmptyStateResolvedMockThing? {
         let data = Data(html.utf8)
         let contentHash: String = Self.shortHash(of: data)
         do {
             let directory = try Self.cacheDirectory()
-            let fileURL = directory.appendingPathComponent("\(stuff.id)-\(contentHash).html")
+            let fileURL = directory.appendingPathComponent("\(thing.id)-\(contentHash).html")
             if !FileManager.default.fileExists(atPath: fileURL.path) {
                 try data.write(to: fileURL, options: .atomic)
             }
-            return resolved(stuff, fileURL: fileURL, contentHash: contentHash)
+            return resolved(thing, fileURL: fileURL, contentHash: contentHash)
         } catch {
-            Log.error("EmptyStateMocksProvider: failed persisting inline HTML for stuff \(stuff.id): \(error)")
+            Log.error("EmptyStateMocksProvider: failed persisting inline HTML for thing \(thing.id): \(error)")
             return nil
         }
     }
 
     private func resolved(
-        _ stuff: EmptyStateMockStuff,
+        _ thing: EmptyStateMockThing,
         fileURL: URL,
         contentHash: String
-    ) -> EmptyStateResolvedMockStuff {
-        EmptyStateResolvedMockStuff(
-            id: stuff.id,
-            title: stuff.title,
-            emoji: stuff.emoji,
+    ) -> EmptyStateResolvedMockThing {
+        EmptyStateResolvedMockThing(
+            id: thing.id,
+            title: thing.title,
+            emoji: thing.emoji,
             fileURL: fileURL,
-            thumbnailKey: "empty-state-mock-stuff-\(stuff.id)-\(contentHash)"
+            thumbnailKey: "empty-state-mock-thing-\(thing.id)-\(contentHash)"
         )
     }
 

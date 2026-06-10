@@ -25,24 +25,24 @@
       "messageText": "Trip Planner: cabin booked! I made a packing list for everyone"
     }
   ],
-  "stuffs": [
+  "things": [
     {
       "id": "dinner-suggestion",
       "title": "Dinner suggestion",
       "emoji": "🍴",
-      "htmlFile": "mock-stuff-dinner.html"
+      "htmlFile": "mock-thing-dinner.html"
     },
     {
       "id": "packing-list",
       "title": "Packing list",
       "emoji": "🎒",
-      "htmlFile": "mock-stuff-packing.html"
+      "htmlFile": "mock-thing-packing.html"
     },
     {
       "id": "week-plan",
       "title": "Weekly plan",
       "emoji": "🗓️",
-      "htmlFile": "mock-stuff-plan.html"
+      "htmlFile": "mock-thing-plan.html"
     }
   ]
 }

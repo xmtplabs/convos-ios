@@ -1,18 +1,18 @@
 import ConvosCore
 import SwiftUI
 
-/// Cycles through mock stuff items in the Stuff-tab empty state. Each
+/// Cycles through mock thing items in the Things-tab empty state. Each
 /// item renders a square preview from a real example HTML file via
-/// [[HTMLThumbnailRenderer]] (the same pipeline actual stuff cells use)
+/// [[HTMLThumbnailRenderer]] (the same pipeline actual thing cells use)
 /// with a small label pill over the bottom edge, crossfading from one
 /// item to the next.
-struct EmptyStateMockStuffCarousel: View {
-    let mocks: [EmptyStateResolvedMockStuff]
+struct EmptyStateMockThingCarousel: View {
+    let mocks: [EmptyStateResolvedMockThing]
 
     @State private var index: Int = 0
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
-    private var currentMock: EmptyStateResolvedMockStuff? {
+    private var currentMock: EmptyStateResolvedMockThing? {
         guard !mocks.isEmpty else { return nil }
         return mocks[index % mocks.count]
     }
@@ -20,7 +20,7 @@ struct EmptyStateMockStuffCarousel: View {
     var body: some View {
         ZStack {
             if let mock = currentMock {
-                EmptyStateMockStuffCell(item: mock)
+                EmptyStateMockThingCell(item: mock)
                     .id(mock.id)
                     .transition(.blurReplace)
             }
@@ -66,8 +66,8 @@ struct EmptyStateMockStuffCarousel: View {
 /// the 28pt continuous corner radius, loading its thumbnail from a local
 /// example HTML file instead of a conversation attachment, with a label
 /// pill ("Dinner suggestion" etc.) over the bottom-leading corner.
-struct EmptyStateMockStuffCell: View {
-    let item: EmptyStateResolvedMockStuff
+struct EmptyStateMockThingCell: View {
+    let item: EmptyStateResolvedMockThing
 
     @State private var renderedImage: UIImage?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
