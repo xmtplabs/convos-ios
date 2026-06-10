@@ -4,7 +4,7 @@ import PhotosUI
 import SwiftUI
 
 /// Root tab shell for the app. Hosts the existing `ConversationsView` under
-/// the "Chats" tab, `StuffTabView` under "Things", and `ContactsView` under
+/// the "Convos" tab, `StuffTabView` under "Things", and `ContactsView` under
 /// "Contacts", in a standard SwiftUI `TabView` with the system tab bar.
 ///
 /// The agent builder bar is pinned via a `safeAreaInset` on the edge
