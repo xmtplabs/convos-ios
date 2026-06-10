@@ -2127,6 +2127,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// write inside it (a paste, or the first hypothesis of the next
         /// dictation) would be cleared too.
         static let dictationReclearWindow: TimeInterval = 1.5
+        /// How long the assistant join wait is measured before emitting
+        /// `assistant_join_timed_out`. Matches the join-request polling
+        /// window in SyncingManager, which itself covers the assistant
+        /// backend's roughly two-minute give-up with margin.
+        static let assistantJoinWaitWindow: TimeInterval = 150
     }
 }
 
@@ -3889,13 +3894,6 @@ extension ConversationViewModel {
         }
     }
 
-    private enum Constant {
-        /// How long the assistant join wait is measured before emitting
-        /// `assistant_join_timed_out`. Matches the join-request polling
-        /// window in SyncingManager, which itself covers the assistant
-        /// backend's roughly two-minute give-up with margin.
-        static let assistantJoinWaitWindow: TimeInterval = 150
-    }
 }
 
 extension UNUserNotificationCenter {
