@@ -275,6 +275,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// regular conversation open, etc.) are unaffected.
     private var expectedSeededMemberCount: Int = 0
     private var hasMetSeededExpectation: Bool = true
+    /// Synthetic agent members for picked templates (built via
+    /// `AgentShareInfo.optimisticCardMember(conversationId:)`) overlaid
+    /// onto every incoming DB emission until the real provisioned
+    /// instance joins. Unlike picked humans - who are added before the
+    /// state machine emits `.ready`, so the count gate above covers them -
+    /// agent instances join asynchronously via `agents/join` well after
+    /// `.ready`. Gating emissions on them would block invite and metadata
+    /// updates for the whole provisioning window, so they're overlaid
+    /// instead: emissions flow through, and the indicator keeps rendering
+    /// the picked end state. Cleared per-template as the matching real
+    /// member lands, or wholesale when the join call fails. Distinct from
+    /// `optimisticAgentIdentity` above: that paints a single pending agent
+    /// for the template flows; this carries the picker's multi-member end
+    /// state (title and avatar cluster) inside `conversation.members`.
+    @ObservationIgnored
+    private var pendingSyntheticAgentMembers: [ConversationMember] = []
+    /// Latest conversation as emitted by the DB publisher, before any
+    /// synthetic-member overlay. Kept so optimistic state can be rolled
+    /// back to ground truth when an add-members or agents/join call fails.
+    @ObservationIgnored
+    private var latestRawConversation: Conversation?
     let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
@@ -1364,15 +1385,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 // stays open so later member additions / removals
                 // propagate normally. Non-seeded VMs default to "gate
                 // open", so this is a no-op for them.
+                latestRawConversation = conversation
                 if !hasMetSeededExpectation {
                     if conversation.membersWithoutCurrent.count < expectedSeededMemberCount {
                         return
                     }
                     hasMetSeededExpectation = true
                 }
+                let displayConversation = overlayingPendingSyntheticAgents(on: conversation)
                 let previousId = self.conversation.id
                 let wasViewingConversation = self.isViewingConversation
-                self.conversation = conversation
+                self.conversation = displayConversation
                 self.loadConversationImage(for: conversation)
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
@@ -1527,10 +1550,118 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// already reflects the picked contacts. Other code paths must
     /// not call this - the default state is "gate open" so DB
     /// emissions flow through normally.
-    func markSeeded(expectingMemberCount count: Int) {
+    ///
+    /// `count` covers picked humans only - they're added before the state
+    /// machine emits `.ready`, so gating on them is short-lived. Picked
+    /// agent templates go in `pendingAgentMembers` instead and are
+    /// overlaid onto emissions until the provisioned instance joins (see
+    /// `pendingSyntheticAgentMembers`).
+    func markSeeded(expectingMemberCount count: Int, pendingAgentMembers: [ConversationMember] = []) {
+        pendingSyntheticAgentMembers = pendingAgentMembers
         guard count > 0 else { return }
         expectedSeededMemberCount = count
         hasMetSeededExpectation = false
+    }
+
+    /// Optimistically renders the picker's selection into the displayed
+    /// conversation before the real add-members / agents-join calls land,
+    /// so the indicator shows the end state instead of "New Convo".
+    /// Used by the Compose flow, where the conversation already exists
+    /// when the picker confirms (unlike the seeded-draft flow, which goes
+    /// through `markSeeded` at VM construction). Humans are appended as
+    /// synthetic members and the emission gate is armed until the real
+    /// rows catch up; agent templates are overlaid until each provisioned
+    /// instance joins.
+    func seedOptimisticPickedMembers(inboxIds: [String], agentTemplateIds: [String]) {
+        let conversationId = conversation.id
+        let contactsRepository = messagingService.contactsRepository()
+        let humanMembers: [ConversationMember] = inboxIds
+            .compactMap { contactsRepository.contact(for: $0) }
+            .map { $0.syntheticMember(conversationId: conversationId) }
+        // Agent contacts are canonical rows keyed by agentTemplateId, so
+        // picked templates resolve back through the same contacts
+        // repository. A templateId with no contact row (e.g. a suggested
+        // agent the user never chatted with) is skipped - that selection
+        // just keeps the non-optimistic behavior.
+        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
+        let agentMembers: [ConversationMember] = agentTemplateIds
+            .compactMap { templateId in
+                allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
+            }
+            .map { $0.optimisticCardMember(conversationId: conversationId) }
+        guard !(humanMembers.isEmpty && agentMembers.isEmpty) else { return }
+        if latestRawConversation == nil {
+            latestRawConversation = conversation
+        }
+        pendingSyntheticAgentMembers += agentMembers
+        if !humanMembers.isEmpty {
+            expectedSeededMemberCount = conversation.membersWithoutCurrent.count + humanMembers.count
+            hasMetSeededExpectation = false
+        }
+        conversation = conversation.withMembers(conversation.members + humanMembers + agentMembers)
+    }
+
+    /// Rolls the optimistic human members back to the latest DB ground
+    /// truth and reopens the emission gate. Called when the real
+    /// add-members call fails, so the indicator stops promising members
+    /// that will never arrive. Pending synthetic agents are left alone -
+    /// their lifecycle is tied to the agents/join call instead.
+    func rollbackOptimisticPickedMembers() {
+        guard !hasMetSeededExpectation else { return }
+        hasMetSeededExpectation = true
+        expectedSeededMemberCount = 0
+        guard let raw = latestRawConversation else { return }
+        conversation = overlayingPendingSyntheticAgents(on: raw)
+    }
+
+    /// Overlays not-yet-joined synthetic agent members onto a DB-emitted
+    /// conversation so the indicator keeps showing the picked end state
+    /// while agent instances provision. A synthetic is dropped once a real
+    /// member covers it - matched by the templateId profile metadata the
+    /// agent runtime writes, with a count-based fallback for joined agents
+    /// whose metadata hasn't resolved yet.
+    private func overlayingPendingSyntheticAgents(on conversation: Conversation) -> Conversation {
+        guard !pendingSyntheticAgentMembers.isEmpty else { return conversation }
+        var unmatchedAgents = conversation.membersWithoutCurrent.filter { member in
+            member.isAgent && !member.isOptimisticAgentMember
+        }
+        var unmatchedSynthetics: [ConversationMember] = []
+        for synthetic in pendingSyntheticAgentMembers {
+            let templateId = synthetic.optimisticAgentTemplateId
+            if templateId != nil,
+               let index = unmatchedAgents.firstIndex(where: { $0.profile.agentTemplateId == templateId }) {
+                unmatchedAgents.remove(at: index)
+            } else {
+                unmatchedSynthetics.append(synthetic)
+            }
+        }
+        var stillPending: [ConversationMember] = []
+        for synthetic in unmatchedSynthetics {
+            if let index = unmatchedAgents.firstIndex(where: { $0.profile.agentTemplateId == nil }) {
+                unmatchedAgents.remove(at: index)
+            } else {
+                stillPending.append(synthetic)
+            }
+        }
+        pendingSyntheticAgentMembers = stillPending
+        // An emission can already carry the synthetics themselves (the
+        // placeholder VM's mock repository re-emits the seeded draft);
+        // skip those so members never duplicate.
+        let existingInboxIds = Set(conversation.members.map(\.profile.inboxId))
+        let overlayMembers = stillPending.filter { !existingInboxIds.contains($0.profile.inboxId) }
+        guard !overlayMembers.isEmpty else { return conversation }
+        return conversation.withMembers(conversation.members + overlayMembers)
+    }
+
+    /// Drops any not-yet-joined synthetic agent members and re-renders
+    /// from the latest raw DB emission, so a failed agents/join doesn't
+    /// leave the indicator promising an agent that will never arrive.
+    private func clearPendingSyntheticAgents() {
+        guard !pendingSyntheticAgentMembers.isEmpty else { return }
+        pendingSyntheticAgentMembers = []
+        guard let raw = latestRawConversation else { return }
+        guard hasMetSeededExpectation else { return }
+        conversation = raw
     }
 
     func startOnboarding() {
@@ -3299,6 +3430,7 @@ extension ConversationViewModel {
 
     private func onAgentJoinError() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        clearPendingSyntheticAgents()
     }
 
     func leaveConvo() {

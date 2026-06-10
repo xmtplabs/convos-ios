@@ -141,6 +141,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// through "New Convo" while the state machine creates the real
     /// group.
     private let seededMemberInboxIds: [String]
+    /// Captured agent-template ids for the seeded-members flow. Used to
+    /// seed each draft `Conversation` with template-derived optimistic
+    /// members (name + emoji) so the chat header renders the picked end
+    /// state from the moment the sheet opens - the provisioned instances
+    /// only join well after `.ready`, via `agents/join`.
+    private let seededAgentTemplateIds: [String]
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
     private(set) var showingFullScreenScanner: Bool
@@ -331,12 +337,14 @@ class NewConversationViewModel: Identifiable, Hashable {
             self.allowsDismissingScanner = true
         }
 
-        if case .newConversationWithMembers(let ids, _) = mode {
+        if case .newConversationWithMembers(let ids, let templateIds) = mode {
             self.startedWithSeededMembers = true
             self.seededMemberInboxIds = ids
+            self.seededAgentTemplateIds = templateIds
         } else {
             self.startedWithSeededMembers = false
             self.seededMemberInboxIds = []
+            self.seededAgentTemplateIds = []
         }
 
         self.isExistingConversation = if case .existingConversation = mode { true } else { false }
@@ -378,6 +386,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
         self.seededMemberInboxIds = []
+        self.seededAgentTemplateIds = []
         self.defersVisibilityUntilCommit = false
         // Tests-only init - the warm-cache flow goes through the
         // public init. Existing-conversation cleanup guard stays off.
@@ -518,26 +527,46 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// `ConversationViewModel` is "gate open"; arming here matches
     /// the synthetic draft we just constructed so DB emissions with
     /// fewer non-self members are dropped until the state machine's
-    /// addMembers hook catches up. No-op when the draft has no seeded
-    /// members (e.g. `.newConversation`, scanner, joinInvite).
+    /// addMembers hook catches up. Optimistic agent members are excluded
+    /// from the gate count - the provisioned instances only join well
+    /// after `.ready`, so they're handed over as overlay members instead
+    /// (see `ConversationViewModel.markSeeded(expectingMemberCount:pendingAgentMembers:)`).
+    /// No-op when the draft has no seeded members (e.g.
+    /// `.newConversation`, scanner, joinInvite).
     private func armSeededExpectationIfNeeded(
         on convoVM: ConversationViewModel,
         for draftConversation: Conversation
     ) {
         guard startedWithSeededMembers else { return }
-        convoVM.markSeeded(expectingMemberCount: draftConversation.membersWithoutCurrent.count)
+        let seededMembers = draftConversation.membersWithoutCurrent
+        let pendingAgentMembers = seededMembers.filter(\.isOptimisticAgentMember)
+        convoVM.markSeeded(
+            expectingMemberCount: seededMembers.count - pendingAgentMembers.count,
+            pendingAgentMembers: pendingAgentMembers
+        )
     }
 
     private func makeDraftConversation(id: String) -> Conversation {
-        guard startedWithSeededMembers, !seededMemberInboxIds.isEmpty else {
+        guard startedWithSeededMembers,
+              !(seededMemberInboxIds.isEmpty && seededAgentTemplateIds.isEmpty) else {
             return .empty(id: id)
         }
         let contactsRepository = session.messagingServiceSync().contactsRepository()
         let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
-        guard !seededContacts.isEmpty else {
+        // Agent contacts are canonical rows keyed by agentTemplateId (one
+        // per template), so picked templates resolve back through the same
+        // contacts repository. A templateId with no contact row (e.g. a
+        // suggested agent the user never chatted with) is skipped - that
+        // selection just keeps the non-optimistic behavior.
+        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
+        let seededAgentInfos: [AgentShareInfo] = seededAgentTemplateIds.compactMap { templateId in
+            allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
+        }
+        guard !seededContacts.isEmpty || !seededAgentInfos.isEmpty else {
             return .empty(id: id)
         }
         var members: [ConversationMember] = seededContacts.map { $0.syntheticMember(conversationId: id) }
+        members += seededAgentInfos.map { $0.optimisticCardMember(conversationId: id) }
         if case .authorized(let selfInboxId) = session.messagingServiceSync().state {
             let selfProfile = Profile(
                 inboxId: selfInboxId,

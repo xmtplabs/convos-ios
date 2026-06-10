@@ -60,12 +60,25 @@ struct ComposeFlowView: View {
     /// adds the picked humans as members and spawns a fresh instance of each
     /// picked agent template into the conversation. The push happens
     /// immediately either way -- the members / agents land in the open
-    /// conversation a moment later.
+    /// conversation a moment later. The selection is seeded into the view
+    /// model optimistically first, so the conversation indicator shows the
+    /// picked end state (names and avatars) instead of "New Convo" while
+    /// those calls are in flight; a failed add-members call rolls the
+    /// optimistic humans back.
     private func handleProceed(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
         if let conversationViewModel = composeConversationViewModel.conversationViewModel {
+            conversationViewModel.seedOptimisticPickedMembers(
+                inboxIds: Array(memberInboxIds),
+                agentTemplateIds: agentTemplateIds
+            )
             if !memberInboxIds.isEmpty {
                 Task {
-                    try? await conversationViewModel.addMembersFromContacts(Array(memberInboxIds))
+                    do {
+                        try await conversationViewModel.addMembersFromContacts(Array(memberInboxIds))
+                    } catch {
+                        Log.error("Compose add-members failed, rolling back optimistic members: \(error.localizedDescription)")
+                        conversationViewModel.rollbackOptimisticPickedMembers()
+                    }
                 }
             }
             conversationViewModel.requestAgentJoins(templateIds: agentTemplateIds)

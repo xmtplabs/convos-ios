@@ -2,11 +2,16 @@ import ConvosCore
 import Foundation
 
 extension AgentShareInfo {
+    /// Prefix of the sentinel inbox id carried by optimistic agent members.
+    /// Lets the picker-seeding overlay tell presentation-only synthetics
+    /// apart from real members (see `ConversationMember.isOptimisticAgentMember`).
+    static let optimisticInboxIdPrefix: String = "optimistic-agent-"
+
     /// Sentinel inbox id for the optimistic agent card member. Built from the
     /// template id so it never collides with a real member's inbox id, and so
     /// the "real verified agent joined" checks can recognize and ignore it.
     func optimisticAgentInboxId() -> String {
-        "optimistic-agent-\(templateId ?? "pending")"
+        Self.optimisticInboxIdPrefix + (templateId ?? "pending")
     }
 
     /// Builds a presentation-only `ConversationMember` from this agent-share
@@ -59,6 +64,44 @@ extension AgentShareInfo {
             descriptionText: nil,
             avatarURL: nil
         )
+    }
+}
+
+extension Contact {
+    /// The agent's public identity in `AgentShareInfo` form; nil for human
+    /// contacts. Used by the contacts picker flows to build optimistic
+    /// members for picked agents via `optimisticCardMember(conversationId:)`,
+    /// so the chat header renders the agent's name and emoji before the
+    /// provisioned instance joins. Mirrors the identity
+    /// `ContactDetailView.confirmChatWithAgentTemplate` paints for the
+    /// single-agent chat action.
+    var agentShareInfo: AgentShareInfo? {
+        guard let agentTemplateId else { return nil }
+        return AgentShareInfo(
+            templateId: agentTemplateId,
+            displayName: displayName,
+            emoji: profileEmoji,
+            descriptionText: agentDescription,
+            avatarURL: avatarURL
+        )
+    }
+}
+
+extension ConversationMember {
+    /// True for the presentation-only optimistic agent members built by
+    /// `AgentShareInfo.optimisticCardMember(conversationId:)`, recognized
+    /// by their sentinel inbox id.
+    var isOptimisticAgentMember: Bool {
+        profile.inboxId.hasPrefix(AgentShareInfo.optimisticInboxIdPrefix)
+    }
+
+    /// The template id encoded in an optimistic agent member's sentinel
+    /// inbox id. nil for real members and for the deep link's neutral
+    /// placeholder (whose share info had no template id yet).
+    var optimisticAgentTemplateId: String? {
+        guard isOptimisticAgentMember else { return nil }
+        let suffix = String(profile.inboxId.dropFirst(AgentShareInfo.optimisticInboxIdPrefix.count))
+        return suffix == "pending" ? nil : suffix
     }
 }
 
