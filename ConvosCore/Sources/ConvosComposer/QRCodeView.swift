@@ -92,7 +92,7 @@ public struct QRCodeView: View {
 
                 overlay
             }
-            .task(id: url) {
+            .task(id: RegenerationKey(url: url, colorScheme: colorScheme)) {
                 let newQRCode = await generateQRCode()
 
                 if !Task.isCancelled {
@@ -101,11 +101,16 @@ public struct QRCodeView: View {
                     }
                 }
             }
-            .onChange(of: colorScheme) {
-                Task { currentQRCode = await generateQRCode() }
-            }
             .accessibilityLabel("QR code for sharing invite link")
             .accessibilityIdentifier("qr-code-view")
+    }
+
+    /// Identity for the regeneration task: a change to either the url or the
+    /// color scheme cancels the in-flight render and starts a fresh one, so a
+    /// stale result can never overwrite a newer request.
+    private struct RegenerationKey: Hashable {
+        let url: URL
+        let colorScheme: ColorScheme
     }
 }
 
