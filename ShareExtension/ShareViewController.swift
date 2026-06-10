@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import Foundation
@@ -7,9 +8,9 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// Throwaway spike compose UI for the share extension. A custom UIViewController
-/// (not SLComposeServiceViewController) so we control the chrome: a real "Send"
-/// button, the target conversation in the header, and the same send path as the
-/// app (attachment first, then text).
+/// (not SLComposeServiceViewController) hosting the app's real composer
+/// (MessagesBottomBar from ConvosComposer) over the same send path as the app
+/// (attachments first, then text).
 final class ShareViewController: UIViewController {
     private let model: ShareComposeModel = ShareComposeModel()
 
@@ -51,20 +52,32 @@ final class ShareViewController: UIViewController {
 final class ShareComposeModel {
     var targetTitle: String = "Convo"
     var messageText: String = ""
-    var sharedImage: UIImage?
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var isReady: Bool = false
     var isSending: Bool = false
+    /// The sharer's profile, for the composer's avatar. Spike: a placeholder
+    /// profile until the extension wires up the real profile repository.
+    var profile: Profile = .mock(name: "You")
 
     private var client: ConvosClient?
     private var targetConversationId: String?
 
     var canSend: Bool {
         let hasText: Bool = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return isReady && !isSending && (sharedImage != nil || hasText)
+        return isReady && !isSending && (!pendingMediaAttachments.isEmpty || hasText)
     }
 
     func start(extensionContext: NSExtensionContext?) {
         Task { await prepare(extensionContext: extensionContext) }
+    }
+
+    func appendPhoto(_ image: UIImage) {
+        guard pendingMediaAttachments.count < maxPendingMediaAttachments else { return }
+        pendingMediaAttachments.append(.photo(PendingPhotoAttachment(image: image)))
+    }
+
+    func removeAttachment(id: UUID) {
+        pendingMediaAttachments.removeAll { $0.id == id }
     }
 
     private func prepare(extensionContext: NSExtensionContext?) async {
@@ -98,7 +111,9 @@ final class ShareComposeModel {
             // (Conversation.title lives in the app target, not here).
             targetTitle = intent?.speakableGroupName?.spokenPhrase ?? target?.name ?? "Convo"
 
-            sharedImage = await Self.loadSharedImage(extensionContext: extensionContext)
+            if let image = await Self.loadSharedImage(extensionContext: extensionContext) {
+                appendPhoto(image)
+            }
             isReady = targetConversationId != nil
         } catch {
             Log.error("prepare failed: \(error.localizedDescription)")
@@ -114,12 +129,16 @@ final class ShareComposeModel {
         let messagingService = client.session.messagingService()
         do {
             // Attachments first, then text - matches the in-app send order.
-            if let image = sharedImage {
+            for attachment in pendingMediaAttachments {
+                guard case .photo(let photo) = attachment else {
+                    Log.warning("share extension spike sends photos only; skipping \(attachment.id)")
+                    continue
+                }
                 let imageWriter = messagingService.messageWriter(
                     for: targetConversationId,
                     backgroundUploadManager: ForegroundUploadManager()
                 )
-                try await imageWriter.send(image: image)
+                try await imageWriter.send(image: photo.image)
             }
             if !text.isEmpty {
                 let textWriter = messagingService.messageWriter(
@@ -128,7 +147,7 @@ final class ShareComposeModel {
                 )
                 try await textWriter.send(text: text)
             }
-            Log.info("sent to \(targetConversationId) image=\(sharedImage != nil) text=\(!text.isEmpty)")
+            Log.info("sent to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
         } catch {
             Log.error("send failed: \(error.localizedDescription)")
         }
@@ -174,16 +193,20 @@ struct ShareComposeView: View {
     let onCancel: () -> Void
     let onSend: () -> Void
 
-    @FocusState private var messageFocused: Bool
+    @FocusState private var focusState: MessagesViewInputFocus?
+    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
+    @State private var voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
+    @State private var displayName: String = ""
+    @State private var isPhotoPickerPresented: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
             navigationBar
             Divider()
-            composeArea
             Spacer(minLength: 0)
+            composerBar
         }
-        .onAppear { messageFocused = true }
+        .onAppear { focusState = .message }
     }
 
     private var navigationBar: some View {
@@ -195,43 +218,56 @@ struct ShareComposeView: View {
                 Text(model.targetTitle).font(.headline).lineLimit(1)
             }
             Spacer()
-            sendButton
+            // Symmetry spacer so the title stays centered; sends happen from
+            // the composer's own send button.
+            Button("Cancel", action: onCancel).hidden()
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
     }
 
-    private var sendButton: some View {
-        Button(action: handleSend) {
-            if model.isSending {
-                ProgressView()
-            } else {
-                Text("Send").fontWeight(.semibold)
+    private var composerBar: some View {
+        let handleSend = {
+            Task { @MainActor in
+                await model.send()
+                onSend()
             }
         }
-        .disabled(!model.canSend)
-    }
-
-    private var composeArea: some View {
-        HStack(alignment: .top, spacing: 12) {
-            TextField("Message \(model.targetTitle)", text: $model.messageText, axis: .vertical)
-                .focused($messageFocused)
-                .lineLimit(3...10)
-            if let image = model.sharedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 72, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-        }
-        .padding()
-    }
-
-    private func handleSend() {
-        Task {
-            await model.send()
-            onSend()
-        }
+        return MessagesBottomBar(
+            profile: model.profile,
+            displayName: $displayName,
+            messageText: $model.messageText,
+            pendingMediaAttachments: model.pendingMediaAttachments,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: model.canSend,
+            profileImage: .constant(nil),
+            isPhotoPickerPresented: $isPhotoPickerPresented,
+            focusState: $focusState,
+            focusCoordinator: focusCoordinator,
+            isSettingUpProfile: false,
+            animateAvatarForProfileSetup: false,
+            canEditProfile: false,
+            messagesTextFieldEnabled: model.isReady,
+            onProfilePhotoTap: {},
+            onSendMessage: { _ = handleSend() },
+            onClearInvite: {},
+            onClearLinkPreview: {},
+            onClearMediaAttachment: { id in model.removeAttachment(id: id) },
+            onDisplayNameEndedEditing: {},
+            onPhotoSelected: { image in model.appendPhoto(image) },
+            onVideoSelected: { _ in Log.warning("share extension spike: video attachments not supported") },
+            onFileSelected: { _, _, _, _ in Log.warning("share extension spike: file attachments not supported") },
+            onProfileSettings: {},
+            onVoiceMemoTap: {},
+            voiceMemoRecorder: voiceMemoRecorder,
+            onSendVoiceMemo: {},
+            onConvosAction: {},
+            onBaseHeightChanged: { _ in },
+            bottomBarContent: { EmptyView() },
+            quickEditView: { _, _ in EmptyView() },
+            fileAttachmentPreview: { _ in EmptyView() },
+            agentShareChip: { EmptyView() }
+        )
     }
 }
