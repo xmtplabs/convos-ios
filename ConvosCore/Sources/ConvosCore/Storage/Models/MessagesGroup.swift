@@ -59,6 +59,12 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// (post-Make). The card is the canonical anchor for "the agent
     /// is thinking about your build input".
     public var contactCardThinkingDescriptor: ThinkingSessionDescriptor?
+    /// True when this synthesized contact-card row is immediately followed
+    /// by a message group from the same agent. The card defers its
+    /// bottom-leading avatar to that group's last message (and the group
+    /// below hides its duplicate sender label) so the pair reads as one
+    /// visual run.
+    public var contactCardPrecedesAgentMessages: Bool = false
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
@@ -148,7 +154,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.showsThinkingIndicator == rhs.showsThinkingIndicator &&
         lhs.thinkingContent == rhs.thinkingContent &&
         lhs.usesThoughtBubbleStyle == rhs.usesThoughtBubbleStyle &&
-        lhs.contactCardThinkingDescriptor == rhs.contactCardThinkingDescriptor
+        lhs.contactCardThinkingDescriptor == rhs.contactCardThinkingDescriptor &&
+        lhs.contactCardPrecedesAgentMessages == rhs.contactCardPrecedesAgentMessages
     }
 }
 
@@ -174,6 +181,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(thinkingContent)
         hasher.combine(usesThoughtBubbleStyle)
         hasher.combine(contactCardThinkingDescriptor)
+        hasher.combine(contactCardPrecedesAgentMessages)
     }
 }
 

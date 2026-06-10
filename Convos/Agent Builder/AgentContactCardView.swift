@@ -2,9 +2,9 @@ import ConvosCore
 import SwiftUI
 
 /// Per-conversation "contact card" for a verified Convos agent. Renders as
-/// the body of the agent's first message group — the surrounding
-/// `MessagesGroupView` already provides the sender label and avatar, so this
-/// view only owns the rounded-rect card itself: the agent's avatar,
+/// the body of a standalone contact-card row anchored near where the agent
+/// joined — the surrounding `MessagesGroupView` already provides the sender
+/// label and avatar, so this view only owns the rounded-rect card itself: the agent's avatar,
 /// display name, and `description` subtitle. While the agent hasn't yet
 /// written a `description` into its profile metadata, the subtitle reads
 /// "Learning more about my job" with a pulse highlight matching
