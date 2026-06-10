@@ -9,3 +9,7 @@ typealias VideoFile = ConvosComposer.VideoFile
 typealias HeightReader = ConvosComposer.HeightReader
 typealias HeightPreferenceKey = ConvosComposer.HeightPreferenceKey
 typealias CameraPickerView = ConvosComposer.CameraPickerView
+typealias AvatarView = ConvosComposer.AvatarView
+typealias ProfileAvatarView = ConvosComposer.ProfileAvatarView
+typealias MonogramView = ConvosComposer.MonogramView
+typealias EmojiAvatarView = ConvosComposer.EmojiAvatarView
