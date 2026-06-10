@@ -26,7 +26,7 @@ struct EmptyStateMockConversationCarousel: View {
                     messagePreviewWidth: Constant.messagePreviewWidth
                 )
                 .id(mock.id)
-                .transition(.opacity)
+                .transition(.blurReplace)
             }
         }
         .frame(maxWidth: .infinity)

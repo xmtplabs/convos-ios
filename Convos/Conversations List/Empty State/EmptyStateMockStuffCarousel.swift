@@ -22,7 +22,7 @@ struct EmptyStateMockStuffCarousel: View {
             if let mock = currentMock {
                 EmptyStateMockStuffCell(item: mock)
                     .id(mock.id)
-                    .transition(.opacity)
+                    .transition(.blurReplace)
             }
         }
         .frame(maxWidth: .infinity)
