@@ -23,10 +23,8 @@ struct ThingDetailView: View {
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
-        navigator = StuffDetailCollector(
-            instance: navState,
-            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
-        )
+        let delegate: CollectorDelegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        navigator = StuffDetailCollector(instance: navState, delegate: delegate)
     }
 
     var body: some View {
@@ -82,11 +80,8 @@ struct ThingDetailView: View {
     private var trailingShareButton: some ToolbarContent {
         if let fileURL {
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(item: fileURL) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Share")
-                .accessibilityIdentifier("thing-detail-share")
+                AttachmentShareLink(attachment: item.hydratedAttachment, fileURL: fileURL)
+                    .accessibilityIdentifier("thing-detail-share")
             }
         }
     }

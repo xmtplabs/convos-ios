@@ -211,6 +211,206 @@ final class HTMLThumbnailRenderer {
     }
 
     private nonisolated(unsafe) static var coordinatorAssocKey: UInt8 = 0
+
+    // MARK: - Full-page rendering
+
+    // Full-page renders lay the artifact out at a phone-like width and grow
+    // the WebView to the whole document height before snapshotting, so the
+    // shared image shows the entire page rather than the 160pt tile crop.
+    private static let fullPageSize: CGSize = CGSize(width: 390, height: 844)
+    // Caps the bitmap: 780px wide at 2x costs roughly 6 MB of memory per
+    // 1000pt of height, so 10k pt keeps the peak around 60 MB.
+    private static let fullPageMaxHeight: CGFloat = 10_000.0
+    private static let fullPageSnapshotWidth: CGFloat = 780.0
+
+    private static let fullPageViewportScript: String = """
+    (function() {
+        var existing = document.querySelectorAll('meta[name="viewport"]');
+        for (var i = 0; i < existing.length; i++) {
+            existing[i].remove();
+        }
+        var m = document.createElement('meta');
+        m.name = 'viewport';
+        m.content = 'width=390, initial-scale=1, viewport-fit=cover';
+        (document.head || document.documentElement).appendChild(m);
+    })();
+    """
+
+    /// Unlike the thumbnail surface script, full-page renders present as a
+    /// large surface so the artifact lays out its full UI.
+    private static let fullPageSurfaceScript: String = """
+    (function() {
+        document.documentElement.setAttribute('data-convos-surface', 'large');
+    })();
+    """
+
+    /// Renders the entire document as one tall image. Not cached in
+    /// `ImageCache` - full-page bitmaps are far too large for it - so
+    /// callers should hold onto the result for as long as they need it.
+    func fullPageImage(for attachmentKey: String, fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
+        let inflightKey = "fullpage-" + attachmentKey + "-" + Self.appearanceSuffix(for: appearance)
+        if let existing = inflight[inflightKey] {
+            return await existing.value
+        }
+        let task = Task<UIImage?, Never> { [weak self] in
+            guard let self else { return nil }
+            return await self.renderFullPageSnapshot(fileURL: fileURL, appearance: appearance)
+        }
+        inflight[inflightKey] = task
+        let result = await task.value
+        inflight.removeValue(forKey: inflightKey)
+        return result
+    }
+
+    private func renderFullPageSnapshot(fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
+        guard let window = offscreenWindow else {
+            Log.error("HTMLThumbnailRenderer: no offscreen window available; skipping full-page render")
+            return nil
+        }
+
+        let config = WKWebViewConfiguration()
+        let surfaceUserScript = WKUserScript(
+            source: Self.fullPageSurfaceScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(surfaceUserScript)
+        let viewportUserScript = WKUserScript(
+            source: Self.fullPageViewportScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(viewportUserScript)
+
+        let webView = WKWebView(
+            frame: CGRect(origin: .zero, size: Self.fullPageSize),
+            configuration: config
+        )
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.isOpaque = true
+        webView.isUserInteractionEnabled = false
+        webView.overrideUserInterfaceStyle = appearance
+
+        window.addSubview(webView)
+        defer { webView.removeFromSuperview() }
+
+        guard await load(fileURL: fileURL, in: webView) else { return nil }
+        await Self.sleep(seconds: Self.paintDelay)
+
+        // Grow the WebView to the document height, then re-measure once:
+        // viewport-relative layout (100vh sections, sticky footers) can
+        // reflow after the first resize and change the content height.
+        let measured: CGFloat = await measureContentHeight(of: webView)
+        var targetHeight: CGFloat = Self.clampFullPageHeight(measured)
+        webView.frame = CGRect(x: 0, y: 0, width: Self.fullPageSize.width, height: targetHeight)
+        window.frame.size = webView.frame.size
+        await Self.sleep(seconds: Self.paintDelay)
+
+        let remeasured: CGFloat = await measureContentHeight(of: webView)
+        let finalHeight: CGFloat = Self.clampFullPageHeight(remeasured)
+        if finalHeight != targetHeight {
+            targetHeight = finalHeight
+            webView.frame = CGRect(x: 0, y: 0, width: Self.fullPageSize.width, height: targetHeight)
+            window.frame.size = webView.frame.size
+            await Self.sleep(seconds: Self.paintDelay)
+        }
+
+        return await takeSnapshot(of: webView, outputWidth: Self.fullPageSnapshotWidth)
+    }
+
+    private static func clampFullPageHeight(_ height: CGFloat) -> CGFloat {
+        min(max(height, fullPageSize.height), fullPageMaxHeight)
+    }
+
+    private func load(fileURL: URL, in webView: WKWebView) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let delegate = NavigationCompletionDelegate { success in
+                continuation.resume(returning: success)
+            }
+            objc_setAssociatedObject(webView, &Self.coordinatorAssocKey, delegate, .OBJC_ASSOCIATION_RETAIN)
+            webView.navigationDelegate = delegate
+
+            let readAccessURL = fileURL.deletingLastPathComponent()
+            webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.loadTimeout) { [weak delegate, weak webView] in
+                if delegate?.finish(success: false) == true {
+                    Log.error("HTMLThumbnailRenderer: full-page load timed out")
+                    webView?.stopLoading()
+                }
+            }
+        }
+    }
+
+    private func measureContentHeight(of webView: WKWebView) async -> CGFloat {
+        await withCheckedContinuation { (continuation: CheckedContinuation<CGFloat, Never>) in
+            let js = "Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)"
+            webView.evaluateJavaScript(js) { result, error in
+                if let error {
+                    Log.error("HTMLThumbnailRenderer: full-page height measurement failed: \(error)")
+                }
+                let value: CGFloat = (result as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
+                continuation.resume(returning: value)
+            }
+        }
+    }
+
+    private func takeSnapshot(of webView: WKWebView, outputWidth: CGFloat) async -> UIImage? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            let snapshotConfig = WKSnapshotConfiguration()
+            snapshotConfig.rect = webView.bounds
+            snapshotConfig.snapshotWidth = NSNumber(value: Double(outputWidth))
+            snapshotConfig.afterScreenUpdates = true
+            webView.takeSnapshot(with: snapshotConfig) { image, error in
+                if let error {
+                    Log.error("HTMLThumbnailRenderer full-page takeSnapshot failed: \(error)")
+                }
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
+    private static func sleep(seconds: TimeInterval) async {
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+}
+
+/// Minimal navigation delegate that reports load completion exactly once.
+/// The full-page render path drives measurement and snapshotting itself, so
+/// it only needs to know when the document finished (or failed to) load.
+private final class NavigationCompletionDelegate: NSObject, WKNavigationDelegate {
+    private var completion: ((Bool) -> Void)?
+
+    init(completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        finish(success: true)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+        Log.error("HTMLThumbnailRenderer full-page load failed: \(error)")
+        finish(success: false)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation?,
+        withError error: Error
+    ) {
+        Log.error("HTMLThumbnailRenderer full-page provisional load failed: \(error)")
+        finish(success: false)
+    }
+
+    @discardableResult
+    func finish(success: Bool) -> Bool {
+        guard let completion else { return false }
+        self.completion = nil
+        completion(success)
+        return true
+    }
 }
 
 private final class LoadCoordinator: NSObject, WKNavigationDelegate {

@@ -14,22 +14,15 @@ struct AttachmentPreviewSheet: View {
     var profileSheetContent: ((ConversationMember) -> AnyView)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @Environment(\.colorScheme) private var colorScheme: ColorScheme
-    @State private var resolvedHTMLTitle: String?
     @State private var htmlBodyBackgroundColor: Color?
     @State private var presentingProfileForMember: ConversationMember?
-    @State private var sharedImage: UIImage?
-    @State private var sharedImageURL: URL?
-    @State private var markdownHasContentThumbnail: Bool = false
     @State private var navState: AttachmentPreviewNavigatorImpl = .init()
     @State private var navigator: AttachmentPreviewCollector?
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
-        navigator = AttachmentPreviewCollector(
-            instance: navState,
-            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
-        )
+        let delegate: CollectorDelegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        navigator = AttachmentPreviewCollector(instance: navState, delegate: delegate)
     }
 
     private func handleMemberSheetChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
@@ -76,10 +69,6 @@ struct AttachmentPreviewSheet: View {
                 profileSheetContent(member)
             }
         }
-        .task(id: attachment.key) {
-            await resolveTitleIfNeeded()
-            await resolveShareImageIfNeeded()
-        }
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
@@ -92,126 +81,21 @@ struct AttachmentPreviewSheet: View {
         }
     }
 
-    private var canShareImage: Bool {
+    private var canShareAttachment: Bool {
         // QuickLook renders its own bottom share toolbar, so suppress ours when it
-        // owns the preview. For HTML and Markdown branches, we share the rendered
-        // thumbnail image instead of the underlying file. Markdown only qualifies
-        // when QLThumbnailGenerator returns a content thumbnail, not a doc icon.
-        if attachment.isHTMLFile { return true }
-        if attachment.isMarkdownFile { return markdownHasContentThumbnail }
-        return false
+        // owns the preview. HTML and Markdown use AttachmentShareLink, which shares
+        // the full-page rendered image for HTML and the underlying file (plus
+        // thumbnail) for Markdown.
+        attachment.isHTMLFile || attachment.isMarkdownFile
     }
 
     @ToolbarContentBuilder
     private var shareToolbarItem: some ToolbarContent {
-        if canShareImage {
+        if canShareAttachment {
             ToolbarItem(placement: .confirmationAction) {
-                shareButton
+                AttachmentShareLink(attachment: attachment, fileURL: fileURL)
+                    .accessibilityIdentifier("attachment-preview-share")
             }
-        }
-    }
-
-    @ViewBuilder
-    private var shareButton: some View {
-        let title: String = resolvedHTMLTitle ?? attachment.filename ?? "Image"
-        if let url = sharedImageURL, let image = sharedImage {
-            let previewImage: Image = Image(uiImage: image)
-            ShareLink(item: url, preview: SharePreview(title, image: previewImage)) {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .accessibilityLabel("Share")
-            .accessibilityIdentifier("attachment-preview-share")
-        } else {
-            Image(systemName: "square.and.arrow.up")
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Share")
-                .accessibilityIdentifier("attachment-preview-share")
-        }
-    }
-
-    private func resolveTitleIfNeeded() async {
-        guard attachment.isHTMLFile else { return }
-        if let cached = HTMLPageMetadata.shared.cachedTitle(for: attachment.key) {
-            resolvedHTMLTitle = cached
-            return
-        }
-        resolvedHTMLTitle = await HTMLPageMetadata.shared.title(for: attachment.key, fileURL: fileURL)
-    }
-
-    private func resolveShareImageIfNeeded() async {
-        let image: UIImage?
-        if attachment.isHTMLFile {
-            image = await resolveHTMLShareImage()
-        } else if attachment.isMarkdownFile {
-            image = await resolveMarkdownShareImage()
-        } else {
-            return
-        }
-        guard let image else { return }
-        let basename: String = shareImageBasename()
-        let url: URL? = await writeSharePNG(image: image, basename: basename)
-        sharedImage = image
-        sharedImageURL = url
-    }
-
-    private func resolveHTMLShareImage() async -> UIImage? {
-        let appearance = colorScheme.uiUserInterfaceStyle
-        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key, appearance: appearance) {
-            return cached
-        }
-        return await HTMLThumbnailRenderer.shared.thumbnail(
-            for: attachment.key,
-            fileURL: fileURL,
-            appearance: appearance
-        )
-    }
-
-    private func resolveMarkdownShareImage() async -> UIImage? {
-        if let cached = FileThumbnailRenderer.shared.cachedThumbnail(for: attachment.key),
-           cached.isContentThumbnail {
-            markdownHasContentThumbnail = true
-            return cached.image
-        }
-        guard let result = await FileThumbnailRenderer.shared.thumbnail(for: attachment.key, fileURL: fileURL),
-              result.isContentThumbnail else {
-            return nil
-        }
-        markdownHasContentThumbnail = true
-        return result.image
-    }
-
-    private func shareImageBasename() -> String {
-        let raw: String
-        if let filename = attachment.filename, !filename.isEmpty {
-            raw = (filename as NSString).deletingPathExtension
-        } else {
-            raw = String(attachment.key.prefix(32))
-        }
-        return sanitizeFilename(raw)
-    }
-
-    private func sanitizeFilename(_ raw: String) -> String {
-        let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-        var output: String = ""
-        for scalar in raw.unicodeScalars {
-            output.append(allowed.contains(scalar) ? Character(scalar) : "_")
-        }
-        let trimmed: String = output.isEmpty ? "image" : output
-        return String(trimmed.prefix(64))
-    }
-
-    private func writeSharePNG(image: UIImage, basename: String) async -> URL? {
-        guard let pngData = image.pngData() else {
-            Log.error("AttachmentPreviewSheet: failed to encode share image PNG")
-            return nil
-        }
-        let url: URL = FileManager.default.temporaryDirectory.appendingPathComponent("\(basename).png")
-        do {
-            try pngData.write(to: url, options: .atomic)
-            return url
-        } catch {
-            Log.error("AttachmentPreviewSheet: failed to write share PNG: \(error)")
-            return nil
         }
     }
 
