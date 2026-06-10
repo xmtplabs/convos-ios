@@ -94,7 +94,9 @@ let package = Package(
                 .process("Resources"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v6),
+                // Swift 5 mode to match the app target the composer code is moved
+                // from; avoids strict-concurrency churn across the moved files.
+                .swiftLanguageMode(.v5),
                 .define("DEBUG", .when(configuration: .debug)),
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ]

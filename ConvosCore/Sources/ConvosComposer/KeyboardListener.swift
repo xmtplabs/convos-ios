@@ -1,8 +1,9 @@
+#if canImport(UIKit)
 import Foundation
 import UIKit
 
 @MainActor
-protocol KeyboardListenerDelegate: AnyObject {
+public protocol KeyboardListenerDelegate: AnyObject {
     func keyboardWillShow(info: KeyboardInfo)
     func keyboardDidShow(info: KeyboardInfo)
     func keyboardWillHide(info: KeyboardInfo)
@@ -11,7 +12,7 @@ protocol KeyboardListenerDelegate: AnyObject {
     func keyboardDidChangeFrame(info: KeyboardInfo)
 }
 
-extension KeyboardListenerDelegate {
+public extension KeyboardListenerDelegate {
     func keyboardWillShow(info: KeyboardInfo) {}
     func keyboardDidShow(info: KeyboardInfo) {}
     func keyboardWillHide(info: KeyboardInfo) {}
@@ -21,9 +22,9 @@ extension KeyboardListenerDelegate {
 }
 
 @MainActor
-final class KeyboardListener {
-    nonisolated static let shared: KeyboardListener = KeyboardListener()
-    private(set) var keyboardRect: CGRect?
+public final class KeyboardListener {
+    public nonisolated static let shared: KeyboardListener = KeyboardListener()
+    public private(set) var keyboardRect: CGRect?
 
     private let delegatesLock: NSLock = NSLock()
     nonisolated(unsafe) private var delegates: NSHashTable<AnyObject> = NSHashTable<AnyObject>.weakObjects()
@@ -32,13 +33,13 @@ final class KeyboardListener {
     private var pendingDidChangeFrameInfo: KeyboardInfo?
     private var didChangeFrameTimer: Timer?
 
-    nonisolated func add(delegate: KeyboardListenerDelegate) {
+    public nonisolated func add(delegate: KeyboardListenerDelegate) {
         delegatesLock.lock()
         defer { delegatesLock.unlock() }
         delegates.add(delegate)
     }
 
-    nonisolated func remove(delegate: KeyboardListenerDelegate) {
+    public nonisolated func remove(delegate: KeyboardListenerDelegate) {
         delegatesLock.lock()
         defer { delegatesLock.unlock() }
         delegates.remove(delegate)
@@ -183,3 +184,4 @@ final class KeyboardListener {
                                                object: nil)
     }
 }
+#endif

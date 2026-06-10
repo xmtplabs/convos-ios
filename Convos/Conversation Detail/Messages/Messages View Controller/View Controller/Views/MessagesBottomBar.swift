@@ -1,12 +1,9 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
-
-enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName, voiceMemoRecording, sideConvoName, stuffSearchBar, agentBuilder
-}
 
 private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
 

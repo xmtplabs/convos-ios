@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCoreiOS
 import Foundation
 import Observation
@@ -5,7 +6,7 @@ import SwiftUI
 import UIKit
 
 /// Represents the type of keyboard currently active
-enum KeyboardType {
+public enum KeyboardType {
     /// Keyboard type has not been detected yet
     case unknown
     /// Standard on-screen software keyboard
@@ -18,11 +19,11 @@ enum KeyboardType {
 /// and providing smart default focus behavior for iPad vs iPhone
 @MainActor
 @Observable
-final class FocusCoordinator {
+public final class FocusCoordinator {
     // MARK: - Public Properties
 
     /// The current focus state - synchronized with SwiftUI's @FocusState
-    private(set) var currentFocus: MessagesViewInputFocus?
+    public private(set) var currentFocus: MessagesViewInputFocus?
 
     /// Bumped by `moveFocus(to:)` only when the requested focus already equals
     /// `currentFocus`. Observers (`ConversationPresenter`, `MessagesBottomBar`)
@@ -33,12 +34,12 @@ final class FocusCoordinator {
     /// without SwiftUI clearing `@FocusState`, leaving the stored focus and the
     /// real first responder out of sync - so a reply or attachment that asks to
     /// re-focus `.message` would otherwise never raise the keyboard again.
-    private(set) var refocusNonce: Int = 0
+    public private(set) var refocusNonce: Int = 0
 
     /// The type of keyboard currently detected
-    private(set) var keyboardType: KeyboardType = .unknown
+    public private(set) var keyboardType: KeyboardType = .unknown
 
-    var horizontalSizeClass: UserInterfaceSizeClass? {
+    public var horizontalSizeClass: UserInterfaceSizeClass? {
         didSet {
             // When size class changes, update current focus to match new default if appropriate
             if oldValue != horizontalSizeClass {
@@ -58,7 +59,7 @@ final class FocusCoordinator {
 
     /// Tracks whether we're in the middle of a SwiftUI-initiated transition (user tapped a field)
     /// This prevents fighting SwiftUI's natural focus animation
-    private(set) var isSwiftUITransition: Bool = false
+    public private(set) var isSwiftUITransition: Bool = false
 
     /// The target focus for SwiftUI-initiated transitions
     private var swiftUITransitionTarget: MessagesViewInputFocus?
@@ -69,7 +70,7 @@ final class FocusCoordinator {
 
     // MARK: - Initialization
 
-    init(horizontalSizeClass: UserInterfaceSizeClass?) {
+    public init(horizontalSizeClass: UserInterfaceSizeClass?) {
         self.horizontalSizeClass = horizontalSizeClass
         setupKeyboardObservation()
     }
@@ -83,7 +84,7 @@ final class FocusCoordinator {
     /// The default focus state when no field is specifically focused
     /// - On iPad with external keyboard: keeps focus on message field
     /// - Otherwise: nil (allows complete keyboard dismissal)
-    var defaultFocus: MessagesViewInputFocus? {
+    public var defaultFocus: MessagesViewInputFocus? {
         switch (horizontalSizeClass, keyboardType) {
         case (.regular, .external):
             // iPad with external keyboard - keep focus on message field
@@ -102,7 +103,7 @@ final class FocusCoordinator {
     }
 
     /// Determines the next focus after a field finishes editing
-    func nextFocus(after current: MessagesViewInputFocus, context: FocusTransitionContext) -> MessagesViewInputFocus? {
+    public func nextFocus(after current: MessagesViewInputFocus, context: FocusTransitionContext) -> MessagesViewInputFocus? {
         switch (current, context) {
         case (.displayName, .onboardingProfile):
             // During onboarding, dismiss keyboard to show onboarding UI
@@ -152,13 +153,13 @@ final class FocusCoordinator {
     /// conversation pager pages away from the Stuff page or the conversation
     /// itself disappears, so the keyboard doesn't stay associated with a field on
     /// an off-screen page and bump the messages bottom bar with a phantom inset.
-    func dismissStuffSearchIfNeeded() {
+    public func dismissStuffSearchIfNeeded() {
         guard currentFocus == .stuffSearchBar else { return }
         moveFocus(to: nil)
     }
 
     /// Moves focus to `message` if we're currently focusing a quick-editor field
-    func dismissQuickEditor() {
+    public func dismissQuickEditor() {
         guard currentFocus == .displayName
             || currentFocus == .conversationName
             || currentFocus == .sideConvoName else {
@@ -169,7 +170,7 @@ final class FocusCoordinator {
     }
 
     /// Programmatically move focus to a specific field
-    func moveFocus(to focus: MessagesViewInputFocus?) {
+    public func moveFocus(to focus: MessagesViewInputFocus?) {
         Log.info("moveFocus called with: \(String(describing: focus)), saving previous: \(String(describing: currentFocus))")
         previousFocus = currentFocus
         beginProgrammaticTransition(to: focus)
@@ -188,7 +189,7 @@ final class FocusCoordinator {
     }
 
     /// Called when a field finishes editing to determine next focus
-    func endEditing(for field: MessagesViewInputFocus, context: FocusTransitionContext = .quickEditor) {
+    public func endEditing(for field: MessagesViewInputFocus, context: FocusTransitionContext = .quickEditor) {
         let nextFocus = nextFocus(after: field, context: context)
         Log.info("endEditing called for: \(field), context: \(context), next: \(String(describing: nextFocus))")
 
@@ -228,13 +229,13 @@ final class FocusCoordinator {
     /// stays the regular language during dictation and no input-mode-change
     /// notification fires, so callers infer it behaviorally - see
     /// `ConversationViewModel`.)
-    func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
+    public func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
         KeyboardInputSettling.withSettledInput(endingInputSession: endingInputSession, work)
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated
     /// This handles all synchronization logic between SwiftUI's focus state and the coordinator
-    func syncFocusState(_ newFocus: MessagesViewInputFocus?) {
+    public func syncFocusState(_ newFocus: MessagesViewInputFocus?) {
         Log.info("syncFocusState called with: \(String(describing: newFocus))")
 
         // First, confirm any active transitions (this may complete a transition)
@@ -307,7 +308,7 @@ final class FocusCoordinator {
     }
 
     /// Called by the view when user initiates a focus change (taps a field)
-    func beginSwiftUIInitiatedTransition(to target: MessagesViewInputFocus?) {
+    public func beginSwiftUIInitiatedTransition(to target: MessagesViewInputFocus?) {
         // Clear any existing programmatic transition before starting a SwiftUI one
         if isProgrammaticTransition {
             Log.info("Clearing programmatic transition before starting SwiftUI transition")
@@ -324,7 +325,7 @@ final class FocusCoordinator {
     }
 
     /// Called when user manually dismisses keyboard - should return to default or stay nil
-    func handleManualDismissal(viewIsAlreadyAt viewFocus: MessagesViewInputFocus? = nil) {
+    public func handleManualDismissal(viewIsAlreadyAt viewFocus: MessagesViewInputFocus? = nil) {
         // Ignore if we're in the middle of any transition
         // This prevents false positives when SwiftUI temporarily sets focus to nil
         // while transitioning between text fields
@@ -415,7 +416,7 @@ final class FocusCoordinator {
 
     /// Reset all transitions and set focus to default
     /// Used when conversation changes or view is replaced
-    func resetAndSetDefault() {
+    public func resetAndSetDefault() {
         Log.info("Resetting transitions and setting default focus: \(String(describing: defaultFocus))")
 
         // Clear any stuck transitions
@@ -492,21 +493,21 @@ final class FocusCoordinator {
 // MARK: - KeyboardListenerDelegate
 
 extension FocusCoordinator: KeyboardListenerDelegate {
-    nonisolated func keyboardWillShow(info: KeyboardInfo) {
+    public nonisolated func keyboardWillShow(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         Task { @MainActor in
             updateKeyboardState(frame: info.frameEnd, isShowEvent: true, screen: screen)
         }
     }
 
-    nonisolated func keyboardDidShow(info: KeyboardInfo) {
+    public nonisolated func keyboardDidShow(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         Task { @MainActor in
             updateKeyboardState(frame: info.frameEnd, isShowEvent: true, screen: screen)
         }
     }
 
-    func keyboardWillHide(info: KeyboardInfo) {
+    public func keyboardWillHide(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         // During hide events, we can't distinguish between software keyboard dismissal
         // and external keyboard connection, so set to unknown if we were in standard state
@@ -515,7 +516,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
         }
     }
 
-    func keyboardDidHide(info: KeyboardInfo) {
+    public func keyboardDidHide(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         // During hide events, we can't distinguish between software keyboard dismissal
         // and external keyboard connection, so set to unknown if we were in standard state
@@ -524,7 +525,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
         }
     }
 
-    nonisolated func keyboardWillChangeFrame(info: KeyboardInfo) {
+    public nonisolated func keyboardWillChangeFrame(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         Task { @MainActor in
             // Frame changes could be show or hide, detect based on position
@@ -535,7 +536,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
         }
     }
 
-    nonisolated func keyboardDidChangeFrame(info: KeyboardInfo) {
+    public nonisolated func keyboardDidChangeFrame(info: KeyboardInfo) {
         guard let screen = info.screen else { return }
         Task { @MainActor in
             // Frame changes could be show or hide, detect based on position
@@ -550,10 +551,11 @@ extension FocusCoordinator: KeyboardListenerDelegate {
 // MARK: - Supporting Types
 
 /// Context for focus transitions to make smart decisions about next focus
-enum FocusTransitionContext {
+public enum FocusTransitionContext {
     case onboardingProfile
     case quickEditor
     case editProfile
     case conversation
     case conversationSettings
 }
+#endif

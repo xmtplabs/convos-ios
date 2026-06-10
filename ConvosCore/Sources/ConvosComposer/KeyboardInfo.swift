@@ -1,13 +1,14 @@
+#if canImport(UIKit)
 import Foundation
 import UIKit
 
-struct KeyboardInfo: Equatable {
-    let animationDuration: Double
-    let animationCurve: UIView.AnimationCurve
-    let frameBegin: CGRect
-    let frameEnd: CGRect
-    let isLocal: Bool
-    let screen: UIScreen?
+public struct KeyboardInfo: Equatable {
+    public let animationDuration: Double
+    public let animationCurve: UIView.AnimationCurve
+    public let frameBegin: CGRect
+    public let frameEnd: CGRect
+    public let isLocal: Bool
+    public let screen: UIScreen?
 
     init?(_ notification: Notification) {
         guard let userInfo: NSDictionary = notification.userInfo as NSDictionary?,
@@ -39,3 +40,4 @@ struct KeyboardInfo: Equatable {
         screen = notification.object as? UIScreen
     }
 }
+#endif
