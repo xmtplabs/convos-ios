@@ -22,7 +22,7 @@ public struct InlineVideoPlayerView: UIViewRepresentable {
     }
 
     public final class PlayerLayerView: UIView {
-        override public static var layerClass: AnyClass { AVPlayerLayer.self }
+        public override static var layerClass: AnyClass { AVPlayerLayer.self }
         // swiftlint:disable:next force_cast
         var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
     }

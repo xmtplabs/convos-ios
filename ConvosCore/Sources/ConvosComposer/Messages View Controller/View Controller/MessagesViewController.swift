@@ -485,19 +485,19 @@ public final class MessagesViewController: UIViewController {
         fatalError()
     }
 
-    override public func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
 
         setupCollectionView()
         setupUI()
     }
 
-    override public func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+    public override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         handleViewTransition(to: size, with: coordinator)
         super.viewWillTransition(to: size, with: coordinator)
     }
 
-    override public func viewDidAppear(_ animated: Bool) {
+    public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isSettlingInitialLayout = false
         messagesLayout.compensatesAllSelfSizingGrowth = false
@@ -509,13 +509,13 @@ public final class MessagesViewController: UIViewController {
     /// the list paints short of the bottom until something else scrolls it.
     /// Re-anchor arithmetically while settling; `scrollToBottom(animated:
     /// false)` is plain property assignments, safe mid-layout.
-    override public func viewSafeAreaInsetsDidChange() {
+    public override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         guard isSettlingInitialLayout, isViewLoaded, !isUserInitiatedScrolling else { return }
         scrollToBottom(animated: false)
     }
 
-    override public func viewWillDisappear(_ animated: Bool) {
+    public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Drop the flag so an interrupted keyboard transition doesn't surface a
         // stale scroll-to-bottom on the next appearance.

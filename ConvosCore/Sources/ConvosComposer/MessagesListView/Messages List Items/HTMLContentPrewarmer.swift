@@ -202,7 +202,7 @@ private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScript
     private var didFinishContinuation: CheckedContinuation<Bool, Never>?
     private var finished: Bool = false
 
-    public func waitForLoad(timeout: TimeInterval, paintDelay: TimeInterval) async -> Bool {
+    func waitForLoad(timeout: TimeInterval, paintDelay: TimeInterval) async -> Bool {
         let success: Bool = await withCheckedContinuation { continuation in
             self.didFinishContinuation = continuation
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
@@ -214,16 +214,16 @@ private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScript
         return true
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         complete(success: true)
     }
 
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
         Log.error("HTMLContentPrewarmer load failed: \(error.localizedDescription)")
         complete(success: false)
     }
 
-    public func webView(
+    func webView(
         _ webView: WKWebView,
         didFailProvisionalNavigation navigation: WKNavigation?,
         withError error: Error
@@ -232,7 +232,7 @@ private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScript
         complete(success: false)
     }
 
-    public func userContentController(
+    func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {

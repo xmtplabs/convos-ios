@@ -31,12 +31,12 @@ public struct LinkDetectingTextView: View {
 }
 
 private struct LinkTextViewRepresentable: UIViewRepresentable {
-    public let text: String
-    public let font: UIFont
-    public let textColor: UIColor
-    public let linkColor: UIColor?
+    let text: String
+    let font: UIFont
+    let textColor: UIColor
+    let linkColor: UIColor?
 
-    public func makeUIView(context: Context) -> LinkTextView {
+    func makeUIView(context: Context) -> LinkTextView {
         let view = LinkTextView()
         view.isEditable = false
         view.isScrollEnabled = false
@@ -47,7 +47,7 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
         return view
     }
 
-    public func updateUIView(_ uiView: LinkTextView, context: Context) {
+    func updateUIView(_ uiView: LinkTextView, context: Context) {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 0
 
@@ -72,13 +72,13 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
         }
     }
 
-    public func sizeThatFits(_ proposal: ProposedViewSize, uiView: LinkTextView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: LinkTextView, context: Context) -> CGSize? {
         let maxWidth = proposal.width ?? UIView.layoutFittingExpandedSize.width
         let size = uiView.sizeThatFits(CGSize(width: maxWidth, height: UIView.layoutFittingExpandedSize.height))
         return size
     }
 
-    public func makeCoordinator() -> Coordinator {
+    func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
@@ -113,13 +113,13 @@ public final class LinkTextView: UITextView, LinkHitTestable {
         self.init(frame: .zero, textContainer: textContainer)
     }
 
-    override public var canBecomeFirstResponder: Bool { false }
+    public override var canBecomeFirstResponder: Bool { false }
 
     public func containsLink(at point: CGPoint) -> Bool {
         urlAtPoint(point) != nil
     }
 
-    override public func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
         return containsLink(at: point)
     }

@@ -557,7 +557,7 @@ struct MessagesGroupView: View {
                 if displayGroup.onlyVisibleToSender {
                     Text("Only visible to you")
                         .font(.caption)
-                    let footerProfileImage: UIImage? = currentUserProfileImage?() ?? nil
+                    let footerProfileImage: UIImage? = currentUserProfileImage?()
                     ProfileAvatarView(
                         profile: displayGroup.sender.profile,
                         profileImage: footerProfileImage,

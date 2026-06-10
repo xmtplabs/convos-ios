@@ -12,10 +12,12 @@ public struct QRCodeView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     private let displaySize: CGFloat = 220.0
 
-    public init(url: URL,
-         backgroundColor: Color? = nil,
-         foregroundColor: Color? = nil,
-         centerImage: Image? = nil) {
+    public init(
+        url: URL,
+        backgroundColor: Color? = nil,
+        foregroundColor: Color? = nil,
+        centerImage: Image? = nil
+    ) {
         self.url = url
         self.backgroundColor = backgroundColor ?? .colorBackgroundSurfaceless
         self.foregroundColor = foregroundColor ?? .colorTextPrimary

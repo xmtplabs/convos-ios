@@ -191,9 +191,9 @@ public struct AgentContactCardView: View {
 /// `Int?`, so we branch via a `ViewModifier` rather than passing the optional
 /// directly.
 private struct SubtitleLineLimitModifier: ViewModifier {
-    public let lineLimit: Int?
+    let lineLimit: Int?
 
-    public func body(content: Content) -> some View {
+    func body(content: Content) -> some View {
         if let lineLimit {
             content
                 .lineLimit(lineLimit, reservesSpace: true)
@@ -211,11 +211,11 @@ private struct SubtitleLineLimitModifier: ViewModifier {
 /// surrounding card content. The `.animation(_:value:)` modifier scopes the
 /// repeat-forever transaction so it doesn't leak into siblings.
 private struct PulsingSubtitle: View {
-    public let text: String
-    public var font: Font = .body
+    let text: String
+    var font: Font = .body
     @State private var isPulsed: Bool = false
 
-    public var body: some View {
+    var body: some View {
         Text(text)
             .font(font)
             .foregroundStyle(.colorTextSecondary)
