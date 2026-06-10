@@ -240,15 +240,17 @@ struct ShareComposeView: View {
     @State private var activeToast: IndicatorToastStyle?
     @State private var autoRevealPhotos: Bool = false
     @State private var contextMenuState: MessageContextMenuState = MessageContextMenuState()
+    @State private var bottomBarHeight: CGFloat = 0.0
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                transcript
-                composerBar
-            }
-            .toolbar { closeToolbarItem }
-            .toolbarTitleDisplayMode(.inline)
+            transcript
+                .ignoresSafeArea()
+                .safeAreaBar(edge: .bottom) {
+                    composerBar
+                }
+                .toolbar { closeToolbarItem }
+                .toolbarTitleDisplayMode(.inline)
         }
         .overlay(alignment: .top) {
             if let conversation = model.targetConversation {
@@ -259,6 +261,12 @@ struct ShareComposeView: View {
         .onAppear { focusState = .message }
         .onChange(of: model.targetTitle) { _, newValue in
             conversationName = newValue
+        }
+        .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
+            focusState = newFocus
+        }
+        .onChange(of: focusState) { _, newFocus in
+            focusCoordinator.syncFocusState(newFocus)
         }
     }
 
@@ -336,8 +344,8 @@ struct ShareComposeView: View {
                 memberContactOverride: { _ in nil },
                 isAgentJoinPending: false,
                 headerMode: .suppressed,
-                bottomBarHeight: 0,
-                hasBottomBar: false,
+                bottomBarHeight: bottomBarHeight,
+                hasBottomBar: true,
                 scrollToBottomTrigger: { _ in },
                 messageInputFocusTrigger: { _ in }
             )
@@ -384,7 +392,9 @@ struct ShareComposeView: View {
             voiceMemoRecorder: voiceMemoRecorder,
             onSendVoiceMemo: {},
             onConvosAction: {},
-            onBaseHeightChanged: { _ in },
+            onBaseHeightChanged: { height in
+                bottomBarHeight = height
+            },
             bottomBarContent: { EmptyView() },
             quickEditView: { _, _ in EmptyView() },
             fileAttachmentPreview: { _ in EmptyView() },
