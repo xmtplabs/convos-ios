@@ -1,10 +1,9 @@
 import Combine
-import ConvosCore
 import Foundation
 
 /// A wrapper around MessagesRepository that transforms messages into display items for SwiftUI
 @MainActor
-protocol MessagesListRepositoryProtocol {
+public protocol MessagesListRepositoryProtocol {
     var messagesListPublisher: AnyPublisher<[MessagesListItemType], Never> { get }
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> { get }
 
@@ -35,7 +34,7 @@ protocol MessagesListRepositoryProtocol {
 }
 
 @MainActor
-final class MessagesListRepository: MessagesListRepositoryProtocol {
+public final class MessagesListRepository: MessagesListRepositoryProtocol {
     // MARK: - Private Properties
 
     private let messagesRepository: any MessagesRepositoryProtocol
@@ -53,20 +52,20 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var transcriptCancellable: AnyCancellable?
     private var lastRawMessages: [AnyMessage] = []
     private var storedTranscripts: [String: VoiceMemoTranscript] = [:]
-    var currentOtherMemberCount: Int = 0
-    var verifiedAgent: ConversationMember? {
+    public var currentOtherMemberCount: Int = 0
+    public var verifiedAgent: ConversationMember? {
         didSet {
             guard oldValue != verifiedAgent else { return }
             reprocessCachedMessages()
         }
     }
-    var agentBuilderSummary: AgentBuilderSummary? {
+    public var agentBuilderSummary: AgentBuilderSummary? {
         didSet {
             guard oldValue != agentBuilderSummary else { return }
             reprocessCachedMessages()
         }
     }
-    var isInAgentBuilderFlow: Bool = false {
+    public var isInAgentBuilderFlow: Bool = false {
         didSet {
             guard oldValue != isInAgentBuilderFlow else { return }
             reprocessCachedMessages()
@@ -102,11 +101,11 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Public Properties
 
-    var messagesListPublisher: AnyPublisher<[MessagesListItemType], Never> {
+    public var messagesListPublisher: AnyPublisher<[MessagesListItemType], Never> {
         messagesListSubject.eraseToAnyPublisher()
     }
 
-    var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> {
+    public var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> {
         messagesRepository.conversationMessagesResultPublisher
             .map { [weak self] result in
                 let processedMessages = self?.processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles) ?? []
@@ -122,7 +121,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private var hasStartedObserving: Bool = false
 
-    init(
+    public init(
         messagesRepository: any MessagesRepositoryProtocol,
         transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol,
         hiddenBundleMessagesRepository: any BuilderBundleHiddenMessagesRepositoryProtocol,
@@ -136,7 +135,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         self.speechPermissionProvider = speechPermissionProvider
     }
 
-    func startObserving() {
+    public func startObserving() {
         guard !hasStartedObserving else { return }
         hasStartedObserving = true
         messagesRepository.conversationMessagesResultPublisher
@@ -172,7 +171,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Public Methods
 
-    func fetchInitial() throws -> [MessagesListItemType] {
+    public func fetchInitial() throws -> [MessagesListItemType] {
         let result = try messagesRepository.fetchInitialResult()
         // Seed the stored transcripts synchronously so the very first list
         // emission already carries any persisted transcripts. Otherwise the
@@ -187,12 +186,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         return processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles)
     }
 
-    func fetchPrevious() throws {
+    public func fetchPrevious() throws {
         // Trigger fetch - results will be delivered through the publisher
         try messagesRepository.fetchPrevious()
     }
 
-    var hasMoreMessages: Bool {
+    public var hasMoreMessages: Bool {
         return messagesRepository.hasMoreMessages
     }
 
@@ -202,7 +201,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var lastMemberProfiles: [String: MemberProfileInfo] = [:]
     private var lastOtherMemberCount: Int = 0
     private var lastReadByMembers: [ConversationMember] = []
-    var sendReadReceipts: Bool = true
+    public var sendReadReceipts: Bool = true
 
     private func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
         lastRawMessages = messages
