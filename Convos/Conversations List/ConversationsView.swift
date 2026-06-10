@@ -206,9 +206,21 @@ struct ConversationsView: View {
         // (reserving its edge) *and* its height is re-applied here as the
         // collection view's `additionalSafeAreaInsets`. To avoid counting it
         // twice we ignore the system safe area on the bar's edge: `.top` on
-        // iPhone (bar pins to the top) and additionally `.bottom` on iPad
-        // (bar pins to the bottom, signalled by a non-zero bottom inset).
-        let ignoredSafeAreaEdges: Edge.Set = bottomChromeInset > 0 ? [.top, .bottom] : .top
+        // iPhone (bar pins to the top) and `.bottom` on iPad (bar pins to the
+        // bottom, signalled by a non-zero bottom inset).
+        //
+        // We ignore `.bottom` unconditionally so the collection view's frame
+        // reaches the physical screen bottom (under the floating tab bar)
+        // rather than stopping at the bottom safe-area line. The list cell
+        // hosting view has `clipsToBounds = false`, so cells render in the
+        // band under the tab bar, but UICollectionView culls cells the moment
+        // they leave its `bounds` regardless of clipping. If the frame stopped
+        // at the safe-area line, cells would be removed the instant their
+        // bottom crossed that line and visibly pop out mid-scroll instead of
+        // sliding off the bottom. Extending the frame moves the cull boundary
+        // to the screen edge; `contentInsetAdjustmentBehavior = .automatic`
+        // re-applies the tab-bar inset so the last row still rests above it.
+        let ignoredSafeAreaEdges: Edge.Set = [.top, .bottom]
         return ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
