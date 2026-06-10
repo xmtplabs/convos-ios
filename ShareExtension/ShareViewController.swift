@@ -1,3 +1,4 @@
+import Combine
 import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
@@ -58,12 +59,15 @@ final class ShareComposeModel {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var isReady: Bool = false
     var isSending: Bool = false
+    var messages: [MessagesListItemType] = []
     /// The sharer's profile, for the composer's avatar. Spike: a placeholder
     /// profile until the extension wires up the real profile repository.
     var profile: Profile = .mock(name: "You")
 
     private var client: ConvosClient?
     private var targetConversationId: String?
+    private var messagesListRepository: MessagesListRepository?
+    private var messagesCancellable: AnyCancellable?
 
     var canSend: Bool {
         let hasText: Bool = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -115,6 +119,10 @@ final class ShareComposeModel {
             // (Conversation.title lives in the app target, not here).
             targetTitle = intent?.speakableGroupName?.spokenPhrase ?? target?.name ?? "Convo"
 
+            if let target {
+                startObservingMessages(for: target, client: client)
+            }
+
             if let image = await Self.loadSharedImage(extensionContext: extensionContext) {
                 appendPhoto(image)
             }
@@ -122,6 +130,25 @@ final class ShareComposeModel {
         } catch {
             Log.error("prepare failed: \(error.localizedDescription)")
         }
+    }
+
+    private func startObservingMessages(for conversation: Conversation, client: ConvosClient) {
+        let repository = MessagesListRepository(
+            messagesRepository: client.session.messagesRepository(for: conversation.id),
+            transcriptRepository: client.session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: client.session.builderBundleHiddenMessagesRepository(),
+            conversationId: conversation.id,
+            speechPermissionProvider: { false }
+        )
+        repository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+        messagesListRepository = repository
+        messages = (try? repository.fetchInitial()) ?? []
+        messagesCancellable = repository.messagesListPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] items in
+                self?.messages = items
+            }
+        repository.startObserving()
     }
 
     func send() async {
@@ -211,11 +238,12 @@ struct ShareComposeView: View {
     @State private var presentingConversationSettings: Bool = false
     @State private var activeToast: IndicatorToastStyle?
     @State private var autoRevealPhotos: Bool = false
+    @State private var contextMenuState: MessageContextMenuState = MessageContextMenuState()
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            Spacer(minLength: 0)
+            transcript
             composerBar
         }
         .onAppear { focusState = .message }
@@ -279,6 +307,53 @@ struct ShareComposeView: View {
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel("Cancel")
         .accessibilityIdentifier("share-cancel-button")
+    }
+
+    @ViewBuilder
+    private var transcript: some View {
+        if let conversation = model.targetConversation {
+            MessagesViewRepresentable(
+                conversation: conversation,
+                messages: model.messages,
+                invite: .empty,
+                onUserInteraction: {},
+                hasLoadedAllMessages: true,
+                shouldBlurPhotos: false,
+                focusCoordinator: focusCoordinator,
+                onTapAvatar: { _ in },
+                onLoadPreviousMessages: {},
+                onTapInvite: { _ in },
+                onReaction: { _, _ in },
+                onToggleReaction: { _, _ in },
+                onTapReactions: { _ in },
+                onTapReadReceipts: { _ in },
+                onTapThinkingIndicator: { _ in },
+                onReply: { _ in },
+                contextMenuState: contextMenuState,
+                onPhotoRevealed: { _ in },
+                onPhotoHidden: { _ in },
+                onPhotoDimensionsLoaded: { _, _, _ in },
+                onAgentOutOfCredits: {},
+                creditsDepleted: false,
+                onTapUpdateMember: { _ in },
+                onRetryMessage: { _ in },
+                onDeleteMessage: { _ in },
+                onRetryAgentJoin: {},
+                onCopyInviteLink: {},
+                onConvoCode: {},
+                onInviteAgent: {},
+                onRetryTranscript: { _ in },
+                profileSheetForMember: { _ in AnyView(EmptyView()) },
+                memberContactOverride: { _ in nil },
+                isAgentJoinPending: false,
+                headerMode: .suppressed,
+                bottomBarHeight: 0,
+                scrollToBottomTrigger: { _ in },
+                messageInputFocusTrigger: { _ in }
+            )
+        } else {
+            Spacer(minLength: 0)
+        }
     }
 
     private var composerBar: some View {
