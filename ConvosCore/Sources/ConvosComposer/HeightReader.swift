@@ -1,16 +1,17 @@
+#if canImport(UIKit)
 import SwiftUI
 
-// MARK: - Height Reading
-
-struct HeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+public struct HeightPreferenceKey: PreferenceKey {
+    public static let defaultValue: CGFloat = 0
+    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }
 }
 
-struct HeightReader: View {
-    var body: some View {
+public struct HeightReader: View {
+    public init() {}
+
+    public var body: some View {
         GeometryReader { proxy in
             Color.clear
                 .preference(key: HeightPreferenceKey.self, value: proxy.size.height)
@@ -18,10 +19,11 @@ struct HeightReader: View {
     }
 }
 
-extension View {
+public extension View {
     func readHeight(onChange: @escaping (CGFloat) -> Void) -> some View {
         self
             .background(HeightReader())
             .onPreferenceChange(HeightPreferenceKey.self, perform: onChange)
     }
 }
+#endif

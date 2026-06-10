@@ -1,11 +1,16 @@
+#if canImport(UIKit)
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct VideoFile: Transferable {
-    let url: URL
+public struct VideoFile: Transferable {
+    public let url: URL
 
-    static var transferRepresentation: some TransferRepresentation {
+    public init(url: URL) {
+        self.url = url
+    }
+
+    public static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
@@ -16,3 +21,4 @@ struct VideoFile: Transferable {
         }
     }
 }
+#endif

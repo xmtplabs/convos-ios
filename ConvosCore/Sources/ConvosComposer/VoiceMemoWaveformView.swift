@@ -1,6 +1,7 @@
+#if canImport(UIKit)
 import SwiftUI
 
-struct VoiceMemoWaveformView: View {
+public struct VoiceMemoWaveformView: View {
     let levels: [Float]
     var progress: Double = 0
     var playedColor: Color = .colorTextPrimary
@@ -8,7 +9,23 @@ struct VoiceMemoWaveformView: View {
     var barWidth: CGFloat = 2
     var barSpacing: CGFloat = 1.5
 
-    var body: some View {
+    public init(
+        levels: [Float],
+        progress: Double = 0,
+        playedColor: Color? = nil,
+        unplayedColor: Color? = nil,
+        barWidth: CGFloat = 2,
+        barSpacing: CGFloat = 1.5
+    ) {
+        self.levels = levels
+        self.progress = progress
+        self.playedColor = playedColor ?? .colorTextPrimary
+        self.unplayedColor = unplayedColor ?? .colorTextSecondary.opacity(0.4)
+        self.barWidth = barWidth
+        self.barSpacing = barSpacing
+    }
+
+    public var body: some View {
         Canvas { context, size in
             let totalBarWidth = barWidth + barSpacing
             let barCount = max(Int(size.width / totalBarWidth), 1)
@@ -49,10 +66,4 @@ struct VoiceMemoWaveformView: View {
         return result
     }
 }
-
-#Preview {
-    let levels: [Float] = (0 ..< 80).map { _ in Float.random(in: 0.05 ... 1.0) }
-    VoiceMemoWaveformView(levels: levels, progress: 0.4)
-        .frame(height: 32)
-        .padding()
-}
+#endif

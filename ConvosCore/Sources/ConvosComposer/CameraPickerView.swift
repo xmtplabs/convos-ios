@@ -1,21 +1,27 @@
+#if canImport(UIKit)
 import SwiftUI
 import UIKit
 
-struct CameraPickerView: UIViewControllerRepresentable {
+public struct CameraPickerView: UIViewControllerRepresentable {
     let onImageCaptured: (UIImage) -> Void
     let onVideoCaptured: ((URL) -> Void)?
 
-    static var isAvailable: Bool {
+    public init(onImageCaptured: @escaping (UIImage) -> Void, onVideoCaptured: ((URL) -> Void)? = nil) {
+        self.onImageCaptured = onImageCaptured
+        self.onVideoCaptured = onVideoCaptured
+    }
+
+    public static var isAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
     }
 
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    func makeCoordinator() -> Coordinator {
+    public func makeCoordinator() -> Coordinator {
         Coordinator(onImageCaptured: onImageCaptured, onVideoCaptured: onVideoCaptured, dismiss: dismiss)
     }
 
-    func makeUIViewController(context: Context) -> UIViewController {
+    public func makeUIViewController(context: Context) -> UIViewController {
         guard Self.isAvailable else {
             let controller = UIViewController()
             DispatchQueue.main.async {
@@ -32,9 +38,9 @@ struct CameraPickerView: UIViewControllerRepresentable {
         return picker
     }
 
-    func updateUIViewController(_: UIViewController, context _: Context) {}
+    public func updateUIViewController(_: UIViewController, context _: Context) {}
 
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    public final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let onImageCaptured: (UIImage) -> Void
         let onVideoCaptured: ((URL) -> Void)?
         let dismiss: DismissAction
@@ -45,7 +51,7 @@ struct CameraPickerView: UIViewControllerRepresentable {
             self.dismiss = dismiss
         }
 
-        func imagePickerController(
+        public func imagePickerController(
             _: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
@@ -58,8 +64,9 @@ struct CameraPickerView: UIViewControllerRepresentable {
             dismiss()
         }
 
-        func imagePickerControllerDidCancel(_: UIImagePickerController) {
+        public func imagePickerControllerDidCancel(_: UIImagePickerController) {
             dismiss()
         }
     }
 }
+#endif

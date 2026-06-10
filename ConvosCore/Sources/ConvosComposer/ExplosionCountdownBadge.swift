@@ -1,10 +1,15 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-struct ExplosionCountdownBadge: View {
+public struct ExplosionCountdownBadge: View {
     let expiresAt: Date
 
-    var body: some View {
+    public init(expiresAt: Date) {
+        self.expiresAt = expiresAt
+    }
+
+    public var body: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remaining = expiresAt.timeIntervalSince(context.date)
             let isUrgent = remaining <= 24 * 3600
@@ -18,15 +23,4 @@ struct ExplosionCountdownBadge: View {
         }
     }
 }
-
-#Preview {
-    VStack(spacing: 20) {
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(30))
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(90))
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(3700))
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(50000))
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(90000))
-        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(259200))
-    }
-    .padding()
-}
+#endif
