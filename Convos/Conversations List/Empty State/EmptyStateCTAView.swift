@@ -95,11 +95,11 @@ struct EmptyStateCTAView<MockContent: View>: View {
     // Computed because generic types do not support static stored
     // properties.
     private enum Constant {
-        /// Matches the visible mock heights (the 160pt thing card; the
-        /// conversation mock is a few points shorter) so the equal spacers
-        /// above and below center the visible content, with no phantom
-        /// slot headroom pushing the block down.
-        static var mockSlotHeight: CGFloat { 160.0 }
+        /// Matches the tallest visible mock (the 160pt thing card plus its
+        /// conversation-name caption; the conversation mock is a few points
+        /// shorter) so the equal spacers above and below center the visible
+        /// content, with no phantom slot headroom pushing the block down.
+        static var mockSlotHeight: CGFloat { 184.0 }
         static var headlineFontSize: CGFloat { 40.0 }
         static var headlineLineHeight: CGFloat { 40.0 }
         /// Two lines at the tight 40pt line height.

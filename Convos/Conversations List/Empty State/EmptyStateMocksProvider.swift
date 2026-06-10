@@ -16,14 +16,16 @@ struct EmptyStateMockConversation: Decodable, Hashable, Identifiable {
 
 /// One mock "thing" item cycled through by the Things-tab empty-state
 /// carousel. The preview is rendered from real HTML, the same way actual
-/// thing cells render agent-produced files. Exactly one of the two HTML
-/// sources is expected:
+/// thing cells render agent-produced files, with the name of the mock
+/// conversation the thing came from captioned underneath. Exactly one of
+/// the two HTML sources is expected:
 /// - `htmlFile`: name of a bundled resource (the payload the app ships with)
 /// - `html`: inline markup (the remote payload)
 struct EmptyStateMockThing: Decodable, Hashable, Identifiable {
     let id: String
     let title: String
     let emoji: String?
+    let conversationName: String?
     let htmlFile: String?
     let html: String?
 }
@@ -43,6 +45,7 @@ struct EmptyStateResolvedMockThing: Hashable, Identifiable {
     let id: String
     let title: String
     let emoji: String?
+    let conversationName: String?
     let fileURL: URL
     let thumbnailKey: String
 }
@@ -181,6 +184,7 @@ final class EmptyStateMocksProvider {
             id: thing.id,
             title: thing.title,
             emoji: thing.emoji,
+            conversationName: thing.conversationName,
             fileURL: fileURL,
             thumbnailKey: "empty-state-mock-thing-\(thing.id)-\(contentHash)"
         )

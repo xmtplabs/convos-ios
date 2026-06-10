@@ -65,7 +65,9 @@ struct EmptyStateMockThingCarousel: View {
 /// Mock counterpart of [[ThingPreviewCell]]: the same square preview with
 /// the 28pt continuous corner radius, loading its thumbnail from a local
 /// example HTML file instead of a conversation attachment, with a label
-/// pill ("Dinner suggestion" etc.) over the bottom-leading corner.
+/// pill ("Dinner suggestion" etc.) over the bottom-leading corner and the
+/// mock source conversation's name captioned underneath (same style as
+/// the mock conversation carousel's name caption).
 struct EmptyStateMockThingCell: View {
     let item: EmptyStateResolvedMockThing
 
@@ -73,6 +75,13 @@ struct EmptyStateMockThingCell: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     var body: some View {
+        VStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+            preview
+            conversationNameLabel
+        }
+    }
+
+    private var preview: some View {
         Color.colorFillTertiary
             .frame(width: Constant.previewSize, height: Constant.previewSize)
             .overlay {
@@ -90,6 +99,17 @@ struct EmptyStateMockThingCell: View {
             .task(id: thumbnailTaskId) {
                 await loadThumbnail()
             }
+    }
+
+    @ViewBuilder
+    private var conversationNameLabel: some View {
+        if let conversationName = item.conversationName, !conversationName.isEmpty {
+            Text(conversationName)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
     }
 
     private var labelText: String {
