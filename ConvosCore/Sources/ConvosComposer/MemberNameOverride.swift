@@ -24,7 +24,7 @@ private struct MemberContactOverrideKey: EnvironmentKey {
     static let defaultValue: @Sendable (String) -> Contact? = { _ in nil }
 }
 
-extension EnvironmentValues {
+public extension EnvironmentValues {
     var memberContactOverride: @Sendable (String) -> Contact? {
         get { self[MemberContactOverrideKey.self] }
         set { self[MemberContactOverrideKey.self] = newValue }
@@ -46,7 +46,7 @@ extension EnvironmentValues {
     }
 }
 
-extension View {
+public extension View {
     /// Injects an inbox-to-contact override closure into the SwiftUI
     /// environment so descendant surfaces (conversation list, pinned
     /// tiles, info previews, system-message cells, ...) substitute the

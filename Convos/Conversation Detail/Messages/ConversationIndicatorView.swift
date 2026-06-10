@@ -183,7 +183,8 @@ struct ConversationIndicatorView<InfoView: View>: View {
             onConversationNameEndedEditing: {},
             onConversationSettings: {},
             onExplodeNow: {},
-            infoView: { EmptyView() }
+            infoView: { EmptyView() },
+            quickEditView: { _, _ in EmptyView() }
         )
 
         Button("Show Reveal Toast") {

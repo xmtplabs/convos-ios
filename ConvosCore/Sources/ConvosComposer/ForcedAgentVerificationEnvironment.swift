@@ -10,7 +10,7 @@ private struct ForcedAgentVerificationKey: EnvironmentKey {
     static let defaultValue: AgentVerification? = nil
 }
 
-extension EnvironmentValues {
+public extension EnvironmentValues {
     var forcedAgentVerification: AgentVerification? {
         get { self[ForcedAgentVerificationKey.self] }
         set { self[ForcedAgentVerificationKey.self] = newValue }

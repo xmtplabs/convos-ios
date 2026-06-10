@@ -1,32 +1,59 @@
+#if canImport(UIKit)
 import SwiftUI
 
 // MARK: - Shattering Text Animation Config
 
-struct ShatteringTextAnimationConfig {
-    var letterHorizontalRange: ClosedRange<Double> = 25...50
-    var letterVerticalRange: ClosedRange<Double> = 15...35
-    var letterRotationRange: ClosedRange<Double> = 15...45
-    var letterScaleRange: ClosedRange<Double> = 2.0...5.0
-    var letterBlurRadius: CGFloat = 5
-    var letterAnimationResponse: Double = 0.7
-    var letterAnimationDamping: Double = 0.3
-    var letterStaggerDelay: Double = 0.03
+public struct ShatteringTextAnimationConfig: Sendable {
+    public var letterHorizontalRange: ClosedRange<Double> = 25...50
+    public var letterVerticalRange: ClosedRange<Double> = 15...35
+    public var letterRotationRange: ClosedRange<Double> = 15...45
+    public var letterScaleRange: ClosedRange<Double> = 2.0...5.0
+    public var letterBlurRadius: CGFloat = 5
+    public var letterAnimationResponse: Double = 0.7
+    public var letterAnimationDamping: Double = 0.3
+    public var letterStaggerDelay: Double = 0.03
 
-    static let `default`: ShatteringTextAnimationConfig = .init()
+    public init(
+        letterHorizontalRange: ClosedRange<Double> = 25...50,
+        letterVerticalRange: ClosedRange<Double> = 15...35,
+        letterRotationRange: ClosedRange<Double> = 15...45,
+        letterScaleRange: ClosedRange<Double> = 2.0...5.0,
+        letterBlurRadius: CGFloat = 5,
+        letterAnimationResponse: Double = 0.7,
+        letterAnimationDamping: Double = 0.3,
+        letterStaggerDelay: Double = 0.03
+    ) {
+        self.letterHorizontalRange = letterHorizontalRange
+        self.letterVerticalRange = letterVerticalRange
+        self.letterRotationRange = letterRotationRange
+        self.letterScaleRange = letterScaleRange
+        self.letterBlurRadius = letterBlurRadius
+        self.letterAnimationResponse = letterAnimationResponse
+        self.letterAnimationDamping = letterAnimationDamping
+        self.letterStaggerDelay = letterStaggerDelay
+    }
+
+    public static let `default`: ShatteringTextAnimationConfig = .init()
 }
 
 // MARK: - Shattering Text
 
-struct ShatteringText: View {
+public struct ShatteringText: View {
     let text: String
     let isExploded: Bool
     var config: ShatteringTextAnimationConfig = .default
+
+    public init(text: String, isExploded: Bool, config: ShatteringTextAnimationConfig = .default) {
+        self.text = text
+        self.isExploded = isExploded
+        self.config = config
+    }
 
     @State private var letterOffsets: [CGSize] = []
     @State private var letterRotations: [Double] = []
     @State private var letterScales: [Double] = []
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             Text(text)
                 .opacity(isExploded ? 0 : 1)
@@ -127,3 +154,4 @@ struct ShatteringText: View {
 
     return PreviewWrapper()
 }
+#endif

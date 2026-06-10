@@ -1,8 +1,8 @@
-import ConvosComposer
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-struct ConversationIndicator<InfoView: View>: View {
+public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
     let conversation: Conversation
     let placeholderName: String
     let untitledConversationPlaceholder: String
@@ -23,13 +23,63 @@ struct ConversationIndicator<InfoView: View>: View {
     let onConversationSettings: () -> Void
     let onExplodeNow: () -> Void
     @ViewBuilder let infoView: () -> InfoView
+    /// App-provided quick-edit editor shown when the indicator expands for
+    /// conversation-name editing. Receives the computed placeholder text and
+    /// a binding to the indicator's image-picker presentation state.
+    @ViewBuilder let quickEditView: (String, Binding<Bool>) -> QuickEdit
 
     @State private var isExpanded: Bool = false
     @State private var showingToast: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
 
-    var body: some View {
+    public init(
+        conversation: Conversation,
+        placeholderName: String,
+        untitledConversationPlaceholder: String,
+        subtitle: String,
+        scheduledExplosionDate: Date? = nil,
+        conversationName: Binding<String>,
+        conversationImage: Binding<UIImage?>,
+        presentingConversationSettings: Binding<Bool>,
+        activeToast: Binding<IndicatorToastStyle?>,
+        autoRevealPhotos: Binding<Bool>,
+        focusState: FocusState<MessagesViewInputFocus?>.Binding,
+        focusCoordinator: FocusCoordinator?,
+        showsExplodeNowButton: Bool,
+        explodeState: ExplodeState,
+        onConversationInfoTapped: @escaping () -> Void,
+        onConversationInfoLongPressed: @escaping () -> Void,
+        onConversationNameEndedEditing: @escaping () -> Void,
+        onConversationSettings: @escaping () -> Void,
+        onExplodeNow: @escaping () -> Void,
+        @ViewBuilder infoView: @escaping () -> InfoView,
+        @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit
+    ) {
+        self.conversation = conversation
+        self.placeholderName = placeholderName
+        self.untitledConversationPlaceholder = untitledConversationPlaceholder
+        self.subtitle = subtitle
+        self.scheduledExplosionDate = scheduledExplosionDate
+        _conversationName = conversationName
+        _conversationImage = conversationImage
+        _presentingConversationSettings = presentingConversationSettings
+        _activeToast = activeToast
+        _autoRevealPhotos = autoRevealPhotos
+        _focusState = focusState
+        self.focusCoordinator = focusCoordinator
+        self.showsExplodeNowButton = showsExplodeNowButton
+        self.explodeState = explodeState
+        self.onConversationInfoTapped = onConversationInfoTapped
+        self.onConversationInfoLongPressed = onConversationInfoLongPressed
+        self.onConversationNameEndedEditing = onConversationNameEndedEditing
+        self.onConversationSettings = onConversationSettings
+        self.onExplodeNow = onExplodeNow
+        self.infoView = infoView
+        self.quickEditView = quickEditView
+    }
+
+    public var body: some View {
         GlassEffectContainer {
             ZStack {
                 if showingToast, let toast = activeToast {
@@ -60,17 +110,9 @@ struct ConversationIndicator<InfoView: View>: View {
                     .glassEffectTransition(.matchedGeometry)
                 } else {
                     VStack(spacing: DesignConstants.Spacing.step4x) {
-                        QuickEditView(
-                            placeholderText: conversationName.isEmpty ? placeholderName : conversationName,
-                            text: $conversationName,
-                            image: $conversationImage,
-                            isImagePickerPresented: $isImagePickerPresented,
-                            focusState: $focusState,
-                            focused: .conversationName,
-                            settingsSymbolName: "gear",
-                            showsSettingsButton: true,
-                            onSubmit: onConversationNameEndedEditing,
-                            onSettings: onConversationSettings
+                        quickEditView(
+                            conversationName.isEmpty ? placeholderName : conversationName,
+                            $isImagePickerPresented
                         )
 
                         if showsExplodeNowButton {
@@ -131,53 +173,4 @@ struct ConversationIndicator<InfoView: View>: View {
         }
     }
 }
-
-#Preview {
-    @Previewable @State var conversationName: String = ""
-    @Previewable @State var conversationImage: UIImage?
-    @Previewable @State var focusCoordinator: FocusCoordinator? = FocusCoordinator(horizontalSizeClass: nil)
-    @Previewable @State var presentingConversationSettings: Bool = false
-    @Previewable @State var activeToast: IndicatorToastStyle?
-    @Previewable @State var autoRevealPhotos: Bool = false
-    @Previewable @FocusState var focusState: MessagesViewInputFocus?
-
-    let conversation: Conversation = .mock()
-    let placeholderName: String = conversation.name ?? "Convo name"
-
-    VStack {
-        ConversationIndicator(
-            conversation: conversation,
-            placeholderName: placeholderName,
-            untitledConversationPlaceholder: "Untitled",
-            subtitle: "Customize",
-            scheduledExplosionDate: nil,
-            conversationName: $conversationName,
-            conversationImage: $conversationImage,
-            presentingConversationSettings: $presentingConversationSettings,
-            activeToast: $activeToast,
-            autoRevealPhotos: $autoRevealPhotos,
-            focusState: $focusState,
-            focusCoordinator: focusCoordinator,
-            showsExplodeNowButton: true,
-            explodeState: .ready,
-            onConversationInfoTapped: {
-                focusCoordinator?.moveFocus(to: .conversationName)
-            },
-            onConversationInfoLongPressed: {
-                focusCoordinator?.moveFocus(to: .conversationName)
-            },
-            onConversationNameEndedEditing: {
-                focusCoordinator?.moveFocus(to: nil)
-            },
-            onConversationSettings: {},
-            onExplodeNow: {},
-            infoView: {
-                EmptyView()
-            }
-        )
-
-        Button("Show Toast") {
-            activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
-        }
-    }
-}
+#endif

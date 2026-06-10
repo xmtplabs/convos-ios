@@ -1,10 +1,10 @@
-import ConvosCore
+#if canImport(UIKit)
 import SwiftUI
 
-enum IndicatorToastStyle: Equatable {
+public enum IndicatorToastStyle: Equatable, Sendable {
     case revealSettings(isAutoReveal: Bool)
 
-    static func == (lhs: IndicatorToastStyle, rhs: IndicatorToastStyle) -> Bool {
+    public static func == (lhs: IndicatorToastStyle, rhs: IndicatorToastStyle) -> Bool {
         switch (lhs, rhs) {
         case (.revealSettings, .revealSettings):
             return true
@@ -73,3 +73,4 @@ struct RevealSettingsToast: View {
     }
     .padding()
 }
+#endif

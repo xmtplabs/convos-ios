@@ -1,7 +1,8 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-struct ClusteredAvatarView: View {
+public struct ClusteredAvatarView: View {
     let profiles: [Profile]
     /// When set, the cluster lays out at this exact side length without a
     /// `GeometryReader`. The cluster nests one sub-avatar per member, so the
@@ -11,7 +12,12 @@ struct ClusteredAvatarView: View {
 
     private let containerBase: CGFloat = 44.0
 
-    var body: some View {
+    public init(profiles: [Profile], size: CGFloat? = nil) {
+        self.profiles = profiles
+        self.size = size
+    }
+
+    public var body: some View {
         if let size {
             clusterContent(side: size).accessibilityHidden(true)
         } else {
@@ -203,3 +209,4 @@ struct ClusteredAvatarView: View {
     }
     .padding()
 }
+#endif

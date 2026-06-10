@@ -51,6 +51,9 @@ final class ShareViewController: UIViewController {
 @Observable
 final class ShareComposeModel {
     var targetTitle: String = "Convo"
+    /// The selected target conversation, for the top-bar pill. Nil until
+    /// `prepare` resolves one; `targetTitle` stays as a fallback label.
+    var targetConversation: Conversation?
     var messageText: String = ""
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var isReady: Bool = false
@@ -107,6 +110,7 @@ final class ShareComposeModel {
             let intent = extensionContext?.intent as? INSendMessageIntent
             let target = conversations.first { $0.id == intent?.conversationIdentifier } ?? conversations.first
             targetConversationId = target?.id
+            targetConversation = target
             // The donated intent carries the conversation's display name
             // (Conversation.title lives in the app target, not here).
             targetTitle = intent?.speakableGroupName?.spokenPhrase ?? target?.name ?? "Convo"
@@ -199,31 +203,82 @@ struct ShareComposeView: View {
     @State private var displayName: String = ""
     @State private var isPhotoPickerPresented: Bool = false
 
+    // Local, read-mostly state backing the conversation indicator pill. The
+    // extension never edits the conversation, so these only exist to satisfy
+    // the indicator's bindings.
+    @State private var conversationName: String = ""
+    @State private var conversationImage: UIImage?
+    @State private var presentingConversationSettings: Bool = false
+    @State private var activeToast: IndicatorToastStyle?
+    @State private var autoRevealPhotos: Bool = false
+
     var body: some View {
         VStack(spacing: 0) {
-            navigationBar
-            Divider()
+            topBar
             Spacer(minLength: 0)
             composerBar
         }
         .onAppear { focusState = .message }
+        .onChange(of: model.targetTitle) { _, newValue in
+            conversationName = newValue
+        }
     }
 
-    private var navigationBar: some View {
-        HStack {
-            Button("Cancel", action: onCancel)
-            Spacer()
-            VStack(spacing: 1) {
-                Text("To").font(.caption2).foregroundStyle(.secondary)
-                Text(model.targetTitle).font(.headline).lineLimit(1)
+    /// App-chrome top bar: the conversation indicator pill centered (once a
+    /// target conversation is resolved), with a glass-circle close button
+    /// pinned trailing.
+    private var topBar: some View {
+        ZStack {
+            if let conversation = model.targetConversation {
+                conversationIndicator(for: conversation)
             }
-            Spacer()
-            // Symmetry spacer so the title stays centered; sends happen from
-            // the composer's own send button.
-            Button("Cancel", action: onCancel).hidden()
+            HStack {
+                Spacer()
+                closeButton
+            }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+    }
+
+    private func conversationIndicator(for conversation: Conversation) -> some View {
+        ConversationIndicator(
+            conversation: conversation,
+            placeholderName: model.targetTitle,
+            untitledConversationPlaceholder: model.targetTitle,
+            subtitle: "Convo",
+            scheduledExplosionDate: conversation.scheduledExplosionDate,
+            conversationName: $conversationName,
+            conversationImage: $conversationImage,
+            presentingConversationSettings: $presentingConversationSettings,
+            activeToast: $activeToast,
+            autoRevealPhotos: $autoRevealPhotos,
+            focusState: $focusState,
+            focusCoordinator: focusCoordinator,
+            showsExplodeNowButton: false,
+            explodeState: .ready,
+            onConversationInfoTapped: {},
+            onConversationInfoLongPressed: {},
+            onConversationNameEndedEditing: {},
+            onConversationSettings: {},
+            onExplodeNow: {},
+            infoView: { EmptyView() },
+            quickEditView: { _, _ in EmptyView() }
+        )
+    }
+
+    private var closeButton: some View {
+        let action = { onCancel() }
+        return Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(width: DesignConstants.Spacing.step11x, height: DesignConstants.Spacing.step11x)
+        }
+        .clipShape(.circle)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Cancel")
+        .accessibilityIdentifier("share-cancel-button")
     }
 
     private var composerBar: some View {

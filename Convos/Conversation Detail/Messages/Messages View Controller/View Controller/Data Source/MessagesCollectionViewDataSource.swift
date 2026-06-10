@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosLogging
 import Foundation

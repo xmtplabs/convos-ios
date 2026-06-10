@@ -1,17 +1,18 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 import UIKit
 
 // MARK: - Explode State
 
-enum ExplodeState: Equatable {
+public enum ExplodeState: Equatable, Sendable {
     case ready
     case scheduled(Date)
     case exploding
     case exploded
     case error(String)
 
-    var explodingOrExploded: Bool {
+    public var explodingOrExploded: Bool {
         switch self {
         case .exploded, .exploding:
             return true
@@ -20,29 +21,29 @@ enum ExplodeState: Equatable {
         }
     }
 
-    var isExploded: Bool { self == .exploded }
-    var isReady: Bool { self == .ready }
-    var isExploding: Bool { self == .exploding }
-    var isError: Bool {
+    public var isExploded: Bool { self == .exploded }
+    public var isReady: Bool { self == .ready }
+    public var isExploding: Bool { self == .exploding }
+    public var isError: Bool {
         if case .error = self { return true }
         return false
     }
-    var isScheduled: Bool {
+    public var isScheduled: Bool {
         if case .scheduled = self { return true }
         return false
     }
 
-    var scheduledDate: Date? {
+    public var scheduledDate: Date? {
         if case .scheduled(let date) = self { return date }
         return nil
     }
 
-    static let explodedAnimationDelay: CGFloat = 0.7
+    public static let explodedAnimationDelay: CGFloat = 0.7
 }
 
 // MARK: - Animation Configuration
 
-struct ExplodeButtonAnimationConfig {
+public struct ExplodeButtonAnimationConfig: Sendable {
     // Button style
     var buttonStyle: HoldToConfirmStyleConfig = .default
 
@@ -66,7 +67,9 @@ struct ExplodeButtonAnimationConfig {
     var explodingHapticStyle: UIImpactFeedbackGenerator.FeedbackStyle = .light
     var explodedHapticStyle: UIImpactFeedbackGenerator.FeedbackStyle = .heavy
 
-    static let `default`: ExplodeButtonAnimationConfig = {
+    public init() {}
+
+    public static let `default`: ExplodeButtonAnimationConfig = {
         var config = ExplodeButtonAnimationConfig()
         config.buttonStyle.duration = 1.5
         config.buttonStyle.backgroundColor = .colorOrange
@@ -76,7 +79,7 @@ struct ExplodeButtonAnimationConfig {
 
 // MARK: - Explode Button
 
-struct ExplodeButton: View {
+public struct ExplodeButton: View {
     // MARK: - Properties
 
     let state: ExplodeState
@@ -84,6 +87,20 @@ struct ExplodeButton: View {
     var readyText: String = "Hold to Explode"
     var explodingText: String = "Exploding..."
     var onExplode: () -> Void
+
+    public init(
+        state: ExplodeState,
+        config: ExplodeButtonAnimationConfig = .default,
+        readyText: String = "Hold to Explode",
+        explodingText: String = "Exploding...",
+        onExplode: @escaping () -> Void
+    ) {
+        self.state = state
+        self.config = config
+        self.readyText = readyText
+        self.explodingText = explodingText
+        self.onExplode = onExplode
+    }
 
     // MARK: - Private State
 
@@ -135,7 +152,7 @@ struct ExplodeButton: View {
 
     // MARK: - Body
 
-    var body: some View {
+    public var body: some View {
         Group {
             if case .scheduled(let date) = state {
                 scheduledContent(expiresAt: date)
@@ -330,3 +347,4 @@ struct ExplodeButton: View {
 
     return PreviewWrapper()
 }
+#endif

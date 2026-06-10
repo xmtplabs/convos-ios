@@ -274,6 +274,25 @@ struct ConversationIndicatorWrapper: View {
             onExplodeNow: viewModel.explodeConvo,
             infoView: {
                 ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+            },
+            quickEditView: { placeholderText, isImagePickerPresented in
+                QuickEditView(
+                    placeholderText: placeholderText,
+                    text: $viewModel.editingConversationName,
+                    image: $viewModel.conversationImage,
+                    isImagePickerPresented: isImagePickerPresented,
+                    focusState: $focusState,
+                    focused: .conversationName,
+                    settingsSymbolName: "gear",
+                    showsSettingsButton: true,
+                    onSubmit: {
+                        viewModel.onConversationNameEndedEditing(
+                            focusCoordinator: focusCoordinator,
+                            context: .quickEditor
+                        )
+                    },
+                    onSettings: { viewModel.onConversationSettings(focusCoordinator: focusCoordinator) }
+                )
             }
         )
     }

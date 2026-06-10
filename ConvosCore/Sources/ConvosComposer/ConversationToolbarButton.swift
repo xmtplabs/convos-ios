@@ -1,8 +1,8 @@
+#if canImport(UIKit)
 import ConvosCore
-import PhotosUI
 import SwiftUI
 
-struct ConversationToolbarButton: View {
+public struct ConversationToolbarButton: View {
     let conversation: Conversation
     @Binding var conversationImage: UIImage?
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -14,7 +14,7 @@ struct ConversationToolbarButton: View {
     let action: () -> Void
     var longPressAction: (() -> Void)?
 
-    init(
+    public init(
         conversation: Conversation,
         conversationImage: Binding<UIImage?>,
         conversationName: String,
@@ -81,7 +81,7 @@ struct ConversationToolbarButton: View {
         .padding(DesignConstants.Spacing.step2x)
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if longPressAction != nil {
                 content
@@ -111,3 +111,4 @@ struct ConversationToolbarButton: View {
                                   placeholderName: "Untitled") {}
     }
 }
+#endif

@@ -1,52 +1,57 @@
+#if canImport(UIKit)
 import SwiftUI
 
 // MARK: - Hold To Confirm Style Config
 
-struct HoldToConfirmStyleConfig {
+public struct HoldToConfirmStyleConfig: Sendable {
     // Timing
-    var duration: TimeInterval = 2.0
-    var maxDistance: CGFloat = 20.0
+    public var duration: TimeInterval = 2.0
+    public var maxDistance: CGFloat = 20.0
 
     // Colors
-    var backgroundColor: Color = .colorOrange
-    var pressedOverlayColor: Color = .black
-    var pressedOverlayOpacity: Double = 0.15
-    var progressIndicatorColor: Color = .white
-    var progressIndicatorStrokeColor: Color = .white.opacity(0.3)
+    public var backgroundColor: Color = .colorOrange
+    public var pressedOverlayColor: Color = .black
+    public var pressedOverlayOpacity: Double = 0.15
+    public var progressIndicatorColor: Color = .white
+    public var progressIndicatorStrokeColor: Color = .white.opacity(0.3)
 
     // Layout
-    var verticalPadding: CGFloat = DesignConstants.Spacing.step4x
-    var horizontalPadding: CGFloat = DesignConstants.Spacing.step3x
-    var progressIndicatorPadding: CGFloat = DesignConstants.Spacing.step3x
-    var progressIndicatorStrokeWidth: CGFloat = 1.0
+    public var verticalPadding: CGFloat = DesignConstants.Spacing.step4x
+    public var horizontalPadding: CGFloat = DesignConstants.Spacing.step3x
+    public var progressIndicatorPadding: CGFloat = DesignConstants.Spacing.step3x
+    public var progressIndicatorStrokeWidth: CGFloat = 1.0
 
     // Shape
-    var cornerRadius: CGFloat?
+    public var cornerRadius: CGFloat?
 
     // Progress indicator
-    var showProgressIndicator: Bool = true
-    var poofProgressIndicatorOnComplete: Bool = true
+    public var showProgressIndicator: Bool = true
+    public var poofProgressIndicatorOnComplete: Bool = true
 
-    static let `default`: HoldToConfirmStyleConfig = .init()
+    public init() {}
+
+    public static let `default`: HoldToConfirmStyleConfig = .init()
 }
 
 // MARK: - Hold To Confirm Primitive Style
 
-struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
+public struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
     var config: HoldToConfirmStyleConfig = .default
 
     // Convenience initializer for just duration
-    init(duration: TimeInterval) {
-        self.config = HoldToConfirmStyleConfig(duration: duration)
+    public init(duration: TimeInterval) {
+        var config = HoldToConfirmStyleConfig()
+        config.duration = duration
+        self.config = config
     }
 
-    init(config: HoldToConfirmStyleConfig = .default) {
+    public init(config: HoldToConfirmStyleConfig = .default) {
         self.config = config
     }
 
     @Environment(\.isEnabled) private var isEnabled: Bool
 
-    func makeBody(configuration: Configuration) -> some View {
+    public func makeBody(configuration: Configuration) -> some View {
         HoldToConfirmBody(
             config: config,
             isEnabled: isEnabled,
@@ -146,3 +151,4 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
         }
     }
 }
+#endif

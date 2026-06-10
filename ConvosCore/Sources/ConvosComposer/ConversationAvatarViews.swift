@@ -1,9 +1,10 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
 /// Lightweight avatar optimized for scroll performance in conversation lists.
 /// Uses the new cachedImage modifier for automatic loading and URL change detection.
-struct ConversationAvatarView: View {
+public struct ConversationAvatarView: View {
     let conversation: Conversation
     let conversationImage: UIImage?
     /// Forwarded to the emoji/monogram/clustered fallbacks so they render
@@ -17,11 +18,17 @@ struct ConversationAvatarView: View {
     @State private var cachedImage: UIImage?
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
+    public init(conversation: Conversation, conversationImage: UIImage?, size: CGFloat? = nil) {
+        self.conversation = conversation
+        self.conversationImage = conversationImage
+        self.size = size
+    }
+
     private var hasForcedAgentStyle: Bool {
         forcedVerification?.isVerified == true
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if let pendingAgentIdentity, pendingAgentIdentity.hasContent {
                 // An agent-template flow painted an upcoming identity before
@@ -103,8 +110,10 @@ struct ConversationAvatarView: View {
 /// the agent avatar in the inline `AgentBuilderBar`, so the indicator
 /// and the bar share visual language while the conversation is still
 /// a draft.
-struct PendingAgentAvatarView: View {
-    var body: some View {
+public struct PendingAgentAvatarView: View {
+    public init() {}
+
+    public var body: some View {
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
             // Size the glyph proportionally rather than with a fixed inset so
@@ -115,7 +124,7 @@ struct PendingAgentAvatarView: View {
             ZStack {
                 Circle()
                     .fill(Color.black)
-                Image("addAgentIcon")
+                Image("addAgentIcon", bundle: .module)
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
@@ -130,14 +139,20 @@ struct PendingAgentAvatarView: View {
 
 /// Lightweight avatar optimized for scroll performance in lists.
 /// Uses the new cachedImage modifier for automatic loading and URL change detection.
-struct MessageAvatarView: View {
+public struct MessageAvatarView: View {
     let profile: Profile
     let size: CGFloat
     var agentVerification: AgentVerification = .unverified
 
     @State private var cachedImage: UIImage?
 
-    var body: some View {
+    public init(profile: Profile, size: CGFloat, agentVerification: AgentVerification = .unverified) {
+        self.profile = profile
+        self.size = size
+        self.agentVerification = agentVerification
+    }
+
+    public var body: some View {
         Group {
             if let image = cachedImage {
                 Image(uiImage: image)
@@ -166,3 +181,4 @@ struct MessageAvatarView: View {
     let conversation = Conversation.mock(members: [.mock(), .mock()])
     ConversationAvatarView(conversation: conversation, conversationImage: nil)
 }
+#endif
