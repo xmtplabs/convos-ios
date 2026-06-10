@@ -1,13 +1,14 @@
+#if canImport(UIKit)
 import SwiftUI
 import UIKit
 
-struct LinkDetectingTextView: View {
+public struct LinkDetectingTextView: View {
     private let text: String
     private let linkColor: Color?
     private let foregroundColor: Color
     private let font: UIFont
 
-    init(
+    public init(
         _ text: String,
         linkColor: Color? = nil,
         foregroundColor: Color = .primary,
@@ -19,7 +20,7 @@ struct LinkDetectingTextView: View {
         self.font = font
     }
 
-    var body: some View {
+    public var body: some View {
         LinkTextViewRepresentable(
             text: text,
             font: font,
@@ -30,12 +31,12 @@ struct LinkDetectingTextView: View {
 }
 
 private struct LinkTextViewRepresentable: UIViewRepresentable {
-    let text: String
-    let font: UIFont
-    let textColor: UIColor
-    let linkColor: UIColor?
+    public let text: String
+    public let font: UIFont
+    public let textColor: UIColor
+    public let linkColor: UIColor?
 
-    func makeUIView(context: Context) -> LinkTextView {
+    public func makeUIView(context: Context) -> LinkTextView {
         let view = LinkTextView()
         view.isEditable = false
         view.isScrollEnabled = false
@@ -46,7 +47,7 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: LinkTextView, context: Context) {
+    public func updateUIView(_ uiView: LinkTextView, context: Context) {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 0
 
@@ -71,13 +72,13 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: LinkTextView, context: Context) -> CGSize? {
+    public func sizeThatFits(_ proposal: ProposedViewSize, uiView: LinkTextView, context: Context) -> CGSize? {
         let maxWidth = proposal.width ?? UIView.layoutFittingExpandedSize.width
         let size = uiView.sizeThatFits(CGSize(width: maxWidth, height: UIView.layoutFittingExpandedSize.height))
         return size
     }
 
-    func makeCoordinator() -> Coordinator {
+    public func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
@@ -95,11 +96,11 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     }
 }
 
-protocol LinkHitTestable: UIView {
+public protocol LinkHitTestable: UIView {
     func containsLink(at point: CGPoint) -> Bool
 }
 
-final class LinkTextView: UITextView, LinkHitTestable {
+public final class LinkTextView: UITextView, LinkHitTestable {
     convenience init() {
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
@@ -112,13 +113,13 @@ final class LinkTextView: UITextView, LinkHitTestable {
         self.init(frame: .zero, textContainer: textContainer)
     }
 
-    override var canBecomeFirstResponder: Bool { false }
+    override public var canBecomeFirstResponder: Bool { false }
 
-    func containsLink(at point: CGPoint) -> Bool {
+    public func containsLink(at point: CGPoint) -> Bool {
         urlAtPoint(point) != nil
     }
 
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    override public func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
         return containsLink(at: point)
     }
@@ -154,3 +155,4 @@ final class LinkTextView: UITextView, LinkHitTestable {
     }
     .padding()
 }
+#endif

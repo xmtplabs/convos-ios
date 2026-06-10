@@ -1,9 +1,10 @@
+#if canImport(UIKit)
 import ConvosCore
 import SafariServices
 import UIKit
 
-enum InAppBrowser {
-    static func open(_ url: URL) {
+public enum InAppBrowser {
+    public static func open(_ url: URL) {
         let scheme = url.scheme?.lowercased() ?? ""
         guard ["http", "https"].contains(scheme) else {
             Task { @MainActor in
@@ -38,3 +39,4 @@ enum InAppBrowser {
         return presenter
     }
 }
+#endif

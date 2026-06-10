@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 /// A reusable pulsing circle animation component that can be configured for various use cases
@@ -92,7 +93,7 @@ public struct PulsingCircleView: View {
         }
     }
 
-    let configuration: Configuration
+    public let configuration: Configuration
     @State private var animate: Bool = false
 
     /// Initialize with a custom configuration
@@ -180,22 +181,22 @@ public struct PulsingCircleView: View {
 
 public extension PulsingCircleView {
     /// Create a typing indicator with default settings
-    static var typingIndicator: PulsingCircleView {
+    public static var typingIndicator: PulsingCircleView {
         PulsingCircleView(.typingIndicator)
     }
 
     /// Create a thinking indicator (single steady pulsing dot) with default settings
-    static var thinkingIndicator: PulsingCircleView {
+    public static var thinkingIndicator: PulsingCircleView {
         PulsingCircleView(.thinkingIndicator)
     }
 
     /// Create a loading indicator with default settings
-    static var loadingIndicator: PulsingCircleView {
+    public static var loadingIndicator: PulsingCircleView {
         PulsingCircleView(.loadingIndicator)
     }
 
     /// Create a progress indicator with default settings
-    static var progressIndicator: PulsingCircleView {
+    public static var progressIndicator: PulsingCircleView {
         PulsingCircleView(.progressIndicator)
     }
 }
@@ -255,3 +256,4 @@ public extension PulsingCircleView {
     }
     .padding()
 }
+#endif

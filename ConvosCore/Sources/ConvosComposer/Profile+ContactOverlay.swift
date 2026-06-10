@@ -1,7 +1,8 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 
-extension Profile {
+public extension Profile {
     /// Returns a new `Profile` with `name` and `avatar*` substituted
     /// from the supplied contact when - and only when - the contact
     /// actually carries the corresponding data. A name-only contact
@@ -16,7 +17,7 @@ extension Profile {
     /// contact whose per-conversation profile has not landed yet,
     /// without regressing rows where the per-conversation profile is
     /// already richer than the contact entry.
-    func overlaying(contact: Contact) -> Profile {
+    public func overlaying(contact: Contact) -> Profile {
         let resolvedName: String?
         if let contactName = contact.displayName, !contactName.isEmpty {
             resolvedName = contactName
@@ -56,3 +57,4 @@ extension Profile {
         )
     }
 }
+#endif

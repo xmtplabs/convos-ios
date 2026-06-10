@@ -1,23 +1,24 @@
+#if canImport(UIKit)
 import ConvosCoreiOS
 import SwiftUI
 
-struct QRCodeView: View {
-    let url: URL
-    let backgroundColor: Color
-    let foregroundColor: Color
-    let centerImage: Image?
+public struct QRCodeView: View {
+    public let url: URL
+    public let backgroundColor: Color
+    public let foregroundColor: Color
+    public let centerImage: Image?
     @State private var currentQRCode: UIImage?
     @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     private let displaySize: CGFloat = 220.0
 
-    init(url: URL,
-         backgroundColor: Color = .colorBackgroundSurfaceless,
-         foregroundColor: Color = .colorTextPrimary,
+    public init(url: URL,
+         backgroundColor: Color? = nil,
+         foregroundColor: Color? = nil,
          centerImage: Image? = nil) {
         self.url = url
-        self.backgroundColor = backgroundColor
-        self.foregroundColor = foregroundColor
+        self.backgroundColor = backgroundColor ?? .colorBackgroundSurfaceless
+        self.foregroundColor = foregroundColor ?? .colorTextPrimary
         self.centerImage = centerImage
     }
 
@@ -33,7 +34,7 @@ struct QRCodeView: View {
         return await QRCodeGenerator.generate(from: url.absoluteString, options: options)
     }
 
-    var background: some View {
+    public var background: some View {
         Group {
             if let qrCodeImage = currentQRCode {
                 Image(uiImage: qrCodeImage)
@@ -47,7 +48,7 @@ struct QRCodeView: View {
         .animation(.default, value: url)
     }
 
-    var overlay: some View {
+    public var overlay: some View {
         Group {
             if currentQRCode == nil {
                 EmptyView()
@@ -77,7 +78,7 @@ struct QRCodeView: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         Rectangle()
             .fill(.clear)
             .frame(width: displaySize, height: displaySize)
@@ -117,3 +118,4 @@ struct QRCodeView: View {
 }
 
 // swiftlint:enable force_unwrapping
+#endif

@@ -1,12 +1,19 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-struct AgentLostPowerStatus: View {
-    let agentName: String
-    let isCreator: Bool
-    var onUpgrade: (() -> Void)?
+public struct AgentLostPowerStatus: View {
+    public let agentName: String
+    public let isCreator: Bool
+    public var onUpgrade: (() -> Void)?
 
-    var body: some View {
+    public init(agentName: String, isCreator: Bool, onUpgrade: (() -> Void)? = nil) {
+        self.agentName = agentName
+        self.isCreator = isCreator
+        self.onUpgrade = onUpgrade
+    }
+
+    public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image(systemName: "bolt.fill")
@@ -53,3 +60,4 @@ struct AgentLostPowerStatus: View {
         isCreator: false
     )
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -16,20 +17,27 @@ import SwiftUI
 /// `.hero` is the larger "browse" variant -- bigger avatar, larger bolded
 /// name with tight letter-spacing, smaller footnote-style summary, and almost
 /// no gap between the two text lines.
-enum AgentContactCardStyle {
+public enum AgentContactCardStyle {
     case standard
     case hero
 }
 
-struct AgentContactCardView: View {
-    let profile: Profile
-    let agentDescription: String?
-    var style: AgentContactCardStyle = .standard
+public struct AgentContactCardView: View {
+    public let profile: Profile
+    public let agentDescription: String?
+    public var style: AgentContactCardStyle = .standard
     /// Optional explicit size. When set, the card sizes itself to this width
     /// instead of relying on its intrinsic size or an outer `.frame` from the
     /// caller -- required where every card must be exactly the same width (e.g.
     /// a paged carousel that snaps centers).
-    var cardSize: CGSize?
+    public var cardSize: CGSize?
+
+    public init(profile: Profile, agentDescription: String?, style: AgentContactCardStyle = .standard, cardSize: CGSize? = nil) {
+        self.profile = profile
+        self.agentDescription = agentDescription
+        self.style = style
+        self.cardSize = cardSize
+    }
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -91,7 +99,7 @@ struct AgentContactCardView: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         // Wrapping the glass surface in a `GlassEffectContainer` gives iOS a
         // stable scope to coordinate the material's backdrop-sampling
         // pipeline. Without a container, a standalone `.glassEffect` inside
@@ -175,7 +183,7 @@ struct AgentContactCardView: View {
         static let heroSubtitleLineLimit: Int = 2
     }
 
-    static let placeholderSubtitle: String = "Learning more about my job"
+    public static let placeholderSubtitle: String = "Learning more about my job"
 }
 
 /// Applies `.lineLimit(_:Int, reservesSpace: true).truncationMode(.tail)` when
@@ -183,9 +191,9 @@ struct AgentContactCardView: View {
 /// `Int?`, so we branch via a `ViewModifier` rather than passing the optional
 /// directly.
 private struct SubtitleLineLimitModifier: ViewModifier {
-    let lineLimit: Int?
+    public let lineLimit: Int?
 
-    func body(content: Content) -> some View {
+    public func body(content: Content) -> some View {
         if let lineLimit {
             content
                 .lineLimit(lineLimit, reservesSpace: true)
@@ -203,11 +211,11 @@ private struct SubtitleLineLimitModifier: ViewModifier {
 /// surrounding card content. The `.animation(_:value:)` modifier scopes the
 /// repeat-forever transaction so it doesn't leak into siblings.
 private struct PulsingSubtitle: View {
-    let text: String
-    var font: Font = .body
+    public let text: String
+    public var font: Font = .body
     @State private var isPulsed: Bool = false
 
-    var body: some View {
+    public var body: some View {
         Text(text)
             .font(font)
             .foregroundStyle(.colorTextSecondary)
@@ -250,3 +258,4 @@ private struct PulsingSubtitle: View {
     .padding()
     .background(Color.colorBackgroundSurfaceless)
 }
+#endif

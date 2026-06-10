@@ -34,6 +34,7 @@ let package = Package(
             revision: "ios-4.10.0-nightly.20260530.065bd0d"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
+        .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
@@ -88,6 +89,7 @@ let package = Package(
             dependencies: [
                 .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "DifferenceKit", package: "DifferenceKit", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosComposer",
             resources: [
