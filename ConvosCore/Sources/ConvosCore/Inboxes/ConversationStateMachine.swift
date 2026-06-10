@@ -744,8 +744,8 @@ public actor ConversationStateMachine {
         }
 
         let dm = try await client.newConversation(with: inviterInboxId)
-        let text = try invite.toURLSafeSlug()
-        _ = try await dm.prepare(text: text)
+        let joinRequest = JoinRequestContent(inviteSlug: try invite.toURLSafeSlug())
+        _ = try await dm.prepare(joinRequest: joinRequest)
         try await dm.publish()
 
         Log.info("[PERF] NewConversation.joinRequestSent")

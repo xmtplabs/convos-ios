@@ -395,6 +395,49 @@ struct InviteJoinErrorCodecTests {
         }
     }
 
+    @Test("Reason round-trips through encode and decode")
+    func reasonRoundTrip() throws {
+        let error = InviteJoinError(
+            errorType: .genericFailure,
+            inviteTag: "test-tag",
+            timestamp: Date(),
+            reason: "addMembers failed: GroupError.commitValidation"
+        )
+
+        let encodedContent = try codec.encode(content: error)
+        let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
+
+        #expect(decodedError.reason == "addMembers failed: GroupError.commitValidation")
+    }
+
+    @Test("Backward compatibility: payload without reason decodes with nil reason")
+    func backwardCompatMissingReasonDecodesToNil() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        struct LegacyError: Codable {
+            let errorType: String
+            let inviteTag: String
+            let timestamp: Date
+        }
+
+        let legacyError = LegacyError(
+            errorType: "generic_failure",
+            inviteTag: "legacy-tag",
+            timestamp: Date()
+        )
+
+        let jsonData = try encoder.encode(legacyError)
+        var encodedContent = EncodedContent()
+        encodedContent.type = ContentTypeInviteJoinError
+        encodedContent.content = jsonData
+
+        let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
+
+        #expect(decodedError.errorType == .genericFailure)
+        #expect(decodedError.reason == nil)
+    }
+
     @Test("Multiple errors with same tag are distinct")
     func multipleErrorsSameTag() throws {
         let tag = "shared-tag"

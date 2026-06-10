@@ -138,8 +138,15 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         since: Date?,
         client: AnyClientProvider
     ) async -> [InviteJoinRequestOutcome] {
+        // A nil or very old cursor (fresh install, restore, long-dormant
+        // device) would revalidate every historical join request in every
+        // DM and reply with stale invite_join_error messages to joiners
+        // whose requests died long ago. Joiners give up within minutes, so
+        // bound the sweep to a recent window.
+        let oldestUsefulRequestDate = Date().addingTimeInterval(-Constant.maxCatchUpWindow)
+        let effectiveSince = max(since ?? .distantPast, oldestUsefulRequestDate)
         let outcomes = await coordinator.processJoinRequestOutcomes(
-            since: since,
+            since: effectiveSince,
             client: InviteClientProviderAdapter(client)
         )
         var mapped: [InviteJoinRequestOutcome] = []
@@ -281,5 +288,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         } catch {
             Log.warning("Failed to send ProfileSnapshot after join: \(error.localizedDescription)")
         }
+    }
+
+    private enum Constant {
+        /// Oldest join request a catch-up pass will still act on. Joining
+        /// clients time out within minutes, so anything older only produces
+        /// noise (and stale error replies) if revalidated.
+        static let maxCatchUpWindow: TimeInterval = 24 * 60 * 60
     }
 }
