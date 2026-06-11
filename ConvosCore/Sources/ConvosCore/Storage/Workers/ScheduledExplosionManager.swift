@@ -15,6 +15,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private let taskLock: NSLock = NSLock()
     private var _schedulingTasks: [String: Task<Void, Never>] = [:]
+    private var _completedSchedulingConversationIds: Set<String> = []
 
     private enum Constant {
         static let reminderIdentifierPrefix: String = "explosion-reminder-"
@@ -89,6 +90,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     private nonisolated func removeSchedulingTask(for conversationId: String) {
         taskLock.lock()
         _schedulingTasks[conversationId] = nil
+        _completedSchedulingConversationIds.insert(conversationId)
         taskLock.unlock()
     }
 
@@ -96,6 +98,15 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         taskLock.lock()
         defer { taskLock.unlock() }
         return _schedulingTasks[conversationId] != nil
+    }
+
+    /// Whether a scheduling task for this conversation ran to completion.
+    /// Tests poll this instead of the in-flight task, which can be created
+    /// and removed between two polls when scheduling finishes quickly.
+    func hasCompletedSchedulingTask(for conversationId: String) -> Bool {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        return _completedSchedulingConversationIds.contains(conversationId)
     }
 
     private func scheduleNotifications(

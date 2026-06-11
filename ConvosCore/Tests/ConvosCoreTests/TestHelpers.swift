@@ -92,6 +92,16 @@ class TestFixtures {
     let keychainService: MockKeychainService
     let databaseManager: MockDatabaseManager
 
+    /// Unique per-fixture directory for libxmtp database files. In the
+    /// `.tests` environment `defaultDatabasesDirectory` is the shared
+    /// process temp directory, and production delete paths (for example
+    /// `SessionStateMachine.deleteDatabaseFiles`) sweep every `xmtp-*`
+    /// file in that directory. Suites run in parallel, so a delete-flow
+    /// test sweeping the shared directory destroys the live databases of
+    /// clients created by other suites mid-test. Giving each fixture its
+    /// own directory keeps those sweeps from reaching our clients.
+    let databasesDirectory: URL
+
     var clientA: (any XMTPClientProvider)?
     var clientB: (any XMTPClientProvider)?
     var clientC: (any XMTPClientProvider)?
@@ -105,6 +115,9 @@ class TestFixtures {
         self.identityStore = MockKeychainIdentityStore()
         self.keychainService = MockKeychainService()
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
+        self.databasesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-fixtures-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: databasesDirectory, withIntermediateDirectories: true)
 
         // Configure logging for tests
         ConvosLog.configure(environment: .tests)
@@ -147,7 +160,7 @@ class TestFixtures {
                 TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbDirectory: databasesDirectory.path
         )
 
         let client = try await Client.create(account: keys.signingKey, options: clientOptions)
@@ -188,6 +201,7 @@ class TestFixtures {
 
         try await identityStore.delete()
         try databaseManager.erase()
+        try? FileManager.default.removeItem(at: databasesDirectory)
     }
 
     /// Builds a fresh MessagingService for tests that previously used
