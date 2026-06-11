@@ -969,7 +969,7 @@ private struct ContactDetailEmailSection: View {
         .padding(.vertical, DesignConstants.Spacing.step4x)
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                 .fill(.colorBackgroundRaised)
         )
     }
@@ -977,9 +977,9 @@ private struct ContactDetailEmailSection: View {
     private var emailButton: some View {
         let action = { openMailComposer() }
         return Button(action: action) {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(email)
-                    .font(.body)
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
