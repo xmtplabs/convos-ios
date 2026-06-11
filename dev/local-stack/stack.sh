@@ -19,6 +19,23 @@ ok()   { printf '%s ok %s %s\n' "$c_grn" "$c_rst" "$*"; }
 warn() { printf '%s warn%s %s\n' "$c_yel" "$c_rst" "$*" >&2; }
 die()  { printf '%sfail%s %s\n' "$c_red" "$c_rst" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+op_ready() { have op && op whoami >/dev/null 2>&1; }
+
+# Docker down is the #1 first-run failure — on macOS, start the Docker engine
+# app (OrbStack preferred, else Docker Desktop) and wait instead of dying, so
+# 'make bootstrap' / 'make up' work from a cold boot.
+ensure_docker() {
+  docker info >/dev/null 2>&1 && return 0
+  if [[ "$(uname)" == "Darwin" ]] && { open -ga OrbStack >/dev/null 2>&1 || open -ga Docker >/dev/null 2>&1; }; then
+    log "Docker not running — starting the engine app (waiting up to 120s)"
+    local i
+    for i in $(seq 1 60); do
+      sleep 2
+      docker info >/dev/null 2>&1 && { ok "Docker started"; return 0; }
+    done
+  fi
+  die "Docker not running — start OrbStack or Docker Desktop, then re-run"
+}
 
 resolve_workspace() {
   if   [[ -n "${CONVOS_REPOS_DIR:-}" ]]; then WORKSPACE="$CONVOS_REPOS_DIR"
@@ -131,7 +148,13 @@ seed_credits() {
 
 # ============================ init (clone wizard) ============================
 cmd_init() {
-  local default_ws; default_ws="$(dirname "$REPO_ROOT")/convos-stack"   # sibling of the convos-ios checkout
+  # Default workspace: a sibling of the convos-ios checkout — unless the parent dir
+  # already holds all the service repos (the "cloned everything into one dir" layout),
+  # in which case use the parent itself instead of cloning duplicates.
+  local parent; parent="$(dirname "$REPO_ROOT")"
+  local default_ws="${parent}/convos-stack" all_present=1
+  for r in "${SERVICE_REPOS[@]}"; do [[ -d "${parent}/${r}/.git" ]] || all_present=0; done
+  [[ "$all_present" == 1 ]] && default_ws="$parent"
   local ws="${1:-${CONVOS_REPOS_DIR:-}}"
   if [[ -z "$ws" ]]; then
     if [[ -t 0 ]]; then read -r -p "Workspace dir for the local stack [${default_ws}]: " ws || true; fi
@@ -148,7 +171,7 @@ cmd_init() {
 
   if [[ ! -f "${ws}/stack.env" ]]; then
     sed "s|^CONVOS_REPOS_DIR=.*|CONVOS_REPOS_DIR=${ws}|" "${SCRIPT_DIR}/stack.env.example" > "${ws}/stack.env"
-    ok "wrote ${ws}/stack.env — set OP_* 1Password refs in it before `make bootstrap`"
+    ok "wrote ${ws}/stack.env — set OP_* 1Password refs in it before 'make bootstrap'"
   else ok "${ws}/stack.env exists (left as-is)"; fi
   if [[ ! -f "${ws}/convos-ios.env" ]]; then
     printf '# Shared convos-ios DEV .env (Firebase App Check debug token, GATEWAY_URL, AGENT_DEBUG_JWKS, ...).\n# Dev convos-ios checkouts symlink their .env to this file; run /firebase-token to pin the token.\nFIREBASE_APP_CHECK_DEBUG_TOKEN=\nAGENT_DEBUG_JWKS=\nGATEWAY_URL=\nSENTRY_DSN=\n' > "${ws}/convos-ios.env"
@@ -168,11 +191,14 @@ cmd_doctor() {
   have op && ok "1Password CLI present" || warn "op MISSING (brew install 1password-cli) — secrets"
   have xcodebuild && ok "Xcode $(xcodebuild -version 2>/dev/null | head -1)" || warn "xcodebuild MISSING"
   if docker info >/dev/null 2>&1; then
-    local ncpu; ncpu="$(docker info --format '{{.NCPU}}' 2>/dev/null || echo '?')"
-    if [[ "$ncpu" =~ ^[0-9]+$ ]] && (( ncpu > ${DOCKER_MAX_CPUS:-6} )); then
+    local ncpu engine; ncpu="$(docker info --format '{{.NCPU}}' 2>/dev/null || echo '?')"
+    engine="$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || echo '?')"
+    # The CPU cap only matters on Docker Desktop's static VM; OrbStack
+    # allocates dynamically and idles near zero, so don't nag there.
+    if [[ "$engine" == *"Docker Desktop"* ]] && [[ "$ncpu" =~ ^[0-9]+$ ]] && (( ncpu > ${DOCKER_MAX_CPUS:-6} )); then
       warn "Docker has ${ncpu} CPUs — cap to ${DOCKER_MAX_CPUS:-6} (Docker Desktop > Settings > Resources) so the Hermes build can't starve the host"
-    else ok "Docker running, ${ncpu} CPUs"; fi
-  else die "Docker not running"; fi
+    else ok "Docker running (${engine}), ${ncpu} CPUs"; fi
+  else warn "Docker not running — 'make bootstrap' / 'make up' will auto-start Docker Desktop"; fi
   # Agent-builder reachability: the worker's backend URL must track the host
   # IP (it's reachable from both the worker and the Hermes container). doctor
   # runs without load_env, so derive the path/port with the same defaults.
@@ -191,6 +217,8 @@ cmd_doctor() {
 # ============================ bootstrap ============================
 cmd_bootstrap() {
   load_env
+  ensure_docker
+  op_ready || warn "1Password CLI not signed in — 1Password secrets (.dev.vars, Firebase token) will be SKIPPED and agents won't fully work. Fix: 'op signin' (account xmtpinc) or enable 1Password Settings > Developer > 'Integrate with 1Password CLI', then re-run 'make bootstrap'"
   cmd_doctor || true
   have flock || brew install flock || warn "brew install flock failed"
   have uv    || brew install uv    || warn "brew install uv failed"
@@ -218,16 +246,29 @@ bootstrap_backend() {
   pnpm migrate:deploy >/dev/null && ok "migrations applied"; popd >/dev/null
 }
 bootstrap_herald() {
-  log "herald-lite: env + deps"; pushd "$HERALD_DIR" >/dev/null; pnpm install
+  log "herald-lite: env + deps"; pushd "$HERALD_DIR" >/dev/null
+  # Install via a login shell — the same env start_svc launches services with.
+  # herald pins node >=25 and ships a native module (better-sqlite3); if the
+  # caller's shell resolves a different node than the login shell, the native
+  # build targets the wrong ABI and herald crashes at startup (ERR_DLOPEN_FAILED).
+  bash -lc "cd '$HERALD_DIR' && pnpm install" || pnpm install
   [[ -f .env ]] || printf 'DATA_DIR=./data\nPORT=%s\nENV=dev\nXMTP_ENV=%s\nLOG_LEVEL=info\n' "$HERALD_PORT" "$XMTP_ENV" > .env
   ok "herald-lite/.env ready"; popd >/dev/null
 }
 bootstrap_assistants() {
   log "convos-assistants: deps + .dev.vars + repo-setup"; pushd "$ASSISTANTS_DIR" >/dev/null; pnpm install
   local dv="${WORKER_DIR}/.dev.vars"
-  if [[ ! -f "$dv" ]]; then
-    if have op && [[ -n "${OP_DEV_VARS_REF:-}" ]] && op read "$OP_DEV_VARS_REF" >"$dv" 2>/dev/null; then ok "fetched .dev.vars from 1Password"
-    else warn "populate ${dv} from 1Password item 'Assistants Local .dev.vars' (op not set up / OP_DEV_VARS_REF unset)"; fi
+  # Fetch when missing OR when a previous bootstrap ran without 1Password and
+  # left a skeleton (no CONVOS_API_KEY) — otherwise a pre-signin bootstrap
+  # stays broken forever. Local overrides (R2_PARENT_*, CONVOS_API_BASE_URL)
+  # are re-applied below / by sync_backend_url after the fetch.
+  if [[ ! -f "$dv" ]] || ! grep -q '^CONVOS_API_KEY=' "$dv"; then
+    if have op && [[ -n "${OP_DEV_VARS_REF:-}" ]] && op read "$OP_DEV_VARS_REF" >"${dv}.tmp" 2>/dev/null; then
+      mv "${dv}.tmp" "$dv"; ok "fetched .dev.vars from 1Password"
+    else
+      rm -f "${dv}.tmp"
+      warn "${dv} missing or incomplete (no CONVOS_API_KEY) — sign in to 1Password ('op signin', account xmtpinc) and re-run 'make bootstrap' to fetch item 'Assistants Local .dev.vars'"
+    fi
   fi
   if [[ -f "$dv" ]]; then
     sed -i '' -E "s|^R2_PARENT_ACCESS_KEY_ID=.*|R2_PARENT_ACCESS_KEY_ID=${MINIO_USER}|; s|^R2_PARENT_SECRET_ACCESS_KEY=.*|R2_PARENT_SECRET_ACCESS_KEY=${MINIO_PASSWORD}|" "$dv" 2>/dev/null || true
@@ -241,7 +282,7 @@ bootstrap_cli() { log "convos-cli: deps + build"; pushd "$CLI_DIR" >/dev/null; p
 
 # ============================ up / down ============================
 cmd_up() {
-  load_env; local tier="${1:-full}"; docker info >/dev/null 2>&1 || die "Docker not running"
+  load_env; local tier="${1:-full}"; ensure_docker
   sync_backend_url   # self-heal worker -> backend URL to the current host IP (before the worker starts)
   align_agent_key    # keep backend AGENT_ASSETS_API_KEY == worker CONVOS_API_KEY
   log "infra ($([[ $tier == full ]] && echo 'Postgres + MinIO' || echo 'Postgres'))"
@@ -284,7 +325,7 @@ cmd_status() {
 }
 cmd_logs() { load_env; local svc="${1:-}"; if [[ -n "$svc" ]]; then tail -f "$RUN_DIR/${svc}.log"; else [[ -n "$(ls "$RUN_DIR"/*.log 2>/dev/null||true)" ]] || die "no logs yet (make up)"; tail -f "$RUN_DIR"/*.log; fi; }
 
-cmd_hermes_build() { load_env; docker info >/dev/null 2>&1 || die "Docker not running"; log "building Hermes image (capped)"; pushd "$WORKER_DIR" >/dev/null; pnpm exec wrangler containers build ./../../runtime/hermes/Dockerfile || pnpm run prebuild; popd >/dev/null; ok "Hermes image cached"; }
+cmd_hermes_build() { load_env; ensure_docker; log "building Hermes image (capped)"; pushd "$WORKER_DIR" >/dev/null; pnpm exec wrangler containers build ./../../runtime/hermes/Dockerfile || pnpm run prebuild; popd >/dev/null; ok "Hermes image cached"; }
 
 # ============================ ios-config ============================
 cmd_ios_config() {
@@ -294,7 +335,7 @@ cmd_ios_config() {
   if grep -q '"xmtpNetwork": "dev"' "$ios/Convos/Config/config.local.json"; then ok "config.local.json xmtpNetwork already 'dev'"
   else sed -i '' 's/"xmtpNetwork": "local"/"xmtpNetwork": "dev"/' "$ios/Convos/Config/config.local.json" 2>/dev/null && ok "config.local.json xmtpNetwork -> dev"; fi
   local fb=""; { have op && [[ -n "${OP_FIREBASE_LOCAL_TOKEN_REF:-}" ]] && fb="$(op read "$OP_FIREBASE_LOCAL_TOKEN_REF" 2>/dev/null||true)"; } || true
-  [[ -z "$fb" ]] && warn "no Firebase Local token from 1Password — set FIREBASE_APP_CHECK_DEBUG_TOKEN in $ios/.env (shared Local token)"
+  [[ -z "$fb" ]] && warn "no Firebase Local token from 1Password — sign in ('op signin', account xmtpinc) and re-run 'make ios-config', or set FIREBASE_APP_CHECK_DEBUG_TOKEN in $ios/.env (shared Local token); without it sign-in fails with Firebase 403"
   rm -f "$ios/.env"   # break any Dev-shared symlink; the Local scheme uses a standalone .env
   # Leave CONVOS_API_BASE_URL EMPTY on purpose. The build phase reads this same
   # .env for BOTH schemes (copy-env-config-main-app.sh): a non-empty value here
