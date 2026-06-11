@@ -49,7 +49,7 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
     }
 
     static func defaultSelfInboxIdProvider(_ db: Database) throws -> String? {
-        try DBInbox.fetchAll(db).first?.inboxId
+        try DBInbox.currentInboxId(db)
     }
 
     func hasSyncedContacts(for conversationId: String) throws -> Bool {

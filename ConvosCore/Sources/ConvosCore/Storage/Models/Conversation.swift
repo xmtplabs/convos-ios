@@ -24,6 +24,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// chat that already has members. The plus-menu "Convo code" entry
     /// still reaches the QR on demand.
     public let hidesInviteCard: Bool
+    /// True when the local user was removed from this conversation (persisted
+    /// from a GroupUpdated removal, cleared when a sync proves membership
+    /// again). List queries already exclude removed conversations; this
+    /// surfaces the state to any view that can still reach one - e.g. it was
+    /// open when the removal landed - so it renders read-only.
+    public let wasRemoved: Bool
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
     public let imageSalt: Data?

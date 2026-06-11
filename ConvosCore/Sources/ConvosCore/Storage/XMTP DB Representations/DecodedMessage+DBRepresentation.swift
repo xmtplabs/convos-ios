@@ -86,6 +86,14 @@ extension XMTPiOS.DecodedMessage {
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
+            // Read receipts are dropped silently above because of their volume;
+            // anything else without a registered codec gets a trace so unknown
+            // inbound traffic (e.g. LeaveRequest) is visible in exported logs.
+            let version = "\(encodedContentType.versionMajor).\(encodedContentType.versionMinor)"
+            Log.warning(
+                "Dropping message \(id) in conversation \(conversationId) from \(senderInboxId): "
+                + "unsupported content type \(encodedContentType.authorityID)/\(encodedContentType.typeID) v\(version)"
+            )
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         }
 

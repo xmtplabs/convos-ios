@@ -104,7 +104,7 @@ fileprivate extension Database {
                 return nil
             }
 
-            let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+            let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
             let conversation = dbConversation.hydrateConversation(currentInboxId: currentInboxId)
             Log.debug("Successfully hydrated conversation: \(conversationId)")
             return conversation

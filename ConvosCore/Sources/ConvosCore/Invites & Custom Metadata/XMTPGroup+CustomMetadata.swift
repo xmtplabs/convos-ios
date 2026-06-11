@@ -276,10 +276,43 @@ extension XMTPiOS.Group {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
+        // Merge instead of replacing wholesale: a profile built from
+        // incomplete local state (fresh pairing, mid-hydration) must not drop
+        // avatar or connections fields that already exist in the metadata.
+        // The verify closure checks the merged invariant - exact equality
+        // would reject every preserved field and burn the retries.
         try await atomicUpdateMetadata(operation: "updateProfile") { metadata in
-            metadata.upsertProfile(conversationProfile)
+            metadata.mergeProfile(conversationProfile)
         } verify: { metadata in
-            metadata.findProfile(inboxId: profile.inboxId) == conversationProfile
+            // Verify only the fields this write actually sets: name and image.
+            // connections is deliberately excluded - it lives only in remote
+            // metadata and is never carried by a profile built from a local
+            // DBMemberProfile, so the merge preserves it untouched. Asserting
+            // on it here would verify a field this operation doesn't author and
+            // could fail (and burn retries) whenever connections legitimately
+            // differ from this device's empty view of them.
+            guard let final = metadata.findProfile(inboxId: profile.inboxId) else { return false }
+            let incomingName: String? = conversationProfile.hasName ? conversationProfile.name : nil
+            let finalName: String? = final.hasName ? final.name : nil
+            guard finalName == incomingName else { return false }
+            guard let incomingImageUrl = conversationProfile.effectiveImageUrl else { return true }
+            return final.effectiveImageUrl == incomingImageUrl
+        }
+    }
+
+    /// Explicitly removes the avatar fields from a member's profile entry.
+    /// `updateProfile` deliberately preserves existing image fields when the
+    /// incoming profile carries none, so removal has to be a named operation
+    /// rather than a side effect of writing an avatar-less profile.
+    func clearProfileAvatar(inboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "clearProfileAvatar") { metadata in
+            guard var profile = metadata.findProfile(inboxId: inboxId) else { return }
+            profile.clearEncryptedImage()
+            profile.clearImage()
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            let profile = metadata.findProfile(inboxId: inboxId)
+            return profile == nil || profile?.effectiveImageUrl == nil
         }
     }
 

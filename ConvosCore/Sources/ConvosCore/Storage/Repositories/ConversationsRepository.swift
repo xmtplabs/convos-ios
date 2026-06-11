@@ -94,7 +94,7 @@ extension Array where Element == DBConversationDetails {
     func composeConversations(from database: Database) throws -> [Conversation] {
         // Empty string when no inbox is authorized yet — hydration treats
         // that as "no member is current user".
-        let currentInboxId = try DBInbox.fetchAll(database).first?.inboxId ?? ""
+        let currentInboxId = try DBInbox.currentInboxId(database) ?? ""
         let dbConversations: [DBConversationDetails] = self
 
         let conversations: [Conversation] = dbConversations
@@ -117,6 +117,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
@@ -193,6 +194,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)
@@ -201,7 +203,7 @@ fileprivate extension Database {
             .detailedConversationQuery()
             .fetchOne(self)
         guard let details = dbConversationDetails else { return nil }
-        let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         return details.hydrateConversation(currentInboxId: currentInboxId)
     }
 }

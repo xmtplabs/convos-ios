@@ -214,7 +214,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isUnreadUpdatedAt: Date(),
                 isMuted: false,
                 pinnedOrder: nil,
-                hidesInviteCard: false
+                hidesInviteCard: false,
+                wasRemoved: false
             )
             try localState.save(db)
 
@@ -295,7 +296,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isUnreadUpdatedAt: Date.distantPast,
             isMuted: false,
             pinnedOrder: nil,
-            hidesInviteCard: false
+            hidesInviteCard: false,
+            wasRemoved: false
         )
         try localState.insert(db, onConflict: .ignore)
 
@@ -307,6 +309,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
                 .deleteAll(db)
         }
+
+        try Self.clearRemovedMarkerIfMember(
+            conversationId: prepared.dbConversation.id,
+            currentMemberInboxIds: currentMemberInboxIds,
+            in: db
+        )
 
         try saveMembers(prepared.dbMembers, in: db)
 
@@ -326,6 +334,33 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         return saveResult
+    }
+
+    /// Clears a persisted removed marker once a synced member list proves the
+    /// local inbox is a member again (re-add or rejoin via invite). The
+    /// membership gate matters: stream echoes for a group the user was
+    /// removed from also reach `persist`, and their member lists exclude the
+    /// local inbox, so they leave the marker alone. Static so the gate is
+    /// unit-testable without constructing the full writer.
+    ///
+    /// Concurrency: callers run this inside the same GRDB write transaction
+    /// that persists `prepared.dbMembers`, and `currentMemberInboxIds` is
+    /// derived from that same snapshot - so the gate and the member rows it
+    /// reasons about commit atomically. GRDB serializes writes and XMTP sync
+    /// is sequential per conversation, so a competing member-list update is a
+    /// separate transaction that serializes before or after this one, never
+    /// interleaved with it.
+    static func clearRemovedMarkerIfMember(
+        conversationId: String,
+        currentMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws {
+        guard let localInboxId = try DBInbox.currentInboxId(db),
+              currentMemberInboxIds.contains(localInboxId) else { return }
+        try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .filter(ConversationLocalState.Columns.wasRemoved == true)
+            .updateAll(db, ConversationLocalState.Columns.wasRemoved.set(to: false))
     }
 
     /// Post-persist side effects the stream path runs after each individual
