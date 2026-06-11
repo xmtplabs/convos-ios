@@ -100,8 +100,14 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
-    func requestAgentJoin(
-        slug: String,
+
+    /// Direct-add agent join: provisions the agent via the backend (declaring
+    /// the target conversation) and adds its XMTP inbox with addMembers. The
+    /// runtime observes the resulting group welcome and attaches — once the
+    /// add lands, the agent boots with no further calls. No invite slug
+    /// involved.
+    func addAgentToConversation(
+        conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
@@ -230,21 +236,21 @@ extension SessionManagerProtocol {
         NoopInviteMembershipResolver()
     }
 
-    public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
+    public func addAgentToConversation(conversationId: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await addAgentToConversation(conversationId: conversationId, templateId: nil, options: nil, forceErrorCode: nil)
     }
 
-    public func requestAgentJoin(
-        slug: String,
+    public func addAgentToConversation(
+        conversationId: String,
         options: ConvosAPI.AgentJoinOptions?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: nil, options: options, forceErrorCode: nil)
+        try await addAgentToConversation(conversationId: conversationId, templateId: nil, options: options, forceErrorCode: nil)
     }
 
-    public func requestAgentJoin(
-        slug: String,
+    public func addAgentToConversation(
+        conversationId: String,
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: templateId, options: nil, forceErrorCode: nil)
+        try await addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil, forceErrorCode: nil)
     }
 }

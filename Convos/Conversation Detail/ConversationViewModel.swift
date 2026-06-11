@@ -3291,9 +3291,6 @@ extension ConversationViewModel {
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
     func requestAgentJoin(templateId: String?, requestId: String = UUID().uuidString) {
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
-
         agentJoinTask?.cancel()
 
         // Anchor the wait measurement at request time (the pending UI starts
@@ -3311,7 +3308,6 @@ extension ConversationViewModel {
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
-                slug: slug,
                 conversationId: conversationId,
                 requestId: requestId,
                 forceErrorCode: forceErrorCode,
@@ -3389,8 +3385,6 @@ extension ConversationViewModel {
 
     private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
         guard !joins.isEmpty else { return }
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
 
         // Batch adds return to the chat, so the join progress shows as
         // in-stream pending status bubbles. Anchored at request time for the
@@ -3413,7 +3407,6 @@ extension ConversationViewModel {
                 }
                 let outcome = await Self.performAgentJoinCall(
                     templateId: join.templateId,
-                    slug: slug,
                     conversationId: conversationId,
                     requestId: join.requestId,
                     forceErrorCode: forceErrorCode,
@@ -3535,7 +3528,6 @@ extension ConversationViewModel {
     /// holding `self`.
     private static func performAgentJoinCall(
         templateId: String?,
-        slug: String,
         conversationId: String,
         requestId: String,
         forceErrorCode: Int?,
@@ -3548,8 +3540,8 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
-            _ = try await session.requestAgentJoin(
-                slug: slug,
+            _ = try await session.addAgentToConversation(
+                conversationId: conversationId,
                 templateId: templateId,
                 options: nil,
                 forceErrorCode: forceErrorCode
