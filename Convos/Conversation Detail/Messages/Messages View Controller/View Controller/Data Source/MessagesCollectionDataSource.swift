@@ -26,6 +26,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onAgentOutOfCredits: (() -> Void)? { get set }
     var creditsDepleted: Bool { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)? { get set }
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }

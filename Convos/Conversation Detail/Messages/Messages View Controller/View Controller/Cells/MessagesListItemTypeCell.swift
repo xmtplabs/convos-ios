@@ -136,6 +136,15 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
+                case let .capabilityConnect(_, prompt, agentName, _):
+                    CapabilityConnectPromptView(
+                        prompt: prompt,
+                        agentName: agentName,
+                        onTap: { config.onTapCapabilityConnect(prompt) }
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+
                 case .agentBuilderSummary(let content):
                     AgentBuilderSummaryView(
                         content: content,
