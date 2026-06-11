@@ -94,12 +94,21 @@ extension ConvosAPIClientProtocol {
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
     }
 
     func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
 }
 
 /// Open, fully-conforming `ConvosAPIClientProtocol` base for test fixtures that
@@ -150,10 +159,19 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
     }
 
     func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
 }

@@ -126,11 +126,17 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the push the agent gets 403. Re-posting the same (owner, grantee,
     /// conversation, toolkit) tuple upserts (also un-revokes) and returns the
     /// same id.
+    ///
+    /// `actions` lists the Composio action slugs the grant authorizes. An empty
+    /// array is whole-toolkit access (the backend's fallback): the agent may
+    /// call any action on the toolkit. Pass the user-approved action slugs to
+    /// scope the grant; pass `[]` only when no per-action scope is available.
     func createConnectionGrant(
         ownerInboxId: String,
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse
 
@@ -138,6 +144,18 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// `createConnectionGrant`. The backend returns 404 for unknown or
     /// not-owned ids; that surfaces here as an error the caller can log.
     func revokeConnectionGrant(id: String) async throws
+
+    /// Revokes the caller's own grants by natural key. Reliable even when no
+    /// backend grant id was stored locally (the by-id path can't run then).
+    /// `toolkit` alone revokes every grant for that connection (full
+    /// disconnect); adding `conversationId` scopes to one conversation; adding
+    /// `granteeInboxId` scopes to a single agent. Returns the number revoked.
+    @discardableResult
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int
 
     // IAP credits + subscriptions
     func getCreditBalance() async throws -> CreditBalance
@@ -868,6 +886,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         var request = try authenticatedRequest(for: "v2/connections/grants", method: "POST")
@@ -878,6 +897,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             let granteeInboxId: String
             let conversationId: String
             let toolkit: String
+            let actions: [String]
             let connectionId: String?
         }
         request.httpBody = try JSONEncoder().encode(
@@ -886,6 +906,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
                 granteeInboxId: granteeInboxId,
                 conversationId: conversationId,
                 toolkit: toolkit,
+                actions: actions,
                 connectionId: connectionId
             )
         )
@@ -896,6 +917,32 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     func revokeConnectionGrant(id: String) async throws {
         let request = try authenticatedRequest(for: "v2/connections/grants/\(id)", method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
+    }
+
+    @discardableResult
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        var request = try authenticatedRequest(for: "v2/connections/grants/revoke", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct RevokeBody: Codable {
+            let toolkit: String
+            let conversationId: String?
+            let granteeInboxId: String?
+        }
+        request.httpBody = try JSONEncoder().encode(
+            RevokeBody(
+                toolkit: toolkit,
+                conversationId: conversationId,
+                granteeInboxId: granteeInboxId
+            )
+        )
+
+        let response: CloudConnectionsAPI.RevokeGrantResponse = try await performRequest(request)
+        return response.revoked
     }
 
     // MARK: - IAP Credits + Subscriptions

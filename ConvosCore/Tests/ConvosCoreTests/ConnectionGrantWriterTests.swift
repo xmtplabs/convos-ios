@@ -331,6 +331,9 @@ struct ConnectionGrantWriterTests {
         #expect(call.conversationId == conversationId)
         #expect(call.toolkit == connection.serviceId)
         #expect(call.connectionId == connection.composioConnectionId)
+        // No per-action scope is available at grant time, so the writer sends an
+        // empty actions array and the backend treats the grant as whole-toolkit.
+        #expect(call.actions.isEmpty)
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.first?.backendGrantId == "backend-grant-1")
@@ -355,7 +358,7 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.backendGrantId == nil)
     }
 
-    @Test("Revoke: revokes the backend consent record when an id is stored")
+    @Test("Revoke: revokes the backend grant by natural key when a backend id is stored")
     func revokeRevokesBackendGrant() async throws {
         let recordingClient = RecordingGrantAPIClient()
         let fixture = Fixture(apiClient: recordingClient)
@@ -373,17 +376,22 @@ struct ConnectionGrantWriterTests {
 
         try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
 
-        #expect(recordingClient.revokeCalls == ["backend-grant-42"])
+        // The natural-key revoke is the primary path; the unreliable by-id DELETE
+        // is no longer used.
+        #expect(recordingClient.revokeCalls.isEmpty)
+        #expect(recordingClient.naturalKeyRevokeCalls == [
+            .init(toolkit: connection.serviceId, conversationId: conversationId, granteeInboxId: "agent-1"),
+        ])
     }
 
-    @Test("Revoke: skips the backend call when no backend id is stored")
-    func revokeSkipsBackendWithoutId() async throws {
+    @Test("Revoke: still revokes the backend grant by natural key when no backend id is stored")
+    func revokeUsesNaturalKeyWithoutStoredId() async throws {
         let recordingClient = RecordingGrantAPIClient()
         let fixture = Fixture(apiClient: recordingClient)
         defer { fixture.cleanup() }
 
         let connection = try fixture.seedConnection()
-        let conversationId = "conv_backend_skip"
+        let conversationId = "conv_backend_natural"
         try fixture.seedConversation(id: conversationId)
         try fixture.seedGrant(
             connectionId: connection.id,
@@ -393,7 +401,12 @@ struct ConnectionGrantWriterTests {
 
         try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
 
+        // Natural-key revoke succeeds even though no backendGrantId was ever
+        // stored -- this is the reliability fix over the by-id DELETE.
         #expect(recordingClient.revokeCalls.isEmpty)
+        #expect(recordingClient.naturalKeyRevokeCalls == [
+            .init(toolkit: connection.serviceId, conversationId: conversationId, granteeInboxId: "agent-1"),
+        ])
     }
 }
 
@@ -405,11 +418,19 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
         let granteeInboxId: String
         let conversationId: String
         let toolkit: String
+        let actions: [String]
         let connectionId: String?
+    }
+
+    struct NaturalKeyRevokeCall: Sendable, Equatable {
+        let toolkit: String
+        let conversationId: String?
+        let granteeInboxId: String?
     }
 
     var createCalls: [CreateCall] = []
     var revokeCalls: [String] = []
+    var naturalKeyRevokeCalls: [NaturalKeyRevokeCall] = []
     var createError: Error?
 
     override func createConnectionGrant(
@@ -417,6 +438,7 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         if let createError {
@@ -427,6 +449,7 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
             granteeInboxId: granteeInboxId,
             conversationId: conversationId,
             toolkit: toolkit,
+            actions: actions,
             connectionId: connectionId
         ))
         return CloudConnectionsAPI.CreateGrantResponse(id: "backend-grant-\(createCalls.count)")
@@ -434,5 +457,18 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
 
     override func revokeConnectionGrant(id: String) async throws {
         revokeCalls.append(id)
+    }
+
+    override func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        naturalKeyRevokeCalls.append(NaturalKeyRevokeCall(
+            toolkit: toolkit,
+            conversationId: conversationId,
+            granteeInboxId: granteeInboxId
+        ))
+        return 1
     }
 }

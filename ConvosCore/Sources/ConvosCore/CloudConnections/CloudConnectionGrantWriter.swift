@@ -118,9 +118,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 .deleteAll(db)
         }
 
-        if let backendGrantId = existing.backendGrantId {
-            await revokeBackendGrant(backendGrantId, for: existing)
-        }
+        await revokeBackendGrant(for: existing)
     }
 
     /// Pushes one per-agent consent record to the backend grant store and
@@ -131,11 +129,26 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async {
         do {
             let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            // `actions` would scope the grant to specific Composio action slugs
+            // (e.g. "GOOGLECALENDAR_CREATE_EVENT"). iOS has no source of those
+            // slugs at grant time: the consent model only carries a coarse
+            // verb set (read / write_*), and CapabilityRequestResult.availableActions
+            // holds device-action names, not Composio slugs. Until a
+            // capability->Composio-action mapping exists, every grant is
+            // whole-toolkit (empty actions). Logged so the scoping gap is visible
+            // rather than silently implied.
+            let actions: [String] = []
+            Log.warning(
+                "[CloudConnections] pushing whole-toolkit grant (no per-action scope available): " +
+                "toolkit=\(connection.serviceId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)"
+            )
             let response = try await inboxReady.apiClient.createConnectionGrant(
                 ownerInboxId: inboxReady.client.inboxId,
                 granteeInboxId: grant.grantedToInboxId,
                 conversationId: grant.conversationId,
                 toolkit: connection.serviceId,
+                actions: actions,
                 connectionId: connection.composioConnectionId
             )
             let updated = DBCloudConnectionGrant(
@@ -160,17 +173,25 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     }
 
     /// Revokes the backend consent record for a grant that was just removed
-    /// locally. Best-effort: a failure is logged and not retried; the backend
-    /// connection-level revoke (disconnect) independently cuts off execution.
-    private func revokeBackendGrant(_ backendGrantId: String, for grant: DBCloudConnectionGrant) async {
+    /// locally. Uses the natural-key revoke (toolkit, conversation, grantee) so
+    /// it succeeds even when no backendGrantId was stored (the by-id path can't
+    /// run for those rows). Best-effort: a failure is logged and not retried;
+    /// the backend connection-level revoke (disconnect) independently cuts off
+    /// execution.
+    private func revokeBackendGrant(for grant: DBCloudConnectionGrant) async {
         do {
             let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-            try await inboxReady.apiClient.revokeConnectionGrant(id: backendGrantId)
+            try await inboxReady.apiClient.revokeConnectionGrantByNaturalKey(
+                toolkit: grant.serviceId,
+                conversationId: grant.conversationId,
+                granteeInboxId: grant.grantedToInboxId
+            )
         } catch {
             Log.warning(
-                "[CloudConnections] backend grant revoke failed (backendGrantId=\(backendGrantId), " +
-                "connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
-                "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+                "[CloudConnections] backend grant revoke failed " +
+                "(toolkit=\(grant.serviceId), connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
             )
         }
     }

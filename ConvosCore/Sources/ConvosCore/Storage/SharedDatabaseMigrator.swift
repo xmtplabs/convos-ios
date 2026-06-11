@@ -196,10 +196,8 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration(
-            "backfillContactAgentTemplateFieldsFromMemberProfiles",
-            migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
-        )
+        migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
+                                   migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
 
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 

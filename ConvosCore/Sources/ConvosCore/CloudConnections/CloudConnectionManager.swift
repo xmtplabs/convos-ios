@@ -255,19 +255,25 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     }
 
     /// Directly revokes the backend consent records for grants whose normal
-    /// writer-mediated revocation didn't run. Best-effort: failures are logged
-    /// and never propagate; the connection-level backend revoke independently
-    /// cuts off agent execution.
+    /// writer-mediated revocation didn't run. Uses the natural-key revoke so it
+    /// works even for rows that never stored a backendGrantId (push failed or
+    /// hadn't happened). Best-effort: failures are logged and never propagate;
+    /// the connection-level backend revoke independently cuts off agent
+    /// execution.
     private func revokeBackendGrants(_ grants: [DBCloudConnectionGrant], context: String) async {
         for grant in grants {
-            guard let backendGrantId = grant.backendGrantId else { continue }
             do {
-                try await apiClient.revokeConnectionGrant(id: backendGrantId)
+                try await apiClient.revokeConnectionGrantByNaturalKey(
+                    toolkit: grant.serviceId,
+                    conversationId: grant.conversationId,
+                    granteeInboxId: grant.grantedToInboxId
+                )
             } catch {
                 Log.warning(
                     "[CloudConnections] failed to revoke backend grant \(context) " +
-                    "(backendGrantId=\(backendGrantId), connectionId=\(grant.connectionId), " +
-                    "conversationId=\(grant.conversationId)): \(error.localizedDescription)"
+                    "(toolkit=\(grant.serviceId), connectionId=\(grant.connectionId), " +
+                    "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                    error.localizedDescription
                 )
             }
         }

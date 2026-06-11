@@ -165,12 +165,21 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
+        actions: [String],
         connectionId: String?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         .init(id: "mock-grant-\(UUID().uuidString)")
     }
 
     func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
 
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(

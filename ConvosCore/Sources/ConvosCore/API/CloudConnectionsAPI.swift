@@ -35,4 +35,12 @@ public enum CloudConnectionsAPI {
             self.id = id
         }
     }
+
+    public struct RevokeGrantResponse: Codable, Sendable {
+        public let revoked: Int
+
+        public init(revoked: Int) {
+            self.revoked = revoked
+        }
+    }
 }
