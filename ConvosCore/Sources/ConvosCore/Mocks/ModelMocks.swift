@@ -111,6 +111,7 @@ public extension Conversation {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: lastMessage,
             imageURL: nil,
             imageSalt: nil,

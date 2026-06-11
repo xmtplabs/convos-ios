@@ -90,6 +90,7 @@ public extension Conversation {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved,
             lastMessage: lastMessage,
             imageURL: imageURL,
             imageSalt: imageSalt,
