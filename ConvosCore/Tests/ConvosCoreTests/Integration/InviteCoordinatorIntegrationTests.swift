@@ -108,4 +108,96 @@ struct InviteCoordinatorIntegrationTests {
         // Sanity: the second pass should not double-emit the first join.
         #expect(!secondAccepted.contains { $0.conversationId == group1.id })
     }
+
+    /// Plain-text slug messages are no longer join requests: no member is
+    /// added and, critically, no invite_join_error is sent back. Herald
+    /// still sends a text copy of the slug next to its typed join request,
+    /// and the text copy must be inert.
+    @Test("Plain-text slug message is ignored: no join, no error reply")
+    func plainTextSlugIsIgnored() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let coordinator = makeCoordinator()
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+
+        // Send the slug as plain text, the pre-typed wire format.
+        let dm = try await joinerClient.conversations.findOrCreateDm(with: creatorClient.inboxID)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let outcomes = await coordinator.processJoinRequestOutcomes(
+            since: nil,
+            client: creatorClient
+        )
+
+        #expect(outcomes.compactMap(\.joinResult).isEmpty, "Text slug must not join the group")
+
+        let memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID))
+
+        let errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errorCount == 0, "Ignored text slug must not produce an error reply")
+    }
+
+    /// The error-reply dedupe: revalidating the same failed join request
+    /// (stream, catch-up, and the agent-join poll all see the same message)
+    /// sends exactly one invite_join_error - but a fresh retry by the joiner
+    /// is a new attempt and gets a fresh reply.
+    @Test("Failed join gets one error per attempt across repeated processing passes")
+    func failedJoinErrorIsDedupedPerAttempt() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let coordinator = makeCoordinator()
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+        // Rotate the tag so the invite above is revoked and every join
+        // attempt with it fails down the error-sending path.
+        _ = try await coordinator.revokeInvites(for: group)
+
+        _ = try await coordinator.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        var errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errorCount == 1, "First failed attempt sends exactly one error")
+
+        // Revalidate the same request, as batch catch-up and the agent-join
+        // poll do. The existing reply must suppress a duplicate.
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errorCount == 1, "Reprocessing the same request must not send another error")
+
+        // A fresh retry is a new attempt and deserves a new reply.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await coordinator.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errorCount == 2, "A retried join request gets its own error reply")
+    }
+
+    private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
+        let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
+        let messages = try await dm.messages()
+        return messages.filter { message in
+            guard let contentType = try? message.encodedContent.type else { return false }
+            return contentType == ContentTypeInviteJoinError
+        }.count
+    }
 }

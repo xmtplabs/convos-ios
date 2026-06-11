@@ -138,13 +138,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         since: Date?,
         client: AnyClientProvider
     ) async -> [InviteJoinRequestOutcome] {
-        // A nil or very old cursor (fresh install, restore, long-dormant
-        // device) would revalidate every historical join request in every
-        // DM and reply with stale invite_join_error messages to joiners
-        // whose requests died long ago. Joiners give up within minutes, so
-        // bound the sweep to a recent window.
-        let oldestUsefulRequestDate = Date().addingTimeInterval(-Constant.maxCatchUpWindow)
-        let effectiveSince = max(since ?? .distantPast, oldestUsefulRequestDate)
+        let effectiveSince = Self.effectiveCatchUpSince(since: since, now: Date())
         let outcomes = await coordinator.processJoinRequestOutcomes(
             since: effectiveSince,
             client: InviteClientProviderAdapter(client)
@@ -288,6 +282,16 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         } catch {
             Log.warning("Failed to send ProfileSnapshot after join: \(error.localizedDescription)")
         }
+    }
+
+    /// A nil or very old cursor (fresh install, restore, long-dormant
+    /// device) would revalidate every historical join request in every
+    /// DM and reply with stale invite_join_error messages to joiners
+    /// whose requests died long ago. Joiners give up within minutes, so
+    /// bound the sweep to a recent window.
+    static func effectiveCatchUpSince(since: Date?, now: Date) -> Date {
+        let oldestUsefulRequestDate = now.addingTimeInterval(-Constant.maxCatchUpWindow)
+        return max(since ?? .distantPast, oldestUsefulRequestDate)
     }
 
     private enum Constant {

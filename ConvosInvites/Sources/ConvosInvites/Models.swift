@@ -78,6 +78,11 @@ public struct JoinRequest: Sendable {
     /// The message containing the join request
     public let messageId: String
 
+    /// When the join-request message was sent. Used to scope error-reply
+    /// deduplication to this attempt: only an error sent after this moment
+    /// counts as already answering it.
+    public let sentAt: Date?
+
     /// The joiner's profile (name, image) if provided
     public let profile: JoinRequestProfile?
 
@@ -89,6 +94,7 @@ public struct JoinRequest: Sendable {
         dmConversationId: String,
         signedInvite: SignedInvite,
         messageId: String,
+        sentAt: Date? = nil,
         profile: JoinRequestProfile? = nil,
         metadata: [String: String]? = nil
     ) {
@@ -96,6 +102,7 @@ public struct JoinRequest: Sendable {
         self.dmConversationId = dmConversationId
         self.signedInvite = signedInvite
         self.messageId = messageId
+        self.sentAt = sentAt
         self.profile = profile
         self.metadata = metadata
     }
