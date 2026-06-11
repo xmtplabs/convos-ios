@@ -62,6 +62,46 @@ public extension Conversation {
         members.filter { !$0.isCurrentUser }
     }
 
+    /// Copy of this conversation with `members` replaced. Used by the
+    /// optimistic contacts-picker flows to overlay synthetic members onto
+    /// a DB-emitted conversation so the chat header keeps rendering the
+    /// picked end state while the real member additions are in flight.
+    func withMembers(_ newMembers: [ConversationMember]) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: newMembers,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
+    }
+
     var displayName: String {
         computedDisplayName
     }
