@@ -611,9 +611,9 @@ final class AgentBuilderViewModel: Identifiable {
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
             // The `.ready`-time join can have been skipped (conversation not
-            // ready yet, slug not hydrated) -- re-fire it now that the user
-            // committed; the `didRequestAgentJoin` latch makes this a no-op
-            // when the early join already ran.
+            // ready yet) -- re-fire it now that the user committed; the
+            // `didRequestAgentJoin` latch makes this a no-op when the early
+            // join already ran.
             requestAgentJoinIfNeeded()
             // Detach the agent-join task from this VM: the builder sheet tears
             // down after Make and `deinit` cancels `agentJoinTask`, which
@@ -622,8 +622,9 @@ final class AgentBuilderViewModel: Identifiable {
             // reference (without cancelling) lets the join finish on its own.
             agentJoinTask = nil
             // Gate the send on the agent joining only when a join request was
-            // actually launched; if it never was (no slug even at Make), the
-            // hold would wait for an agent that was never asked to come.
+            // actually launched; if it never was (no messaging service --
+            // test-only mode), the hold would wait for an agent that was
+            // never asked to come.
             let joinAttempted: Bool = didRequestAgentJoin
             Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
@@ -774,14 +775,12 @@ final class AgentBuilderViewModel: Identifiable {
             // draft to discard -- the user's group stays -- so the join
             // survives the view closing (like `ConversationViewModel`'s
             // committed-conversation join, the opposite of the draft path).
-            let slug = innerVM.conversation.invite?.urlSlug ?? ""
-            let joinTask: Task<Bool, Never> = Task { [session] in
-                guard !slug.isEmpty else {
-                    Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
-                    return false
-                }
+            let joinTask: Task<Void, Never> = Task { [session] in
                 do {
-                    _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
+                    _ = try await session.addAgentToConversation(
+                        conversationId: conversationIdForPersist,
+                        options: .agentBuilder
+                    )
                 } catch {
                     // Still gate the send: a thrown request is ambiguous --
                     // the server may have received it and provisioned the
@@ -789,9 +788,8 @@ final class AgentBuilderViewModel: Identifiable {
                     // the request went out). Publishing immediately would
                     // ship the brief into the pre-join epoch; the gate's
                     // timeout already covers the agent truly never arriving.
-                    Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
+                    Log.error("AgentBuilder(existing): addAgentToConversation failed: \(error.localizedDescription)")
                 }
-                return true
             }
             // Persist the summary before the send so the chat the user returns
             // to renders the card immediately (its `summaryPublisher` picks
@@ -806,18 +804,17 @@ final class AgentBuilderViewModel: Identifiable {
             } catch {
                 Log.error("AgentBuilder(existing): pending media upload await failed: \(error.localizedDescription)")
             }
-            // `awaitsAgentJoin: false` only when the join was never requested
-            // at all (no slug) -- an agent that was never asked to come will
-            // never arrive, so holding the bundle just delays the inevitable
-            // publish. A request that was sent but threw still gates (see the
-            // join task above).
-            let joinRequested: Bool = await joinTask.value
+            // Direct-add always launches the join (there is no slug to be
+            // missing), so the send always gates on the agent's membership.
+            // A request that was sent but threw still gates (see the join
+            // task above).
+            await joinTask.value
             await innerVM.sendBuilderBundle(
                 text: summaryToPersist.prompt,
                 voiceMemo: voiceMemoSnapshot,
                 textMessageId: textMessageId,
                 bundleMessageId: bundleMessageId,
-                awaitsAgentJoin: joinRequested
+                awaitsAgentJoin: true
             )
         }
         // No in-sheet morph: the builder targets a conversation the user is
@@ -976,13 +973,9 @@ final class AgentBuilderViewModel: Identifiable {
             Log.warning("AgentBuilderViewModel: reached .ready but no conversation available")
             return
         }
-        let slug = conversation.invite?.urlSlug ?? ""
-        guard !slug.isEmpty else {
-            Log.warning("AgentBuilderViewModel: reached .ready but invite slug is empty")
-            return
-        }
         didRequestAgentJoin = true
 
+        let conversationId = conversation.id
         agentJoinTask?.cancel()
         // Capture `session` only, not `self`: the join needs nothing back from
         // the VM, and not capturing `self` avoids a cycle through the stored
@@ -993,13 +986,16 @@ final class AgentBuilderViewModel: Identifiable {
         // leaving / deleting the group -- so there's nothing left to join.
         agentJoinTask = Task { [session] in
             do {
-                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
+                _ = try await session.addAgentToConversation(
+                    conversationId: conversationId,
+                    options: .agentBuilder
+                )
             } catch is CancellationError {
                 return
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                Log.error("AgentBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")
+                Log.error("AgentBuilderViewModel: addAgentToConversation failed: \(error.localizedDescription)")
             }
         }
     }

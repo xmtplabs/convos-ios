@@ -596,28 +596,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func requestAgentJoin(
-        slug: String,
-        templateId: String? = nil,
-        options: ConvosAPI.AgentJoinOptions? = nil,
-        forceErrorCode: Int? = nil
-    ) async throws -> ConvosAPI.AgentJoinResponse {
-        let response = try await apiClient.requestAgentJoin(
-            slug: slug,
-            templateId: templateId,
-            options: options,
-            forceErrorCode: forceErrorCode
-        )
-        // Temporary diagnostic: the agent now sends a join-request DM that
-        // the message stream is expected to deliver. Poll for it for a
-        // bounded window in case the stream has died, so the agent doesn't
-        // time out and stream death shows up in the logs. Covers every
-        // agents/join entry point (add agent, contacts picker, compose,
-        // agent builder) since they all route through here.
-        await messagingService().sessionStateManager.startAgentJoinRequestPolling()
-        return response
-    }
-
     public func agentShareResolver() -> any AgentShareResolving {
         ApiAgentShareResolver(
             apiClient: apiClient,
@@ -1129,5 +1107,60 @@ public extension SessionManager {
 extension SessionManager {
     public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
         BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
+    }
+}
+
+// MARK: - Direct-add agent join
+
+extension SessionManager {
+    /// How long to keep polling for the agent's inboxId when registration
+    /// outlasts the backend's synchronous wait budget.
+    private static var agentRegistrationDeadline: TimeInterval { 30 }
+    private static var agentRegistrationPollInterval: TimeInterval { 1 }
+
+    public func addAgentToConversation(
+        conversationId: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        // 1. Provision: the backend registers the agent's XMTP inbox and
+        //    returns it. No invite slug — this device performs the add, and
+        //    the declared conversationId tells the runtime which group to
+        //    watch for the resulting welcome.
+        let response = try await apiClient.requestAgentJoin(
+            slug: nil,
+            conversationId: conversationId.lowercased(),
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode
+        )
+        guard let instanceId = response.instanceId else {
+            throw APIError.agentProvisionFailed
+        }
+
+        var inboxId = response.inboxId
+        let deadline = Date().addingTimeInterval(Self.agentRegistrationDeadline)
+        while inboxId == nil {
+            guard Date() < deadline else { throw APIError.agentPoolTimeout }
+            try await Task.sleep(nanoseconds: UInt64(Self.agentRegistrationPollInterval * 1_000_000_000))
+            let status = try await apiClient.getAgentJoinStatus(instanceId: instanceId)
+            guard status.joinStatus != "failed" else {
+                throw APIError.agentProvisionFailed
+            }
+            inboxId = status.inboxId
+        }
+        guard let agentInboxId = inboxId else {
+            throw APIError.agentPoolTimeout
+        }
+
+        // 2. Add: a plain member add by this device — synchronous, no DM
+        //    round-trip, no online-accepter dependency. The add durably
+        //    publishes a group welcome for the agent's inbox; the runtime
+        //    observes it and attaches, so the agent boots even if this app
+        //    is killed on the next line.
+        try await messagingService().conversationMetadataWriter()
+            .addMembers([agentInboxId], to: conversationId)
+        return response
     }
 }

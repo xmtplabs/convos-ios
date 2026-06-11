@@ -92,8 +92,8 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(
-        slug: String,
+    public func addAgentToConversation(
+        conversationId: String,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
@@ -106,7 +106,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
             default: throw APIError.serverError("Mock forced error \(forceErrorCode)")
             }
         }
-        return .init(success: true, joined: true)
+        return .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
