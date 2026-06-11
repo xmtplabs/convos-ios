@@ -291,7 +291,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
-            onRetryAgentJoin: { viewModel.requestAgentJoin() },
+            onRetryAgentJoin: { viewModel.retryAgentJoin() },
             onCopyInviteLink: { viewModel.copyInviteLink() },
             onConvoCode: {
                 if viewModel.isFull {

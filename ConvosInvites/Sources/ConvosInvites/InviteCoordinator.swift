@@ -124,7 +124,6 @@ public final class InviteCoordinator: @unchecked Sendable {
             content: joinRequest,
             options: .init(contentType: codec.contentType)
         )
-        _ = try await dm.send(content: slug)
 
         return dm
     }
@@ -145,21 +144,16 @@ public final class InviteCoordinator: @unchecked Sendable {
     ) async -> JoinRequestDMOutcome {
         guard message.senderInboxId != client.inviteInboxId else { return .noJoinRequest }
 
-        let slug: String
-        var profile: JoinRequestProfile?
-        var metadata: [String: String]?
-
-        if let joinRequest: JoinRequestContent = try? message.content() {
-            slug = joinRequest.inviteSlug
-            profile = joinRequest.profile
-            metadata = joinRequest.metadata
-        } else if let text: String = try? message.content() {
-            slug = text
-        } else {
+        // Only the typed join_request content type is accepted. Plain-text
+        // slug messages (the original wire format, kept as a fallback until
+        // mid-2026) are deliberately ignored: senders that still emit a text
+        // copy alongside the typed message would otherwise produce duplicate
+        // processing and duplicate error replies.
+        guard let joinRequest: JoinRequestContent = try? message.content() else {
             return .noJoinRequest
         }
 
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else {
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(joinRequest.inviteSlug) else {
             return .noJoinRequest
         }
 
@@ -168,8 +162,9 @@ public final class InviteCoordinator: @unchecked Sendable {
             dmConversationId: message.conversationId,
             signedInvite: signedInvite,
             messageId: message.id,
-            profile: profile,
-            metadata: metadata
+            sentAt: message.sentAt,
+            profile: joinRequest.profile,
+            metadata: joinRequest.metadata
         )
 
         return await processJoinRequest(request, client: client)
@@ -241,49 +236,78 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     // MARK: - Core Processing
 
-    // swiftlint:disable:next cyclomatic_complexity
+    /// Result of one validation phase of join-request processing: either the
+    /// value the next phase needs, or the outcome to return to the caller.
+    private enum JoinStep<Value> {
+        case proceed(Value)
+        case stop(JoinRequestDMOutcome)
+    }
+
     private func processJoinRequest(
         _ request: JoinRequest,
         client: any InviteClientProvider
     ) async -> JoinRequestDMOutcome {
+        let conversationId: String
+        switch await validateInviteAndDecryptConversationId(request, client: client) {
+        case .proceed(let value):
+            conversationId = value
+        case .stop(let outcome):
+            return outcome
+        }
+
+        let group: XMTPiOS.Group
+        switch await resolveInvitedGroup(conversationId: conversationId, request: request, client: client) {
+        case .proceed(let value):
+            group = value
+        case .stop(let outcome):
+            return outcome
+        }
+
+        return await addJoinerToGroup(group, conversationId: conversationId, request: request, client: client)
+    }
+
+    private func validateInviteAndDecryptConversationId(
+        _ request: JoinRequest,
+        client: any InviteClientProvider
+    ) async -> JoinStep<String> {
         let signedInvite = request.signedInvite
 
         guard !signedInvite.hasExpired else {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .expired)
-            return benignFailure(request, error: .expired)
-        }
-
-        guard !signedInvite.conversationHasExpired else {
-            await sendJoinError(.conversationExpired, for: request, client: client)
-            delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationExpired)
-            return benignFailure(request, error: .conversationExpired)
+            return .stop(benignFailure(request, error: .expired))
         }
 
         let creatorInboxId = signedInvite.invitePayload.creatorInboxIdString
 
         guard !creatorInboxId.isEmpty else {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
-            return benignFailure(request, error: .invalidFormat)
+            return .stop(benignFailure(request, error: .invalidFormat))
         }
 
         guard creatorInboxId == client.inviteInboxId else {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .creatorMismatch)
-            return benignFailure(request, error: .creatorMismatch)
+            return .stop(benignFailure(request, error: .creatorMismatch))
         }
 
         let privateKey: Data
         do {
             privateKey = try await privateKeyProvider(creatorInboxId)
         } catch {
-            await sendJoinError(.genericFailure, for: request, client: client)
+            Log.warning("Rejecting join (inviteTag: \(signedInvite.invitePayload.tag)): private key unavailable: \(error)")
+            await sendJoinError(
+                .genericFailure,
+                reason: "creator private key unavailable",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
-            return benignFailure(request, error: .processingFailed)
+            return .stop(benignFailure(request, error: .processingFailed))
         }
 
         do {
             let expectedPublicKey = try Data.derivePublicKey(from: privateKey)
             guard try signedInvite.verify(with: expectedPublicKey) else {
-                return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)
+                return .stop(await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature))
             }
         } catch let error as InviteSignatureError {
             // Threat-model split:
@@ -297,49 +321,125 @@ public final class InviteCoordinator: @unchecked Sendable {
             //   so the same joiner can retry without being blocked.
             switch error {
             case .invalidSignature, .verificationFailure:
-                return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)
+                return .stop(await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature))
             case .invalidContext, .invalidPublicKey, .invalidPrivateKey,
                  .invalidFormat, .signatureFailure, .encodingFailure:
                 delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
-                return benignFailure(request, error: .processingFailed)
+                return .stop(benignFailure(request, error: .processingFailed))
             }
         } catch {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
-            return benignFailure(request, error: .processingFailed)
+            return .stop(benignFailure(request, error: .processingFailed))
         }
 
-        let conversationId: String
+        // Checked only after signature verification: this branch sends an
+        // error reply, and replying to unverified slugs would let anyone
+        // forge an "expired" invite and reflect outbound DMs off the creator.
+        guard !signedInvite.conversationHasExpired else {
+            let expiresAt = signedInvite.conversationExpiresAt.map { "\($0)" } ?? "unknown"
+            await sendJoinError(
+                .conversationExpired,
+                reason: "conversation expired at \(expiresAt)",
+                for: request,
+                client: client
+            )
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationExpired)
+            return .stop(benignFailure(request, error: .conversationExpired))
+        }
+
         do {
-            conversationId = try InviteToken.decrypt(
+            let conversationId = try InviteToken.decrypt(
                 tokenBytes: signedInvite.invitePayload.conversationToken,
                 creatorInboxId: creatorInboxId,
                 privateKey: privateKey
             )
+            return .proceed(conversationId)
         } catch {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
-            return benignFailure(request, error: .invalidFormat)
+            return .stop(benignFailure(request, error: .invalidFormat))
         }
+    }
 
-        guard let conversation = try? await client.findConversation(conversationId: conversationId) else {
-            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): conversation not found in local store")
-            await sendJoinError(.conversationNotFound, for: request, client: client)
+    private func resolveInvitedGroup(
+        conversationId: String,
+        request: JoinRequest,
+        client: any InviteClientProvider
+    ) async -> JoinStep<XMTPiOS.Group> {
+        var foundConversation = try? await client.findConversation(conversationId: conversationId)
+        if foundConversation == nil {
+            // findConversation is a local-only lookup. The group can be
+            // missing from this installation's store even though it exists
+            // (fresh install, secondary device), so pull new conversations
+            // once before telling the joiner the conversation is gone.
+            Log.info("Conversation \(conversationId) not found locally for join request, syncing conversations before rejecting")
+            do {
+                try await client.syncConversations()
+            } catch {
+                // A failed sync means we cannot distinguish "group doesn't
+                // exist" from "we just couldn't fetch it" - treat it like
+                // the consentState() throw below: transient, no error sent.
+                Log.warning("Conversation sync failed while resolving join request for \(conversationId): \(error)")
+                delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
+                return .stop(benignFailure(request, error: .processingFailed))
+            }
+            foundConversation = try? await client.findConversation(conversationId: conversationId)
+        }
+        guard let conversation = foundConversation else {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): conversation not found in local store after sync")
+            await sendJoinError(
+                .conversationNotFound,
+                reason: "conversation not found in creator's local store after sync",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationNotFound(conversationId))
-            return benignFailure(request, error: .conversationNotFound(conversationId))
+            return .stop(benignFailure(request, error: .conversationNotFound(conversationId)))
         }
 
-        let consent = (try? conversation.consentState()) ?? .unknown
+        let consent: ConsentState
+        do {
+            consent = try conversation.consentState()
+        } catch {
+            // A throw here is a local read failure, not an actual denial.
+            // Treat it as transient so the joiner isn't told their valid
+            // invite was rejected.
+            Log.warning("Skipping join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): reading consent state failed: \(error)")
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
+            return .stop(benignFailure(request, error: .processingFailed))
+        }
         guard consent == .allowed else {
             Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
-            await sendJoinError(.consentNotAllowed, for: request, client: client)
+            await sendJoinError(
+                .consentNotAllowed,
+                reason: "creator consent state is '\(consent)'",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .consentNotAllowed(conversationId, consent))
-            return benignFailure(request, error: .consentNotAllowed(conversationId, consent))
+            return .stop(benignFailure(request, error: .consentNotAllowed(conversationId, consent)))
         }
 
         guard case .group(let group) = conversation else {
-            await sendJoinError(.genericFailure, for: request, client: client)
+            await sendJoinError(
+                .genericFailure,
+                reason: "invite target is a DM, not a group",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
-            return benignFailure(request, error: .invalidFormat)
+            return .stop(benignFailure(request, error: .invalidFormat))
         }
+
+        return .proceed(group)
+    }
+
+    private func addJoinerToGroup(
+        _ group: XMTPiOS.Group,
+        conversationId: String,
+        request: JoinRequest,
+        client: any InviteClientProvider
+    ) async -> JoinRequestDMOutcome {
+        let signedInvite = request.signedInvite
 
         try? await group.sync()
 
@@ -359,12 +459,25 @@ public final class InviteCoordinator: @unchecked Sendable {
         do {
             let currentTag = try tagStorage.getInviteTag(for: group)
             guard signedInvite.invitePayload.tag == currentTag else {
-                await sendJoinError(.conversationExpired, for: request, client: client)
+                // errorType stays .conversationExpired for older-client UX;
+                // the reason distinguishes revocation from actual expiry.
+                await sendJoinError(
+                    .conversationExpired,
+                    reason: "invite tag revoked or rotated since the invite was created",
+                    for: request,
+                    client: client
+                )
                 delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
                 return benignFailure(request, error: .revoked)
             }
         } catch {
-            await sendJoinError(.conversationExpired, for: request, client: client)
+            Log.warning("Rejecting join (inviteTag: \(signedInvite.invitePayload.tag)): reading invite tag failed: \(error)")
+            await sendJoinError(
+                .conversationExpired,
+                reason: "creator could not read the group's invite tag",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
             return benignFailure(request, error: .revoked)
         }
@@ -372,7 +485,17 @@ public final class InviteCoordinator: @unchecked Sendable {
         do {
             _ = try await group.addMembers(inboxIds: [request.joinerInboxId])
         } catch {
-            await sendJoinError(.genericFailure, for: request, client: client)
+            // The full error stays in creator-side logs; the wire reason
+            // carries only the error type name. Raw libxmtp descriptions can
+            // embed member inbox IDs and storage internals, and the joiner
+            // is an untrusted party.
+            Log.warning("Rejecting join (inviteTag: \(signedInvite.invitePayload.tag)): addMembers failed: \(error)")
+            await sendJoinError(
+                .genericFailure,
+                reason: "addMembers failed (\(type(of: error)))",
+                for: request,
+                client: client
+            )
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .addMemberFailed)
             return benignFailure(request, error: .addMemberFailed)
         }
@@ -407,9 +530,14 @@ public final class InviteCoordinator: @unchecked Sendable {
             )
         }
 
+        // ContentTypeText is deliberately absent: plain-text slug messages
+        // are no longer join requests. Senders like Herald still emit a text
+        // copy next to the typed message for older creators; treating it as
+        // a second join request produced duplicate processing and duplicate
+        // error replies. Do not re-add text support here.
         let candidates = messages.filter { message in
             guard let contentType = try? message.encodedContent.type,
-                  contentType == ContentTypeText || contentType == ContentTypeJoinRequest,
+                  contentType == ContentTypeJoinRequest,
                   message.senderInboxId != client.inviteInboxId else {
                 return false
             }
@@ -466,6 +594,7 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     private func sendJoinError(
         _ errorType: InviteJoinErrorType,
+        reason: String,
         for request: JoinRequest,
         client: any InviteClientProvider
     ) async {
@@ -473,10 +602,25 @@ public final class InviteCoordinator: @unchecked Sendable {
             return
         }
 
+        // The same failed join request can be revalidated by several paths
+        // (message stream, batch catch-up, agent-join poll), and nothing
+        // marks a failure as handled the way `.alreadyMember` does for
+        // successes. Skip the send if this DM already carries an error for
+        // the same invite tag sent after this request's message, so each
+        // failed attempt gets exactly one reply no matter how many passes
+        // revalidate it. Errors older than the request don't count: a fresh
+        // retry of the same invite deserves a fresh reply, otherwise the
+        // joiner waits forever on an error that will never arrive.
+        let inviteTag = request.signedInvite.invitePayload.tag
+        if await hasAlreadySentJoinError(forTag: inviteTag, since: request.sentAt, in: dm, client: client) {
+            return
+        }
+
         let error = InviteJoinError(
             errorType: errorType,
-            inviteTag: request.signedInvite.invitePayload.tag,
-            timestamp: Date()
+            inviteTag: inviteTag,
+            timestamp: Date(),
+            reason: String(reason.prefix(Constant.joinErrorReasonMaxLength))
         )
 
         let codec = InviteJoinErrorCodec()
@@ -484,6 +628,42 @@ public final class InviteCoordinator: @unchecked Sendable {
             content: error,
             options: .init(contentType: codec.contentType)
         )
+    }
+
+    private func hasAlreadySentJoinError(
+        forTag tag: String,
+        since requestSentAt: Date?,
+        in dm: XMTPiOS.Conversation,
+        client: any InviteClientProvider
+    ) async -> Bool {
+        guard let messages = try? await dm.messages(limit: Constant.joinErrorDedupeScanLimit) else {
+            return false
+        }
+        let codec = InviteJoinErrorCodec()
+        for message in messages where message.senderInboxId == client.inviteInboxId {
+            guard let contentType = try? message.encodedContent.type,
+                  contentType == ContentTypeInviteJoinError,
+                  let priorError = try? codec.decode(content: message.encodedContent) else {
+                continue
+            }
+            if let requestSentAt, message.sentAt < requestSentAt {
+                continue
+            }
+            if priorError.inviteTag == tag {
+                return true
+            }
+        }
+        return false
+    }
+
+    private enum Constant {
+        /// How many recent DM messages to scan when checking whether an
+        /// error reply for an invite tag was already sent. Join-request DMs
+        /// carry very little traffic, so a small window is plenty.
+        static let joinErrorDedupeScanLimit: Int = 50
+        /// Underlying error descriptions (libxmtp, keychain) can be very
+        /// long; cap the diagnostic reason so error replies stay small.
+        static let joinErrorReasonMaxLength: Int = 500
     }
 }
 

@@ -78,6 +78,11 @@ public struct JoinRequest: Sendable {
     /// The message containing the join request
     public let messageId: String
 
+    /// When the join-request message was sent. Used to scope error-reply
+    /// deduplication to this attempt: only an error sent after this moment
+    /// counts as already answering it.
+    public let sentAt: Date?
+
     /// The joiner's profile (name, image) if provided
     public let profile: JoinRequestProfile?
 
@@ -89,6 +94,7 @@ public struct JoinRequest: Sendable {
         dmConversationId: String,
         signedInvite: SignedInvite,
         messageId: String,
+        sentAt: Date? = nil,
         profile: JoinRequestProfile? = nil,
         metadata: [String: String]? = nil
     ) {
@@ -96,6 +102,7 @@ public struct JoinRequest: Sendable {
         self.dmConversationId = dmConversationId
         self.signedInvite = signedInvite
         self.messageId = messageId
+        self.sentAt = sentAt
         self.profile = profile
         self.metadata = metadata
     }
@@ -296,10 +303,18 @@ public struct InviteJoinError: Codable, Equatable, Sendable {
     public let inviteTag: String
     public let timestamp: Date
 
-    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date) {
+    /// Diagnostic detail about what actually failed (e.g. the underlying
+    /// error description, or which validation step rejected the request).
+    /// Not shown to users - joiner-side telemetry records it so failures
+    /// can be tracked down without access to the creator's device. Optional
+    /// on the wire: payloads from older clients decode with nil.
+    public let reason: String?
+
+    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date, reason: String? = nil) {
         self.errorType = errorType
         self.inviteTag = inviteTag
         self.timestamp = timestamp
+        self.reason = reason
     }
 
     public var userFacingMessage: String {

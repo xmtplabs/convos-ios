@@ -935,6 +935,24 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var agentJoinTaskId: String?
 
+    /// One agents/join call: the template requested (nil means the backend's
+    /// default agent) and the requestId that keys its in-stream status
+    /// bubble.
+    struct AgentJoinAttempt {
+        let templateId: String?
+        let requestId: String
+    }
+
+    /// The agents/join call(s) behind the most recent failure bubble. The
+    /// retry affordance replays these so a failed templated join retries the
+    /// same template instead of falling back to a bare default-agent join,
+    /// and reuses the original requestId so the existing status bubble
+    /// updates in place. Note the backend may have processed a call whose
+    /// response was lost, so a retry can still double-join until agents/join
+    /// gains a server-side idempotency key.
+    @ObservationIgnored
+    private var failedAgentJoins: [AgentJoinAttempt] = []
+
     /// Telemetry anchors for the assistant joining/verifying wait: set when
     /// an agents/join call succeeds (or rebased on the agent builder's Make
     /// commit time), cleared when the verified assistant arrives or the wait
@@ -3264,13 +3282,15 @@ extension ConversationViewModel {
     /// is a bare join (the backend provisions its default agent); a
     /// non-nil id provisions a fresh instance of that template. The
     /// caller-facing `agents/join` body no longer accepts `instructions`.
+    /// Pass `requestId` only when replaying a failed attempt, so the
+    /// replay updates the existing status bubble instead of adding one.
     ///
     /// Single-flight: a new call cancels any prior in-flight join request
     /// (retry-from-error semantics for the chat-header "+" menu). For
     /// multi-template fan-out (picker confirms N templates at once) use
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
-    func requestAgentJoin(templateId: String?) {
+    func requestAgentJoin(templateId: String?, requestId: String = UUID().uuidString) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
@@ -3285,7 +3305,6 @@ extension ConversationViewModel {
 
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
-        let requestId = UUID().uuidString
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
@@ -3302,6 +3321,7 @@ extension ConversationViewModel {
             await MainActor.run {
                 guard let self else { return }
                 if outcome == .failed {
+                    self.failedAgentJoins = [AgentJoinAttempt(templateId: templateId, requestId: requestId)]
                     self.onAgentJoinError()
                     // The user is watching the failure UI now, not a join
                     // wait. A superseding retap exits as .cancelled, so this
@@ -3315,6 +3335,25 @@ extension ConversationViewModel {
             }
         }
         agentJoinTaskId = taskId
+    }
+
+    /// Replays the agents/join call(s) behind the failure bubble's retry
+    /// button. Without the recorded attempts (e.g. the process restarted
+    /// since the failure was written), falls back to a bare default-agent
+    /// join, the pre-existing behavior.
+    func retryAgentJoin() {
+        let failures = failedAgentJoins
+        failedAgentJoins = []
+        guard !failures.isEmpty else {
+            requestAgentJoin(templateId: nil)
+            return
+        }
+        Log.info("retryAgentJoin replaying \(failures.count) failed join(s)")
+        if failures.count == 1, let failure = failures.first {
+            requestAgentJoin(templateId: failure.templateId, requestId: failure.requestId)
+        } else {
+            runSequentialAgentJoins(failures)
+        }
     }
 
     /// Bare-join convenience for the in-conversation "add an agent"
@@ -3343,9 +3382,15 @@ extension ConversationViewModel {
     /// session state machine under concurrent waiters).
     func requestAgentJoins(templateIds: [String]) {
         guard !templateIds.isEmpty else { return }
+        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
+        let joins = templateIds.map { AgentJoinAttempt(templateId: $0, requestId: UUID().uuidString) }
+        runSequentialAgentJoins(joins)
+    }
+
+    private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
+        guard !joins.isEmpty else { return }
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
-        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
 
         // Batch adds return to the chat, so the join progress shows as
         // in-stream pending status bubbles. Anchored at request time for the
@@ -3357,29 +3402,33 @@ extension ConversationViewModel {
         let conversationId = conversation.id
         let session = self.session
         Task { [weak self] in
-            var anyFailed = false
+            var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
-            for (index, templateId) in templateIds.enumerated() {
+            for (index, join) in joins.enumerated() {
                 if index > 0 {
                     // Brief gap between calls so the previous broadcast's
                     // libxmtp message-send fully settles before the next
                     // call's broadcast / API races against it.
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
-                let requestId = UUID().uuidString
                 let outcome = await Self.performAgentJoinCall(
-                    templateId: templateId,
+                    templateId: join.templateId,
                     slug: slug,
                     conversationId: conversationId,
-                    requestId: requestId,
+                    requestId: join.requestId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
-                if outcome == .failed { anyFailed = true }
+                if outcome == .failed { failed.append(join) }
                 if outcome == .succeeded { anySucceeded = true }
             }
-            if anyFailed {
-                await MainActor.run { self?.onAgentJoinError() }
+            let failedJoins = failed
+            if !failedJoins.isEmpty {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.failedAgentJoins = failedJoins
+                    self.onAgentJoinError()
+                }
             }
             if !anySucceeded {
                 // Every call failed or was cancelled - nothing is joining,

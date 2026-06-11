@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosInvites
 import Foundation
 import GRDB
 import os.lock
@@ -316,6 +317,10 @@ class TestableMockMessageSender: MessageSender {
     }
 
     func prepare(text: String) async throws -> String {
+        ""
+    }
+
+    func prepare(joinRequest: JoinRequestContent) async throws -> String {
         ""
     }
 
