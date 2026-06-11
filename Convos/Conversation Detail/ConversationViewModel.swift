@@ -2577,7 +2577,8 @@ extension ConversationViewModel {
         text: String,
         voiceMemo: BuilderVoiceMemoSnapshot?,
         textMessageId: String? = nil,
-        bundleMessageId: String? = nil
+        bundleMessageId: String? = nil,
+        awaitsAgentJoin: Bool = true
     ) async {
         defer { isAwaitingBuilderBundleSend = false }
         let writer = cachedMessageWriter
@@ -2623,7 +2624,8 @@ extension ConversationViewModel {
                 text: text,
                 bundleItems: bundleItems,
                 textClientMessageId: resolvedTextClientMessageId,
-                bundleClientMessageId: resolvedBundleClientMessageId
+                bundleClientMessageId: resolvedBundleClientMessageId,
+                awaitsAgentJoin: awaitsAgentJoin
             )
         } catch {
             Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
