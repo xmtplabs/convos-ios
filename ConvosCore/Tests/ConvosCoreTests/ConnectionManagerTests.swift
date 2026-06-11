@@ -675,7 +675,8 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
     nonisolated func grantConnection(
         _ connectionId: String,
         to conversationId: String,
-        grantedToInboxId: String
+        grantedToInboxId: String,
+        bundleIds: [String]?
     ) async throws {}
 
     func revokeGrant(

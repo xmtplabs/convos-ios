@@ -205,6 +205,8 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
 
+        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
+
         return migrator
     }
 
@@ -433,6 +435,18 @@ extension SharedDatabaseMigrator {
     private static func addConnectionGrantBackendGrantId(_ db: Database) throws {
         try db.alter(table: "connectionGrant") { t in
             t.add(column: "backendGrantId", .text)
+        }
+    }
+
+    /// Bundle-scoped grants (connections picker): `bundleIds` is the JSON
+    /// array of permission-bundle ids the user toggled on (catalog ids like
+    /// "calendar.events"); `serviceVersion` is the catalog version the device
+    /// granted against. Both nullable: rows that predate bundles, or whose
+    /// service isn't in the catalog, are legacy whole-toolkit grants.
+    private static func addConnectionGrantBundleScope(_ db: Database) throws {
+        try db.alter(table: "connectionGrant") { t in
+            t.add(column: "bundleIds", .text)
+            t.add(column: "serviceVersion", .integer)
         }
     }
 
