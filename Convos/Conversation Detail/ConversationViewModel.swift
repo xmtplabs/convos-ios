@@ -875,11 +875,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingProfileSettings: Bool = false
 
     /// The agent's most-recent unresolved `capability_request` for this conversation.
-    /// When non-nil, `ConversationView` renders the picker card in the same slot the
-    /// `ConversationOnboardingView` would otherwise occupy. Cleared on Approve / Deny /
-    /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
-    /// last request" rule).
-    var pendingCapabilityPickerLayout: CapabilityPickerLayout?
+    /// The transcript's connect pill is the entry point: while non-nil, tapping the
+    /// matching pending pill presents the approval sheet built from this layout.
+    /// Cleared on Approve / Deny / out-of-band resolution; replaced wholesale when a
+    /// newer request arrives (per the "only show the last request" rule).
+    var pendingCapabilityPickerLayout: CapabilityPickerLayout? {
+        didSet {
+            if pendingCapabilityPickerLayout == nil {
+                presentingCapabilityApproval = false
+            }
+        }
+    }
+    /// Drives the approval sheet presentation for `pendingCapabilityPickerLayout`.
+    /// Auto-dismissed whenever the layout clears (another device resolved the
+    /// request, the request was answered here, or observation reset).
+    var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
@@ -1788,7 +1798,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pendingCapabilityPickerLayout = layout
     }
 
-    /// User tapped Approve in the picker card with this provider selection.
+    /// User tapped the transcript's capability connect pill. Pending pills open
+    /// the approval sheet for the request they carry; connected/dismissed pills
+    /// are inert. Only the latest observed request has a computed layout (the
+    /// "only show the last request" rule), so taps on superseded pending pills
+    /// are no-ops.
+    func onTapCapabilityConnectPrompt(_ prompt: CapabilityConnectPrompt) {
+        guard prompt.status == .pending else { return }
+        guard let layout = pendingCapabilityPickerLayout,
+              layout.request.requestId == prompt.requestId else { return }
+        presentingCapabilityApproval = true
+    }
+
+    /// User tapped Approve in the approval sheet with this provider selection.
     /// Persists the resolution so future tool calls route to the same set, then
     /// posts a `capability_request_result(.approved)` reply for the agent.
     /// `bundleSelection` is the per-service permission-bundle toggle state
@@ -2277,11 +2299,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let handler = CapabilityRequestHandler()
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Mirror the initial layout's catalog fetch: omitting `services:`
+            // drops the bundle rows, and a subsequent approve would silently
+            // escalate to full-service consent instead of the user's earlier
+            // per-bundle selection.
+            let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
             let layout = await handler.computeLayout(
                 request: request,
                 registry: registry,
                 resolver: resolver,
-                conversationId: conversationId
+                conversationId: conversationId,
+                services: services
             )
             // If a newer request arrived OR the user already approved/denied this one,
             // don't revive the picker with a stale layout.
