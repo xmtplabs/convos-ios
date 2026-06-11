@@ -164,29 +164,16 @@ public enum ConvosAPI {
     // POST /v2/agents/join
     // The body is validated strictly server-side: unknown keys are rejected.
     // `templateId` is optional - omitting it requests a bare join (the
-    // backend provisions a default agent). Nil optionals are omitted from
-    // the encoded JSON by Codable's synthesized encoder.
-    //
-    // Exactly one of `slug` (invite flow) or `conversationId` (direct-add).
-    // In direct-add mode the backend provisions the agent and responds with
-    // its `inboxId`; the client adds that inbox to the declared group with
-    // addMembers and is done — the runtime observes the resulting group
-    // welcome and attaches, with no confirmation call.
+    // backend provisions a default agent). A nil `templateId` is omitted
+    // from the encoded JSON by Codable's synthesized encoder.
 
     public struct AgentJoinRequest: Codable {
-        public let slug: String?
-        public let conversationId: String?
+        public let slug: String
         public let templateId: String?
         public let options: AgentJoinOptions?
 
-        public init(
-            slug: String? = nil,
-            conversationId: String? = nil,
-            templateId: String? = nil,
-            options: AgentJoinOptions? = nil
-        ) {
+        public init(slug: String, templateId: String? = nil, options: AgentJoinOptions? = nil) {
             self.slug = slug
-            self.conversationId = conversationId
             self.templateId = templateId
             self.options = options
         }
@@ -212,48 +199,10 @@ public enum ConvosAPI {
     public struct AgentJoinResponse: Codable {
         public let success: Bool
         public let joined: Bool
-        /// Populated on every dispatch; required for the join-status poll.
-        public let instanceId: String?
-        /// Direct-add only: the agent's XMTP inbox to add with addMembers.
-        /// Nil when registration outlasted the backend's wait budget — poll
-        /// GET /v2/agents/join/:instanceId until it lands.
-        public let inboxId: String?
 
-        public init(success: Bool, joined: Bool, instanceId: String? = nil, inboxId: String? = nil) {
+        public init(success: Bool, joined: Bool) {
             self.success = success
             self.joined = joined
-            self.instanceId = instanceId
-            self.inboxId = inboxId
-        }
-    }
-
-    // MARK: - v2/agents/join/:instanceId
-
-    public struct AgentJoinStatusResponse: Codable {
-        public let success: Bool
-        public let instanceId: String
-        public let joinStatus: String
-        public let joined: Bool
-        public let inboxId: String?
-        public let conversationId: String?
-        public let joinFailureReason: String?
-
-        public init(
-            success: Bool,
-            instanceId: String,
-            joinStatus: String,
-            joined: Bool,
-            inboxId: String? = nil,
-            conversationId: String? = nil,
-            joinFailureReason: String? = nil
-        ) {
-            self.success = success
-            self.instanceId = instanceId
-            self.joinStatus = joinStatus
-            self.joined = joined
-            self.inboxId = inboxId
-            self.conversationId = conversationId
-            self.joinFailureReason = joinFailureReason
         }
     }
 
