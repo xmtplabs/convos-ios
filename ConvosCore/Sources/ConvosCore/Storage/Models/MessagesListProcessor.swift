@@ -73,6 +73,7 @@ public final class MessagesListProcessor: Sendable {
         rebuilt.thinkingContent = group.thinkingContent
         rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
         rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
+        rebuilt.contactCardPrecedesAgentMessages = group.contactCardPrecedesAgentMessages
         return rebuilt
     }
 
@@ -261,46 +262,7 @@ public final class MessagesListProcessor: Sendable {
         }
 
         if let agent = verifiedAgent {
-            let cardInfo = AgentContactCardInfo(
-                profile: agent.profile,
-                agentDescription: agent.profile.agentDescription
-            )
-            let firstAgentGroupIndex: Int? = items.firstIndex { item in
-                guard case .messages(let group) = item else { return false }
-                return group.sender.profile.inboxId == agent.profile.inboxId
-            }
-            if let idx = firstAgentGroupIndex, case .messages(var group) = items[idx] {
-                group.agentContactCard = cardInfo
-                items[idx] = .messages(group)
-            } else {
-                var cardGroup = MessagesGroup(
-                    id: "agent-contact-card-\(agent.profile.inboxId)",
-                    sender: agent,
-                    messages: [],
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: false
-                )
-                cardGroup.agentContactCard = cardInfo
-                // The summary card must always sit above the contact card. When a
-                // summary card exists, anchor the synthesized contact card right
-                // after it -- in the home flow the agent joins *before* the Make
-                // bundle, so the join-update row can sort above the summary;
-                // anchoring on the join row there would put the contact card
-                // first. Non-builder agent conversations (no summary card) fall
-                // back to the agent-join row, then index 0.
-                let builderCardIndex: Int? = items.lastIndex { item in
-                    if case .agentBuilderSummary = item { return true }
-                    return false
-                }
-                let joinUpdateIndex: Int? = items.firstIndex { item in
-                    guard case .update(_, let update, _) = item else { return false }
-                    return update.addedVerifiedAgent
-                }
-                let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
-                    ?? joinUpdateIndex.map { $0 + 1 }
-                    ?? 0
-                items.insert(.messages(cardGroup), at: insertionIndex)
-            }
+            items = insertingContactCard(in: items, agent: agent)
         }
 
         return items
@@ -766,5 +728,63 @@ public final class MessagesListProcessor: Sendable {
             actor: summary.actor,
             grantedToInboxId: summary.grantedToInboxId
         )
+    }
+}
+
+private extension MessagesListProcessor {
+    /// Insert the agent contact card as its own standalone row. The card has
+    /// a single placement rule, so it never relocates as the agent's
+    /// messages, connection events, or user replies stream in around it.
+    /// Anchor chain: right after the last builder summary card (the summary
+    /// always sits above the card -- in the home flow the agent joins before
+    /// the Make bundle, so anchoring on the join row there would put the
+    /// card first); else right after the agent-join update row (non-builder
+    /// agent conversations); else right before the agent's first message
+    /// group (join row outside the loaded window); else the top of the list.
+    static func insertingContactCard(
+        in baseItems: [MessagesListItemType],
+        agent: ConversationMember
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        var cardGroup = MessagesGroup(
+            id: "agent-contact-card-\(agent.profile.inboxId)",
+            sender: agent,
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        )
+        cardGroup.agentContactCard = AgentContactCardInfo(
+            profile: agent.profile,
+            agentDescription: agent.profile.agentDescription
+        )
+        let builderCardIndex: Int? = items.lastIndex { item in
+            if case .agentBuilderSummary = item { return true }
+            return false
+        }
+        let joinUpdateIndex: Int? = items.firstIndex { item in
+            guard case .update(_, let update, _) = item else { return false }
+            return update.addedVerifiedAgent
+        }
+        let firstAgentGroupIndex: Int? = items.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.sender.profile.inboxId == agent.profile.inboxId
+        }
+        let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
+            ?? joinUpdateIndex.map { $0 + 1 }
+            ?? firstAgentGroupIndex
+            ?? 0
+        // When the agent's own messages sit directly below the card, the
+        // pair renders as one visual run: the card keeps the sender label,
+        // the group below drops its duplicate label, and the leading avatar
+        // attaches to that group's last message instead of the card.
+        if insertionIndex < items.count,
+           case .messages(var below) = items[insertionIndex],
+           below.sender.profile.inboxId == agent.profile.inboxId {
+            below.hidesSenderLabel = true
+            items[insertionIndex] = .messages(below)
+            cardGroup.contactCardPrecedesAgentMessages = true
+        }
+        items.insert(.messages(cardGroup), at: insertionIndex)
+        return items
     }
 }

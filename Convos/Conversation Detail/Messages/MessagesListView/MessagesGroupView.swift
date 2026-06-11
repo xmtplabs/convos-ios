@@ -299,11 +299,15 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func contactCardRow(card: AgentContactCardInfo) -> some View {
-        // The card is the visual "last item" of the group only when the
-        // agent hasn't sent any messages yet (synthesized empty group).
-        // Otherwise the regular `messageRowContent` avatar overlay handles
-        // the leading avatar on the last message — we don't want to double up.
-        let cardIsLast: Bool = displayGroup.allMessages.isEmpty && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
+        // The card shows its own bottom-leading avatar only when it is the
+        // visual end of the agent's run: nothing else in this group below it
+        // and no agent message group directly underneath. When the agent's
+        // messages sit directly below, that group's avatar overlay handles
+        // the leading avatar — we don't want to double up.
+        let cardIsLast: Bool = displayGroup.allMessages.isEmpty
+            && !displayGroup.showsTypingIndicator
+            && !displayGroup.showsThinkingIndicator
+            && !displayGroup.contactCardPrecedesAgentMessages
         HStack(alignment: .bottom, spacing: avatarSpacing) {
             if !displayGroup.sender.isCurrentUser {
                 Color.clear

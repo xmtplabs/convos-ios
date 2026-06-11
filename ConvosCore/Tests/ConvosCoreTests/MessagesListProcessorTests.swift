@@ -1392,3 +1392,159 @@ struct MessagesListProcessorAgentBuilderCardTests {
         #expect(card?.creatorIsCurrentUser == true)
     }
 }
+
+// MARK: - Contact Card Placement Tests
+
+private let verifiedAgentMember: ConversationMember = .mock(
+    isCurrentUser: false,
+    name: "Agent",
+    isAgent: true,
+    agentVerification: .verified(.convos)
+)
+
+private func contactCardIndex(in items: [MessagesListItemType]) -> Int? {
+    items.firstIndex {
+        if case .messages(let group) = $0 { return group.agentContactCard != nil }
+        return false
+    }
+}
+
+private func contactCardGroup(in items: [MessagesListItemType]) -> MessagesGroup? {
+    groups(from: items).first { $0.agentContactCard != nil }
+}
+
+struct MessagesListProcessorContactCardPlacementTests {
+    @Test("Contact card is a standalone row and never attaches to the agent's message group")
+    func cardIsStandaloneRow() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Make it", date: now),
+            makeMessage(id: "greeting", sender: verifiedAgentMember, text: "Hi, I'm here!", date: now.addingTimeInterval(10)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: verifiedAgentMember,
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        let cardGroup = contactCardGroup(in: result)
+        #expect(cardGroup != nil)
+        #expect(cardGroup?.allMessages.isEmpty == true)
+        // The greeting group carries its messages but not the card.
+        let greetingGroup = groups(from: result).first { group in
+            group.messages.contains { $0.messageId == "greeting" }
+        }
+        #expect(greetingGroup != nil)
+        #expect(greetingGroup?.agentContactCard == nil)
+    }
+
+    @Test("Contact card stays anchored under the summary when rows land between it and the agent's first message")
+    func cardDoesNotMoveWhenRowsIntervene() {
+        let now = Date()
+        let summaryOnly = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Make it", date: now),
+        ]
+        let withInterveningRows = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Make it", date: now),
+            makeMessage(id: "user-extra", sender: currentUser, text: "Also do this", date: now.addingTimeInterval(5)),
+            makeMessage(id: "greeting", sender: verifiedAgentMember, text: "On it!", date: now.addingTimeInterval(10)),
+        ]
+        let summary = builderSummary(bundledMessageIds: ["b-text"])
+
+        let before = MessagesListProcessor.process(
+            summaryOnly,
+            verifiedAgent: verifiedAgentMember,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        let after = MessagesListProcessor.process(
+            withInterveningRows,
+            verifiedAgent: verifiedAgentMember,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+
+        // The card sits directly under the summary in both passes -- it does
+        // not jump down to the agent's first message group once it exists.
+        for items in [before, after] {
+            let summaryIndex = items.firstIndex { if case .agentBuilderSummary = $0 { return true }; return false }
+            #expect(summaryIndex != nil)
+            if let summaryIndex {
+                #expect(contactCardIndex(in: items) == summaryIndex + 1)
+            }
+        }
+    }
+
+    @Test("Card anchors after the join row and merges visually with the agent group directly below")
+    func cardAnchorsOnJoinRowAndMergesWithAdjacentAgentGroup() {
+        let now = Date()
+        let messages = [
+            makeUpdate(id: "agent-joined", date: now, addedMembers: [verifiedAgentMember]),
+            makeMessage(id: "greeting", sender: verifiedAgentMember, text: "Hello!", date: now.addingTimeInterval(5)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: verifiedAgentMember
+        )
+        let joinIndex = result.firstIndex {
+            guard case .update(_, let update, _) = $0 else { return false }
+            return update.addedVerifiedAgent
+        }
+        #expect(joinIndex != nil)
+        if let joinIndex {
+            #expect(contactCardIndex(in: result) == joinIndex + 1)
+        }
+        // Adjacent pair renders as one run: the card defers its avatar and
+        // the group below hides its duplicate sender label.
+        #expect(contactCardGroup(in: result)?.contactCardPrecedesAgentMessages == true)
+        let greetingGroup = groups(from: result).first { group in
+            group.messages.contains { $0.messageId == "greeting" }
+        }
+        #expect(greetingGroup?.hidesSenderLabel == true)
+    }
+
+    @Test("Adjacency flags stay off when another sender's group sits below the card")
+    func noAdjacencyFlagsWhenOtherSenderBelow() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Make it", date: now),
+            makeMessage(id: "user-extra", sender: currentUser, text: "One more thing", date: now.addingTimeInterval(5)),
+            makeMessage(id: "greeting", sender: verifiedAgentMember, text: "Done!", date: now.addingTimeInterval(10)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: verifiedAgentMember,
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        #expect(contactCardGroup(in: result)?.contactCardPrecedesAgentMessages == false)
+        let userGroup = groups(from: result).first { group in
+            group.messages.contains { $0.messageId == "user-extra" }
+        }
+        #expect(userGroup?.hidesSenderLabel == false)
+    }
+
+    @Test("Without a summary or join row the card sits before the agent's first message group")
+    func cardFallsBackToAgentFirstGroup() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "user-text", sender: currentUser, text: "Hi", date: now),
+            makeMessage(id: "greeting", sender: verifiedAgentMember, text: "Hello!", date: now.addingTimeInterval(5)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            verifiedAgent: verifiedAgentMember
+        )
+        let cardIndex = contactCardIndex(in: result)
+        let greetingIndex = result.firstIndex {
+            guard case .messages(let group) = $0 else { return false }
+            return group.messages.contains { $0.messageId == "greeting" }
+        }
+        #expect(cardIndex != nil)
+        #expect(greetingIndex != nil)
+        if let cardIndex, let greetingIndex {
+            #expect(cardIndex == greetingIndex - 1)
+        }
+        #expect(contactCardGroup(in: result)?.contactCardPrecedesAgentMessages == true)
+    }
+}
