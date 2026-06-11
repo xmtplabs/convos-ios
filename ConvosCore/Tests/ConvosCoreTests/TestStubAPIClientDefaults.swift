@@ -36,31 +36,12 @@ extension ConvosAPIClientProtocol {
     /// `requestAgentJoin` specifically should still override this on
     /// their fixture.
     func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
+        slug: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        ConvosAPI.AgentJoinResponse(
-            success: true,
-            joined: true,
-            instanceId: "test-instance",
-            inboxId: "test-agent-inbox"
-        )
-    }
-
-    /// Default for the direct-add status poll so pre-existing stubs don't
-    /// re-stub it. Tests that exercise the direct-add flow specifically
-    /// should override this on their fixture.
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
-        ConvosAPI.AgentJoinStatusResponse(
-            success: true,
-            instanceId: instanceId,
-            joinStatus: "starting",
-            joined: false,
-            inboxId: "test-agent-inbox"
-        )
+        ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
 
     /// Default for the public agent-template detail fetch used by the

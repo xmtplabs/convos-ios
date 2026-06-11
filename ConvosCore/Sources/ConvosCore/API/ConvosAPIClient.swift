@@ -83,22 +83,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
     // Agents
-    /// Exactly one of `slug` (invite flow) and `conversationId` (direct-add).
-    /// In direct-add mode the backend provisions the agent and returns its
-    /// `inboxId`; the caller adds that inbox to the declared group with
-    /// addMembers and the runtime attaches when it observes the resulting
-    /// group welcome — no further calls.
     func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
+        slug: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
-
-    /// Polls a dispatched agent's provisioning status. Direct-add callers
-    /// use it to obtain `inboxId` when the join response didn't carry one.
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
 
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
@@ -129,21 +119,21 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
 extension ConvosAPIClientProtocol {
     func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: nil, options: nil, forceErrorCode: nil)
+        try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
     }
 
     func requestAgentJoin(
         slug: String,
         options: ConvosAPI.AgentJoinOptions?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: nil, options: options, forceErrorCode: nil)
+        try await requestAgentJoin(slug: slug, templateId: nil, options: options, forceErrorCode: nil)
     }
 
     func requestAgentJoin(
         slug: String,
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: templateId, options: nil, forceErrorCode: nil)
+        try await requestAgentJoin(slug: slug, templateId: templateId, options: nil, forceErrorCode: nil)
     }
 }
 
@@ -722,8 +712,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     // MARK: - Agents
 
     func requestAgentJoin(
-        slug: String? = nil,
-        conversationId: String? = nil,
+        slug: String,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
@@ -740,7 +729,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
-                conversationId: conversationId,
                 templateId: templateId,
                 options: options
             )
@@ -771,12 +759,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         default:
             throw APIError.serverError(parseErrorMessage(from: data))
         }
-    }
-
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
-        let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
-        let request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET")
-        return try await performRequest(request)
     }
 
     // MARK: - Agent templates

@@ -765,18 +765,20 @@ final class AgentBuilderViewModel: Identifiable {
                 textMessageId: textMessageId,
                 bundleMessageId: bundleMessageId
             )
+            let slug = innerVM.conversation.invite?.urlSlug ?? ""
+            guard !slug.isEmpty else {
+                Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
+                return
+            }
             // The join must finish even after the builder sheet dismisses.
             // Unlike the draft flow, there is no draft to discard -- the user's
             // group stays -- so the join survives the view closing (like
             // `ConversationViewModel`'s committed-conversation join, the
             // opposite of the draft path).
             do {
-                _ = try await session.addAgentToConversation(
-                    conversationId: innerVM.conversation.id,
-                    options: .agentBuilder
-                )
+                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
             } catch {
-                Log.error("AgentBuilder(existing): addAgentToConversation failed: \(error.localizedDescription)")
+                Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
             }
         }
         // No in-sheet morph: the builder targets a conversation the user is
@@ -935,9 +937,13 @@ final class AgentBuilderViewModel: Identifiable {
             Log.warning("AgentBuilderViewModel: reached .ready but no conversation available")
             return
         }
+        let slug = conversation.invite?.urlSlug ?? ""
+        guard !slug.isEmpty else {
+            Log.warning("AgentBuilderViewModel: reached .ready but invite slug is empty")
+            return
+        }
         didRequestAgentJoin = true
 
-        let conversationId = conversation.id
         agentJoinTask?.cancel()
         // Capture `session` only, not `self`: the join needs nothing back from
         // the VM, and not capturing `self` avoids a cycle through the stored
@@ -948,16 +954,13 @@ final class AgentBuilderViewModel: Identifiable {
         // leaving / deleting the group -- so there's nothing left to join.
         agentJoinTask = Task { [session] in
             do {
-                _ = try await session.addAgentToConversation(
-                    conversationId: conversationId,
-                    options: .agentBuilder
-                )
+                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
             } catch is CancellationError {
                 return
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                Log.error("AgentBuilderViewModel: addAgentToConversation failed: \(error.localizedDescription)")
+                Log.error("AgentBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")
             }
         }
     }
