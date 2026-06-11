@@ -29,32 +29,30 @@ A few reasons piling up:
 
 ## Schema (draft)
 
-Backend-served, cached on device. App icon embedded as base64 so we don't need a CDN round-trip in the picker. All user-facing strings (`display_name`, `title`, `description`) are localized maps with `en` as the guaranteed fallback — single code path, no migration when we add more locales later.
+Backend-served, cached on device (`GET /v2/connections/services`, served with `Cache-Control: private, max-age=300`). All wire JSON is camelCase. An `icon` (base64-embedded, so no CDN round-trip in the picker) is optional in the schema and omitted in v1 — format TBD. All user-facing strings (`displayName`, `title`, `description`) are localized maps with `en` as the guaranteed fallback — single code path, no migration when we add more locales later.
+
+Contract source of truth: convos-backend `docs/schemas/connections-services.schema.json` + `docs/schemas/connection-grant.schema.json`.
 
 ```json
 {
   "services": [
     {
       "id": "googlecalendar",
-      "composio_slug": "googlecalendar",
-      "version": 1,
-      "display_name": { "en": "Google Calendar" },
-      "icon": {
-        "format": "png",
-        "base64": "iVBORw0KGgoAAAANSUhEUgA..."
-      },
+      "composioSlug": "googlecalendar",
+      "version": 2,
+      "displayName": { "en": "Google Calendar" },
       "bundles": [
         {
           "id": "calendar.events",
           "title": { "en": "Events" },
           "description": { "en": "View and edit events on all calendars" },
-          "default_enabled": false,
-          "composio_actions": [
-            "GOOGLECALENDAR_LIST_EVENTS",
-            "GOOGLECALENDAR_CREATE_EVENT",
-            "GOOGLECALENDAR_UPDATE_EVENT",
-            "GOOGLECALENDAR_DELETE_EVENT"
-          ]
+          "defaultEnabled": false
+        },
+        {
+          "id": "calendar.events.read",
+          "title": { "en": "View events" },
+          "description": { "en": "View events on all calendars" },
+          "defaultEnabled": false
         }
       ]
     }
@@ -67,8 +65,9 @@ Key fields:
 - `bundles[].id` — stable identifier we persist on the grant
 - `bundles[].title` — localized map; bold line in the card
 - `bundles[].description` — localized map; rationale line under the title (renamed from `rationale` to match Figma copy)
-- `bundles[].default_enabled` — figma shows toggles off; flip per-bundle if we want one on by default
-- `bundles[].composio_actions` — what we actually send to Composio when granted
+- `bundles[].defaultEnabled` — figma shows toggles off; flip per-bundle if we want one on by default
+
+Composio action slugs are **not** in the response — the backend strips them from the served config and resolves bundle → actions itself at exec time. Slugs never reach a client.
 
 Localized strings always carry at minimum an `en` key. Renderer is:
 
@@ -82,15 +81,17 @@ Open question: do we also want `read_only` / `write` hints per bundle so we can 
 
 ## Versioning + self-healing clients
 
-We query the service config out of band (separate from the conversation). That means a device can be on `googlecalendar` version `1` while the assistant has been upgraded to expect version `3`. To handle this without baking the config into every conversation, every connection message carries the service id, the bundle id, **and** the service version the device knows about:
+We query the service config out of band (separate from the conversation). That means a device can be on `googlecalendar` version `1` while the assistant has been upgraded to expect version `3`. To handle this without baking the config into every conversation, every connection message carries the service id (as `toolkit`), the granted bundle ids, **and** the service version the device knows about — matching the shipped `POST /v2/connections/grants` body:
 
 ```json
 {
-  "service_id": "googlecalendar",
-  "service_version": 1,
-  "bundle_id": "calendar.events"
+  "toolkit": "googlecalendar",
+  "serviceVersion": 2,
+  "bundleIds": ["calendar.events"]
 }
 ```
+
+On the HTTP path, staleness is caught at grant time: an unknown/stale bundle id is rejected with **400 `{"code": "unknown_bundle", "bundleId": "<the bad id>"}`** — the client refetches `/services` and re-presents the picker against the fresh catalog.
 
 Versioning is **per-service**, not per-bundle. Connection messages always reference a single service, so the wire cost is the same as per-bundle versioning, but the backend only has to bump one number when anything about that service changes (icon, copy, any bundle's actions). Coarser than per-bundle, but avoids the storm-of-invalidations problem of a top-level config version. Trade-off chosen: small extra refresh churn for any change inside a service, in exchange for much simpler backend bookkeeping.
 
@@ -99,11 +100,13 @@ If the assistant sees a stale version, it returns a `stale_resource` status on t
 ```json
 {
   "status": "stale_resource",
-  "stale_services": [
-    { "id": "googlecalendar", "expected_version": 3 }
+  "staleServices": [
+    { "id": "googlecalendar", "expectedVersion": 3 }
   ]
 }
 ```
+
+Payload keys are camelCase to match the existing `CapabilityRequestResult` codec's CodingKeys — agent team to confirm the worker side emits camelCase too.
 
 Device refetches that service's config, retries the capability call. Self-healing, one extra round-trip in the worst case. Reuses the codec we just stabilized in #771 — no new top-level event type.
 
@@ -113,10 +116,11 @@ Earlier draft had `rationale`. New name: `description`. Reason: the Figma label 
 
 ## What the app does
 
-- Fetch the service config JSON when the picker opens (cache it; respect cache headers).
+- Fetch the service config JSON when the picker opens (`GET /v2/connections/services`; cache it — the backend serves `Cache-Control: private, max-age=300`).
 - Render one card per bundle. Title + description + toggle.
-- On Done, send a single grant containing the *bundle ids* the user toggled on. Translate to Composio action slugs at the publish boundary (same pattern as the slug-vs-canonical fix we just shipped in #771).
-- Store grants keyed by `(service_id, bundle_id)`. Revoke flips them all back off.
+- On Done, send a single grant containing the *bundle ids* the user toggled on (`bundleIds` + `serviceVersion`). No slug translation on device — the backend resolves bundles to Composio actions at exec.
+- On 400 `unknown_bundle`: refetch `/services`, re-present the picker, retry once.
+- Store grants keyed by `(serviceId, bundleId)`. Revoke flips them all back off.
 
 ## What the backend does
 
