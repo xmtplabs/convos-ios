@@ -31,6 +31,8 @@ struct EmptyStateCTAView<MockContent: View>: View {
             exploreAgentsButton
             Spacer(minLength: 0)
         }
+        // The block sits step6x above true vertical center, per design.
+        .offset(y: -DesignConstants.Spacing.step6x)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, DesignConstants.Spacing.step6x)
         .background(.colorBackgroundSurfaceless)
