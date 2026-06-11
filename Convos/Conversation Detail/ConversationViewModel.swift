@@ -2210,7 +2210,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     // Also pass the captured conversationId so the result lands in
                     // the conversation that originated the request even if the user
                     // navigated away during the prompt.
-                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
+                    // Device providers carry no permission bundles (bundles attach to
+                    // cloud services only), so there is no selection to thread here;
+                    // an empty map means "no per-service selection".
+                    self.approveCapabilityRequest(
+                        request,
+                        providerIds: [providerId],
+                        bundleSelection: [:],
+                        conversationId: conversationId
+                    )
                 } else {
                     self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
                 }
@@ -2230,7 +2238,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     // The cloud-connection observer in SessionManager will register the
                     // newly-linked provider; approving here is safe even if that hasn't
                     // ticked yet because the resolver only stores the providerId.
-                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
+                    // The Connect tap carries no bundle toggle state (onConnect is
+                    // provider-id only), so pass no selection: a nil per-service
+                    // lookup routes the grant through the writer's full-service
+                    // consent path (all catalog bundles, fail closed on a catalog
+                    // outage) — never an empty bundleIds array.
+                    self.approveCapabilityRequest(
+                        request,
+                        providerIds: [providerId],
+                        bundleSelection: [:],
+                        conversationId: conversationId
+                    )
                 }
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError {
