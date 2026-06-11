@@ -224,7 +224,10 @@ struct MessagesGroupView: View {
         }
 
         let isLastInGroup: Bool = message == displayGroup.messages.last
+        // A continuation chunk follows this group in the same sender run, so
+        // its visual bottom is not the end of the run -- no tail.
         let isLast: Bool = isLastInGroup && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
+            && !displayGroup.isContinuedBelow
         // When the last message is a voice memo with a transcript row attached, the
         // transcript becomes the visual bottom of the group, so the tail moves from
         // the voice memo bubble down onto the transcript row.
@@ -613,6 +616,23 @@ struct MessagesGroupView: View {
         }
     }
 
+    /// Seam padding between split chunks of one sender run matches the
+    /// in-group bubble spacing (`stepX`, half on each side of the seam) so
+    /// the split is invisible.
+    private var groupTopPadding: CGFloat {
+        if displayGroup.continuesPreviousGroup {
+            return DesignConstants.Spacing.stepX / 2
+        }
+        return displayGroup.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x
+    }
+
+    private var groupBottomPadding: CGFloat {
+        if displayGroup.isContinuedBelow {
+            return DesignConstants.Spacing.stepX / 2
+        }
+        return displayGroup.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             if let card = displayGroup.agentContactCard {
@@ -646,8 +666,8 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.top, displayGroup.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
-        .padding(.bottom, displayGroup.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.top, groupTopPadding)
+        .padding(.bottom, groupBottomPadding)
         // Apply group changes through the mirror without animating layout:
         // the mirror only updates in `onChange` -- after the reconfigure's
         // sizing pass -- so the cell reports its old height during the batch
