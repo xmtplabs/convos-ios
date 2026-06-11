@@ -610,6 +610,12 @@ final class AgentBuilderViewModel: Identifiable {
             let summaryToPersist: AgentBuilderSummary = plan.summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
+            // Detach the agent-join task from this VM: the builder sheet tears
+            // down after Make and `deinit` cancels `agentJoinTask`, which
+            // could abort the join request mid-flight -- the bundle send below
+            // then waits for an agent that never joins. Dropping the
+            // reference (without cancelling) lets the join finish on its own.
+            agentJoinTask = nil
             Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
                 // Persist the summary (with its `bundledMessageIds`) before
@@ -757,11 +763,13 @@ final class AgentBuilderViewModel: Identifiable {
             // survives the view closing (like `ConversationViewModel`'s
             // committed-conversation join, the opposite of the draft path).
             let slug = innerVM.conversation.invite?.urlSlug ?? ""
+            var joinRequested = false
             if slug.isEmpty {
                 Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
             } else {
                 do {
                     _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
+                    joinRequested = true
                 } catch {
                     Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
                 }
@@ -779,11 +787,15 @@ final class AgentBuilderViewModel: Identifiable {
             } catch {
                 Log.error("AgentBuilder(existing): pending media upload await failed: \(error.localizedDescription)")
             }
+            // `awaitsAgentJoin: false` when the join was never requested (no
+            // slug) or its request failed -- holding the bundle for an agent
+            // that will never arrive only delays the inevitable publish.
             await innerVM.sendBuilderBundle(
                 text: summaryToPersist.prompt,
                 voiceMemo: voiceMemoSnapshot,
                 textMessageId: textMessageId,
-                bundleMessageId: bundleMessageId
+                bundleMessageId: bundleMessageId,
+                awaitsAgentJoin: joinRequested
             )
         }
         // No in-sheet morph: the builder targets a conversation the user is

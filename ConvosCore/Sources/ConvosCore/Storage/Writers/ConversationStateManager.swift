@@ -306,13 +306,15 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws {
         try await stateMachine.sendBuilderBundle(
             text: text,
             bundleItems: bundleItems,
             textClientMessageId: textClientMessageId,
-            bundleClientMessageId: bundleClientMessageId
+            bundleClientMessageId: bundleClientMessageId,
+            awaitsAgentJoin: awaitsAgentJoin
         )
     }
 

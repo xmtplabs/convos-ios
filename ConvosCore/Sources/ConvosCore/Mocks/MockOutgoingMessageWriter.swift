@@ -76,7 +76,8 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws {
         sentImageCount += bundleItems.count
     }

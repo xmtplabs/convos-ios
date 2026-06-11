@@ -104,11 +104,17 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// `textClientMessageId` / `bundleClientMessageId` are the optimistic ids
     /// the caller persisted into `AgentBuilderSummary.bundledMessageIds`, so
     /// the sender's own copy stays hidden via the summary filter too.
+    /// `awaitsAgentJoin` holds the XMTP prepare + publish until the
+    /// conversation has a current agent member (the brief is addressed to a
+    /// joining agent, and XMTP members can't read messages from before they
+    /// joined). Pass `false` when no agent join was requested so the bundle
+    /// isn't held for an agent that will never arrive.
     func sendBuilderBundle(
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws
 
     // MARK: - Replies
@@ -866,7 +872,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws {
         let mimeTypes: [String] = bundleItems.map { item -> String in
             switch item {
@@ -883,7 +890,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 text: text,
                 bundleItems: bundleItems,
                 textClientMessageId: textClientMessageId,
-                bundleClientMessageId: bundleClientMessageId
+                bundleClientMessageId: bundleClientMessageId,
+                awaitsAgentJoin: awaitsAgentJoin
             )
             await emitSentMessage(clientMessageId: metricKey, isSuccess: true)
         } catch {
@@ -896,7 +904,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         await persistLocalBundleHiddenIds(
@@ -905,6 +914,20 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             textClientMessageId: textClientMessageId,
             bundleClientMessageId: bundleClientMessageId
         )
+
+        // The gate must run BEFORE any prepare call: preparing queues libxmtp
+        // send intents, and any concurrent publish or group sync flushes every
+        // pending intent to the network (a read receipt fires the moment the
+        // user lands in the chat after Make, and the agent-join polling itself
+        // syncs the group every few seconds). Held here, no part of the brief
+        // exists in the XMTP store until the agent can read it.
+        if awaitsAgentJoin {
+            await Self.waitForAgentMember(
+                in: databaseWriter,
+                conversationId: conversationId,
+                timeout: Self.agentMemberWaitTimeout
+            )
+        }
 
         // Prepare (but don't publish) the bundle messages so the manifest can
         // reference their real XMTP ids. Attachments are prepared before the
@@ -928,13 +951,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let bundledMessageIds: [String] = [prepared?.messageId, textMessageId].compactMap { $0 }
         guard !bundledMessageIds.isEmpty else { return }
 
-        // The bundle exists to brief the agent the builder is adding, and
-        // XMTP members can't read messages published before they joined.
-        // Every builder path requests the join before this send, so hold
-        // the publish (local rows above are already persisted, and they're
-        // hidden from the sender's UI) until the agent is a verified member.
-        await waitForVerifiedAgentMember()
-
         try await publishPreparedBuilderBundle(
             manifestIds: bundledMessageIds,
             prepared: prepared,
@@ -944,21 +960,36 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         )
     }
 
-    /// How long the builder-bundle publish waits for the joining agent to
-    /// become a verified member before publishing anyway. Matches the
-    /// agent-join polling window in `SessionStateManager`; on expiry the
-    /// bundle publishes regardless so a failed or slow join doesn't strand
-    /// the user's brief (the pre-fix behavior, just delayed).
-    private static let verifiedAgentWaitTimeout: TimeInterval = 150
+    /// How long the builder-bundle send waits for the joining agent to become
+    /// a member before proceeding anyway. Matches the agent-join polling
+    /// window in `SessionStateManager`; on expiry the bundle sends regardless
+    /// so a failed or slow join doesn't strand the user's brief (the pre-fix
+    /// behavior, just delayed).
+    private static let agentMemberWaitTimeout: TimeInterval = 150
 
-    private func waitForVerifiedAgentMember() async {
-        let convoId: String = conversationId
-        let reader: any DatabaseReader = databaseWriter
+    /// Waits until the conversation has a current agent member, or the
+    /// timeout elapses. Returns whether an agent member was found.
+    ///
+    /// The predicate is "some current member whose profile is an agent":
+    /// membership comes from `DBConversationMember` (profile rows alone
+    /// outlive removals, so a previously-removed agent must not open the
+    /// gate), and attestation verification is deliberately not required --
+    /// the agent can read group messages the moment it's a member,
+    /// regardless of whether this client has verified it yet.
+    ///
+    /// Known limit: `AgentJoinResponse` carries no agent identity, so the
+    /// gate can't wait for a SPECIFIC agent. A brief addressed to a second
+    /// agent in a conversation that already has one can still publish before
+    /// that agent joins; closing that needs the backend to return the
+    /// joining agent's inboxId.
+    @discardableResult
+    static func waitForAgentMember(
+        in reader: any DatabaseReader,
+        conversationId: String,
+        timeout: TimeInterval
+    ) async -> Bool {
         let observation = ValueObservation.tracking { db -> Bool in
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == convoId)
-                .fetchAll(db)
-                .contains { $0.isAgent && $0.agentVerification.isVerified }
+            try Self.hasCurrentAgentMember(db: db, conversationId: conversationId)
         }
         let joined: Bool = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
@@ -967,12 +998,21 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                         return true
                     }
                 } catch {
-                    Log.error("Builder bundle agent wait: observation failed: \(error.localizedDescription)")
+                    Log.warning("Builder bundle agent wait: observation failed (\(error.localizedDescription)); falling back to polling")
+                }
+                // The observation stream died; poll until the timeout child
+                // wins the race and cancels this loop.
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    let hasAgent: Bool = (try? await reader.read { db in
+                        try Self.hasCurrentAgentMember(db: db, conversationId: conversationId)
+                    }) ?? false
+                    if hasAgent { return true }
                 }
                 return false
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(Self.verifiedAgentWaitTimeout * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 return false
             }
             let first: Bool = await group.next() ?? false
@@ -980,8 +1020,22 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             return first
         }
         if !joined {
-            Log.warning("Builder bundle: no verified agent member in \(convoId) after \(Int(Self.verifiedAgentWaitTimeout))s; publishing anyway")
+            Log.warning("Builder bundle: no agent member in \(conversationId) after waiting; publishing anyway")
         }
+        return joined
+    }
+
+    static func hasCurrentAgentMember(db: Database, conversationId: String) throws -> Bool {
+        let memberInboxIds: [String] = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map(\.inboxId)
+        guard !memberInboxIds.isEmpty else { return false }
+        return try DBMemberProfile
+            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+            .filter(memberInboxIds.contains(DBMemberProfile.Columns.inboxId))
+            .fetchAll(db)
+            .contains { $0.isAgent }
     }
 
     /// Hide the bundle on this (sender's) client from the first render. The
