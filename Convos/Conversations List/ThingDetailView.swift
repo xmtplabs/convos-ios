@@ -80,8 +80,12 @@ struct ThingDetailView: View {
     private var trailingShareButton: some ToolbarContent {
         if let fileURL {
             ToolbarItem(placement: .topBarTrailing) {
-                AttachmentShareLink(attachment: item.hydratedAttachment, fileURL: fileURL)
-                    .accessibilityIdentifier("thing-detail-share")
+                AttachmentShareLink(
+                    attachment: item.hydratedAttachment,
+                    fileURL: fileURL,
+                    fallbackTitle: item.conversation.computedDisplayName
+                )
+                .accessibilityIdentifier("thing-detail-share")
             }
         }
     }

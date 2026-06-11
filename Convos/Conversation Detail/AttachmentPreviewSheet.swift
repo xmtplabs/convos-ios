@@ -93,8 +93,12 @@ struct AttachmentPreviewSheet: View {
     private var shareToolbarItem: some ToolbarContent {
         if canShareAttachment {
             ToolbarItem(placement: .confirmationAction) {
-                AttachmentShareLink(attachment: attachment, fileURL: fileURL)
-                    .accessibilityIdentifier("attachment-preview-share")
+                AttachmentShareLink(
+                    attachment: attachment,
+                    fileURL: fileURL,
+                    fallbackTitle: sender?.profile.displayName
+                )
+                .accessibilityIdentifier("attachment-preview-share")
             }
         }
     }

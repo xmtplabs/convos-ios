@@ -12,6 +12,9 @@ import UIKit
 struct AttachmentShareLink: View {
     let attachment: HydratedAttachment
     let fileURL: URL
+    /// Shown (and used as the shared file's name) when the artifact has no
+    /// resolvable HTML title - pass the creating agent's display name.
+    var fallbackTitle: String?
 
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var resolvedHTMLTitle: String?
@@ -37,9 +40,18 @@ struct AttachmentShareLink: View {
             }
     }
 
+    /// The user-facing share name. For HTML artifacts the raw filename is
+    /// never shown - the artifact's title, then the agent's name, stand in.
+    private var shareTitle: String {
+        if attachment.isHTMLFile {
+            return resolvedHTMLTitle ?? fallbackTitle ?? "Attachment"
+        }
+        return attachment.filename ?? fallbackTitle ?? "Attachment"
+    }
+
     @ViewBuilder
     private var shareLink: some View {
-        let title: String = resolvedHTMLTitle ?? attachment.filename ?? "Attachment"
+        let title: String = shareTitle
         if let url = sharedImageURL {
             let items: [URL] = attachment.isHTMLFile ? [url] : [fileURL, url]
             if let image = sharedImage {
@@ -141,6 +153,15 @@ struct AttachmentShareLink: View {
     }
 
     private func shareImageBasename() -> String {
+        // The basename is the filename recipients see on the delivered
+        // image, so it follows the share title rather than the raw
+        // attachment filename.
+        if attachment.isHTMLFile {
+            if let title = resolvedHTMLTitle ?? fallbackTitle {
+                return sanitizeFilename(title)
+            }
+            return sanitizeFilename(String(attachment.key.prefix(32)))
+        }
         let raw: String
         if let filename = attachment.filename, !filename.isEmpty {
             raw = (filename as NSString).deletingPathExtension
@@ -151,13 +172,14 @@ struct AttachmentShareLink: View {
     }
 
     private func sanitizeFilename(_ raw: String) -> String {
-        let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
         var output: String = ""
         for scalar in raw.unicodeScalars {
             output.append(allowed.contains(scalar) ? Character(scalar) : "_")
         }
-        let trimmed: String = output.isEmpty ? "image" : output
-        return String(trimmed.prefix(64))
+        let trimmed: String = output.trimmingCharacters(in: .whitespaces)
+        let fallback: String = trimmed.isEmpty ? "image" : trimmed
+        return String(fallback.prefix(64))
     }
 
     private func writeSharePNG(image: UIImage, basename: String) async -> URL? {
