@@ -1900,7 +1900,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                         conversationId: conversationId,
                         grantedToInboxId: askerInboxId
                     )
-                case .denied, .cancelled:
+                case .denied, .cancelled, .staleResource, .unknown:
                     try await resolver.clearResolution(
                         subject: request.subject,
                         capability: request.capability,
