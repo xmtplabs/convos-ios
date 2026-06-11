@@ -746,9 +746,29 @@ final class AgentBuilderViewModel: Identifiable {
         // owns its own message writer, so it sends independently of the
         // dismissed builder.
         Task { @MainActor [innerVM, voiceMemoSnapshot, summaryToPersist, conversationIdForPersist, textMessageId, bundleMessageId, session] in
-            // Persist the summary first so the chat the user returns to renders
-            // the card immediately (its `summaryPublisher` picks this up) and
-            // the filter set is on disk before the bundle lands.
+            // Request the agent join before anything else: the bundle publish
+            // below holds until the agent is a verified member (XMTP members
+            // can't read messages published before they joined), so the join
+            // must already be in flight by the time the send runs -- and the
+            // head start lets the backend add the agent while the summary
+            // persists and uploads finish. The join must finish even after
+            // the builder sheet dismisses. Unlike the draft flow, there is no
+            // draft to discard -- the user's group stays -- so the join
+            // survives the view closing (like `ConversationViewModel`'s
+            // committed-conversation join, the opposite of the draft path).
+            let slug = innerVM.conversation.invite?.urlSlug ?? ""
+            if slug.isEmpty {
+                Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
+            } else {
+                do {
+                    _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
+                } catch {
+                    Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
+                }
+            }
+            // Persist the summary before the send so the chat the user returns
+            // to renders the card immediately (its `summaryPublisher` picks
+            // this up) and the filter set is on disk before the bundle lands.
             do {
                 try await session.agentBuilderSummaryWriter().save(summaryToPersist, for: conversationIdForPersist)
             } catch {
@@ -765,21 +785,6 @@ final class AgentBuilderViewModel: Identifiable {
                 textMessageId: textMessageId,
                 bundleMessageId: bundleMessageId
             )
-            let slug = innerVM.conversation.invite?.urlSlug ?? ""
-            guard !slug.isEmpty else {
-                Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
-                return
-            }
-            // The join must finish even after the builder sheet dismisses.
-            // Unlike the draft flow, there is no draft to discard -- the user's
-            // group stays -- so the join survives the view closing (like
-            // `ConversationViewModel`'s committed-conversation join, the
-            // opposite of the draft path).
-            do {
-                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
-            } catch {
-                Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
-            }
         }
         // No in-sheet morph: the builder targets a conversation the user is
         // already in, so `AgentBuilderView` dismisses the sheet on Make and the

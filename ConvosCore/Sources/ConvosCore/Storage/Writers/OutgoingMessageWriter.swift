@@ -928,6 +928,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let bundledMessageIds: [String] = [prepared?.messageId, textMessageId].compactMap { $0 }
         guard !bundledMessageIds.isEmpty else { return }
 
+        // The bundle exists to brief the agent the builder is adding, and
+        // XMTP members can't read messages published before they joined.
+        // Every builder path requests the join before this send, so hold
+        // the publish (local rows above are already persisted, and they're
+        // hidden from the sender's UI) until the agent is a verified member.
+        await waitForVerifiedAgentMember()
+
         try await publishPreparedBuilderBundle(
             manifestIds: bundledMessageIds,
             prepared: prepared,
@@ -935,6 +942,46 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             sentText: text,
             inboxReady: inboxReady
         )
+    }
+
+    /// How long the builder-bundle publish waits for the joining agent to
+    /// become a verified member before publishing anyway. Matches the
+    /// agent-join polling window in `SessionStateManager`; on expiry the
+    /// bundle publishes regardless so a failed or slow join doesn't strand
+    /// the user's brief (the pre-fix behavior, just delayed).
+    private static let verifiedAgentWaitTimeout: TimeInterval = 150
+
+    private func waitForVerifiedAgentMember() async {
+        let convoId: String = conversationId
+        let reader: any DatabaseReader = databaseWriter
+        let observation = ValueObservation.tracking { db -> Bool in
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == convoId)
+                .fetchAll(db)
+                .contains { $0.isAgent && $0.agentVerification.isVerified }
+        }
+        let joined: Bool = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                do {
+                    for try await hasAgent in observation.values(in: reader) where hasAgent {
+                        return true
+                    }
+                } catch {
+                    Log.error("Builder bundle agent wait: observation failed: \(error.localizedDescription)")
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(Self.verifiedAgentWaitTimeout * 1_000_000_000))
+                return false
+            }
+            let first: Bool = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !joined {
+            Log.warning("Builder bundle: no verified agent member in \(convoId) after \(Int(Self.verifiedAgentWaitTimeout))s; publishing anyway")
+        }
     }
 
     /// Hide the bundle on this (sender's) client from the first render. The
