@@ -221,7 +221,12 @@ final class HTMLThumbnailRenderer {
     // Caps the bitmap: 780px wide at 2x costs roughly 6 MB of memory per
     // 1000pt of height, so 10k pt keeps the peak around 60 MB.
     private static let fullPageMaxHeight: CGFloat = 10_000.0
-    private static let fullPageSnapshotWidth: CGFloat = 780.0
+    // Output pixel width of the stitched image (2x of the 390pt layout).
+    private static let fullPagePixelWidth: CGFloat = 780.0
+    // Pause after each programmatic scroll so WebKit paints the newly
+    // exposed screenful (and any scroll-triggered lazy content mounts)
+    // before it is snapshotted.
+    private static let fullPageScrollSettle: TimeInterval = 0.35
 
     private static let fullPageViewportScript: String = """
     (function() {
@@ -298,25 +303,77 @@ final class HTMLThumbnailRenderer {
         guard await load(fileURL: fileURL, in: webView) else { return nil }
         await Self.sleep(seconds: Self.paintDelay)
 
-        // Grow the WebView to the document height, then re-measure once:
-        // viewport-relative layout (100vh sections, sticky footers) can
-        // reflow after the first resize and change the content height.
+        // The WebView stays at viewport size and the document is scrolled
+        // one screenful at a time, snapshotting each. Scrolling is what
+        // makes WebKit paint each region AND what triggers any lazy,
+        // IntersectionObserver-driven sections the artifact runtime mounts
+        // on scroll - resized-frame captures, per-rect tile captures, and
+        // createPDF all came back blank below the first viewport because
+        // that content was never painted (verified empirically on-device).
         let measured: CGFloat = await measureContentHeight(of: webView)
-        var targetHeight: CGFloat = Self.clampFullPageHeight(measured)
-        webView.frame = CGRect(x: 0, y: 0, width: Self.fullPageSize.width, height: targetHeight)
-        window.frame.size = webView.frame.size
-        await Self.sleep(seconds: Self.paintDelay)
+        let height: CGFloat = Self.clampFullPageHeight(measured)
+        return await captureScrollingSnapshot(of: webView, height: height)
+    }
 
-        let remeasured: CGFloat = await measureContentHeight(of: webView)
-        let finalHeight: CGFloat = Self.clampFullPageHeight(remeasured)
-        if finalHeight != targetHeight {
-            targetHeight = finalHeight
-            webView.frame = CGRect(x: 0, y: 0, width: Self.fullPageSize.width, height: targetHeight)
-            window.frame.size = webView.frame.size
-            await Self.sleep(seconds: Self.paintDelay)
+    private func captureScrollingSnapshot(of webView: WKWebView, height: CGFloat) async -> UIImage? {
+        // takeSnapshot multiplies snapshotWidth by the screen scale, so
+        // divide it back out to get a deterministic output pixel width.
+        let screenScale: CGFloat = max(webView.traitCollection.displayScale, 1)
+        let snapshotWidthPoints: CGFloat = Self.fullPagePixelWidth / screenScale
+        let viewportHeight: CGFloat = Self.fullPageSize.height
+
+        var tiles: [(image: UIImage, yOffset: CGFloat)] = []
+        var offset: CGFloat = 0
+        while offset < height {
+            // The last screenful is anchored to the document bottom, so it
+            // overlaps the previous tile; the overlap draws identical
+            // content and stitches seamlessly.
+            let scrollY: CGFloat = max(0, min(offset, height - viewportHeight))
+            webView.scrollView.contentOffset = CGPoint(x: 0, y: scrollY)
+            await Self.sleep(seconds: Self.fullPageScrollSettle)
+            guard let tile = await takeSnapshot(of: webView, outputWidth: snapshotWidthPoints) else {
+                Log.error("HTMLThumbnailRenderer: full-page tile at \(scrollY)pt failed; aborting")
+                return nil
+            }
+            tiles.append((tile, scrollY))
+            offset += viewportHeight
         }
+        webView.scrollView.contentOffset = .zero
 
-        return await takeSnapshot(of: webView, outputWidth: Self.fullPageSnapshotWidth)
+        let pixelsPerPoint: CGFloat = Self.fullPagePixelWidth / Self.fullPageSize.width
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let finalSize = CGSize(
+            width: Self.fullPagePixelWidth,
+            height: (height * pixelsPerPoint).rounded()
+        )
+        let renderer = UIGraphicsImageRenderer(size: finalSize, format: format)
+        return renderer.image { _ in
+            for tile in tiles {
+                let drawRect = CGRect(
+                    x: 0,
+                    y: (tile.yOffset * pixelsPerPoint).rounded(),
+                    width: Self.fullPagePixelWidth,
+                    height: (tile.image.size.height * Self.fullPagePixelWidth / tile.image.size.width).rounded()
+                )
+                tile.image.draw(in: drawRect)
+            }
+        }
+    }
+
+    private func takeSnapshot(of webView: WKWebView, outputWidth: CGFloat) async -> UIImage? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            let snapshotConfig = WKSnapshotConfiguration()
+            snapshotConfig.rect = webView.bounds
+            snapshotConfig.snapshotWidth = NSNumber(value: Double(outputWidth))
+            snapshotConfig.afterScreenUpdates = true
+            webView.takeSnapshot(with: snapshotConfig) { image, error in
+                if let error {
+                    Log.error("HTMLThumbnailRenderer full-page takeSnapshot failed: \(error)")
+                }
+                continuation.resume(returning: image)
+            }
+        }
     }
 
     private static func clampFullPageHeight(_ height: CGFloat) -> CGFloat {
@@ -352,21 +409,6 @@ final class HTMLThumbnailRenderer {
                 }
                 let value: CGFloat = (result as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
                 continuation.resume(returning: value)
-            }
-        }
-    }
-
-    private func takeSnapshot(of webView: WKWebView, outputWidth: CGFloat) async -> UIImage? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            let snapshotConfig = WKSnapshotConfiguration()
-            snapshotConfig.rect = webView.bounds
-            snapshotConfig.snapshotWidth = NSNumber(value: Double(outputWidth))
-            snapshotConfig.afterScreenUpdates = true
-            webView.takeSnapshot(with: snapshotConfig) { image, error in
-                if let error {
-                    Log.error("HTMLThumbnailRenderer full-page takeSnapshot failed: \(error)")
-                }
-                continuation.resume(returning: image)
             }
         }
     }
