@@ -771,16 +771,16 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     /// The join request is still unapproved after the wait window: the user
     /// has watched the "Verifying" state the whole time. Emits the
-    /// stuck-wait sample; `verificationStartedAt` is left in place so a
-    /// late approval still reports its true duration via
-    /// `joinedConversation` on success.
+    /// stuck-wait sample as a failed `joined_conversation` outcome;
+    /// `verificationStartedAt` is left in place so a late approval still
+    /// reports its true duration via the success outcome.
     @MainActor
     private func emitConversationJoinTimedOut() {
         guard let startedAt = verificationStartedAt else { return }
         let waitDuration = Float(CFAbsoluteTimeGetCurrent() - startedAt)
         let source: ConversationSource = joinSource
         let actions: any CoreActions = coreActions
-        Task { await actions.conversationJoinTimedOut(waitDuration: waitDuration, source: source) }
+        Task { await actions.joinedConversation(verificationDuration: waitDuration, memberCount: nil, hasAssistant: nil, source: source, isSuccess: false) }
     }
 
     // MARK: - Private
@@ -803,7 +803,8 @@ class NewConversationViewModel: Identifiable, Hashable {
                 verificationDuration: duration,
                 memberCount: memberCount,
                 hasAssistant: hasAssistant,
-                source: source
+                source: source,
+                isSuccess: true
             )
         }
     }
