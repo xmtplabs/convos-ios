@@ -31,7 +31,7 @@ Bundle IDs by scheme:
 Skip this whole step for Dev/Prod schemes. The orchestration is committed in this repo at `dev/local-stack/` and resolves its external workspace itself (via the gitignored `.convos-stack` pointer or `$CONVOS_REPOS_DIR`).
 
 1. `LS="$(git rev-parse --show-toplevel)/dev/local-stack"`.
-2. **First-run:** `make -C "$LS" status` (30s). If it errors *"no workspace configured — run: make init"*, the machine isn't set up: run `make -C "$LS" init` (defaults the workspace to a sibling of this repo and clones the service repos; ~600000ms timeout), then **pause** and tell the user to set the `OP_*` 1Password refs in `<workspace>/stack.env` and run `make -C "$LS" bootstrap` once.
+2. **First-run:** `make -C "$LS" status` (30s). If it errors *"no workspace configured — run: make init"*, the machine isn't set up: run `make -C "$LS" init` (workspace defaults to a sibling of this repo — or to the parent dir itself when the service repos are already cloned there — and clones any missing service repos; ~600000ms timeout). The written `stack.env` ships working `op://Convos/...` refs, so next run `make -C "$LS" bootstrap` once. If bootstrap warns the 1Password CLI is not signed in, **pause** and ask the user to run `op signin` (account xmtpinc) or enable 1Password Settings > Developer > "Integrate with 1Password CLI", then re-run bootstrap (it re-fetches `.dev.vars` if it's missing or incomplete).
 3. **Bring it up if needed:** if `status` shows backend/worker down, run `make -C "$LS" up` with a **1200000ms (20 min)** timeout (first run builds the Hermes image — capped; later runs are fast). Relay any Docker-cap warning from `make -C "$LS" doctor`.
 4. **Configure this checkout as a thin client:** `make -C "$LS" ios-config IOS="$(pwd)"` — sets `config.local.json` `xmtpNetwork→dev` and writes `./.env` (shared Firebase Local token; `CONVOS_API_BASE_URL` left empty so Local auto-detects the Mac LAN IP and a Dev build on the same checkout isn't redirected to localhost).
 
@@ -68,6 +68,7 @@ Use `xcodebuild` via Bash. Do **not** use `mcp__XcodeBuildMCP__build_sim` — it
 
 **Dev / Prod schemes** (team signing). Pass an explicit `-configuration` (`Convos (Dev)` -> `Dev`, `Convos (Prod)` -> `Prod`). Without it the scheme can build targets under mismatched configurations: the SPM packages land in one config dir while the NotificationService extension looks in another (`unable to resolve module dependency: ConvosCore`), and the app's entitlements/identifiers stop matching `config.json`, surfacing at runtime as a nil app-group container crash (`Failed getting container URL`) or `-34018` (`errSecMissingEntitlement`) on first identity read. Those three are one configuration signature, not simulator limitations (issue #843, #1019); `rm -rf .derivedData` does not fix them, an explicit `-configuration` does.
 ```bash
+set -o pipefail
 xcodebuild build \
   -project Convos.xcodeproj \
   -scheme "Convos (Dev)" -configuration Dev \
@@ -77,6 +78,7 @@ xcodebuild build \
 
 **Local scheme** — `org.convos.ios-local` is **not** in convos-certificates, so CLI automatic signing drops the app-group entitlement and the app crashes at launch (`Failed getting container URL for group identifier`). Build **ad-hoc** so the simulated entitlements are applied:
 ```bash
+set -o pipefail
 xcodebuild build \
   -project Convos.xcodeproj \
   -scheme "Convos (Local)" -configuration Local \
@@ -85,6 +87,8 @@ xcodebuild build \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
   PROVISIONING_PROFILE_SPECIFIER="" DEVELOPMENT_TEAM="" 2>&1 | tail -100
 ```
+
+The `set -o pipefail` is load-bearing: without it the `| tail` makes a failed build exit 0, so check for `** BUILD FAILED **` / `(N failures)` in the tail rather than trusting the exit code alone.
 
 Set a 600s timeout. If the build fails:
 - Surface the compilation errors from the tail.

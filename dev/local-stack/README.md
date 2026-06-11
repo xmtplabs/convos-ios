@@ -9,7 +9,8 @@ convos-ios/ (this repo — every checkout/worktree has these scripts)
   dev/local-stack/   Makefile  stack.sh  stack.compose.yml  stack.env.example  README.md
   .convos-stack      → points at your workspace (gitignored, machine-local)
 
-<workspace>/ (you pick this; default: sibling of convos-ios, e.g. ~/Code/xmtplabs/convos-stack)
+<workspace>/ (you pick this; default: sibling of convos-ios, e.g. ~/Code/xmtplabs/convos-stack —
+              or the parent dir itself when the service repos are already cloned next to convos-ios)
   convos-backend/  herald-lite/  convos-assistants/  convos-cli/   ← cloned by `make init`
   stack.env   .run/                                                ← machine-local, shared by all worktrees
 ```
@@ -22,7 +23,8 @@ cd <a convos-ios checkout>
 
 make -C dev/local-stack doctor       # check prereqs (node, pnpm, bun, docker, op, ...) + Docker CPU cap
 make -C dev/local-stack init         # pick a workspace dir + clone the 4 service repos into it
-# -> then edit <workspace>/stack.env and set the OP_* 1Password references (one-time, team-wide)
+# -> stack.env is written with the team's op://Convos/... refs; sign in to the 1Password CLI
+#    ('op signin', account xmtpinc, or 1Password Settings > Developer > CLI integration)
 make -C dev/local-stack bootstrap    # deps, generated backend secrets, .dev.vars (1Password), migrations
 make -C dev/local-stack up           # start the FULL stack (first run builds the Hermes image; capped)
 ```
