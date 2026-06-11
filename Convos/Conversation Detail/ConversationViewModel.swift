@@ -1788,14 +1788,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     // MARK: - Capability picker
 
-    /// Replaces any pending capability request with `layout`. When the agent sends a new
-    /// `capability_request` and we want the picker to display, the host computes the
-    /// layout via `CapabilityRequestHandler.computeLayout` and calls this. Setting nil
-    /// hides the picker and lets the onboarding view take its slot back.
-    func presentCapabilityPicker(_ layout: CapabilityPickerLayout?) {
-        pendingCapabilityPickerLayout = layout
-    }
-
     /// User tapped the transcript's capability connect pill. Pending pills open
     /// the approval sheet for the request they carry; connected/dismissed pills
     /// are inert. Only the latest observed request has a computed layout (the

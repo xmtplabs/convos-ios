@@ -25,6 +25,9 @@ struct CapabilityApprovalSheetView: View {
                 agentName: agentName,
                 onApprove: onApprove
             )
+            // Reseed the toggle state if a newer request replaces the layout
+            // while the sheet is up — @State survives re-render otherwise.
+            .id(layout.request.requestId)
         } else {
             CapabilityPickerCardView(
                 layout: layout,
