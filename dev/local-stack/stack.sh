@@ -67,13 +67,37 @@ dc() { docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"; }
 
 wait_http() { local url="$1" t="${2:-60}" i=0; while (( i < t )); do local c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || true)"; [[ "$c" =~ ^2[0-9][0-9]$ ]] && return 0; sleep 1; ((i++)); done; return 1; }
 
-start_svc() { local name="$1" dir="$2"; shift 2; if svc_running "$name"; then ok "$name already running"; return 0; fi; [[ -d "$dir" ]] || die "$name dir missing: $dir"; log "starting $name ${c_dim}($dir)${c_rst}"; ( cd "$dir" && nohup bash -lc "$*" >"$RUN_DIR/$name.log" 2>&1 & echo $! >"$RUN_DIR/$name.pid" ); }
-svc_running() { local n="$1"; [[ -f "$RUN_DIR/$n.pid" ]] && kill -0 "$(cat "$RUN_DIR/$n.pid")" 2>/dev/null; }
+start_svc() { local name="$1" dir="$2"; shift 2; if svc_running "$name" "$dir"; then ok "$name already running"; return 0; fi; [[ -d "$dir" ]] || die "$name dir missing: $dir"; log "starting $name ${c_dim}($dir)${c_rst}"; ( cd "$dir" && nohup bash -lc "$*" >"$RUN_DIR/$name.log" 2>&1 & echo $! >"$RUN_DIR/$name.pid" ); }
+# A bare kill -0 is fooled by pid reuse and by wrapper shells whose real service
+# child died (e.g. EADDRINUSE) — then start_svc skips the start and wait_http
+# spins for a minute against a dead port. When a dir is given, also require the
+# pid's cwd to be that service dir (the start_svc wrapper cd's there).
+svc_running() {
+  local n="$1" dir="${2:-}" pid cwd
+  [[ -f "$RUN_DIR/$n.pid" ]] || return 1
+  pid="$(cat "$RUN_DIR/$n.pid")"
+  kill -0 "$pid" 2>/dev/null || return 1
+  [[ -z "$dir" ]] && return 0
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+  [[ "$cwd" == "$dir" ]]
+}
+
+# Refuse to "start" a service whose port is already held by a foreign process —
+# otherwise the squatter (often a stale checkout's dev server) answers the
+# health checks and the whole stack looks green while pointing at old state.
+guard_port() {
+  local port="$1" name="$2" dir="$3" pid cmd
+  svc_running "$name" "$dir" && return 0
+  pid="$(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)"
+  [[ -z "$pid" ]] && return 0
+  cmd="$(ps -o command= -p "$pid" 2>/dev/null | head -c 140)"
+  die "port ${port} is held by a foreign process (pid ${pid}: ${cmd}) — it would shadow ${name} and answer health checks with stale state. Kill it (kill ${pid}) and re-run."
+}
 stop_svc() { local name="$1" pat="${2:-}"; [[ -f "$RUN_DIR/$name.pid" ]] && kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true; [[ -n "$pat" ]] && pkill -f "$pat" 2>/dev/null || true; rm -f "$RUN_DIR/$name.pid"; }
 # Note: key/token lookups below use `|| true` so a missing line degrades to the
 # guarded warn-and-return path instead of set -e killing the whole script (the
 # grep in a $(...) assignment otherwise propagates its non-zero exit status).
-disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR}/.env" 2>/dev/null | cut -d= -f2-)" || true; [[ -z "$tok" ]] && { warn "no DEV_API_TOKEN; can't disable App Check"; return; }; curl -s -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"enabled":false}' "http://localhost:${BACKEND_PORT}/api/v2/dev/app-attest" >/dev/null 2>&1 && ok "App Check disabled" || warn "couldn't disable App Check"; }
+disable_app_check() { local tok; tok="$(grep -E '^DEV_API_TOKEN=' "${BACKEND_DIR}/.env" 2>/dev/null | cut -d= -f2-)" || true; [[ -z "$tok" ]] && { warn "no DEV_API_TOKEN; can't disable App Check"; return; }; curl -sf -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"enabled":false}' "http://localhost:${BACKEND_PORT}/api/v2/dev/app-attest" >/dev/null 2>&1 && ok "App Check disabled" || warn "couldn't disable App Check (HTTP error — wrong DEV_API_TOKEN, or is something else answering on :${BACKEND_PORT}?)"; }
 
 # Host IP reachable from BOTH the worker (a host process) and the Hermes
 # container. `localhost` only works from the host, `host.docker.internal`
@@ -287,13 +311,16 @@ cmd_up() {
   align_agent_key    # keep backend AGENT_ASSETS_API_KEY == worker CONVOS_API_KEY
   log "infra ($([[ $tier == full ]] && echo 'Postgres + MinIO' || echo 'Postgres'))"
   if [[ "$tier" == full ]]; then dc up -d --wait || dc up -d; else dc up -d convos_db --wait || dc up -d convos_db; fi
+  guard_port "$BACKEND_PORT" backend "$BACKEND_DIR"
   start_svc backend "$BACKEND_DIR" "pnpm dev"
   wait_http "http://localhost:${BACKEND_PORT}/healthcheck" 60 && ok "backend up" || warn "backend not healthy (make logs SVC=backend)"
   disable_app_check
   seed_credits   # fund any unfunded accounts so the agent-builder isn't credit-gated ("lost power")
   if [[ "$tier" == full ]]; then
+    guard_port "$HERALD_PORT" herald "$HERALD_DIR"
     start_svc herald "$HERALD_DIR" "pnpm start"
     wait_http "http://localhost:${HERALD_PORT}/livez" 30 && ok "herald up" || warn "herald not healthy (make logs SVC=herald)"
+    guard_port "$WORKER_PORT" worker "$WORKER_DIR"
     start_svc worker "$WORKER_DIR" "pnpm dev"
     log "waiting for worker :${WORKER_PORT} (first run builds Hermes image — minutes, capped)"
     wait_http "http://localhost:${WORKER_PORT}/openapi.json" 1200 && ok "worker up (Hermes ready)" || warn "worker still starting (make logs SVC=worker)"
