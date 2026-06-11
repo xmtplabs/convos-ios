@@ -293,14 +293,14 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.inboxId(for: conversationId)
     }
 
-    func requestAgentJoin(
-        slug: String,
+    func addAgentToConversation(
+        conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(
-            slug: slug,
+        try await base.addAgentToConversation(
+            conversationId: conversationId,
             templateId: templateId,
             options: options,
             forceErrorCode: forceErrorCode

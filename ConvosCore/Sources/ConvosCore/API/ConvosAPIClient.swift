@@ -83,12 +83,26 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
     // Agents
+    /// `slug == nil` selects direct-add mode: the backend provisions the
+    /// agent and returns its `inboxId` for the caller to add with
+    /// addMembers + `confirmAgentJoin`.
     func requestAgentJoin(
-        slug: String,
+        slug: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
+
+    /// Direct-add companion: relays the local addMembers result so the
+    /// runtime attaches the agent to the conversation and boots it.
+    func confirmAgentJoin(
+        instanceId: String,
+        conversationId: String
+    ) async throws -> ConvosAPI.AgentConfirmJoinResponse
+
+    /// Polls a dispatched agent's provisioning status. Direct-add callers
+    /// use it to obtain `inboxId` when the join response didn't carry one.
+    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
 
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
@@ -712,7 +726,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     // MARK: - Agents
 
     func requestAgentJoin(
-        slug: String,
+        slug: String? = nil,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
@@ -759,6 +773,52 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         default:
             throw APIError.serverError(parseErrorMessage(from: data))
         }
+    }
+
+    func confirmAgentJoin(
+        instanceId: String,
+        conversationId: String
+    ) async throws -> ConvosAPI.AgentConfirmJoinResponse {
+        var request = try authenticatedRequest(for: "v2/agents/confirm-join", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentConfirmJoinRequest(
+                instanceId: instanceId,
+                conversationId: conversationId
+            )
+        )
+
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try JSONDecoder().decode(ConvosAPI.AgentConfirmJoinResponse.self, from: data)
+        case 502:
+            throw APIError.agentProvisionFailed
+        case 503:
+            throw APIError.noAgentsAvailable
+        case 504:
+            throw APIError.agentPoolTimeout
+        case 400:
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        case 409:
+            // The runtime is not waiting for a confirmation (already
+            // confirmed, or the workflow timed out). Safe to surface as a
+            // provision failure; retries go through requestAgentJoin.
+            throw APIError.agentProvisionFailed
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+    }
+
+    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+        let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
+        let request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET")
+        return try await performRequest(request)
     }
 
     // MARK: - Agent templates

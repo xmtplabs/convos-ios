@@ -3133,9 +3133,6 @@ extension ConversationViewModel {
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
     func requestAgentJoin(templateId: String?) {
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
-
         agentJoinTask?.cancel()
 
         // Anchor the wait measurement at request time (the pending UI starts
@@ -3154,7 +3151,6 @@ extension ConversationViewModel {
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
-                slug: slug,
                 conversationId: conversationId,
                 requestId: requestId,
                 forceErrorCode: forceErrorCode,
@@ -3205,8 +3201,6 @@ extension ConversationViewModel {
     /// session state machine under concurrent waiters).
     func requestAgentJoins(templateIds: [String]) {
         guard !templateIds.isEmpty else { return }
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
         Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
 
         // Batch adds return to the chat, so the join progress shows as
@@ -3231,7 +3225,6 @@ extension ConversationViewModel {
                 let requestId = UUID().uuidString
                 let outcome = await Self.performAgentJoinCall(
                     templateId: templateId,
-                    slug: slug,
                     conversationId: conversationId,
                     requestId: requestId,
                     forceErrorCode: forceErrorCode,
@@ -3333,7 +3326,6 @@ extension ConversationViewModel {
     /// holding `self`.
     private static func performAgentJoinCall(
         templateId: String?,
-        slug: String,
         conversationId: String,
         requestId: String,
         forceErrorCode: Int?,
@@ -3346,8 +3338,8 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
-            _ = try await session.requestAgentJoin(
-                slug: slug,
+            _ = try await session.addAgentToConversation(
+                conversationId: conversationId,
                 templateId: templateId,
                 options: nil,
                 forceErrorCode: forceErrorCode
