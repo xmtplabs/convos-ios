@@ -1,0 +1,349 @@
+import ConvosConnections
+@testable import ConvosCore
+import Foundation
+import GRDB
+import Testing
+
+@Suite("Capability connect transcript")
+struct CapabilityConnectTranscriptTests {
+    private let asker: String = "agent-inbox"
+    private let approver: String = "member-inbox"
+
+    private func makeRequest(
+        requestId: String = "req-1",
+        preferredProviders: [ProviderID]? = [ProviderID(rawValue: "composio.googlecalendar")]
+    ) -> CapabilityRequest {
+        CapabilityRequest(
+            requestId: requestId,
+            askerInboxId: asker,
+            subject: .calendar,
+            capability: .read,
+            rationale: "To book that meeting",
+            preferredProviders: preferredProviders
+        )
+    }
+
+    // MARK: - Status derivation (requestId join)
+
+    @Test("no result rows leaves the prompt pending")
+    func pendingWithoutResults() {
+        #expect(CapabilityConnectPrompt.displayStatus(results: [], askerInboxId: asker) == .pending)
+    }
+
+    @Test("an approved result row flips the prompt to connected")
+    func connectedOnApproval() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [.init(senderId: approver, status: .approved)],
+            askerInboxId: asker
+        )
+        #expect(status == .connected)
+    }
+
+    @Test("approval wins over an earlier denial")
+    func approvalWinsOverDenial() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [
+                .init(senderId: approver, status: .denied),
+                .init(senderId: "another-member", status: .approved),
+            ],
+            askerInboxId: asker
+        )
+        #expect(status == .connected)
+    }
+
+    @Test("denied and cancelled results dismiss the prompt")
+    func dismissedOnDenyOrCancel() {
+        let denied = CapabilityConnectPrompt.displayStatus(
+            results: [.init(senderId: approver, status: .denied)],
+            askerInboxId: asker
+        )
+        let cancelled = CapabilityConnectPrompt.displayStatus(
+            results: [.init(senderId: approver, status: .cancelled)],
+            askerInboxId: asker
+        )
+        #expect(denied == .dismissed)
+        #expect(cancelled == .dismissed)
+    }
+
+    @Test("the asker cannot resolve its own request")
+    func askerResultsIgnored() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [.init(senderId: asker, status: .approved)],
+            askerInboxId: asker
+        )
+        #expect(status == .pending)
+    }
+
+    @Test("staleResource and unknown statuses are not user decisions")
+    func nonDecisionStatusesStayPending() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [
+                .init(senderId: approver, status: .staleResource),
+                .init(senderId: approver, status: .unknown),
+            ],
+            askerInboxId: asker
+        )
+        #expect(status == .pending)
+    }
+
+    // MARK: - Prompt factory
+
+    @Test("cloud preferred provider resolves brand name, slug, and icon")
+    func cloudProviderBranding() {
+        let prompt = CapabilityConnectPrompt.make(request: makeRequest(), results: [])
+        #expect(prompt.serviceName == "Google Calendar")
+        #expect(prompt.serviceId == "googlecalendar")
+        #expect(prompt.icon == .calendar)
+        #expect(prompt.askerInboxId == asker)
+        #expect(prompt.status == .pending)
+    }
+
+    @Test("missing preferred providers falls back to the subject name")
+    func subjectFallback() {
+        let prompt = CapabilityConnectPrompt.make(request: makeRequest(preferredProviders: nil), results: [])
+        #expect(prompt.serviceName == "Calendar")
+        #expect(prompt.serviceId == nil)
+        #expect(prompt.icon == .calendar)
+    }
+
+    @Test("device preferred provider uses the device spec display name")
+    func deviceProviderName() {
+        let prompt = CapabilityConnectPrompt.make(
+            request: makeRequest(preferredProviders: [ProviderID(rawValue: "device.calendar")]),
+            results: []
+        )
+        #expect(prompt.serviceName == "Apple Calendar")
+        #expect(prompt.serviceId == nil)
+    }
+
+    // MARK: - Hydration (compose-time join against GRDB rows)
+
+    @Test("capability request row hydrates as a pending connect prompt")
+    func hydratesPendingPrompt() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+
+        let prompt = try #require(try harness.fetchPrompt())
+        #expect(prompt.requestId == "req-1")
+        #expect(prompt.status == .pending)
+        #expect(prompt.serviceName == "Google Calendar")
+    }
+
+    @Test("approved result row from another member hydrates the prompt as connected")
+    func hydratesConnectedPrompt() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 2)
+
+        let prompt = try #require(try harness.fetchPrompt())
+        #expect(prompt.status == .connected)
+    }
+
+    @Test("approved result row from the asker leaves the prompt pending")
+    func hydrationIgnoresAskerResults() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: asker, status: .approved, sortId: 2)
+
+        let prompt = try #require(try harness.fetchPrompt())
+        #expect(prompt.status == .pending)
+    }
+
+    @Test("result rows for other requests do not affect the prompt")
+    func hydrationJoinsByRequestId() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-other", senderId: approver, status: .approved, sortId: 2)
+
+        let prompt = try #require(try harness.fetchPrompt())
+        #expect(prompt.status == .pending)
+    }
+
+    @Test("undecodable request JSON keeps the row hidden")
+    func hydrationHidesMalformedRequests() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRawRequestRow(text: "{not json", sortId: 1)
+
+        #expect(try harness.fetchPrompt() == nil)
+    }
+
+    @Test("result rows themselves stay hidden in the transcript")
+    func resultRowsStayHidden() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 1)
+
+        let messages = try harness.fetchMessages()
+        #expect(messages.isEmpty)
+    }
+}
+
+// MARK: - GRDB harness
+
+private struct HydrationHarness {
+    let dbManager: any DatabaseManagerProtocol
+    let conversationId: String = "conversation-1"
+    let currentInboxId: String = "current-user"
+    let asker: String
+    let approver: String
+    let now: Date = Date()
+
+    init(asker: String, approver: String) throws {
+        self.asker = asker
+        self.approver = approver
+        dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                currentInboxId: currentInboxId,
+                otherInboxIds: [asker, approver],
+                now: now
+            )
+        }
+    }
+
+    func insertRequestRow(_ request: CapabilityRequest, sortId: Int64) throws {
+        let json = try JSONEncoder().encode(request)
+        try insertRawRequestRow(text: String(decoding: json, as: UTF8.self), sortId: sortId)
+    }
+
+    func insertRawRequestRow(text: String, sortId: Int64) throws {
+        try insertRow(contentType: .capabilityRequest, senderId: asker, text: text, sortId: sortId)
+    }
+
+    func insertResultRow(
+        requestId: String,
+        senderId: String,
+        status: CapabilityRequestResult.Status,
+        sortId: Int64
+    ) throws {
+        let result = CapabilityRequestResult(
+            requestId: requestId,
+            status: status,
+            subject: .calendar,
+            capability: .read
+        )
+        let json = try JSONEncoder().encode(result)
+        try insertRow(
+            contentType: .capabilityRequestResult,
+            senderId: senderId,
+            text: String(decoding: json, as: UTF8.self),
+            sortId: sortId
+        )
+    }
+
+    func fetchMessages() throws -> [AnyMessage] {
+        let repository = MessagesRepository(
+            dbReader: dbManager.dbReader,
+            conversationId: conversationId,
+            currentInboxId: currentInboxId
+        )
+        return try repository.fetchInitial()
+    }
+
+    func fetchPrompt() throws -> CapabilityConnectPrompt? {
+        for anyMessage in try fetchMessages() {
+            if case .message(let message, _) = anyMessage,
+               case .capabilityConnect(let prompt) = message.content {
+                return prompt
+            }
+        }
+        return nil
+    }
+
+    private func insertRow(
+        contentType: MessageContentType,
+        senderId: String,
+        text: String,
+        sortId: Int64
+    ) throws {
+        try dbManager.dbWriter.write { db in
+            try DBMessage(
+                id: "message-\(sortId)",
+                clientMessageId: "message-\(sortId)",
+                conversationId: conversationId,
+                senderId: senderId,
+                dateNs: Int64(now.timeIntervalSince1970 * 1_000_000_000) + sortId,
+                date: now,
+                sortId: sortId,
+                status: .published,
+                messageType: .original,
+                contentType: contentType,
+                text: text,
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: [],
+                update: nil
+            ).insert(db)
+        }
+    }
+
+    private static func seedConversation(
+        db: Database,
+        conversationId: String,
+        currentInboxId: String,
+        otherInboxIds: [String],
+        now: Date
+    ) throws {
+        try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
+        for inboxId in otherInboxIds {
+            try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
+        }
+
+        try DBConversation(
+            id: conversationId,
+            clientConversationId: "client-\(conversationId)",
+            inviteTag: "invite-tag-\(conversationId)",
+            creatorId: currentInboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: now,
+            name: "Test",
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false,
+        ).insert(db)
+
+        try ConversationLocalState(
+            conversationId: conversationId,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: now,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false
+        ).insert(db)
+
+        for (index, inboxId) in ([currentInboxId] + otherInboxIds).enumerated() {
+            try DBConversationMember(
+                conversationId: conversationId,
+                inboxId: inboxId,
+                role: index == 0 ? .superAdmin : .member,
+                consent: .allowed,
+                createdAt: now,
+                invitedByInboxId: nil
+            ).insert(db)
+
+            try DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: inboxId,
+                name: "Member \(index)",
+                avatar: nil
+            ).insert(db)
+        }
+    }
+}

@@ -433,6 +433,7 @@ extension Array where Element == DBMessage {
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
+                         capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -463,7 +464,8 @@ extension Array where Element == DBMessage {
                     for: dbMessage,
                     currentInboxId: currentInboxId,
                     memberProfileCache: memberProfileCache,
-                    attachmentLocalStates: attachmentLocalStates
+                    attachmentLocalStates: attachmentLocalStates,
+                    capabilityResultsByRequestId: capabilityResultsByRequestId
                 ) else { return nil }
 
                 let message = Message(
@@ -496,7 +498,8 @@ extension Array where Element == DBMessage {
         for dbMessage: DBMessage,
         currentInboxId: String,
         memberProfileCache: MemberProfileCache,
-        attachmentLocalStates: [String: AttachmentLocalState]
+        attachmentLocalStates: [String: AttachmentLocalState],
+        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
     ) -> MessageContent? {
         switch dbMessage.contentType {
         case .text:
@@ -534,8 +537,14 @@ extension Array where Element == DBMessage {
                 return .connectionGrantRequest(request)
             }
             return .text("")
-        case .capabilityRequest, .capabilityRequestResult:
-            // Picker presentation is driven out-of-band; these aren't user-visible in the list.
+        case .capabilityRequest:
+            return resolveCapabilityConnectContent(
+                jsonText: dbMessage.text,
+                resultsByRequestId: capabilityResultsByRequestId
+            )
+        case .capabilityRequestResult:
+            // Results render indirectly: they flip the request row's pill state via
+            // the compose-time join, and approvals emit their own connection_event.
             return nil
         case .connectionEvent:
             return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionEvent(summary: $0) } ?? .text("")
@@ -551,6 +560,21 @@ extension Array where Element == DBMessage {
     private static func decodeConnectionSummary(jsonText: String?) -> ConnectionEventSummary? {
         guard let jsonText else { return nil }
         return try? JSONDecoder().decode(ConnectionEventSummary.self, from: Data(jsonText.utf8))
+    }
+
+    private static func resolveCapabilityConnectContent(
+        jsonText: String?,
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]]
+    ) -> MessageContent? {
+        guard let jsonText,
+              let request = try? JSONDecoder().decode(CapabilityRequest.self, from: Data(jsonText.utf8)) else {
+            return nil
+        }
+        let prompt = CapabilityConnectPrompt.make(
+            request: request,
+            results: resultsByRequestId[request.requestId] ?? []
+        )
+        return .capabilityConnect(prompt: prompt)
     }
 
     private static func resolveUpdateContent(
@@ -999,6 +1023,30 @@ fileprivate extension Database {
             }
         }
 
+        // Correlate capability_request_result rows to the request rows in the
+        // window by requestId (mirrors the reaction join on sourceMessageId).
+        // Results are fetched conversation-wide because the correlation key
+        // lives in the JSON payload, not in sourceMessageId; the rows are rare.
+        // Skipping the query when no request row is visible is safe for the
+        // ValueObservation: the main message query already tracks the table,
+        // so a late-arriving result row still re-fires composition.
+        var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
+            let resultRows = try DBMessage
+                .filter(DBMessage.Columns.conversationId == conversationId)
+                .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequestResult.rawValue)
+                .fetchAll(self)
+            for row in resultRows {
+                guard let text = row.text,
+                      let result = try? JSONDecoder().decode(CapabilityRequestResult.self, from: Data(text.utf8)) else {
+                    continue
+                }
+                capabilityResultsByRequestId[result.requestId, default: []].append(
+                    .init(senderId: row.senderId, status: result.status)
+                )
+            }
+        }
+
         let localStates: [AttachmentLocalState]
         if let prefetchedLocalStates {
             localStates = prefetchedLocalStates
@@ -1023,6 +1071,7 @@ fileprivate extension Database {
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
+            capabilityResultsByRequestId: capabilityResultsByRequestId,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating

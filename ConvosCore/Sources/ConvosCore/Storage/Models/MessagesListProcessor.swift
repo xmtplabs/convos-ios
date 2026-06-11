@@ -471,6 +471,23 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .capabilityConnect(let prompt) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let agentName = resolvedAskerName(for: prompt, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.capabilityConnect(id: msg.messageId, prompt: prompt, agentName: agentName, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
             if case .connectionInvocationResult(let resultSummary) = content {
                 lastMessageDate = msg.date
                 if !currentGroupMessages.isEmpty, currentSenderId != nil {
@@ -726,8 +743,24 @@ public final class MessagesListProcessor: Sendable {
             outcome: summary.outcome,
             icon: summary.icon,
             actor: summary.actor,
-            grantedToInboxId: summary.grantedToInboxId
+            grantedToInboxId: summary.grantedToInboxId,
+            providerId: summary.providerId
         )
+    }
+
+    /// Display name for the agent behind a connect prompt's "<Agent> wants to
+    /// connect" caption. Prefers the live member-profile lookup by the request's
+    /// `askerInboxId` (renames propagate like connection events); falls back to
+    /// the message sender's snapshot, which is the asker in practice.
+    private static func resolvedAskerName(
+        for prompt: CapabilityConnectPrompt,
+        sender: ConversationMember,
+        memberProfiles: [String: MemberProfileInfo]
+    ) -> String {
+        if let name = memberProfiles[prompt.askerInboxId]?.name, !name.isEmpty {
+            return name
+        }
+        return sender.profile.displayName
     }
 }
 
