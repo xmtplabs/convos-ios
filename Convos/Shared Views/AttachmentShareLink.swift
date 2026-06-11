@@ -79,17 +79,26 @@ struct AttachmentShareLink: View {
     private func resolveHTMLShareContent() async {
         let appearance = colorScheme.uiUserInterfaceStyle
         let thumbnail: UIImage? = await resolveHTMLThumbnail(appearance: appearance)
-        let fullPage: UIImage? = await HTMLThumbnailRenderer.shared.fullPageImage(
-            for: attachment.key,
-            fileURL: fileURL,
-            appearance: appearance
-        )
         // Share the full-page render when available; the square tile stays
         // the share sheet preview so it reads as a card, not a tall sliver.
-        guard let imageToShare = fullPage ?? thumbnail else { return }
-        let url: URL? = await writeSharePNG(image: imageToShare, basename: shareImageBasename())
-        sharedImage = thumbnail ?? imageToShare
-        sharedImageURL = url
+        // The PNG is rendered once and disk-cached, so reopening the
+        // detail view arms the share button instantly.
+        let fullPageURL: URL? = await HTMLThumbnailRenderer.shared.fullPagePNGURL(
+            for: attachment.key,
+            fileURL: fileURL,
+            appearance: appearance,
+            basename: shareImageBasename()
+        )
+        guard let thumbnail else { return }
+        if let fullPageURL {
+            sharedImage = thumbnail
+            sharedImageURL = fullPageURL
+            return
+        }
+        // Full-page render failed; fall back to sharing the tile image.
+        let fallbackURL: URL? = await writeSharePNG(image: thumbnail, basename: shareImageBasename())
+        sharedImage = thumbnail
+        sharedImageURL = fallbackURL
     }
 
     private func resolveHTMLThumbnail(appearance: UIUserInterfaceStyle) async -> UIImage? {

@@ -249,9 +249,87 @@ final class HTMLThumbnailRenderer {
     })();
     """
 
+    /// Returns a file URL to the rendered full-page PNG, rendering and
+    /// caching it on disk on first request. The Caches location means iOS
+    /// reclaims the space under pressure and the render simply reruns.
+    /// `basename` becomes the shared file's display name, so pass the
+    /// artifact's title-derived name.
+    func fullPagePNGURL(
+        for attachmentKey: String,
+        fileURL: URL,
+        appearance: UIUserInterfaceStyle,
+        basename: String
+    ) async -> URL? {
+        let cacheURL = Self.fullPageCacheURL(for: attachmentKey, appearance: appearance, basename: basename)
+        if FileManager.default.fileExists(atPath: cacheURL.path) {
+            return cacheURL
+        }
+
+        let inflightKey = "fullpage-png-" + attachmentKey + "-" + Self.appearanceSuffix(for: appearance)
+        if let existing = inflightPNG[inflightKey] {
+            return await existing.value
+        }
+        let task = Task<URL?, Never> { [weak self] in
+            guard let self else { return nil }
+            guard let image = await self.fullPageImage(for: attachmentKey, fileURL: fileURL, appearance: appearance) else {
+                return nil
+            }
+            return await Self.writePNG(image: image, to: cacheURL)
+        }
+        inflightPNG[inflightKey] = task
+        let result = await task.value
+        inflightPNG.removeValue(forKey: inflightKey)
+        return result
+    }
+
+    private var inflightPNG: [String: Task<URL?, Never>] = [:]
+
+    private static func fullPageCacheURL(
+        for attachmentKey: String,
+        appearance: UIUserInterfaceStyle,
+        basename: String
+    ) -> URL {
+        let caches: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let keyComponent: String = sanitizePathComponent(attachmentKey) + "-" + appearanceSuffix(for: appearance)
+        return caches
+            .appendingPathComponent("html-fullpage-v1", isDirectory: true)
+            .appendingPathComponent(keyComponent, isDirectory: true)
+            .appendingPathComponent(basename + ".png")
+    }
+
+    private static func sanitizePathComponent(_ raw: String) -> String {
+        let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        var output: String = ""
+        for scalar in raw.unicodeScalars {
+            output.append(allowed.contains(scalar) ? Character(scalar) : "_")
+        }
+        return String(output.isEmpty ? "attachment" : output.prefix(64))
+    }
+
+    private static func writePNG(image: UIImage, to url: URL) async -> URL? {
+        await Task.detached(priority: .utility) {
+            guard let pngData = image.pngData() else {
+                Log.error("HTMLThumbnailRenderer: failed to encode full-page PNG")
+                return nil
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try pngData.write(to: url, options: .atomic)
+                return url
+            } catch {
+                Log.error("HTMLThumbnailRenderer: failed to write full-page PNG: \(error)")
+                return nil
+            }
+        }.value
+    }
+
     /// Renders the entire document as one tall image. Not cached in
     /// `ImageCache` - full-page bitmaps are far too large for it - so
-    /// callers should hold onto the result for as long as they need it.
+    /// callers should use `fullPagePNGURL`, which caches the encoded PNG
+    /// on disk instead.
     func fullPageImage(for attachmentKey: String, fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
         let inflightKey = "fullpage-" + attachmentKey + "-" + Self.appearanceSuffix(for: appearance)
         if let existing = inflight[inflightKey] {
