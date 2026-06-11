@@ -36,6 +36,10 @@ struct MainTabView: View {
     /// (same morph as a chats push). Synced via `.onChange` on
     /// `thingsPushedItems` — created lazily, cleared on pop.
     @State private var thingsPushedConvoVM: ConversationViewModel?
+    /// Member whose contact card is presented when the user taps the
+    /// centered conversation indicator while a Things detail is pushed:
+    /// the agent that sent the pushed item's attachment.
+    @State private var thingsAgentContactMember: ConversationMember?
     /// NavigationStack path for the Contacts tab, lifted here so the shared
     /// app-indicator overlay can tell when a contact detail is pushed and
     /// re-center the pill (mirrors how `thingsPushedItems` lifts the Things
@@ -574,6 +578,11 @@ struct MainTabView: View {
             : nil
         let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
         let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved || convoVM.conversation.wasRemoved
+        // While a Things item is pushed (no chats selection), tapping the
+        // indicator opens the contact card of the agent that made the thing
+        // instead of the conversation quick editor / info sheet.
+        let isThingsIndicator: Bool = conversationsViewModel.selectedConversationViewModel == nil
+        let thingsAgentTapOverride: (() -> Void)? = isThingsIndicator ? { presentThingsAgentContact() } : nil
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
@@ -581,7 +590,8 @@ struct MainTabView: View {
                 subtitleOverride: nil,
                 allowsEditing: !isReadOnly,
                 focusState: $liftedIndicatorFocus,
-                focusCoordinator: liftedIndicatorFocusCoordinator
+                focusCoordinator: liftedIndicatorFocusCoordinator,
+                onTapOverride: thingsAgentTapOverride
             )
             .environment(\.forcedAgentVerification, pendingAgentOverride)
             .environment(\.pendingAgentIdentity, pendingAgentIdentity)
@@ -618,12 +628,28 @@ struct MainTabView: View {
         conversationsViewModel.selectedConversationViewModel ?? thingsPushedConvoVM
     }
 
+    /// Opens the contact card of the agent that sent the pushed Things
+    /// item's attachment. Falls back to the default conversation-info tap
+    /// if the sender is no longer a member of the convo.
+    private func presentThingsAgentContact() {
+        guard let convoVM = thingsPushedConvoVM else { return }
+        let senderInboxId: String? = thingsPushedItems.last?.senderInboxId
+        let senderMember: ConversationMember? = convoVM.conversation.members
+            .first { $0.profile.inboxId == senderInboxId }
+        guard let senderMember else {
+            convoVM.onConversationInfoTap(focusCoordinator: liftedIndicatorFocusCoordinator)
+            return
+        }
+        thingsAgentContactMember = senderMember
+    }
+
     /// Keeps `thingsPushedConvoVM` aligned with `thingsPushedItems.last`
     /// so the shared indicator overlay can render its centered
     /// conversation pill for the pushed Things item.
     private func syncThingsPushedConvoVM(with items: [ThingOverviewItem]) {
         guard let item = items.last else {
             thingsPushedConvoVM = nil
+            thingsAgentContactMember = nil
             return
         }
         guard thingsPushedConvoVM?.conversation.id != item.conversation.id else { return }
@@ -897,6 +923,8 @@ struct MainTabSheetsModifier: ViewModifier {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
     @Binding var selectedPhotos: [PhotosPickerItem]
+    @Binding var thingsAgentContactMember: ConversationMember?
+    let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
     let onPhotosChanged: ([PhotosPickerItem]) -> Void
     let onCameraImageCaptured: (UIImage) -> Void
@@ -972,6 +1000,24 @@ struct MainTabSheetsModifier: ViewModifier {
                     )
                 }
             })
+            .sheet(item: $thingsAgentContactMember) { member in
+                thingsAgentContactSheet(for: member)
+            }
+    }
+
+    /// Contact card for the agent that made the pushed Things item,
+    /// presented when the user taps the centered conversation indicator
+    /// on the Things detail. Same content the member-avatar tap inside a
+    /// chat presents.
+    @ViewBuilder
+    private func thingsAgentContactSheet(for member: ConversationMember) -> some View {
+        if let thingsPushedConvoVM {
+            MemberContactDetailSheetContent(
+                viewModel: thingsPushedConvoVM,
+                member: member,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
+        }
     }
 }
 
@@ -1032,6 +1078,8 @@ extension MainTabView {
             isPhotoPickerPresented: $isPhotoPickerPresented,
             isCameraPresented: $isCameraPresented,
             selectedPhotos: $selectedPhotos,
+            thingsAgentContactMember: $thingsAgentContactMember,
+            thingsPushedConvoVM: thingsPushedConvoVM,
             namespace: namespace,
             onPhotosChanged: handleSelectedPhotosChanged(to:),
             onCameraImageCaptured: handleCameraImageCaptured,

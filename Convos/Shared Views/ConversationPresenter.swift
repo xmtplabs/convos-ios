@@ -242,6 +242,11 @@ struct ConversationIndicatorWrapper: View {
     let allowsEditing: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
+    /// When set, a tap on the collapsed indicator invokes this instead of
+    /// the default quick-edit / conversation-info behavior. Used by the
+    /// Things detail push, where tapping the indicator opens the contact
+    /// card of the agent that made the thing.
+    var onTapOverride: (() -> Void)?
 
     var body: some View {
         ConversationIndicator(
@@ -263,6 +268,10 @@ struct ConversationIndicatorWrapper: View {
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: {
+                if let onTapOverride {
+                    onTapOverride()
+                    return
+                }
                 guard allowsEditing else { return }
                 viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator)
             },
