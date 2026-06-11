@@ -37,7 +37,13 @@ public actor ConnectionServicesStore: ConnectionServicesStoreProtocol {
 
     private var cachedServices: [CloudConnectionsAPI.ServiceConfig]?
     private var fetchedAt: Date?
-    private var inflight: Task<[CloudConnectionsAPI.ServiceConfig], Error>?
+    private var inflight: (generation: Int, task: Task<[CloudConnectionsAPI.ServiceConfig], Error>)?
+    /// Bumped by `invalidate()`. A fetch started before the bump still returns
+    /// to its original awaiters, but it can no longer populate the cache or be
+    /// joined by later reads — otherwise an `unknown_bundle` retry could await
+    /// a stale in-flight fetch and re-cache the very catalog the server just
+    /// rejected, for another full TTL.
+    private var generation: Int = 0
 
     public init(
         ttl: TimeInterval = ConnectionServicesStore.cacheTTL,
@@ -70,20 +76,29 @@ public actor ConnectionServicesStore: ConnectionServicesStoreProtocol {
     public func invalidate() {
         cachedServices = nil
         fetchedAt = nil
+        generation += 1
+        inflight = nil
     }
 
     private func refetch() async throws -> [CloudConnectionsAPI.ServiceConfig] {
-        if let inflight {
-            return try await inflight.value
+        if let inflight, inflight.generation == generation {
+            return try await inflight.task.value
         }
+        let fetchGeneration = generation
         let task = Task { [fetchServices] in
             try await fetchServices().services
         }
-        inflight = task
-        defer { inflight = nil }
+        inflight = (fetchGeneration, task)
+        defer {
+            if inflight?.generation == fetchGeneration {
+                inflight = nil
+            }
+        }
         let services = try await task.value
-        cachedServices = services
-        fetchedAt = now()
+        if generation == fetchGeneration {
+            cachedServices = services
+            fetchedAt = now()
+        }
         return services
     }
 }

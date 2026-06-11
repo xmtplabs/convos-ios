@@ -610,6 +610,89 @@ struct ConnectionGrantWriterTests {
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.first?.backendGrantId == nil)
     }
+
+    @Test("Grant: catalog outage with no explicit selection fails closed — no whole-toolkit push")
+    func grantFailsClosedOnCatalogOutageWithoutSelection() async throws {
+        struct CatalogDown: Error {}
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesError = CatalogDown()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_outage"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // An unreachable catalog must not be conflated with "service not in
+        // catalog": omitting bundleIds here could grant whole-toolkit access
+        // for a service that IS cataloged. The push is skipped entirely.
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: catalog outage with an explicit selection pushes it unfiltered, no version")
+    func grantPushesExplicitSelectionDuringCatalogOutage() async throws {
+        struct CatalogDown: Error {}
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesError = CatalogDown()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_outage_explicit"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.events"]
+        )
+
+        // The user's explicit picks are safe to transmit — the backend
+        // validates them against its own catalog.
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.bundleIds == ["calendar.events"])
+        #expect(call.serviceVersion == nil)
+    }
+
+    @Test("Grant: the unknown_bundle retry never widens a nil-selection grant past the first attempt")
+    func grantRetryNeverWidensScope() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.events"]),
+            Self.calendarCatalog(version: 3, bundleIds: ["calendar.events", "calendar.brand.new"]),
+        ]
+        recordingClient.createErrorQueue = [
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.events"),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_no_widen"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // The nil selection materialized to the v2 catalog (["calendar.events"])
+        // on the first attempt. The retry intersects THAT with the refreshed
+        // catalog — it must not pick up v3's extra bundle.
+        #expect(recordingClient.createCalls.count == 2)
+        #expect(recordingClient.createCalls.first?.bundleIds == ["calendar.events"])
+        let retry = try #require(recordingClient.createCalls.last)
+        #expect(retry.bundleIds == ["calendar.events"])
+        #expect(retry.bundleIds?.contains("calendar.brand.new") == false)
+        #expect(retry.serviceVersion == 3)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.bundleIds == ["calendar.events"])
+    }
 }
 
 /// Records backend grant push/revoke calls made by `CloudConnectionGrantWriter`
@@ -642,9 +725,14 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
     var createErrorQueue: [Error] = []
     var servicesCatalogQueue: [[CloudConnectionsAPI.ServiceConfig]] = []
     var servicesFetchCount: Int = 0
+    /// When set, every catalog fetch fails — models a backend/network outage.
+    var servicesError: Error?
 
     override func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
         servicesFetchCount += 1
+        if let servicesError {
+            throw servicesError
+        }
         guard let catalog = servicesCatalogQueue.first else {
             return CloudConnectionsAPI.ServicesResponse(services: [])
         }

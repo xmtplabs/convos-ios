@@ -17,18 +17,24 @@ struct ConnectionServicesStoreTests {
             self.responses = responses
         }
 
+        /// One simulated backend fetch: bumps the counter and consumes the
+        /// response queue (last entry repeats).
+        func fetch() async throws -> CloudConnectionsAPI.ServicesResponse {
+            fetchCount += 1
+            let catalog = responses.first ?? []
+            if responses.count > 1 {
+                responses.removeFirst()
+            }
+            return CloudConnectionsAPI.ServicesResponse(services: catalog)
+        }
+
         func makeStore(ttl: TimeInterval = ConnectionServicesStore.cacheTTL) -> ConnectionServicesStore {
             ConnectionServicesStore(
                 ttl: ttl,
                 now: { [weak self] in self?.currentDate ?? Date() },
                 fetchServices: { [weak self] in
                     guard let self else { return CloudConnectionsAPI.ServicesResponse(services: []) }
-                    self.fetchCount += 1
-                    let catalog = self.responses.first ?? []
-                    if self.responses.count > 1 {
-                        self.responses.removeFirst()
-                    }
-                    return CloudConnectionsAPI.ServicesResponse(services: catalog)
+                    return try await self.fetch()
                 }
             )
         }
@@ -87,6 +93,69 @@ struct ConnectionServicesStoreTests {
         let second = try await store.service(id: "googlecalendar")
         #expect(second?.version == 2)
         #expect(harness.fetchCount == 2)
+    }
+
+    @Test("invalidate() abandons an in-flight fetch: later reads refetch and the stale result can't re-cache")
+    func invalidateAbandonsInflightFetch() async throws {
+        /// Holds the FIRST fetch open until released, so the test can
+        /// invalidate while it is in flight.
+        final class Gate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var continuations: [CheckedContinuation<Void, Never>] = []
+            func wait() async {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    continuations.append(continuation)
+                    lock.unlock()
+                }
+            }
+            func open() {
+                lock.lock()
+                let waiting = continuations
+                continuations = []
+                lock.unlock()
+                waiting.forEach { $0.resume() }
+            }
+        }
+
+        let gate = Gate()
+        let harness = Harness(responses: [[Self.service(version: 1)], [Self.service(version: 2)]])
+        let counter = harness
+        let store = ConnectionServicesStore(
+            ttl: ConnectionServicesStore.cacheTTL,
+            now: { Date() },
+            fetchServices: { [weak counter] in
+                guard let counter else { return CloudConnectionsAPI.ServicesResponse(services: []) }
+                let isFirst = counter.fetchCount == 0
+                let response = try await counter.fetch()
+                if isFirst {
+                    await gate.wait()
+                }
+                return response
+            }
+        )
+
+        let staleRead = Task { try await store.catalog() }
+        // Let the first fetch actually start before invalidating.
+        while harness.fetchCount < 1 {
+            await Task.yield()
+        }
+
+        await store.invalidate()
+
+        // A read after invalidation must start a fresh fetch, not join the
+        // stale in-flight one (which is still blocked on the gate).
+        let fresh = try await store.service(id: "googlecalendar")
+        #expect(fresh?.version == 2)
+        #expect(harness.fetchCount == 2)
+
+        // Release the stale fetch: its original awaiter still gets an answer,
+        // but it must not stomp the cache with the pre-invalidation catalog.
+        gate.open()
+        _ = try? await staleRead.value
+        let cached = try await store.service(id: "googlecalendar")
+        #expect(cached?.version == 2, "the stale fetch must not re-cache the rejected catalog")
+        #expect(harness.fetchCount == 2, "the cached v2 catalog is still fresh; no extra fetch")
     }
 
     // MARK: - Version-mismatch invalidation

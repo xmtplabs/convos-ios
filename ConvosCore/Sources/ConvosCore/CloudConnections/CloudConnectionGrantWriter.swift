@@ -181,10 +181,9 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                     "(toolkit=\(connection.serviceId), bundleId=\(bundleId ?? "?")); " +
                     "refetching services catalog and retrying once"
                 )
-                await servicesStore.invalidate()
-                guard let retryScope = await resolveBundleScope(
-                    toolkit: connection.serviceId,
-                    explicitSelection: grant.bundleIds
+                guard let retryScope = try await retryScope(
+                    afterUnknownBundleFor: connection.serviceId,
+                    firstAttempt: scope
                 ) else { return }
                 response = try await inboxReady.apiClient.createConnectionGrant(
                     ownerInboxId: inboxReady.client.inboxId,
@@ -229,26 +228,40 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     /// Maps the user's bundle selection (nil = full-service consent with no
     /// picker involved) onto the cached services catalog:
     /// - service in catalog + explicit selection → ids kept as picked,
-    ///   filtered to the catalog (the backend validates anyway; the filter
-    ///   matters on the post-`unknown_bundle` retry where the catalog was
-    ///   just refetched)
-    /// - service in catalog + nil selection → every catalog bundle id
-    /// - service missing / catalog unreachable → explicit selection as-is, or
-    ///   the legacy whole-toolkit grant when there is none
+    ///   filtered to the catalog
+    /// - service in catalog + nil selection → every catalog bundle id,
+    ///   materialized here once so a later retry can only ever narrow it
+    /// - service proven absent from a successfully fetched catalog →
+    ///   explicit selection as-is, or the legacy whole-toolkit grant when
+    ///   there is none
+    /// - catalog UNREACHABLE → explicit selection as-is (the backend
+    ///   validates it), but a nil selection fails closed: without a
+    ///   successful fetch proving the service is uncataloged, omitting
+    ///   `bundleIds` could silently escalate a cataloged service to
+    ///   whole-toolkit access
     ///
     /// Returns nil to fail closed: an explicit selection that no longer maps
     /// to any known bundle must not be pushed, because the backend treats an
     /// empty `bundleIds` array as whole-toolkit access — strictly more than
     /// the user approved.
     private func resolveBundleScope(toolkit: String, explicitSelection: [String]?) async -> BundleScope? {
-        var service: CloudConnectionsAPI.ServiceConfig?
+        let service: CloudConnectionsAPI.ServiceConfig?
         do {
             service = try await servicesStore.service(id: toolkit)
         } catch {
+            guard let explicitSelection, !explicitSelection.isEmpty else {
+                Log.error(
+                    "[CloudConnections] services catalog unavailable for \(toolkit) and no explicit " +
+                    "bundle selection to fall back on; skipping backend push rather than risk " +
+                    "escalating to whole-toolkit access: \(error.localizedDescription)"
+                )
+                return nil
+            }
             Log.warning(
                 "[CloudConnections] services catalog unavailable for \(toolkit); " +
-                "pushing grant without catalog scope: \(error.localizedDescription)"
+                "pushing the explicit bundle selection unfiltered: \(error.localizedDescription)"
             )
+            return BundleScope(bundleIds: explicitSelection, serviceVersion: nil)
         }
         guard let service else {
             return BundleScope(bundleIds: explicitSelection, serviceVersion: nil)
@@ -267,6 +280,46 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             return nil
         }
         return BundleScope(bundleIds: kept, serviceVersion: service.version)
+    }
+
+    /// Recovery scope after a 400 `unknown_bundle`: invalidate + refetch the
+    /// catalog, then intersect the ids of the FIRST attempt with the refreshed
+    /// catalog. The retry can only ever narrow the originally pushed scope —
+    /// recomputing from a nil selection against a refreshed catalog could
+    /// widen it past what was first materialized. Returns nil to give up
+    /// (fail closed): no bundles survived, the service vanished from the
+    /// catalog, or the rejected attempt didn't carry bundle ids at all
+    /// (the server only validates non-empty `bundleIds`, so that rejection
+    /// is unexpected and not retryable).
+    private func retryScope(
+        afterUnknownBundleFor toolkit: String,
+        firstAttempt: BundleScope
+    ) async throws -> BundleScope? {
+        guard let firstIds = firstAttempt.bundleIds, !firstIds.isEmpty else {
+            Log.error(
+                "[CloudConnections] unknown_bundle rejection for a grant that sent no bundle ids " +
+                "(toolkit=\(toolkit)); not retrying"
+            )
+            return nil
+        }
+        await servicesStore.invalidate()
+        guard let refreshed = try await servicesStore.service(id: toolkit) else {
+            Log.error(
+                "[CloudConnections] \(toolkit) is gone from the refreshed services catalog; " +
+                "failing closed instead of retrying the grant push"
+            )
+            return nil
+        }
+        let known = Set(refreshed.bundles.map(\.id))
+        let kept = firstIds.filter(known.contains)
+        guard !kept.isEmpty else {
+            Log.error(
+                "[CloudConnections] none of the pushed bundle ids survive the refreshed catalog for " +
+                "\(toolkit) (pushed=\(firstIds)); failing closed instead of retrying the grant push"
+            )
+            return nil
+        }
+        return BundleScope(bundleIds: kept, serviceVersion: refreshed.version)
     }
 
     /// Revokes the backend consent record for a grant that was just removed
