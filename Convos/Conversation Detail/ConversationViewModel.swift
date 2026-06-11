@@ -1514,11 +1514,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    // Best-effort: the picker renders provider-only rows when the
+                    // services catalog is unreachable; bundle rows appear once it is.
+                    let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
                     let layout = await handler.computeLayout(
                         request: request,
                         registry: registry,
                         resolver: resolver,
-                        conversationId: conversationId
+                        conversationId: conversationId,
+                        services: services
                     )
                     // Discard if a newer request arrived while we were computing —
                     // otherwise an out-of-order completion can stomp the latest UI.
@@ -1787,12 +1791,22 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// User tapped Approve in the picker card with this provider selection.
     /// Persists the resolution so future tool calls route to the same set, then
     /// posts a `capability_request_result(.approved)` reply for the agent.
-    func onCapabilityApprove(providerIds: Set<ProviderID>) {
+    /// `bundleSelection` is the per-service permission-bundle toggle state
+    /// (service id → toggled-on bundle ids) for the cloud providers approved.
+    func onCapabilityApprove(
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>] = [:]
+    ) {
         guard let request = pendingCapabilityPickerLayout?.request else {
             pendingCapabilityPickerLayout = nil
             return
         }
-        approveCapabilityRequest(request, providerIds: providerIds, conversationId: conversation.id)
+        approveCapabilityRequest(
+            request,
+            providerIds: providerIds,
+            bundleSelection: bundleSelection,
+            conversationId: conversation.id
+        )
     }
 
     /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
@@ -1809,6 +1823,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private func approveCapabilityRequest(
         _ request: CapabilityRequest,
         providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>],
         conversationId: String
     ) {
         locallyHandledCapabilityRequestIds.insert(request.requestId)
@@ -1822,6 +1837,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             request: request,
             status: .approved,
             providerIds: providerIds,
+            bundleSelection: bundleSelection,
             conversationId: conversationId
         )
     }
@@ -1843,6 +1859,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
         providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>] = [:],
         conversationId: String
     ) {
         let resolver = session.capabilityResolver()
@@ -1919,6 +1936,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 await Self.persistApprovedCloudCapabilities(
                     providerIds: sortedIds,
                     newlyApprovedProviderIds: newlyApprovedProviderIds,
+                    bundleSelection: bundleSelection,
                     capability: request.capability,
                     conversationId: conversationId,
                     grantedToInboxId: askerInboxId,
@@ -2025,9 +2043,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// whose CloudConnection isn't active locally — those would have been created by the
     /// caller (e.g. picker → connectCloudProvider) and the publisher snapshot taken here
     /// races against that path; if we miss it the next sync corrects state.
-    private static func persistApprovedCloudCapabilities(
+    private static func persistApprovedCloudCapabilities( // swiftlint:disable:this function_parameter_count
         providerIds: [ProviderID],
         newlyApprovedProviderIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>],
         capability: ConnectionCapability,
         conversationId: String,
         grantedToInboxId: String,
@@ -2047,15 +2066,25 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
             // The grant row is per-(connection, conversation, agent). Two agents
             // approved for the same connection get two rows; the same agent re-
-            // approving the same connection is a no-op for the grant write but
-            // still needs its own connection_event.
+            // approving the same connection with the same bundle scope is a no-op
+            // for the grant write but still needs its own connection_event. A
+            // re-approval with a *different* bundle selection re-grants so the
+            // backend scope follows the user's latest picker state.
+            let bundleIds = bundleSelection[serviceId].map { $0.sorted() }
             let grantKey = GrantKey(connectionId: connection.id, grantedToInboxId: grantedToInboxId)
-            if !existingGrantedKeys.contains(grantKey) {
+            let existingGrant = existingGrants.first {
+                $0.connectionId == connection.id && $0.grantedToInboxId == grantedToInboxId
+            }
+            let bundleScopeChanged = existingGrant.map {
+                bundleIds != nil && Set($0.bundleIds ?? []) != Set(bundleIds ?? [])
+            } ?? false
+            if !existingGrantedKeys.contains(grantKey) || bundleScopeChanged {
                 do {
                     try await grantWriter.grantConnection(
                         connection.id,
                         to: conversationId,
-                        grantedToInboxId: grantedToInboxId
+                        grantedToInboxId: grantedToInboxId,
+                        bundleIds: bundleIds
                     )
                 } catch {
                     Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")

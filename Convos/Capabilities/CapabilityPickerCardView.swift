@@ -12,16 +12,20 @@ import SwiftUI
 struct CapabilityPickerCardView: View {
     let layout: CapabilityPickerLayout
     let agentName: String?
-    let onApprove: (Set<ProviderID>) -> Void
+    /// Approve posts the provider selection plus the permission-bundle toggle
+    /// state (service id → toggled-on bundle ids) for the selected cloud
+    /// providers. Empty map when the catalog had no bundles for them.
+    let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
     let onDeny: () -> Void
     let onConnect: (ProviderID) -> Void
 
     @State private var selection: Set<ProviderID>
+    @State private var bundleSelection: [String: Set<String>]
 
     init(
         layout: CapabilityPickerLayout,
         agentName: String? = nil,
-        onApprove: @escaping (Set<ProviderID>) -> Void,
+        onApprove: @escaping (Set<ProviderID>, [String: Set<String>]) -> Void,
         onDeny: @escaping () -> Void,
         onConnect: @escaping (ProviderID) -> Void
     ) {
@@ -31,6 +35,7 @@ struct CapabilityPickerCardView: View {
         self.onDeny = onDeny
         self.onConnect = onConnect
         _selection = State(initialValue: layout.defaultSelection)
+        _bundleSelection = State(initialValue: layout.defaultBundleSelection)
     }
 
     var body: some View {
@@ -48,6 +53,9 @@ struct CapabilityPickerCardView: View {
             // checked.
             .onChange(of: layout.defaultSelection) { _, newValue in
                 selection = newValue
+            }
+            .onChange(of: layout.serviceBundles) { _, _ in
+                bundleSelection = layout.defaultBundleSelection
             }
     }
 
@@ -77,7 +85,8 @@ struct CapabilityPickerCardView: View {
             if let onlyProvider {
                 providerRow(onlyProvider, style: .checkmark(checked: true))
             }
-            actionButtons(approveEnabled: !selection.isEmpty)
+            bundleRowsSection
+            actionButtons(approveEnabled: approveEnabled)
         }
     }
 
@@ -94,7 +103,8 @@ struct CapabilityPickerCardView: View {
                         .onTapGesture { selectSingle(provider) }
                 }
             }
-            actionButtons(approveEnabled: !selection.isEmpty)
+            bundleRowsSection
+            actionButtons(approveEnabled: approveEnabled)
         }
     }
 
@@ -111,7 +121,8 @@ struct CapabilityPickerCardView: View {
                         .onTapGesture { toggleMulti(provider) }
                 }
             }
-            actionButtons(approveEnabled: !selection.isEmpty)
+            bundleRowsSection
+            actionButtons(approveEnabled: approveEnabled)
         }
     }
 
@@ -169,7 +180,8 @@ struct CapabilityPickerCardView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
-            actionButtons(approveEnabled: !selection.isEmpty)
+            bundleRowsSection
+            actionButtons(approveEnabled: approveEnabled)
         }
     }
 
@@ -220,6 +232,87 @@ struct CapabilityPickerCardView: View {
         case .writeUpdate: return "update entries in"
         case .writeDelete: return "delete entries in"
         }
+    }
+
+    // MARK: - Permission bundles
+
+    /// Bundle groups for the providers currently selected — the rows the user
+    /// is consenting to when tapping Approve.
+    private var selectedBundleGroups: [CapabilityPickerLayout.ServiceBundles] {
+        layout.serviceBundles.filter { selection.contains($0.providerId) }
+    }
+
+    /// Approve needs a provider selection, and every selected bundle-scoped
+    /// service needs at least one bundle toggled on — an empty bundle set
+    /// would grant nothing (and must never escalate to whole-service access).
+    private var approveEnabled: Bool {
+        guard !selection.isEmpty else { return false }
+        return selectedBundleGroups.allSatisfy { group in
+            !bundleSelection[group.serviceId, default: []].isEmpty
+        }
+    }
+
+    /// The bundle toggle state pruned to the services the approval covers.
+    private var approvedBundleSelection: [String: Set<String>] {
+        var approved: [String: Set<String>] = [:]
+        for group in selectedBundleGroups {
+            approved[group.serviceId] = bundleSelection[group.serviceId, default: []]
+        }
+        return approved
+    }
+
+    @ViewBuilder
+    private var bundleRowsSection: some View {
+        let groups = selectedBundleGroups
+        if !groups.isEmpty {
+            VStack(spacing: DesignConstants.Spacing.stepX) {
+                ForEach(groups, id: \.serviceId) { group in
+                    ForEach(group.rows, id: \.id) { row in
+                        bundleRow(row, serviceId: group.serviceId)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bundleRow(
+        _ row: CapabilityPickerLayout.ServiceBundles.Row,
+        serviceId: String
+    ) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text(row.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                if !row.description.isEmpty {
+                    Text(row.description)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(3)
+                }
+            }
+            Spacer(minLength: 0)
+            Toggle(row.title, isOn: bundleBinding(serviceId: serviceId, bundleId: row.id))
+                .labelsHidden()
+                .tint(.colorFillPrimary)
+        }
+        .padding(DesignConstants.Spacing.step2x)
+    }
+
+    private func bundleBinding(serviceId: String, bundleId: String) -> Binding<Bool> {
+        Binding(
+            get: { bundleSelection[serviceId, default: []].contains(bundleId) },
+            set: { isOn in
+                var ids = bundleSelection[serviceId, default: []]
+                if isOn {
+                    ids.insert(bundleId)
+                } else {
+                    ids.remove(bundleId)
+                }
+                bundleSelection[serviceId] = ids
+            }
+        )
     }
 
     private enum RowStyle {
@@ -317,11 +410,12 @@ struct CapabilityPickerCardView: View {
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
 
-            Button("Approve") {
-                onApprove(selection)
+            let approveAction = {
+                onApprove(selection, approvedBundleSelection)
             }
-            .convosButtonStyle(.rounded(fullWidth: true))
-            .disabled(!approveEnabled)
+            Button("Approve", action: approveAction)
+                .convosButtonStyle(.rounded(fullWidth: true))
+                .disabled(!approveEnabled)
         }
     }
 }
@@ -385,7 +479,7 @@ private struct PreviewBackground<Content: View>: View {
                 providers: [.sample(id: "device.calendar", displayName: "Apple Calendar", iconName: "calendar", subject: .calendar)],
                 defaultSelection: [ProviderID(rawValue: "device.calendar")]
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )
@@ -405,7 +499,7 @@ private struct PreviewBackground<Content: View>: View {
                 ],
                 defaultSelection: [ProviderID(rawValue: "device.calendar")]
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )
@@ -424,7 +518,7 @@ private struct PreviewBackground<Content: View>: View {
                 ],
                 defaultSelection: []
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )
@@ -447,7 +541,7 @@ private struct PreviewBackground<Content: View>: View {
                     ProviderID(rawValue: "composio.strava"),
                 ]
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )
@@ -466,7 +560,46 @@ private struct PreviewBackground<Content: View>: View {
                 ],
                 defaultSelection: []
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
+            onDeny: {},
+            onConnect: { _ in }
+        )
+    }
+}
+
+#Preview("Variant 1 — permission bundles (Google Calendar)") {
+    PreviewBackground {
+        CapabilityPickerCardView(
+            layout: CapabilityPickerLayout(
+                request: .sample(),
+                variant: .confirm,
+                providers: [
+                    .sample(id: "composio.googlecalendar", displayName: "Google Calendar", iconName: "calendar", subject: .calendar),
+                ],
+                defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")],
+                serviceBundles: [
+                    CapabilityPickerLayout.ServiceBundles(
+                        providerId: ProviderID(rawValue: "composio.googlecalendar"),
+                        serviceId: "googlecalendar",
+                        serviceVersion: 2,
+                        rows: [
+                            .init(
+                                id: "calendar.events",
+                                title: "Events",
+                                description: "View and edit events on all calendars",
+                                defaultEnabled: false
+                            ),
+                            .init(
+                                id: "calendar.events.read",
+                                title: "View events",
+                                description: "View events on all calendars",
+                                defaultEnabled: true
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )
@@ -482,7 +615,7 @@ private struct PreviewBackground<Content: View>: View {
                 providers: [.sample(id: "device.calendar", displayName: "Apple Calendar", iconName: "calendar", subject: .calendar)],
                 defaultSelection: [ProviderID(rawValue: "device.calendar")]
             ),
-            onApprove: { _ in },
+            onApprove: { _, _ in },
             onDeny: {},
             onConnect: { _ in }
         )

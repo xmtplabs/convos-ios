@@ -462,3 +462,129 @@ struct CommitDenyCancelTests {
         #expect(result.providers.isEmpty)
     }
 }
+
+@Suite("CapabilityRequestHandler.computeLayout — service bundles")
+struct ComputeLayoutServiceBundlesTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+
+    private func makeRequest() -> CapabilityRequest {
+        CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+    }
+
+    private func makeRegistry(_ providers: [StubProvider]) async -> any CapabilityProviderRegistry {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for provider in providers { await registry.register(provider) }
+        return registry
+    }
+
+    private func calendarService(version: Int = 2) -> CloudConnectionsAPI.ServiceConfig {
+        CloudConnectionsAPI.ServiceConfig(
+            id: "googlecalendar",
+            composioSlug: "googlecalendar",
+            version: version,
+            displayName: .init(values: ["en": "Google Calendar"]),
+            bundles: [
+                .init(
+                    id: "calendar.events",
+                    title: .init(values: ["en": "Events"]),
+                    description: .init(values: ["en": "View and edit events on all calendars"]),
+                    defaultEnabled: false
+                ),
+                .init(
+                    id: "calendar.events.read",
+                    title: .init(values: ["en": "View events"]),
+                    description: .init(values: ["en": "View events on all calendars"]),
+                    defaultEnabled: true
+                ),
+            ]
+        )
+    }
+
+    @Test("cloud providers with a catalog entry get bundle rows; device providers don't")
+    func bundlesAttachToCloudProviders() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+            StubProvider(
+                id: appleCalendar,
+                subject: .calendar,
+                displayName: "Apple Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()]
+        )
+        #expect(layout.serviceBundles.count == 1)
+        let group = layout.serviceBundles.first
+        #expect(group?.providerId == googleCalendar)
+        #expect(group?.serviceId == "googlecalendar")
+        #expect(group?.serviceVersion == 2)
+        #expect(group?.rows.map(\.id) == ["calendar.events", "calendar.events.read"])
+        #expect(group?.rows.first?.title == "Events")
+        #expect(group?.rows.first?.description == "View and edit events on all calendars")
+    }
+
+    @Test("defaultBundleSelection seeds from the catalog's defaultEnabled flags")
+    func defaultSelectionFollowsDefaultEnabled() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()]
+        )
+        #expect(layout.defaultBundleSelection == ["googlecalendar": ["calendar.events.read"]])
+    }
+
+    @Test("an empty catalog leaves the layout bundle-free")
+    func emptyCatalogMeansNoBundles() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1"
+        )
+        #expect(layout.serviceBundles.isEmpty)
+        #expect(layout.defaultBundleSelection.isEmpty)
+    }
+}

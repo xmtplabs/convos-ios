@@ -328,8 +328,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             CapabilityPickerCardView(
                                 layout: layout,
                                 agentName: viewModel.askerDisplayName(for: layout.request),
-                                onApprove: { providerIds in
-                                    viewModel.onCapabilityApprove(providerIds: providerIds)
+                                onApprove: { providerIds, bundleSelection in
+                                    viewModel.onCapabilityApprove(
+                                        providerIds: providerIds,
+                                        bundleSelection: bundleSelection
+                                    )
                                 },
                                 onDeny: {
                                     viewModel.onCapabilityDeny()
