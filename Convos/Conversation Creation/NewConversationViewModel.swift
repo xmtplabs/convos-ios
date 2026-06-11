@@ -513,75 +513,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.conversationViewModel = convoVM
     }
 
-    /// Returns a draft `Conversation` for use as a placeholder. When this
-    /// VM was started by the contacts picker
-    /// (`startedWithSeededMembers == true`), the draft carries synthetic
-    /// `ConversationMember`s built from the contact list so the chat
-    /// header renders the contact's name + avatar (and `kind = .dm` for
-    /// a single contact) from the moment the sheet opens. The
-    /// conversation publisher's `.ready` emission later replaces the
-    /// synthetic members with the real ones keyed by the same `inboxId`,
-    /// so the transition is a no-op re-render rather than a flicker.
-    /// Arms the `ConversationViewModel` publisher-emission gate for
-    /// picker-seeded VMs only. The default state on
-    /// `ConversationViewModel` is "gate open"; arming here matches
-    /// the synthetic draft we just constructed so DB emissions with
-    /// fewer non-self members are dropped until the state machine's
-    /// addMembers hook catches up. Optimistic agent members are excluded
-    /// from the gate count - the provisioned instances only join well
-    /// after `.ready`, so they're handed over as overlay members instead
-    /// (see `ConversationViewModel.markSeeded(expectingMemberCount:pendingAgentMembers:)`).
-    /// No-op when the draft has no seeded members (e.g.
-    /// `.newConversation`, scanner, joinInvite).
-    private func armSeededExpectationIfNeeded(
-        on convoVM: ConversationViewModel,
-        for draftConversation: Conversation
-    ) {
-        guard startedWithSeededMembers else { return }
-        let seededMembers = draftConversation.membersWithoutCurrent
-        let pendingAgentMembers = seededMembers.filter(\.isOptimisticAgentMember)
-        convoVM.markSeeded(
-            expectingMemberCount: seededMembers.count - pendingAgentMembers.count,
-            pendingAgentMembers: pendingAgentMembers
-        )
-    }
-
-    private func makeDraftConversation(id: String) -> Conversation {
-        guard startedWithSeededMembers,
-              !(seededMemberInboxIds.isEmpty && seededAgentTemplateIds.isEmpty) else {
-            return .empty(id: id)
-        }
-        let contactsRepository = session.messagingServiceSync().contactsRepository()
-        let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
-        // Agent contacts are canonical rows keyed by agentTemplateId (one
-        // per template), so picked templates resolve back through the same
-        // contacts repository. A templateId with no contact row (e.g. a
-        // suggested agent the user never chatted with) is skipped - that
-        // selection just keeps the non-optimistic behavior.
-        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
-        let seededAgentInfos: [AgentShareInfo] = seededAgentTemplateIds.compactMap { templateId in
-            allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
-        }
-        guard !seededContacts.isEmpty || !seededAgentInfos.isEmpty else {
-            return .empty(id: id)
-        }
-        var members: [ConversationMember] = seededContacts.map { $0.syntheticMember(conversationId: id) }
-        members += seededAgentInfos.map { $0.optimisticCardMember(conversationId: id) }
-        if case .authorized(let selfInboxId) = session.messagingServiceSync().state {
-            let selfProfile = Profile(
-                inboxId: selfInboxId,
-                conversationId: id,
-                name: nil,
-                avatar: nil
-            )
-            members.insert(
-                ConversationMember(profile: selfProfile, role: .superAdmin, isCurrentUser: true),
-                at: 0
-            )
-        }
-        return .draft(id: id, seededMembers: members)
-    }
-
     private func configureWithMessagingService(
         _ messagingService: AnyMessagingService,
         existingConversationId: String?,
@@ -1265,5 +1196,79 @@ private extension NewConversationMode {
         case .existingConversation, .scanner, .joinInvite:
             return false
         }
+    }
+}
+
+// MARK: - Seeded draft construction
+
+private extension NewConversationViewModel {
+    /// Arms the `ConversationViewModel` publisher-emission gate for
+    /// picker-seeded VMs only. The default state on
+    /// `ConversationViewModel` is "gate open"; arming here matches
+    /// the synthetic draft we just constructed so DB emissions with
+    /// fewer non-self members are dropped until the state machine's
+    /// addMembers hook catches up. Optimistic agent members are excluded
+    /// from the gate count - the provisioned instances only join well
+    /// after `.ready`, so they're handed over as overlay members instead
+    /// (see `ConversationViewModel.markSeeded(expectingMemberCount:pendingAgentMembers:)`).
+    /// No-op when the draft has no seeded members (e.g.
+    /// `.newConversation`, scanner, joinInvite).
+    func armSeededExpectationIfNeeded(
+        on convoVM: ConversationViewModel,
+        for draftConversation: Conversation
+    ) {
+        guard startedWithSeededMembers else { return }
+        let seededMembers = draftConversation.membersWithoutCurrent
+        let pendingAgentMembers = seededMembers.filter(\.isOptimisticAgentMember)
+        convoVM.markSeeded(
+            expectingMemberCount: seededMembers.count - pendingAgentMembers.count,
+            pendingAgentMembers: pendingAgentMembers
+        )
+    }
+
+    /// Returns a draft `Conversation` for use as a placeholder. When this
+    /// VM was started by the contacts picker
+    /// (`startedWithSeededMembers == true`), the draft carries synthetic
+    /// `ConversationMember`s built from the contact list - and optimistic
+    /// members for picked agent templates - so the chat header renders
+    /// the picked end state from the moment the sheet opens. The
+    /// conversation publisher's `.ready` emission later replaces the
+    /// synthetic human members with the real ones keyed by the same
+    /// `inboxId`, so the transition is a no-op re-render rather than a
+    /// flicker.
+    func makeDraftConversation(id: String) -> Conversation {
+        guard startedWithSeededMembers,
+              !(seededMemberInboxIds.isEmpty && seededAgentTemplateIds.isEmpty) else {
+            return .empty(id: id)
+        }
+        let contactsRepository = session.messagingServiceSync().contactsRepository()
+        let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
+        // Agent contacts are canonical rows keyed by agentTemplateId (one
+        // per template), so picked templates resolve back through the same
+        // contacts repository. A templateId with no contact row (e.g. a
+        // suggested agent the user never chatted with) is skipped - that
+        // selection just keeps the non-optimistic behavior.
+        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
+        let seededAgentInfos: [AgentShareInfo] = seededAgentTemplateIds.compactMap { templateId in
+            allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
+        }
+        guard !seededContacts.isEmpty || !seededAgentInfos.isEmpty else {
+            return .empty(id: id)
+        }
+        var members: [ConversationMember] = seededContacts.map { $0.syntheticMember(conversationId: id) }
+        members += seededAgentInfos.map { $0.optimisticCardMember(conversationId: id) }
+        if case .authorized(let selfInboxId) = session.messagingServiceSync().state {
+            let selfProfile = Profile(
+                inboxId: selfInboxId,
+                conversationId: id,
+                name: nil,
+                avatar: nil
+            )
+            members.insert(
+                ConversationMember(profile: selfProfile, role: .superAdmin, isCurrentUser: true),
+                at: 0
+            )
+        }
+        return .draft(id: id, seededMembers: members)
     }
 }
