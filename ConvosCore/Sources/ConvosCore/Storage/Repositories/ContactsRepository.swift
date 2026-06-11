@@ -31,6 +31,14 @@ public protocol ContactsRepositoryProtocol: Sendable {
     /// Fetches a single contact by inboxId.
     func fetchContact(inboxId: String) throws -> Contact?
 
+    /// Targeted lookup of the canonical agent contacts for the given
+    /// template ids - at most one contact per id, with the same
+    /// per-template collapsing as `fetchAll()`. Used by the picker flows
+    /// to resolve picked agent templates without loading the whole
+    /// contacts table. Ids with no contact row are absent from the
+    /// result; order is unspecified.
+    func fetchContacts(templateIds: [String]) throws -> [Contact]
+
     /// Batch lookup of source-conversation metadata (name + kind) for the
     /// "you met them in X" subtitle on contact rows. Callers index by
     /// `addedViaConversationId`. Missing ids are absent from the result
@@ -66,6 +74,18 @@ extension ContactsRepositoryProtocol {
     /// handle a thrown error mid-paint.
     public func contact(for inboxId: String) -> Contact? {
         try? fetchContact(inboxId: inboxId)
+    }
+
+    /// Default `fetchContacts(templateIds:)` backed by `fetchAll()`, so
+    /// mock conformers stay minimal. The live repository overrides this
+    /// with an indexed query.
+    public func fetchContacts(templateIds: [String]) throws -> [Contact] {
+        guard !templateIds.isEmpty else { return [] }
+        let ids = Set(templateIds)
+        return try fetchAll().filter { contact in
+            guard let templateId = contact.agentTemplateId else { return false }
+            return ids.contains(templateId)
+        }
     }
 
     /// Convenience adapter for ConvosCore APIs that take a name-only
@@ -123,6 +143,24 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
     func fetchContact(inboxId: String) throws -> Contact? {
         try databaseReader.read { db in
             try DBContact.fetchOne(db, key: inboxId).map(Contact.init(dbContact:))
+        }
+    }
+
+    /// Indexed variant of the protocol's default implementation: fetches
+    /// only rows whose `agentTemplateId` is in `templateIds`, then applies
+    /// the same canonical per-template collapsing as `fetchAll()`. The
+    /// fetch order matches `canonicalContacts` so the representative
+    /// chosen per template is identical to the browse list's.
+    func fetchContacts(templateIds: [String]) throws -> [Contact] {
+        guard !templateIds.isEmpty else { return [] }
+        return try databaseReader.read { db in
+            let templates = try ContactsRepository.templateMap(db)
+            return try DBContact
+                .filter(templateIds.contains(DBContact.Columns.agentTemplateId))
+                .order(DBContact.Columns.addedAt, DBContact.Columns.inboxId)
+                .fetchAll(db)
+                .map(Contact.init(dbContact:))
+                .dedupingAgentsByTemplate(using: templates)
         }
     }
 

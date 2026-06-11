@@ -101,7 +101,8 @@ extension ConversationMember {
     var optimisticAgentTemplateId: String? {
         guard isOptimisticAgentMember else { return nil }
         let suffix = String(profile.inboxId.dropFirst(AgentShareInfo.optimisticInboxIdPrefix.count))
-        return suffix == "pending" ? nil : suffix
+        guard !suffix.isEmpty, suffix != "pending" else { return nil }
+        return suffix
     }
 }
 

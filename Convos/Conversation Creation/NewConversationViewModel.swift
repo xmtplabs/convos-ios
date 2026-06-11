@@ -1248,10 +1248,8 @@ private extension NewConversationViewModel {
         // contacts repository. A templateId with no contact row (e.g. a
         // suggested agent the user never chatted with) is skipped - that
         // selection just keeps the non-optimistic behavior.
-        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
-        let seededAgentInfos: [AgentShareInfo] = seededAgentTemplateIds.compactMap { templateId in
-            allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
-        }
+        let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: seededAgentTemplateIds)) ?? []
+        let seededAgentInfos: [AgentShareInfo] = agentContacts.compactMap(\.agentShareInfo)
         guard !seededContacts.isEmpty || !seededAgentInfos.isEmpty else {
             return .empty(id: id)
         }

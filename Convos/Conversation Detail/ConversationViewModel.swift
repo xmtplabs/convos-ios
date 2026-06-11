@@ -1575,20 +1575,23 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     func seedOptimisticPickedMembers(inboxIds: [String], agentTemplateIds: [String]) {
         let conversationId = conversation.id
         let contactsRepository = messagingService.contactsRepository()
+        // Skip anyone already in the displayed conversation so seeding can
+        // never duplicate a real member (or a prior seed of the same pick).
+        let existingInboxIds = Set(conversation.members.map(\.profile.inboxId))
         let humanMembers: [ConversationMember] = inboxIds
             .compactMap { contactsRepository.contact(for: $0) }
             .map { $0.syntheticMember(conversationId: conversationId) }
+            .filter { !existingInboxIds.contains($0.profile.inboxId) }
         // Agent contacts are canonical rows keyed by agentTemplateId, so
         // picked templates resolve back through the same contacts
         // repository. A templateId with no contact row (e.g. a suggested
         // agent the user never chatted with) is skipped - that selection
         // just keeps the non-optimistic behavior.
-        let allContacts: [Contact] = (try? contactsRepository.fetchAll()) ?? []
-        let agentMembers: [ConversationMember] = agentTemplateIds
-            .compactMap { templateId in
-                allContacts.first(where: { $0.agentTemplateId == templateId })?.agentShareInfo
-            }
+        let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: agentTemplateIds)) ?? []
+        let agentMembers: [ConversationMember] = agentContacts
+            .compactMap(\.agentShareInfo)
             .map { $0.optimisticCardMember(conversationId: conversationId) }
+            .filter { !existingInboxIds.contains($0.profile.inboxId) }
         guard !(humanMembers.isEmpty && agentMembers.isEmpty) else { return }
         if latestRawConversation == nil {
             latestRawConversation = conversation
@@ -1635,6 +1638,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 unmatchedSynthetics.append(synthetic)
             }
         }
+        // Count-based fallback: a joined agent whose templateId metadata
+        // hasn't resolved yet consumes one unmatched synthetic. With several
+        // simultaneous joins this can briefly pair the wrong identities, but
+        // it self-corrects on the next emission once metadata arrives.
         var stillPending: [ConversationMember] = []
         for synthetic in unmatchedSynthetics {
             if let index = unmatchedAgents.firstIndex(where: { $0.profile.agentTemplateId == nil }) {
