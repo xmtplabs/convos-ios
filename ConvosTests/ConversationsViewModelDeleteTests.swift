@@ -363,6 +363,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.commitClaimedConversation(id: conversationId)
     }
 
+    func registerClaimedConversation(id conversationId: String) async {
+        await base.registerClaimedConversation(id: conversationId)
+    }
+
     func releaseClaimedConversation(id conversationId: String) async {
         await base.releaseClaimedConversation(id: conversationId)
     }

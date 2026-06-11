@@ -1524,15 +1524,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    // Best-effort: the picker renders provider-only rows when the
-                    // services catalog is unreachable; bundle rows appear once it is.
-                    let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
-                    let layout = await handler.computeLayout(
+                    let layout = await Self.computeCapabilityPickerLayout(
                         request: request,
                         registry: registry,
                         resolver: resolver,
-                        conversationId: conversationId,
-                        services: services
+                        handler: handler,
+                        servicesStore: self.messagingService.connectionServicesStore(),
+                        conversationId: conversationId
                     )
                     // Discard if a newer request arrived while we were computing —
                     // otherwise an out-of-order completion can stomp the latest UI.
@@ -2299,17 +2297,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let handler = CapabilityRequestHandler()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Mirror the initial layout's catalog fetch: omitting `services:`
-            // drops the bundle rows, and a subsequent approve would silently
-            // escalate to full-service consent instead of the user's earlier
-            // per-bundle selection.
-            let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
-            let layout = await handler.computeLayout(
+            let layout = await Self.computeCapabilityPickerLayout(
                 request: request,
                 registry: registry,
                 resolver: resolver,
-                conversationId: conversationId,
-                services: services
+                handler: handler,
+                servicesStore: self.messagingService.connectionServicesStore(),
+                conversationId: conversationId
             )
             // If a newer request arrived OR the user already approved/denied this one,
             // don't revive the picker with a stale layout.
@@ -2319,6 +2313,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
             self.pendingCapabilityPickerLayout = layout
         }
+    }
+
+    /// The one place a picker layout is computed: every path MUST resolve the
+    /// services catalog or bundle rows silently disappear and a subsequent
+    /// approve escalates to full-service consent instead of the user's earlier
+    /// per-bundle selection. Best-effort fetch: when the catalog is
+    /// unreachable the sheet renders provider-only rows, and the grant writer
+    /// fails closed on its own catalog resolution.
+    static func computeCapabilityPickerLayout(
+        request: CapabilityRequest,
+        registry: any CapabilityProviderRegistry,
+        resolver: any CapabilityResolver,
+        handler: CapabilityRequestHandler,
+        servicesStore: any ConnectionServicesStoreProtocol,
+        conversationId: String
+    ) async -> CapabilityPickerLayout {
+        let services = (try? await servicesStore.catalog()) ?? []
+        return await handler.computeLayout(
+            request: request,
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId,
+            services: services
+        )
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {
