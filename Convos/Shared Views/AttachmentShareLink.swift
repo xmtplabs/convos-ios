@@ -23,9 +23,15 @@ struct AttachmentShareLink: View {
     }
 
     var body: some View {
+        // The id includes the appearance so a light/dark switch re-renders
+        // the share payload instead of leaving the previous scheme armed.
+        let appearanceSuffix: String = colorScheme == .dark ? "dark" : "light"
         shareLink
             .accessibilityLabel("Share")
-            .task(id: attachment.key) {
+            .task(id: "\(attachment.key)-\(appearanceSuffix)") {
+                resolvedHTMLTitle = nil
+                sharedImage = nil
+                sharedImageURL = nil
                 await resolveTitleIfNeeded()
                 await resolveShareImageIfNeeded()
             }
@@ -34,14 +40,22 @@ struct AttachmentShareLink: View {
     @ViewBuilder
     private var shareLink: some View {
         let title: String = resolvedHTMLTitle ?? attachment.filename ?? "Attachment"
-        if let url = sharedImageURL, let image = sharedImage {
-            let previewImage: Image = Image(uiImage: image)
+        if let url = sharedImageURL {
             let items: [URL] = attachment.isHTMLFile ? [url] : [fileURL, url]
-            ShareLink(items: items, preview: { (_: URL) in
-                SharePreview(title, image: previewImage)
-            }, label: {
-                Image(systemName: "square.and.arrow.up")
-            })
+            if let image = sharedImage {
+                let previewImage: Image = Image(uiImage: image)
+                ShareLink(items: items, preview: { (_: URL) in
+                    SharePreview(title, image: previewImage)
+                }, label: {
+                    Image(systemName: "square.and.arrow.up")
+                })
+            } else {
+                ShareLink(items: items, preview: { (_: URL) in
+                    SharePreview(title)
+                }, label: {
+                    Image(systemName: "square.and.arrow.up")
+                })
+            }
         } else if attachment.isHTMLFile {
             // HTML shares only the rendered image, so there is nothing to
             // share until the full-page render lands.
@@ -89,13 +103,15 @@ struct AttachmentShareLink: View {
             appearance: appearance,
             basename: shareImageBasename()
         )
-        guard let thumbnail else { return }
         if let fullPageURL {
+            // Arm even when the tile thumbnail failed - the share sheet
+            // then shows a title-only preview instead of staying dimmed.
             sharedImage = thumbnail
             sharedImageURL = fullPageURL
             return
         }
         // Full-page render failed; fall back to sharing the tile image.
+        guard let thumbnail else { return }
         let fallbackURL: URL? = await writeSharePNG(image: thumbnail, basename: shareImageBasename())
         sharedImage = thumbnail
         sharedImageURL = fallbackURL
@@ -145,7 +161,11 @@ struct AttachmentShareLink: View {
     }
 
     private func writeSharePNG(image: UIImage, basename: String) async -> URL? {
-        let url: URL = FileManager.default.temporaryDirectory.appendingPathComponent("\(basename).png")
+        // Namespace by attachment key so same-named attachments cannot
+        // overwrite each other's armed share payload.
+        let url: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("share-" + HTMLThumbnailRenderer.stableKeyComponent(for: attachment.key), isDirectory: true)
+            .appendingPathComponent("\(basename).png")
         // Full-page renders are large bitmaps; encode and write off the main
         // actor so the share button does not stall the UI.
         let written: Bool = await Task.detached(priority: .utility) {
@@ -154,6 +174,10 @@ struct AttachmentShareLink: View {
                 return false
             }
             do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 try pngData.write(to: url, options: .atomic)
                 return true
             } catch {

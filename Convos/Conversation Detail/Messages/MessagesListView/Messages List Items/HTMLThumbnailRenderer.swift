@@ -284,26 +284,40 @@ final class HTMLThumbnailRenderer {
 
     private var inflightPNG: [String: Task<URL?, Never>] = [:]
 
+    /// Collision-safe path component for an attachment key: a short
+    /// readable sanitized prefix plus a stable FNV-1a hash of the full
+    /// key, so long keys that share a prefix cannot collide the way a
+    /// plain truncation would.
+    nonisolated static func stableKeyComponent(for raw: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in raw.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        let readable: String = sanitizePathComponent(String(raw.prefix(24)))
+        return readable + "-" + String(hash, radix: 16)
+    }
+
     private static func fullPageCacheURL(
         for attachmentKey: String,
         appearance: UIUserInterfaceStyle,
         basename: String
     ) -> URL {
         let caches: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let keyComponent: String = sanitizePathComponent(attachmentKey) + "-" + appearanceSuffix(for: appearance)
+        let keyComponent: String = stableKeyComponent(for: attachmentKey) + "-" + appearanceSuffix(for: appearance)
         return caches
             .appendingPathComponent("html-fullpage-v1", isDirectory: true)
             .appendingPathComponent(keyComponent, isDirectory: true)
             .appendingPathComponent(basename + ".png")
     }
 
-    private static func sanitizePathComponent(_ raw: String) -> String {
+    private nonisolated static func sanitizePathComponent(_ raw: String) -> String {
         let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         var output: String = ""
         for scalar in raw.unicodeScalars {
             output.append(allowed.contains(scalar) ? Character(scalar) : "_")
         }
-        return String(output.isEmpty ? "attachment" : output.prefix(64))
+        return output.isEmpty ? "attachment" : output
     }
 
     private static func writePNG(image: UIImage, to url: URL) async -> URL? {

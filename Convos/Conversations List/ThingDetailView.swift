@@ -87,6 +87,9 @@ struct ThingDetailView: View {
     }
 
     private func loadFile() async {
+        // Drop the previous attachment's URL first: the share button must
+        // not pair the new attachment with the old file while it loads.
+        fileURL = nil
         do {
             let url = try await FileAttachmentLoader.loadFile(for: item.hydratedAttachment)
             fileURL = url
