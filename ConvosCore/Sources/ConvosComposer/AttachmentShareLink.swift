@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import ConvosLogging
 import SwiftUI
@@ -191,21 +192,27 @@ struct AttachmentSharePayload {
 /// in-conversation attachment preview and the Stuff detail screen. The
 /// share content comes from `AttachmentSharePayload` so it matches the
 /// message context menu's Share action.
-struct AttachmentShareLink: View {
+public struct AttachmentShareLink: View {
     let attachment: HydratedAttachment
     let fileURL: URL
     /// Shown (and used as the shared file's name) when the artifact has no
     /// resolvable HTML title - pass the creating agent's display name.
     var fallbackTitle: String?
 
+    public init(attachment: HydratedAttachment, fileURL: URL, fallbackTitle: String? = nil) {
+        self.attachment = attachment
+        self.fileURL = fileURL
+        self.fallbackTitle = fallbackTitle
+    }
+
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var payload: AttachmentSharePayload?
 
-    static func canShare(_ attachment: HydratedAttachment) -> Bool {
+    public static func canShare(_ attachment: HydratedAttachment) -> Bool {
         attachment.isHTMLFile || attachment.isMarkdownFile
     }
 
-    var body: some View {
+    public var body: some View {
         // The id includes the appearance so a light/dark switch re-renders
         // the share payload instead of leaving the previous scheme armed.
         let appearanceSuffix: String = colorScheme == .dark ? "dark" : "light"
@@ -253,3 +260,4 @@ struct AttachmentShareLink: View {
         }
     }
 }
+#endif

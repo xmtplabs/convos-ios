@@ -42,3 +42,4 @@ typealias AgentContactCardView = ConvosComposer.AgentContactCardView
 typealias AgentLostPowerStatus = ConvosComposer.AgentLostPowerStatus
 typealias CloudConnectionServiceInfo = ConvosComposer.CloudConnectionServiceInfo
 typealias CloudConnectionServiceCatalog = ConvosComposer.CloudConnectionServiceCatalog
+typealias AttachmentShareLink = ConvosComposer.AttachmentShareLink

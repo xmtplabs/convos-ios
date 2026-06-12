@@ -90,6 +90,7 @@ let package = Package(
                 .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
                 .product(name: "DifferenceKit", package: "DifferenceKit", condition: .when(platforms: [.iOS])),
+                .product(name: "ConvosLogging", package: "ConvosLogging", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosComposer",
             resources: [
