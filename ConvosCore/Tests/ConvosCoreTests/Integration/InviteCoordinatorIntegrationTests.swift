@@ -440,6 +440,89 @@ struct InviteCoordinatorIntegrationTests {
         )
     }
 
+    /// Only an explicit .denied consent (delete, block, and explode all
+    /// write it) is reported to the joiner. The reply's reason carries the
+    /// consent state so telemetry can tell denials from sync gaps.
+    @Test("Join into a .denied group sends one consent_not_allowed error")
+    func deniedConsentSendsConsentError() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let coordinator = makeCoordinator()
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+        // The creator deletes the conversation after the invite went out.
+        try await group.updateConsentState(state: .denied)
+
+        _ = try await coordinator.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+
+        let errors = try await joinErrors(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errors.count == 1, "A join into a denied group sends exactly one error reply")
+        #expect(errors.first?.errorType == .consentNotAllowed)
+        #expect(errors.first?.reason?.contains("denied") == true)
+
+        let memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID), "Joiner must not be added to a denied group")
+    }
+
+    /// .unknown consent means this installation has no consent record for
+    /// the group (paired and restored installations start that way for the
+    /// user's own groups), not that the creator declined. The join must
+    /// proceed - the invite signature already proves this inbox authored
+    /// the invite - and no error reply may be sent.
+    @Test("Join into an .unknown-consent group proceeds without an error")
+    func unknownConsentProceedsWithoutError() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let coordinator = makeCoordinator()
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+        // Simulate a paired or restored installation that has the group but
+        // no consent record for it yet.
+        try await group.updateConsentState(state: .unknown)
+
+        _ = try await coordinator.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let outcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+
+        #expect(
+            outcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "An .unknown consent state must not block the join"
+        )
+        let memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID), "Joiner must be added when consent is .unknown")
+
+        let errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(errorCount == 0, "An .unknown consent state must not send an error reply")
+    }
+
+    private func joinErrors(inDmWith peerInboxId: String, client: Client) async throws -> [InviteJoinError] {
+        let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
+        let messages = try await dm.messages()
+        return messages.compactMap { (message: DecodedMessage) -> InviteJoinError? in
+            guard let contentType = try? message.encodedContent.type,
+                  contentType == ContentTypeInviteJoinError else { return nil }
+            return try? message.content() as InviteJoinError
+        }
+    }
+
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
         try await messageCount(ofType: ContentTypeInviteJoinError, inDmWith: peerInboxId, client: client)
     }
