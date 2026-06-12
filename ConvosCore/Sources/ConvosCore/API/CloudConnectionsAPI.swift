@@ -27,4 +27,20 @@ public enum CloudConnectionsAPI {
     public struct ListResponse: Codable, Sendable {
         public let connections: [ConnectionResponse]
     }
+
+    public struct CreateGrantResponse: Codable, Sendable {
+        public let id: String
+
+        public init(id: String) {
+            self.id = id
+        }
+    }
+
+    public struct RevokeGrantResponse: Codable, Sendable {
+        public let revoked: Int
+
+        public init(revoked: Int) {
+            self.revoked = revoked
+        }
+    }
 }

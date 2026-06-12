@@ -72,6 +72,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         try await databaseWriter.write { db in
             try grant.save(db)
         }
+
+        await pushGrantToBackend(grant, connection: connection)
     }
 
     func revokeGrant(
@@ -91,7 +93,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 )
                 .fetchOne(db)
         }
-        guard existing != nil else {
+        guard let existing else {
             // Nothing to revoke, no-op.
             return
         }
@@ -114,6 +116,83 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                         && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
                 )
                 .deleteAll(db)
+        }
+
+        await revokeBackendGrant(for: existing)
+    }
+
+    /// Pushes one per-agent consent record to the backend grant store and
+    /// remembers the returned id on the local row so revocation can target it.
+    /// Best-effort with no retry: on failure the local grant stands, but the
+    /// backend will deny the agent's tool execution (403) until the user
+    /// re-grants, so the failure is logged at error level.
+    private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            // `actions` would scope the grant to specific Composio action slugs
+            // (e.g. "GOOGLECALENDAR_CREATE_EVENT"). iOS has no source of those
+            // slugs at grant time: the consent model only carries a coarse
+            // verb set (read / write_*), and CapabilityRequestResult.availableActions
+            // holds device-action names, not Composio slugs. Until a
+            // capability->Composio-action mapping exists, every grant is
+            // whole-toolkit (empty actions). Logged so the scoping gap is visible
+            // rather than silently implied.
+            let actions: [String] = []
+            Log.warning(
+                "[CloudConnections] pushing whole-toolkit grant (no per-action scope available): " +
+                "toolkit=\(connection.serviceId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)"
+            )
+            let response = try await inboxReady.apiClient.createConnectionGrant(
+                ownerInboxId: inboxReady.client.inboxId,
+                granteeInboxId: grant.grantedToInboxId,
+                conversationId: grant.conversationId,
+                toolkit: connection.serviceId,
+                actions: actions,
+                connectionId: connection.composioConnectionId
+            )
+            let updated = DBCloudConnectionGrant(
+                connectionId: grant.connectionId,
+                conversationId: grant.conversationId,
+                serviceId: grant.serviceId,
+                grantedToInboxId: grant.grantedToInboxId,
+                grantedAt: grant.grantedAt,
+                backendGrantId: response.id
+            )
+            try await databaseWriter.write { db in
+                try updated.save(db)
+            }
+        } catch {
+            Log.error(
+                "[CloudConnections] backend grant push failed; agent will get 403 from backend-mediated " +
+                "execution until the user re-grants (connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
+            )
+        }
+    }
+
+    /// Revokes the backend consent record for a grant that was just removed
+    /// locally. Uses the natural-key revoke (toolkit, conversation, grantee) so
+    /// it succeeds even when no backendGrantId was stored (the by-id path can't
+    /// run for those rows). Best-effort: a failure is logged and not retried;
+    /// the backend connection-level revoke (disconnect) independently cuts off
+    /// execution.
+    private func revokeBackendGrant(for grant: DBCloudConnectionGrant) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            try await inboxReady.apiClient.revokeConnectionGrantByNaturalKey(
+                toolkit: grant.serviceId,
+                conversationId: grant.conversationId,
+                granteeInboxId: grant.grantedToInboxId
+            )
+        } catch {
+            Log.warning(
+                "[CloudConnections] backend grant revoke failed " +
+                "(toolkit=\(grant.serviceId), connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
+            )
         }
     }
 

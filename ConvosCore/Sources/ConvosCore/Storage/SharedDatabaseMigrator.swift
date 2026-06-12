@@ -196,14 +196,14 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration(
-            "backfillContactAgentTemplateFieldsFromMemberProfiles",
-            migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
-        )
+        migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
+                                   migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
 
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 
         Self.registerRemovedStateMigrations(on: &migrator)
+
+        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
 
         return migrator
     }
@@ -424,6 +424,16 @@ extension SharedDatabaseMigrator {
             ON agentTemplate(slug)
             WHERE slug IS NOT NULL
             """)
+    }
+
+    /// Id of the backend ConnectionGrant record (POST /v2/connections/grants)
+    /// created when a local grant is pushed to the server. Nullable: rows
+    /// that predate the backend push, or whose push failed, have no backend
+    /// id and are skipped during backend revocation.
+    private static func addConnectionGrantBackendGrantId(_ db: Database) throws {
+        try db.alter(table: "connectionGrant") { t in
+            t.add(column: "backendGrantId", .text)
+        }
     }
 
     /// Rename `conversation.hasHadVerifiedAssistant` -> `hasHadVerifiedAgent`
