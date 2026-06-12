@@ -290,9 +290,10 @@ public final class MessagesListProcessor: Sendable {
             let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
             let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
             if rowsLanded || (withinWindow && !awaitingHistory) {
-                items.insert(
+                insertSummaryCard(
                     .agentBuilderSummary(makePendingCardContent(summary: summary)),
-                    at: pendingCardInsertionIndex(in: items, cutoffDate: summary.cutoffDate)
+                    into: &items,
+                    cutoffDate: summary.cutoffDate
                 )
             }
         }
@@ -879,21 +880,42 @@ private extension MessagesListProcessor {
     /// build.
     private static let pendingCardDisplayWindow: TimeInterval = 180
 
-    /// Chronological slot for the pending card: right after the bottom-most
-    /// message group whose newest message predates Make (`cutoffDate`), so
-    /// messages sent while the bundle is held render below the card in true
-    /// order -- the same spot the run-anchored card takes once the build's
-    /// rows land. Falls back to the top of the newer groups (none older) or
-    /// the end of the list (no message groups at all).
-    private static func pendingCardInsertionIndex(in items: [MessagesListItemType], cutoffDate: Date) -> Int {
+    /// Insert the summary card at its chronological Make slot: right after
+    /// the bottom-most message older than `cutoffDate`. Consecutive
+    /// same-sender messages merge into one group, so messages sent around
+    /// Make routinely share a group whose span straddles the boundary --
+    /// comparing whole groups would shove the card above the entire merged
+    /// group (the top of the list in a fresh chat). When the boundary falls
+    /// inside a group, split it at the boundary and seat the card between
+    /// the halves, the same way `reconstructBuilderCards` splices run cards
+    /// into groups. Falls back to the top of the newer groups (nothing
+    /// older) or the end of the list (no message groups at all).
+    private static func insertSummaryCard(
+        _ card: MessagesListItemType,
+        into items: inout [MessagesListItemType],
+        cutoffDate: Date
+    ) {
         var firstNewerGroupIndex: Int = items.count
         for (index, item) in items.enumerated().reversed() {
             guard case .messages(let group) = item,
+                  let firstDate = group.messages.first?.date,
                   let lastDate = group.messages.last?.date else { continue }
-            if lastDate <= cutoffDate { return index + 1 }
+            if lastDate <= cutoffDate {
+                items.insert(card, at: index + 1)
+                return
+            }
+            if firstDate <= cutoffDate {
+                let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
+                let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
+                guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
+                let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
+                let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
+                items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
+                return
+            }
             firstNewerGroupIndex = index
         }
-        return firstNewerGroupIndex
+        items.insert(card, at: firstNewerGroupIndex)
     }
 
     /// Card content built from the summary alone, for the window between Make

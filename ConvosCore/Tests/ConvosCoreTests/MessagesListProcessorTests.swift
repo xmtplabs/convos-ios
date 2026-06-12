@@ -1886,3 +1886,44 @@ extension MessagesListProcessorPendingBuilderCardTests {
         #expect(builderCards(from: result).isEmpty)
     }
 }
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Same-sender messages spanning Make split around the card instead of dragging it to the top")
+    func cardSplitsMergedGroupAtMakeBoundary() {
+        let make = Date()
+        // All from the current user, consecutive -- the processor merges them
+        // into one group spanning the Make boundary.
+        let messages = [
+            makeMessage(id: "pre-1", sender: currentUser, text: "Hi", date: make.addingTimeInterval(-120)),
+            makeMessage(id: "pre-2", sender: currentUser, text: "Setting up", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "post-1", sender: currentUser, text: "Sent right after Make", date: make.addingTimeInterval(20)),
+            makeMessage(id: "post-2", sender: currentUser, text: "And another", date: make.addingTimeInterval(40)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).count == 1)
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        func groupIndex(containing id: String) -> Int? {
+            result.firstIndex { item in
+                guard case .messages(let group) = item else { return false }
+                return group.messages.contains { $0.messageId == id }
+            }
+        }
+        #expect(cardIndex != nil)
+        if let cardIndex {
+            #expect(groupIndex(containing: "pre-2")! < cardIndex)
+            #expect(cardIndex < groupIndex(containing: "post-1")!)
+        }
+        // No message is lost in the split.
+        #expect(Set(messageIds(from: result)) == ["pre-1", "pre-2", "post-1", "post-2"])
+    }
+}
