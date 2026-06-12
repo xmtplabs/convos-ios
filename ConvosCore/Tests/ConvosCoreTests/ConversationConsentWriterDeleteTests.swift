@@ -46,6 +46,107 @@ struct ConversationConsentWriterDeleteTests {
         #expect(stored == nil)
     }
 
+    @Test("delete(conversation:) on a pending-invite draft writes the local denial without contacting XMTP")
+    func deleteDraftWritesLocalDenialWithoutXMTP() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let draftId = "draft-verifying-1"
+        try seedAllowedConversation(in: dbManager.dbWriter, conversationId: draftId)
+
+        // A pending-invite draft has no XMTP group to deny, so the writer
+        // must not touch the network path at all. A session manager that
+        // cannot vend a client proves the draft branch never asks for one --
+        // before the draft-aware fix this delete threw and the local denial
+        // was never written, so the conversation popped back into the list.
+        let writer = ConversationConsentWriter(
+            sessionStateManager: InboxUnavailableSessionStateManager(),
+            databaseWriter: dbManager.dbWriter
+        )
+
+        try await writer.delete(conversation: .mock(id: draftId))
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, id: draftId)
+        }
+        #expect(stored?.consent == .denied)
+    }
+
+    @Test("delete(conversation:) with a stale draft id re-targets the row that replaced the draft")
+    func deleteStaleDraftIdRetargetsReplacementRow() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        // The invite resolved while the delete was in flight: the draft row
+        // is gone and the real group's row kept the draft id as its sticky
+        // clientConversationId.
+        let draftId = "draft-resolved-1"
+        let realId = "real-group-resolved-1"
+        try seedAllowedConversation(
+            in: dbManager.dbWriter,
+            conversationId: realId,
+            clientConversationId: draftId
+        )
+
+        let writer = ConversationConsentWriter(
+            sessionStateManager: MockSessionStateManager(),
+            databaseWriter: dbManager.dbWriter
+        )
+
+        try await writer.delete(conversation: .mock(id: draftId))
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, id: realId)
+        }
+        #expect(stored?.consent == .denied)
+    }
+
+    @Test("delete(conversation:) with a stale draft id uses the networked denial for the replacement row")
+    func deleteStaleDraftIdRequiresClientForReplacementRow() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let draftId = "draft-resolved-2"
+        let realId = "real-group-resolved-2"
+        try seedAllowedConversation(
+            in: dbManager.dbWriter,
+            conversationId: realId,
+            clientConversationId: draftId
+        )
+
+        // Once the draft resolved to a real group, the denial must go
+        // through XMTP -- an unavailable inbox has to fail the delete
+        // instead of silently denying only the local row.
+        let writer = ConversationConsentWriter(
+            sessionStateManager: InboxUnavailableSessionStateManager(),
+            databaseWriter: dbManager.dbWriter
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await writer.delete(conversation: .mock(id: draftId))
+        }
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, id: realId)
+        }
+        #expect(stored?.consent == .allowed)
+    }
+
+    @Test("delete(conversation:) on a real conversation still requires the XMTP client")
+    func deleteRealConversationStillRequiresClient() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let conversationId = "conv-real-1"
+        try seedAllowedConversation(in: dbManager.dbWriter, conversationId: conversationId)
+
+        let writer = ConversationConsentWriter(
+            sessionStateManager: InboxUnavailableSessionStateManager(),
+            databaseWriter: dbManager.dbWriter
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await writer.delete(conversation: .mock(id: conversationId))
+        }
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, id: conversationId)
+        }
+        #expect(stored?.consent == .allowed)
+    }
+
     @Test("After delete, a fetch filtered on [.allowed] no longer returns the row")
     func repositoryFilterExcludesDeniedRow() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -78,14 +179,40 @@ struct ConversationConsentWriterDeleteTests {
 
 // MARK: - Helpers
 
+/// Session manager whose inbox never becomes ready. Used to prove a code
+/// path completes without ever needing the XMTP client.
+private final class InboxUnavailableSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
+    struct InboxUnavailableError: Error {}
+
+    var currentState: SessionStateMachine.State = .idle
+    var isSyncReady: Bool { false }
+
+    func waitForInboxReadyResult() async throws -> InboxReadyResult {
+        throw InboxUnavailableError()
+    }
+
+    func waitForDeletionComplete() async {}
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
+    func requestDiscovery() async {}
+    func startAgentJoinRequestPolling() async {}
+    func addObserver(_ observer: SessionStateObserver) {}
+    func removeObserver(_ observer: SessionStateObserver) {}
+
+    func observeState(_ handler: @escaping (SessionStateMachine.State) -> Void) -> StateObserverHandle {
+        StateObserverHandle(observer: ClosureStateObserver(handler: handler), manager: self)
+    }
+}
+
 private func seedAllowedConversation(
     in writer: any DatabaseWriter,
-    conversationId: String
+    conversationId: String,
+    clientConversationId: String? = nil
 ) throws {
     try writer.write { db in
         try DBConversation(
             id: conversationId,
-            clientConversationId: "client-\(conversationId)",
+            clientConversationId: clientConversationId ?? "client-\(conversationId)",
             inviteTag: "invite-\(conversationId)",
             creatorId: "inbox-1",
             kind: .group,

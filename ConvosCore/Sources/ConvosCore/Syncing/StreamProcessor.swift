@@ -200,13 +200,21 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
+        let storedConversation = try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
+
+        // The user deleted this conversation while its invite was still
+        // verifying -- it arrived denied and stays hidden, so skip the
+        // profile snapshot and don't subscribe its push topic.
+        guard storedConversation.consent != .denied else {
+            Log.info("Skipping post-store side effects for denied conversation \(conversation.id)")
+            return
+        }
 
         if creatorInboxId == params.client.inboxId {
             await sendInitialProfileSnapshot(group: conversation)
