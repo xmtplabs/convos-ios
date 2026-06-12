@@ -562,7 +562,7 @@ struct MainTabView: View {
         .padding(.top, safeAreaInsets.top)
         .padding(.leading, leadingAppIndicatorPadding)
         .padding(.trailing, DesignConstants.Spacing.step3x)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     private var leadingAppIndicatorPadding: CGFloat {
@@ -616,7 +616,7 @@ struct MainTabView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, safeAreaInsets.top)
         .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
         // Keep the lifted indicator's coordinator current: unlike the
         // committed-conversation coordinator (updated by ConversationPresenter),
         // ConversationIndicatorWrapper doesn't, so its quick-editor focus would
