@@ -419,6 +419,27 @@ struct JoinRequestProcessingTests {
         #expect(decoded.userFacingMessage == "This conversation is no longer available")
     }
 
+    // MARK: - Consent Rejection Rule
+
+    @Test("Allowed consent does not reject a join")
+    func allowedConsentDoesNotReject() {
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .allowed))
+    }
+
+    @Test("Denied consent rejects a join")
+    func deniedConsentRejects() {
+        #expect(InviteCoordinator.shouldRejectJoin(for: .denied))
+    }
+
+    @Test("Unknown consent does not reject a join")
+    func unknownConsentDoesNotReject() {
+        // `.unknown` means this installation has no consent record for the
+        // group yet (secondary device, fresh reinstall), not that the
+        // creator denied the conversation. It must not trigger
+        // consent_not_allowed for an otherwise-valid invite.
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .unknown))
+    }
+
     // MARK: - Date Extension
 
     @Test("Date nanoseconds conversion")
