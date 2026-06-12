@@ -470,6 +470,24 @@ public final class InviteCoordinator: @unchecked Sendable {
             )
         }
 
+        // The ledger is per-device; the DM marker is the cross-installation
+        // signal. Another installation of this inbox (paired device, prior
+        // install) may have honored this request and recorded it in the DM,
+        // which syncs everywhere the ledger does not.
+        if let requestSentAt = request.sentAt,
+           await hasJoinHandledMarker(
+               forTag: signedInvite.invitePayload.tag,
+               since: requestSentAt,
+               dmConversationId: request.dmConversationId,
+               client: client
+           ) {
+            await handledRequestStore.markHandled(messageId: request.messageId)
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         try? await group.sync()
 
         // Multiple processing paths (message stream, batch catch-up, and the
@@ -537,6 +555,18 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
+            // Best-effort cross-installation marker; the local ledger and
+            // the membership check still dedupe if the send fails.
+            let handled = InviteJoinHandled(
+                inviteTag: signedInvite.invitePayload.tag,
+                handledMessageId: request.messageId,
+                timestamp: Date()
+            )
+            let codec = InviteJoinHandledCodec()
+            _ = try? await dm.send(
+                content: handled,
+                options: .init(contentType: codec.contentType)
+            )
         }
 
         let result = JoinResult(
@@ -579,6 +609,14 @@ public final class InviteCoordinator: @unchecked Sendable {
             return true
         }
 
+        // Cross-installation dedupe: markers another installation sent for
+        // already-honored requests. Fetched once per DM and compared per
+        // candidate by invite tag and send order.
+        var markers: [JoinHandledMarker] = []
+        if !candidates.isEmpty, let recent = try? await dm.messages(limit: Constant.dedupeScanLimit) {
+            markers = Self.joinHandledMarkers(in: recent, creatorInboxId: client.inviteInboxId)
+        }
+
         var firstBenignFailure: JoinRequestDMOutcome?
         var handledOutcome: JoinRequestDMOutcome?
         for message in candidates {
@@ -586,6 +624,15 @@ public final class InviteCoordinator: @unchecked Sendable {
             // scan: the same DM can carry a fresh join request from a member
             // who was removed and is rejoining with the same invite.
             if await handledRequestStore.isHandled(messageId: message.id) {
+                handledOutcome = handledOutcome ?? .alreadyMember(
+                    dmConversationId: dm.id,
+                    joinerInboxId: message.senderInboxId
+                )
+                continue
+            }
+            if let tag = Self.inviteTag(from: message),
+               markers.contains(where: { $0.tag == tag && $0.sentAt >= message.sentAt }) {
+                await handledRequestStore.markHandled(messageId: message.id)
                 handledOutcome = handledOutcome ?? .alreadyMember(
                     dmConversationId: dm.id,
                     joinerInboxId: message.senderInboxId
@@ -682,7 +729,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         in dm: XMTPiOS.Conversation,
         client: any InviteClientProvider
     ) async -> Bool {
-        guard let messages = try? await dm.messages(limit: Constant.joinErrorDedupeScanLimit) else {
+        guard let messages = try? await dm.messages(limit: Constant.dedupeScanLimit) else {
             return false
         }
         let codec = InviteJoinErrorCodec()
@@ -702,11 +749,70 @@ public final class InviteCoordinator: @unchecked Sendable {
         return false
     }
 
+    private struct JoinHandledMarker {
+        let tag: String
+        let sentAt: Date
+    }
+
+    /// Whether a creator-sent `invite_join_handled` marker covers a request
+    /// for `tag` sent at `requestSentAt`. Mirrors `hasAlreadySentJoinError`:
+    /// the marker dedupes per attempt (tag plus send order), so the text
+    /// copy of a typed+text pair is covered by the typed copy's marker,
+    /// while a fresh request sent after the marker is not.
+    private func hasJoinHandledMarker(
+        forTag tag: String,
+        since requestSentAt: Date,
+        dmConversationId: String,
+        client: any InviteClientProvider
+    ) async -> Bool {
+        guard let dm = try? await client.findConversation(conversationId: dmConversationId),
+              let messages = try? await dm.messages(limit: Constant.dedupeScanLimit) else {
+            return false
+        }
+        return Self.joinHandledMarkers(in: messages, creatorInboxId: client.inviteInboxId)
+            .contains { $0.tag == tag && $0.sentAt >= requestSentAt }
+    }
+
+    /// Markers are only trusted from the creator's own inbox; a joiner
+    /// cannot forge one to suppress (or fake) an acceptance.
+    private static func joinHandledMarkers(
+        in messages: [XMTPiOS.DecodedMessage],
+        creatorInboxId: String
+    ) -> [JoinHandledMarker] {
+        let codec = InviteJoinHandledCodec()
+        var markers: [JoinHandledMarker] = []
+        for message in messages where message.senderInboxId == creatorInboxId {
+            guard let contentType = try? message.encodedContent.type,
+                  contentType == ContentTypeInviteJoinHandled,
+                  let marker = try? codec.decode(content: message.encodedContent) else {
+                continue
+            }
+            markers.append(JoinHandledMarker(tag: marker.inviteTag, sentAt: message.sentAt))
+        }
+        return markers
+    }
+
+    /// Invite tag of a join-request candidate, from either the typed
+    /// content or a plain-text slug. Lighter-weight parse than
+    /// `processMessageOutcome` for the marker comparison in `processDm`.
+    private static func inviteTag(from message: XMTPiOS.DecodedMessage) -> String? {
+        let slug: String
+        if let joinRequest: JoinRequestContent = try? message.content() {
+            slug = joinRequest.inviteSlug
+        } else if let text: String = try? message.content() {
+            slug = text
+        } else {
+            return nil
+        }
+        return (try? SignedInvite.fromURLSafeSlug(slug))?.invitePayload.tag
+    }
+
     private enum Constant {
         /// How many recent DM messages to scan when checking whether an
-        /// error reply for an invite tag was already sent. Join-request DMs
-        /// carry very little traffic, so a small window is plenty.
-        static let joinErrorDedupeScanLimit: Int = 50
+        /// error reply or handled marker for an invite tag was already
+        /// sent. Join-request DMs carry very little traffic, so a small
+        /// window is plenty.
+        static let dedupeScanLimit: Int = 50
         /// Underlying error descriptions (libxmtp, keychain) can be very
         /// long; cap the diagnostic reason so error replies stay small.
         static let joinErrorReasonMaxLength: Int = 500

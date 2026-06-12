@@ -29,6 +29,7 @@ struct InviteCoordinatorIntegrationTests {
                 TextCodec(),
                 JoinRequestCodec(),
                 InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
             ],
             dbEncryptionKey: dbKey,
             dbDirectory: tmpDir.path
@@ -290,6 +291,70 @@ struct InviteCoordinatorIntegrationTests {
         )
         memberInboxIds = try await group.members.map(\.inboxId)
         #expect(memberInboxIds.contains(joinerClient.inboxID), "Fresh request re-adds the removed member")
+    }
+
+    /// The handled-request ledger is per-device; the cross-installation
+    /// guarantee comes from the `invite_join_handled` marker the creator
+    /// sends in the join DM after honoring a request. A coordinator with a
+    /// fresh, empty ledger (simulating a paired device or reinstall that
+    /// shares DM history but not the local database) must still treat the
+    /// honored request - including the text copy of Herald's typed+text
+    /// pair - as inert after the member is removed, while a fresh request
+    /// with the same invite still joins.
+    @Test("Handled marker keeps a replayed request inert for an installation with an empty ledger")
+    func handledMarkerCoversInstallationsWithoutLedger() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let firstInstallation = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstInstallation.revokeInvites(for: group)
+        let invite = try await firstInstallation.createInvite(for: group, client: creatorClient)
+
+        // Herald-style typed + text pair.
+        let dm = try await firstInstallation.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+
+        // Empty ledger, same DM history: only the marker can dedupe here.
+        let otherInstallation = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+        let replayOutcomes = await otherInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "The handled marker must keep both copies of the honored request inert without a local ledger"
+        )
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID), "Removed member must stay removed")
+
+        // A fresh request postdates the marker and must still join.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await otherInstallation.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await otherInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh join request sent after the marker must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID))
     }
 
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {

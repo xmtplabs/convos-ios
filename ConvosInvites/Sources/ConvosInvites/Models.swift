@@ -299,6 +299,35 @@ extension InviteJoinErrorType: Codable {
     }
 }
 
+/// Marker the creator sends in the join DM after honoring a join request.
+///
+/// The local handled-request ledger only covers one device. Other
+/// installations of the creator's inbox (paired devices, reinstalls)
+/// revalidate the same DM history, and without a shared signal an
+/// already-honored request would look actionable to them again once the
+/// member is removed. The DM syncs to every installation, so the marker
+/// is checked the same way error replies are deduped: a request is
+/// handled when a creator-sent marker for the same invite tag exists at
+/// or after the request's send time. That retires the text copy of a
+/// typed+text pair too, while a fresh request after a removal (newer
+/// than any marker) stays actionable - removal is not a block.
+public struct InviteJoinHandled: Codable, Equatable, Sendable {
+    public let inviteTag: String
+
+    /// Message ID of the join request that was honored. Informational:
+    /// suppression compares invite tag and send order, not message IDs,
+    /// so duplicate copies of the same attempt are covered.
+    public let handledMessageId: String
+
+    public let timestamp: Date
+
+    public init(inviteTag: String, handledMessageId: String, timestamp: Date) {
+        self.inviteTag = inviteTag
+        self.handledMessageId = handledMessageId
+        self.timestamp = timestamp
+    }
+}
+
 /// Error feedback sent to a joiner when their request fails
 public struct InviteJoinError: Codable, Equatable, Sendable {
     public let errorType: InviteJoinErrorType
