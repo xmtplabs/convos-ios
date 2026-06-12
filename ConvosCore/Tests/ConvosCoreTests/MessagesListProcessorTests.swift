@@ -1134,6 +1134,54 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(readers.first?.profile.inboxId == absentInboxId)
         #expect(readers.first?.agentVerification == .unverified)
     }
+
+    @Test("Read-by members resolved from the memberProfiles cache keep their agent verification")
+    func readByMembersFallbackPreservesAgentVerification() {
+        let now = Date()
+        let conversationId = "conv-1"
+        let convosAgentInboxId = "quiet-convos-agent"
+        let oauthAgentInboxId = "quiet-oauth-agent"
+        let messages = [
+            makeMessage(id: "me-1", sender: currentUser, text: "Hello", date: now),
+        ]
+        let readAtNs = Int64(now.addingTimeInterval(5).timeIntervalSince1970 * 1_000_000_000)
+        let receipts = [
+            ReadReceiptEntry(inboxId: convosAgentInboxId, readAtNs: readAtNs),
+            ReadReceiptEntry(inboxId: oauthAgentInboxId, readAtNs: readAtNs + 1),
+        ]
+        let memberProfiles: [String: MemberProfileInfo] = [
+            convosAgentInboxId: MemberProfileInfo(
+                inboxId: convosAgentInboxId,
+                conversationId: conversationId,
+                name: "Quiet Convos Agent",
+                avatar: nil,
+                isAgent: true,
+                agentVerification: .verified(.convos)
+            ),
+            oauthAgentInboxId: MemberProfileInfo(
+                inboxId: oauthAgentInboxId,
+                conversationId: conversationId,
+                name: "Quiet OAuth Agent",
+                avatar: nil,
+                isAgent: true,
+                agentVerification: .verified(.userOAuth)
+            ),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            readReceipts: receipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: 2
+        )
+        let g = groups(from: result)
+        let readers = g.last { $0.isLastGroupSentByCurrentUser }?.readByMembers ?? []
+        #expect(readers.count == 2)
+        let byInbox = Dictionary(uniqueKeysWithValues: readers.map { ($0.profile.inboxId, $0) })
+        #expect(byInbox[convosAgentInboxId]?.isAgent == true)
+        #expect(byInbox[convosAgentInboxId]?.agentVerification == .verified(.convos))
+        #expect(byInbox[oauthAgentInboxId]?.isAgent == true)
+        #expect(byInbox[oauthAgentInboxId]?.agentVerification == .verified(.userOAuth))
+    }
 }
 
 // MARK: - Agent Builder Card Reconstruction Tests

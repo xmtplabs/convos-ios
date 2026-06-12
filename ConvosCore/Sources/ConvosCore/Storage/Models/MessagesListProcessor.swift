@@ -619,7 +619,9 @@ public final class MessagesListProcessor: Sendable {
                         return ConversationMember(
                             profile: profile,
                             role: .member,
-                            isCurrentUser: false
+                            isCurrentUser: false,
+                            isAgent: info.isAgent,
+                            agentVerification: info.agentVerification
                         )
                     }
                     return nil
