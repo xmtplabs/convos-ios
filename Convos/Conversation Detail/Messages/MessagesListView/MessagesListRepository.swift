@@ -19,8 +19,8 @@ protocol MessagesListRepositoryProtocol {
     /// The verified Convos agent in the conversation, if any. When set,
     /// the processor inserts a standalone contact-card row (an empty
     /// `MessagesGroup` carrying an `AgentContactCardInfo`) at a stable
-    /// anchor in the list and suppresses the legacy "Agent joined" update
-    /// bubble.
+    /// anchor in the list. (The "Agent joined" update row is suppressed
+    /// separately, gated on `isInAgentBuilderFlow`.)
     var verifiedAgent: ConversationMember? { get set }
     /// The persisted Agent Builder summary for this conversation, if any.
     /// When set, the processor prepends a `.agentBuilderSummary` cell and

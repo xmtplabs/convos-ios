@@ -735,12 +735,15 @@ private extension MessagesListProcessor {
     /// Insert the agent contact card as its own standalone row. The card has
     /// a single placement rule, so it never relocates as the agent's
     /// messages, connection events, or user replies stream in around it.
-    /// Anchor chain: right after the last builder summary card (the summary
-    /// always sits above the card -- in the home flow the agent joins before
-    /// the Make bundle, so anchoring on the join row there would put the
-    /// card first); else right after the agent-join update row (non-builder
-    /// agent conversations); else right before the agent's first message
-    /// group (join row outside the loaded window); else the top of the list.
+    /// Anchor chain: right after this agent's builder summary card (the
+    /// first summary between the agent's join row and the agent's first
+    /// message group -- the summary always sits above the card, and later
+    /// Makes add summaries further down that must not steal the card); else
+    /// right after this agent's most recent join update row (non-builder
+    /// agent conversations; matching on inboxId keeps the card off other or
+    /// former agents' join rows, and re-adds anchor on the latest join);
+    /// else right before the agent's first message group (join row outside
+    /// the loaded window); else the top of the list.
     static func insertingContactCard(
         in baseItems: [MessagesListItemType],
         agent: ConversationMember
@@ -757,17 +760,27 @@ private extension MessagesListProcessor {
             profile: agent.profile,
             agentDescription: agent.profile.agentDescription
         )
-        let builderCardIndex: Int? = items.lastIndex { item in
-            if case .agentBuilderSummary = item { return true }
-            return false
-        }
-        let joinUpdateIndex: Int? = items.firstIndex { item in
+        let joinUpdateIndex: Int? = items.lastIndex { item in
             guard case .update(_, let update, _) = item else { return false }
             return update.addedVerifiedAgent
+                && update.addedMembers.contains { $0.profile.inboxId == agent.profile.inboxId }
         }
         let firstAgentGroupIndex: Int? = items.firstIndex { item in
             guard case .messages(let group) = item else { return false }
             return group.sender.profile.inboxId == agent.profile.inboxId
+        }
+        // This agent's Make summary lives between its join row and its first
+        // message group (in the home flow the join sorts directly above the
+        // summary). Bounding the search keeps the card anchored to its own
+        // summary when later Makes append summaries further down the list.
+        // A re-added agent's old messages can sit above its latest join row;
+        // the clamp collapses the range so the card anchors on the join.
+        let searchStart: Int = joinUpdateIndex ?? 0
+        let searchEnd: Int = max(searchStart, firstAgentGroupIndex ?? items.count)
+        let summarySearchRange: Range<Int> = searchStart..<searchEnd
+        let builderCardIndex: Int? = items[summarySearchRange].firstIndex { item in
+            if case .agentBuilderSummary = item { return true }
+            return false
         }
         let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
             ?? joinUpdateIndex.map { $0 + 1 }
@@ -783,6 +796,18 @@ private extension MessagesListProcessor {
             below.hidesSenderLabel = true
             items[insertionIndex] = .messages(below)
             cardGroup.contactCardPrecedesAgentMessages = true
+        }
+        // The full-bleed adjacency pass ran before the splice, so groups on
+        // either side of the card may still carry flags from when they were
+        // adjacent to each other. The card row is never full bleed; clear
+        // the flags facing it.
+        if insertionIndex > 0, case .messages(var above) = items[insertionIndex - 1] {
+            above.adjacentToFullBleedBelow = false
+            items[insertionIndex - 1] = .messages(above)
+        }
+        if insertionIndex < items.count, case .messages(var below) = items[insertionIndex] {
+            below.adjacentToFullBleedAbove = false
+            items[insertionIndex] = .messages(below)
         }
         items.insert(.messages(cardGroup), at: insertionIndex)
         return items

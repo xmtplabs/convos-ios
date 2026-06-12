@@ -123,7 +123,9 @@ struct MessagesGroupView: View {
     }
 
     private var singleTyperIndicator: some View {
-        let isTypingOnly = displayGroup.allMessages.isEmpty
+        // The contact-card section already renders the sender label above
+        // the card, so a typing-only card group must not add a second one.
+        let isTypingOnly = displayGroup.allMessages.isEmpty && displayGroup.agentContactCard == nil
 
         return Group {
             if isTypingOnly && !displayGroup.sender.isCurrentUser {
@@ -303,7 +305,7 @@ struct MessagesGroupView: View {
         // visual end of the agent's run: nothing else in this group below it
         // and no agent message group directly underneath. When the agent's
         // messages sit directly below, that group's avatar overlay handles
-        // the leading avatar — we don't want to double up.
+        // the leading avatar - we don't want to double up.
         let cardIsLast: Bool = displayGroup.allMessages.isEmpty
             && !displayGroup.showsTypingIndicator
             && !displayGroup.showsThinkingIndicator
