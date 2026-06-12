@@ -167,9 +167,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
+        // Key by the conversation id, not `conversation.imageCacheIdentifier`:
+        // until `imageURL` is persisted that identifier resolves to the other
+        // member's inbox id, which would cache the conversation image as that
+        // member's profile avatar everywhere.
         guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
-            for: conversation
+            forIdentifier: conversation.clientConversationId
         ) else {
             throw ConversationMetadataWriterError.failedImageCompression
         }
@@ -251,11 +255,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
-        // Cache the uploaded image using the new URL-tracking API
-        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
-        if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
-        }
+        // Cache under the conversation id, matching the prepareForUpload key
+        // above. The `conversation` parameter still has a nil `imageURL`, so
+        // its `imageCacheIdentifier` would resolve to the other member's
+        // inbox id and record the conversation image as their avatar.
+        ImageCacheContainer.shared.cacheAfterUpload(
+            compressedImageData,
+            for: conversation.clientConversationId,
+            url: encryptedAssetUrl
+        )
 
         try await syncInvitePreview(for: updatedConversation)
 
