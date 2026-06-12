@@ -1757,3 +1757,37 @@ struct MessagesListProcessorPendingBuilderCardTests {
         #expect(cards.first?.attachments.isEmpty == true)
     }
 }
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Verified agent's contact card anchors under the pending summary card")
+    func contactCardAnchorsUnderPendingCard() {
+        let agent = verifiedAgentMember
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"]
+        )
+        // The agent has joined (verified) but the build's rows haven't landed
+        // yet -- the window right after the join gate opens. The pending card
+        // must render and the contact card must anchor directly beneath it.
+        let result = MessagesListProcessor.process(
+            [],
+            verifiedAgent: agent,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        let summaryIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let contactIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.agentContactCard != nil
+        }
+        #expect(summaryIndex != nil)
+        #expect(contactIndex != nil)
+        if let summaryIndex, let contactIndex {
+            #expect(contactIndex == summaryIndex + 1)
+        }
+    }
+}

@@ -752,26 +752,30 @@ final class AgentBuilderViewModel: Identifiable {
         // owns its own message writer, so it sends independently of the
         // dismissed builder.
         Task { @MainActor [innerVM, voiceMemoSnapshot, summaryToPersist, conversationIdForPersist, textMessageId, bundleMessageId, session] in
-            // Request the agent join before anything else: the bundle publish
-            // below holds until the agent is a verified member (XMTP members
-            // can't read messages published before they joined), so the join
-            // must already be in flight by the time the send runs -- and the
-            // head start lets the backend add the agent while the summary
-            // persists and uploads finish. The join must finish even after
+            // Kick the agent join off first but don't block on it: the request
+            // can take seconds (the backend provisions the agent), and the
+            // summary persist below is what renders the card in the chat the
+            // user lands in -- serializing persist behind the join visibly
+            // delays Make feedback. The bundle publish holds until the agent
+            // is a member anyway (XMTP members can't read messages published
+            // before they joined), so the join only has to be IN FLIGHT
+            // before the send, not finished. The join must finish even after
             // the builder sheet dismisses. Unlike the draft flow, there is no
             // draft to discard -- the user's group stays -- so the join
             // survives the view closing (like `ConversationViewModel`'s
             // committed-conversation join, the opposite of the draft path).
             let slug = innerVM.conversation.invite?.urlSlug ?? ""
-            var joinRequested = false
-            if slug.isEmpty {
-                Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
-            } else {
+            let joinTask: Task<Bool, Never> = Task { [session] in
+                guard !slug.isEmpty else {
+                    Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
+                    return false
+                }
                 do {
                     _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
-                    joinRequested = true
+                    return true
                 } catch {
                     Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
+                    return false
                 }
             }
             // Persist the summary before the send so the chat the user returns
@@ -790,6 +794,7 @@ final class AgentBuilderViewModel: Identifiable {
             // `awaitsAgentJoin: false` when the join was never requested (no
             // slug) or its request failed -- holding the bundle for an agent
             // that will never arrive only delays the inevitable publish.
+            let joinRequested: Bool = await joinTask.value
             await innerVM.sendBuilderBundle(
                 text: summaryToPersist.prompt,
                 voiceMemo: voiceMemoSnapshot,
