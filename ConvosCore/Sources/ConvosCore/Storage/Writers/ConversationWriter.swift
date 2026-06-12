@@ -259,6 +259,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         clientConversationId: String? = nil
     ) async throws -> PreparedConversation {
         try await conversation.sync()
+        try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
@@ -275,6 +276,52 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
         )
+    }
+
+    /// Completes the denial carry-forward when `saveConversation`'s
+    /// invite-tag branch inherited .denied from the replaced row (a delete
+    /// that landed between prepare and persist, which the prepare-time check
+    /// below could not see). Pushing the denial into the XMTP consent state
+    /// keeps later syncs from reading allowed consent and resurrecting the
+    /// row. Best effort: the local row is already denied, and the push is a
+    /// local libxmtp write that effectively only fails if the database does.
+    private func pushCarriedForwardDenialIfNeeded(
+        saveResult: ConversationSaveResult,
+        group: XMTPiOS.Group
+    ) async {
+        guard saveResult.deniedConsentCarriedForward else { return }
+        do {
+            try await group.updateConsentState(state: .denied)
+            Log.info("Pushed carried-forward denial to XMTP for conversation \(group.id)")
+        } catch {
+            Log.error("Failed pushing carried-forward denial for \(group.id): \(error)")
+        }
+    }
+
+    /// Deleting a pending-invite draft ("verifying") can only flip the local
+    /// row to denied -- no XMTP group exists yet to deny. When the invite is
+    /// later approved and the real group arrives, carry that denial onto the
+    /// group before its row is built: pushing .denied into the XMTP consent
+    /// state means the persisted row and inbound stream filtering agree the
+    /// conversation stays deleted, and the denial propagates to other
+    /// installations via consent-record sync (they may show the conversation
+    /// transiently until that sync lands). Throws on failure so the group is
+    /// not persisted as allowed with the denial lost.
+    private func denyConsentIfInviteWasLocallyDeleted(for conversation: XMTPiOS.Group) async throws {
+        let inviteTag = try conversation.inviteTag
+        guard !inviteTag.isEmpty else { return }
+        guard try conversation.consentState() != .denied else { return }
+        let conversationId = conversation.id
+        let hasDeniedRowMatchingTag = try await databaseWriter.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.inviteTag == inviteTag)
+                .filter(DBConversation.Columns.id != conversationId)
+                .filter(DBConversation.Columns.consent == Consent.denied)
+                .fetchOne(db) != nil
+        }
+        guard hasDeniedRowMatchingTag else { return }
+        Log.info("Carrying local denial onto arriving group \(conversationId) whose invite tag matches a deleted conversation")
+        try await conversation.updateConsentState(state: .denied)
     }
 
     /// Synchronous, transaction-scoped. Call inside `databaseWriter.write { db in ... }`.
@@ -355,8 +402,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         currentMemberInboxIds: Set<String>,
         in db: Database
     ) throws {
-        guard let localInboxId = try DBInbox.currentInboxId(db),
-              currentMemberInboxIds.contains(localInboxId) else { return }
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            // Expected only during account teardown or before first inbox
+            // registration; logged so an unexpectedly missing inbox is
+            // visible in diagnostics rather than silently skipping the clear.
+            Log.warning("clearRemovedMarkerIfMember: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(localInboxId) else { return }
         try ConversationLocalState
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .filter(ConversationLocalState.Columns.wasRemoved == true)
@@ -382,6 +435,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         saveResult: ConversationSaveResult,
         group: XMTPiOS.Group
     ) async {
+        await pushCarriedForwardDenialIfNeeded(saveResult: saveResult, group: group)
         enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
         prefetchEncryptedImages(profiles: prepared.memberProfiles, group: group)
         prefetchEncryptedGroupImage(
@@ -478,6 +532,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let saveResult = try await databaseWriter.write { [self] db in
             try persist(prepared, in: db)
         }
+
+        await pushCarriedForwardDenialIfNeeded(saveResult: saveResult, group: conversation)
 
         // Network-driven member commit just landed (initial conversation
         // arrival or refresh-with-new-members). Fire the contact-sync
@@ -632,6 +688,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let clientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
+        /// True when the invite-tag replacement branch inherited .denied
+        /// from the row it replaced. Callers holding the XMTP group must
+        /// then push the denial into the XMTP consent state, which the
+        /// prepare-time check could not have done (the deleting write
+        /// landed after prepare ran).
+        let deniedConsentCarriedForward: Bool
     }
 
     /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
@@ -646,6 +708,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let actualClientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
+        let deniedConsentCarriedForward: Bool
 
         // Fetch current conversation state inside the transaction to avoid race conditions
         // with concurrent asset renewal that might update imageLastRenewed
@@ -723,6 +786,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if localConversation.isUnused {
                 conversationToSave = conversationToSave.with(isUnused: true)
             }
+            // The row being replaced was deleted by the user (a denied
+            // pending-invite draft). The replacement must not resurrect it.
+            // `prepare` already pushes the denial into the XMTP consent
+            // state; this transactional check covers a delete landing
+            // between prepare and persist. In that race the incoming
+            // consent is still allowed, so the carried-forward denial is
+            // surfaced in the save result for callers to push to XMTP.
+            if localConversation.consent == .denied {
+                deniedConsentCarriedForward = conversationToSave.consent != .denied
+                conversationToSave = conversationToSave.with(consent: .denied)
+            } else {
+                deniedConsentCarriedForward = false
+            }
             // This row is replacing `localConversation`, so its sticky-on
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
@@ -739,10 +815,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             firstTimeSeeingConversationExpired = updateOutcome.firstTimeSeeingConversationExpired
             actualClientConversationId = updateOutcome.actualClientConversationId
+            deniedConsentCarriedForward = false
         } else {
             try conversationToSave.save(db)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired
             actualClientConversationId = conversationToSave.clientConversationId
+            deniedConsentCarriedForward = false
         }
 
         if firstTimeSeeingConversationExpired {
@@ -752,7 +830,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return ConversationSaveResult(
             clientConversationId: actualClientConversationId,
             oldImageURL: oldImageURL,
-            preservedInviteTag: preservedInviteTag
+            preservedInviteTag: preservedInviteTag,
+            deniedConsentCarriedForward: deniedConsentCarriedForward
         )
     }
 

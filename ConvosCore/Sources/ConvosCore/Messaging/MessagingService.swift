@@ -293,12 +293,27 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                                           databaseReader: databaseReader)
     }
 
+    /// One store per service instance so every grant writer (and the picker)
+    /// shares a single TTL'd catalog cache; `connectionGrantWriter()` returns
+    /// a fresh writer per call, so the cache can't live there.
+    private lazy var servicesStore: ConnectionServicesStore = ConnectionServicesStore(
+        fetchServices: { [sessionStateManager] in
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            return try await inboxReady.apiClient.getConnectionServices()
+        }
+    )
+
+    func connectionServicesStore() -> any ConnectionServicesStoreProtocol {
+        servicesStore
+    }
+
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         CloudConnectionGrantWriter(
             sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            myProfileWriter: myProfileWriter()
+            myProfileWriter: myProfileWriter(),
+            servicesStore: servicesStore
         )
     }
 

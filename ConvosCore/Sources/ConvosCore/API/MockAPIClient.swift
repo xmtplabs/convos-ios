@@ -149,6 +149,52 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func revokeCloudConnection(connectionId: String) async throws {}
 
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        .init(services: [
+            .init(
+                id: "googlecalendar",
+                composioSlug: "googlecalendar",
+                version: 1,
+                displayName: .init(values: ["en": "Google Calendar"]),
+                bundles: [
+                    .init(
+                        id: "calendar.events",
+                        title: .init(values: ["en": "Events"]),
+                        description: .init(values: ["en": "View and edit events on all calendars"]),
+                        defaultEnabled: false
+                    ),
+                    .init(
+                        id: "calendar.events.read",
+                        title: .init(values: ["en": "View events"]),
+                        description: .init(values: ["en": "View events on all calendars"]),
+                        defaultEnabled: false
+                    ),
+                ]
+            ),
+        ])
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        .init(id: "mock-grant-\(UUID().uuidString)")
+    }
+
+    func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
+
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(
             balance: 0,

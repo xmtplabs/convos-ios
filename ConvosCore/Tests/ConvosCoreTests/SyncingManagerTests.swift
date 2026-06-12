@@ -340,6 +340,18 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepareForManualPublish(text: String) async throws -> String {
+        ""
+    }
+
+    func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        ""
+    }
+
+    func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        ""
+    }
+
     func publish() async throws {
     }
 

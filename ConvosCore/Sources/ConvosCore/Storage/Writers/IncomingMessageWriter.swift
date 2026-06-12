@@ -102,8 +102,8 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         let messageExistsInDB = try DBMessage.exists(db, key: message.id)
         let localInboxId = try DBInbox.currentInboxId(db)
         let wasRemovedFromConversation: Bool = {
-            guard let localInboxId, let removed = message.update?.removedInboxIds else { return false }
-            return removed.contains(localInboxId)
+            guard let localInboxId, let removedInboxIds = message.update?.removedInboxIds else { return false }
+            return removedInboxIds.contains(localInboxId)
         }()
 
         Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")

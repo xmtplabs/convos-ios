@@ -111,6 +111,52 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse]
     func revokeCloudConnection(connectionId: String) async throws
 
+    /// Fetches the backend-owned connections-picker catalog: one entry per
+    /// service, each with its permission bundles. The response is served with
+    /// `Cache-Control: private, max-age=300`; callers should go through
+    /// `ConnectionServicesStore`, which honors that TTL client-side, instead
+    /// of hitting this directly.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse
+
+    /// Pushes one per-agent consent record to the backend grant store. The
+    /// backend uses these records to authorize agent tool execution; without
+    /// the push the agent gets 403. Re-posting the same (owner, grantee,
+    /// conversation, toolkit) tuple upserts (also un-revokes) and returns the
+    /// same id.
+    ///
+    /// `bundleIds` lists the permission-bundle ids the user toggled on
+    /// (e.g. "calendar.events"); the backend resolves them to Composio
+    /// actions at exec time. `nil` omits the field — for toolkits outside
+    /// the catalog the backend treats that as the legacy whole-toolkit
+    /// grant. `serviceVersion` is the catalog version the device granted
+    /// against (audit/stale telemetry). An unknown bundle id surfaces as
+    /// `CloudConnectionsAPI.GrantError.unknownBundle`.
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse
+
+    /// Revokes a backend consent record previously created by
+    /// `createConnectionGrant`. The backend returns 404 for unknown or
+    /// not-owned ids; that surfaces here as an error the caller can log.
+    func revokeConnectionGrant(id: String) async throws
+
+    /// Revokes the caller's own grants by natural key. Reliable even when no
+    /// backend grant id was stored locally (the by-id path can't run then).
+    /// `toolkit` alone revokes every grant for that connection (full
+    /// disconnect); adding `conversationId` scopes to one conversation; adding
+    /// `granteeInboxId` scopes to a single agent. Returns the number revoked.
+    @discardableResult
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int
+
     // IAP credits + subscriptions
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
@@ -825,6 +871,93 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     func revokeCloudConnection(connectionId: String) async throws {
         let request = try authenticatedRequest(for: "v2/connections/\(connectionId)", method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
+    }
+
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        let request = try authenticatedRequest(for: "v2/connections/services", method: "GET")
+        return try await performRequest(request)
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        var request = try authenticatedRequest(for: "v2/connections/grants", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct GrantBody: Codable {
+            let ownerInboxId: String
+            let granteeInboxId: String
+            let conversationId: String
+            let toolkit: String
+            let bundleIds: [String]?
+            let serviceVersion: Int?
+        }
+        request.httpBody = try JSONEncoder().encode(
+            GrantBody(
+                ownerInboxId: ownerInboxId,
+                granteeInboxId: granteeInboxId,
+                conversationId: conversationId,
+                toolkit: toolkit,
+                bundleIds: bundleIds,
+                serviceVersion: serviceVersion
+            )
+        )
+
+        do {
+            return try await performRequest(request)
+        } catch let APIError.badRequest(message) {
+            // The unknown-bundle 400 body is `{"code": "unknown_bundle",
+            // "bundleId": "<id>"}` — no `message`/`error` key, so
+            // `parseErrorMessage` passes the raw JSON body through. Decode it
+            // here so callers get a typed staleness signal they can retry on.
+            struct GrantErrorBody: Decodable {
+                let code: String
+                let bundleId: String?
+            }
+            if let message,
+               let data = message.data(using: .utf8),
+               let body = try? JSONDecoder().decode(GrantErrorBody.self, from: data),
+               body.code == "unknown_bundle" {
+                throw CloudConnectionsAPI.GrantError.unknownBundle(bundleId: body.bundleId)
+            }
+            throw APIError.badRequest(message)
+        }
+    }
+
+    func revokeConnectionGrant(id: String) async throws {
+        let request = try authenticatedRequest(for: "v2/connections/grants/\(id)", method: "DELETE")
+        let _: EmptyResponse = try await performRequest(request)
+    }
+
+    @discardableResult
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        var request = try authenticatedRequest(for: "v2/connections/grants/revoke", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct RevokeBody: Codable {
+            let toolkit: String
+            let conversationId: String?
+            let granteeInboxId: String?
+        }
+        request.httpBody = try JSONEncoder().encode(
+            RevokeBody(
+                toolkit: toolkit,
+                conversationId: conversationId,
+                granteeInboxId: granteeInboxId
+            )
+        )
+
+        let response: CloudConnectionsAPI.RevokeGrantResponse = try await performRequest(request)
+        return response.revoked
     }
 
     // MARK: - IAP Credits + Subscriptions

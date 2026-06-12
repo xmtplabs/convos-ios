@@ -18,6 +18,24 @@ enum AdaptiveAppIndicatorMode {
     case conversation
 }
 
+/// Disables hit testing whenever the view is not at the identity phase.
+/// Combined with `.blurReplace` at the top-bar indicator transition sites:
+/// SwiftUI keeps a removal-transitioning view tappable for its full bounds
+/// while it fades (hit testing ignores rendered pixels), so without this
+/// the invisible pill keeps eating taps near the top bar for the duration
+/// of the removal animation - e.g. opening app settings from a pushed
+/// contact detail. `allowsHitTesting` is not animatable, so it flips off
+/// the moment the removal starts.
+struct HitTestGateTransition: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content.allowsHitTesting(phase == .identity)
+    }
+}
+
+extension Transition where Self == HitTestGateTransition {
+    static var hitTestGate: HitTestGateTransition { HitTestGateTransition() }
+}
+
 /// Subtitle for [[AppIndicatorPill]]. Either a plain string (typically the
 /// active subscription tier name) or an SF Symbol — currently used to
 /// surface depleted credit balance as a bolt icon in colorLava.

@@ -85,7 +85,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
-         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()) {
+         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+         handledRequestStore: (any HandledJoinRequestStoreProtocol)? = nil) {
         self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
@@ -94,7 +95,11 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 }
                 return identity.keys.privateKey.secp256K1.bytes
             },
-            tagStorage: tagStorage
+            tagStorage: tagStorage,
+            // The persistent ledger is what keeps an already-honored join
+            // request inert across passes and processes; every production
+            // caller funnels through this default.
+            handledRequestStore: handledRequestStore ?? DatabaseHandledJoinRequestStore(databaseWriter: databaseWriter)
         )
     }
 

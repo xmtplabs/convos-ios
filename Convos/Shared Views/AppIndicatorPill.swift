@@ -33,6 +33,7 @@ struct AppIndicatorPill: View {
     var body: some View {
         Button(action: action) {
             content
+                .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: false, vertical: true)

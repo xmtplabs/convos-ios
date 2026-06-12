@@ -377,15 +377,24 @@ struct ContactDetailView: View {
     /// True when this contact is a template-backed agent - it carries the
     /// `templateId` needed to spawn a fresh instance. Drives the Chat
     /// button's behavior: spawn a new conversation vs. the human DM path.
+    ///
+    /// Gated on `isVerifiedAgent` (a cryptographically-verified attestation
+    /// that a sender cannot forge): `templateId`/`publishedUrl` are unsigned
+    /// strings, and a snapshot from any member could in principle assert them
+    /// for another contact, so the template affordance only trusts them on a
+    /// verified agent.
     private var isAgentTemplate: Bool {
-        contact.agentTemplateId != nil
+        contact.agentTemplateId != nil && contact.isVerifiedAgent
     }
 
     /// The template share link for a template-backed agent, ready for the
-    /// Share row's `ShareLink`. `nil` for human contacts and for agents
-    /// without a published template, which hides the row.
+    /// Share row's `ShareLink`. `nil` for human contacts, for agents without a
+    /// published template, and for unverified contacts (the published URL is
+    /// unsigned metadata, so the share affordance is only trusted on a verified
+    /// agent - see `isAgentTemplate`).
     private var agentTemplateShareURL: URL? {
-        contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
+        guard contact.isVerifiedAgent else { return nil }
+        return contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
     }
 
     /// True on Dev/Local builds. Controls visibility of the instance id

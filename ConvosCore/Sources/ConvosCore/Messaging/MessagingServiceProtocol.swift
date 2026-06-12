@@ -82,6 +82,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol
+    func connectionServicesStore() -> any ConnectionServicesStoreProtocol
     func connectionEventWriter() -> any ConnectionEventWriterProtocol
     func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol
 

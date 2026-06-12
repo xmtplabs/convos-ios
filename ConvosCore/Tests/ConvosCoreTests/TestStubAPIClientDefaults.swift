@@ -66,6 +66,34 @@ extension ConvosAPIClientProtocol {
     func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
         ConvosAPI.AgentTemplatesPage(data: [], hasMore: false, nextCursor: nil)
     }
+
+    /// Defaults for the backend connection-grant push so pre-existing fixtures
+    /// don't have to re-stub them. Tests that exercise the push specifically
+    /// should override on their fixture.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        CloudConnectionsAPI.ServicesResponse(services: [])
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
+    }
+
+    func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
 }
 
 /// Open, fully-conforming `ConvosAPIClientProtocol` base for test fixtures that
@@ -107,5 +135,32 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     /// subclasses can `override` it.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         ConvosAPI.AgentTemplate(id: UUID().uuidString, status: "published", publishedUrl: nil)
+    }
+
+    /// Declared on the base (not just the protocol-extension default) so
+    /// subclasses can `override` them.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        CloudConnectionsAPI.ServicesResponse(services: [])
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
+    }
+
+    func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
     }
 }

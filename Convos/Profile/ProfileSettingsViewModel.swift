@@ -6,6 +6,16 @@ enum ProfileSettingsError: Error {
     case notBound
 }
 
+/// Whether the global profile has been definitively loaded from the active
+/// inbox. Distinct from the profile being empty: `.loading` means the answer
+/// is not known yet (cold launch before inbox ready, pairing transition), so
+/// consumers like the onboarding coordinator must not treat the current
+/// (default) values as "the user has no profile".
+enum ProfileLoadState: Equatable {
+    case loading
+    case loaded
+}
+
 @MainActor
 @Observable
 class ProfileSettingsViewModel {
@@ -31,12 +41,38 @@ class ProfileSettingsViewModel {
 
     var exampleDisplayName: String = "Somebody"
 
+    /// `.loading` until the bound repository delivers its first definitive
+    /// answer. The setter is internal so tests can preset the state; production
+    /// code must only write it from `bindInternal`/`rebind`.
+    var loadState: ProfileLoadState = .loading {
+        didSet { loadStateSubject.send(loadState) }
+    }
+    @ObservationIgnored
+    private let loadStateSubject: CurrentValueSubject<ProfileLoadState, Never> = .init(.loading)
+
     private var session: (any SessionManagerProtocol)?
     private var writer: (any MyGlobalProfileWriterProtocol)?
     private var repository: (any MyGlobalProfileRepositoryProtocol)?
     private var cancellables: Set<AnyCancellable> = []
 
     private init() {}
+
+    /// Suspends until the profile load state is known, returning true, or
+    /// until `timeout` elapses, returning false. Returns immediately when the
+    /// profile is already loaded.
+    func waitForProfileLoad(timeout: TimeInterval) async -> Bool {
+        if loadState == .loaded { return true }
+        let timeoutPublisher = Just(ProfileLoadState.loading)
+            .delay(for: .seconds(timeout), scheduler: DispatchQueue.main)
+        let firstResolution = loadStateSubject
+            .filter { $0 == .loaded }
+            .merge(with: timeoutPublisher)
+            .first()
+        for await state in firstResolution.values {
+            return state == .loaded
+        }
+        return loadState == .loaded
+    }
 
     func bind(session: any SessionManagerProtocol) {
         guard self.session == nil else { return }
@@ -60,6 +96,7 @@ class ProfileSettingsViewModel {
         profileImage = nil
         profileImageAssetIdentifier = nil
         profileImageContentDigest = nil
+        loadState = .loading
         bindInternal(session: session)
     }
 
@@ -69,13 +106,22 @@ class ProfileSettingsViewModel {
         self.writer = messagingService.myGlobalProfileWriter()
         let repository = messagingService.myGlobalProfileRepository()
         self.repository = repository
+        // Synchronous fast path: succeeds when the inbox is already ready and
+        // a profile row exists (warm starts), so dependents don't have to wait
+        // for the async observation's first emission.
         if let profile = try? repository.fetch() {
             apply(profile: profile)
+            loadState = .loaded
         }
-        repository.myGlobalProfilePublisher
+        // `.pending` deliberately doesn't downgrade `loadState`: it is the
+        // subject's replayed initial value and would otherwise undo the fast
+        // path above. Transitions back to loading happen only via `rebind`.
+        repository.myGlobalProfileLoadStatePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] profile in
+            .sink { [weak self] state in
+                guard case .loaded(let profile) = state else { return }
                 self?.apply(profile: profile)
+                self?.loadState = .loaded
             }
             .store(in: &cancellables)
     }

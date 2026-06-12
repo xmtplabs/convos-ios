@@ -52,6 +52,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
     case agentPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
+    case capabilityConnect(id: String, prompt: CapabilityConnectPrompt, agentName: String, origin: AnyMessage.Origin)
     case agentBuilderSummary(AgentBuilderCardContent)
     case typingIndicator(typers: [ConversationMember])
 
@@ -75,6 +76,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-present-info"
         case .connectionEvent(let id, _, _):
             return "connection-event-\(id)"
+        case .capabilityConnect(let id, _, _, _):
+            return "capability-connect-\(id)"
         case .agentBuilderSummary(let content):
             return "agent-builder-summary-\(content.id)"
         case .typingIndicator:
@@ -119,6 +122,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
+        case .capabilityConnect(_, _, _, let origin):
+            return origin
         }
     }
 
@@ -157,6 +162,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-agentPresentInfo"
         case .connectionEvent:
             return "MessagesListItemTypeCell-connectionEvent"
+        case .capabilityConnect:
+            return "MessagesListItemTypeCell-capabilityConnect"
         case .agentBuilderSummary:
             return "MessagesListItemTypeCell-agentBuilderSummary"
         case .typingIndicator:
@@ -175,6 +182,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-agentJoinStatus",
             "MessagesListItemTypeCell-agentPresentInfo",
             "MessagesListItemTypeCell-connectionEvent",
+            "MessagesListItemTypeCell-capabilityConnect",
             "MessagesListItemTypeCell-agentBuilderSummary",
             "TypingIndicatorCollectionCell",
         ]

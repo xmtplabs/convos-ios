@@ -134,7 +134,7 @@ struct MessagesGroupItemView: View {
             EmptyView()
         case .connectionGrantRequest(let request):
             connectionGrantRequestBubble(request: request)
-        case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
+        case .capabilityConnect, .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             EmptyView()
         }
     }
@@ -731,6 +731,7 @@ private struct AttachmentPlaceholder: View {
     @ViewBuilder
     private func inlineVideoView(player: AVPlayer) -> some View {
         InlineVideoPlayerView(player: player)
+            .background { videoThumbnailUnderlay }
             .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
             .blur(radius: showBlurOverlay ? blurRadius : 0)
             .overlay(alignment: .top) {
@@ -748,6 +749,18 @@ private struct AttachmentPlaceholder: View {
             .compositingGroup()
             .modifier(MediaBoxLayout())
             .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
+    }
+
+    // An AVPlayerLayer renders nothing until its first frame is decoded, so
+    // keeping the thumbnail underneath avoids a white flash when the player
+    // replaces the thumbnail view.
+    @ViewBuilder
+    private var videoThumbnailUnderlay: some View {
+        if let image = loadedImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        }
     }
 
     @ViewBuilder

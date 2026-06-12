@@ -425,6 +425,7 @@ public final class MessagesViewController: UIViewController {
         didSet { dataSource.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet }
     }
     var onTapUpdateMember: ((ConversationMember) -> Void)?
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
@@ -682,6 +683,9 @@ public final class MessagesViewController: UIViewController {
         }
         dataSource.onTapUpdateMember = { [weak self] member in
             self?.onTapUpdateMember?(member)
+        }
+        dataSource.onTapCapabilityConnect = { [weak self] prompt in
+            self?.onTapCapabilityConnect?(prompt)
         }
         dataSource.onOpenFile = { [weak self] attachment, message in
             self?.openFileAttachment(attachment, from: message)

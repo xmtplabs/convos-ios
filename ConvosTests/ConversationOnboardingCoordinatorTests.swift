@@ -32,9 +32,12 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         // The coordinator reads `ProfileSettingsViewModel.shared` (a
         // singleton); reset it so a non-default profile left by another
-        // test can't push `start()` down the auto-apply branch.
+        // test can't push `start()` down the auto-apply branch. Mark it
+        // loaded so `start()` doesn't wait out the profile-load gate;
+        // tests covering the gate set `.loading` explicitly.
         ProfileSettingsViewModel.shared.editingDisplayName = ""
         ProfileSettingsViewModel.shared.profileImage = nil
+        ProfileSettingsViewModel.shared.loadState = .loaded
     }
 
     override func tearDown() async throws {
@@ -42,6 +45,10 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         mockNotificationCenter = nil
 
         cleanUpUserDefaults()
+
+        ProfileSettingsViewModel.shared.editingDisplayName = ""
+        ProfileSettingsViewModel.shared.profileImage = nil
+        ProfileSettingsViewModel.shared.loadState = .loaded
 
         try await super.tearDown()
     }
@@ -314,6 +321,73 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         }
 
         UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversationId)")
+    }
+
+    // MARK: - Profile Load Gate Tests
+
+    func testStart_ProfileNotLoaded_TimesOutQuietly() async {
+        ProfileSettingsViewModel.shared.loadState = .loading
+        let gatedCoordinator = ConversationOnboardingCoordinator(
+            notificationCenter: mockNotificationCenter,
+            autodismissDurationOverride: testAutodismissDuration,
+            profileLoadTimeout: 0.05
+        )
+
+        await gatedCoordinator.start(for: testConversationId)
+
+        XCTAssertEqual(
+            gatedCoordinator.state, .idle,
+            "With the profile state unknown, the coordinator must go quiet instead of prompting"
+        )
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasShownProfileEditor"),
+            "A timed-out start must not mutate onboarding flags"
+        )
+    }
+
+    func testStart_ProfileLoadsWhileWaiting_AutoAppliesExistingProfile() async {
+        ProfileSettingsViewModel.shared.loadState = .loading
+        ProfileSettingsViewModel.shared.editingDisplayName = "Alice"
+        mockNotificationCenter.authStatus = .notDetermined
+
+        let startTask = Task { await coordinator.start(for: testConversationId) }
+        // Let start() reach the profile-load gate before resolving it.
+        try? await Task.sleep(for: .milliseconds(20))
+        ProfileSettingsViewModel.shared.loadState = .loaded
+        await startTask.value
+
+        XCTAssertEqual(
+            coordinator.state, .requestNotifications,
+            "A profile arriving while the coordinator waits must auto-apply, not prompt"
+        )
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"))
+    }
+
+    func testStart_ExistingProfile_EditorFlagUnset_DoesNotPrompt() async {
+        // A populated profile with no device-local editor flag is the
+        // freshly-paired-device shape (flags are written asynchronously
+        // after the identity seed): the profile itself must win.
+        ProfileSettingsViewModel.shared.editingDisplayName = "Alice"
+        mockNotificationCenter.authStatus = .notDetermined
+
+        await coordinator.start(for: testConversationId)
+
+        XCTAssertEqual(coordinator.state, .requestNotifications)
+        XCTAssertTrue(
+            UserDefaults.standard.bool(forKey: "hasShownProfileEditor"),
+            "Auto-apply must backfill the editor flag so dependent gates agree a profile exists"
+        )
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"))
+    }
+
+    func testStart_ExistingProfile_PerConversationFlagSet_Skips() async {
+        ProfileSettingsViewModel.shared.editingDisplayName = "Alice"
+        UserDefaults.standard.set(true, forKey: "hasSetProfileForConversation_\(testConversationId)")
+        mockNotificationCenter.authStatus = .authorized
+
+        await coordinator.start(for: testConversationId)
+
+        XCTAssertEqual(coordinator.state, .idle, "Known profile + per-conversation flag must skip straight through")
     }
 
     // MARK: - App Lifecycle Tests

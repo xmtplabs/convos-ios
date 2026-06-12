@@ -36,11 +36,14 @@ extension DBLastMessageWithSource {
         case .original:
             switch contentType {
             case .attachments:
-                if shouldShowSenderName {
-                    text = "\(senderName) sent \(attachmentsString)"
-                } else {
-                    text = "sent \(attachmentsString)"
-                }
+                text = Self.attachmentsPreviewText(
+                    senderName: senderName,
+                    senderIsAgent: !isCurrentUser && senderProfile?.memberProfile.isAgent == true,
+                    attachmentUrls: attachmentUrls,
+                    attachmentsString: attachmentsString,
+                    otherMemberCount: otherMemberCount,
+                    shouldShowSenderName: shouldShowSenderName
+                )
             case .text:
                 if shouldShowSenderName {
                     text = "\(senderName): \(self.text ?? "")"
@@ -155,6 +158,33 @@ extension DBLastMessageWithSource {
         if isCurrentUser { return "You" }
         if let name = profile?.name, !name.isEmpty { return name }
         return profile?.isAgent == true ? "Agent" : "Somebody"
+    }
+
+    /// Builds the preview line for an attachment message. An agent sending a
+    /// single html file gets bespoke copy ("made you a thing" / "made a thing
+    /// for the group") instead of the generic "sent <filename>" line.
+    static func attachmentsPreviewText(
+        senderName: String,
+        senderIsAgent: Bool,
+        attachmentUrls: [String],
+        attachmentsString: String,
+        otherMemberCount: Int,
+        shouldShowSenderName: Bool
+    ) -> String {
+        if senderIsAgent, isSingleHtmlAttachment(attachmentUrls) {
+            return otherMemberCount > 1
+                ? "\(senderName) made a thing for the group"
+                : "\(senderName) made you a thing"
+        }
+        return shouldShowSenderName ? "\(senderName) sent \(attachmentsString)" : "sent \(attachmentsString)"
+    }
+
+    private static func isSingleHtmlAttachment(_ attachmentUrls: [String]) -> Bool {
+        guard attachmentUrls.count == 1, let url = attachmentUrls.first else { return false }
+        guard let filename = classifyAttachment(url).filename else { return false }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return false }
+        return utType.conforms(to: .html)
     }
 
     static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {

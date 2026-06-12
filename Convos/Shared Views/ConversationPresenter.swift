@@ -195,7 +195,7 @@ struct ConversationPresenter<Content: View>: View {
         )
         .padding(.top, indicatorTopInset)
         .padding(.leading, indicatorLeadingInset)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     @ViewBuilder
@@ -213,7 +213,7 @@ struct ConversationPresenter<Content: View>: View {
         .padding(.top, indicatorTopInset)
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.leading, indicatorLeadingInset)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     @ViewBuilder

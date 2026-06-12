@@ -42,29 +42,33 @@ public enum CreditsServices {
     }
 
     public static var useRealBackend: Bool {
-        let environment = ConfigManager.shared.currentEnvironment
+        resolveUseRealBackend(
+            environment: ConfigManager.shared.currentEnvironment,
+            defaults: .standard
+        )
+    }
+
+    /// Testable core of `useRealBackend`.
+    ///
+    /// Do NOT gate the stored override on `#if DEBUG` here. ConvosCore is a
+    /// Swift package, and Xcode compiles package dependencies in the
+    /// package's *release* configuration for any app build configuration
+    /// not named exactly "Debug" — this project runs with "Dev" / "Local",
+    /// so a `#if DEBUG` in this file is inactive even in simulator runs
+    /// (unlike in app-target files, where the xcconfigs define DEBUG).
+    /// That made the Debug-menu toggle's stored value silently ignored:
+    /// it re-defaulted to ON every launch. Gate at runtime instead:
+    /// production always short-circuits to the real backend, and the only
+    /// writer of the override is the Debug menu, which is reachable in
+    /// internal (dev/local) builds only.
+    static func resolveUseRealBackend(environment: AppEnvironment, defaults: UserDefaults) -> Bool {
         if environment.isProduction { return true }
-        // The UserDefaults override is intentionally DEBUG-only. On
-        // Release builds (TestFlight / App Store / Ad-Hoc) we always
-        // return the build-config default below so a stored `false`
-        // from a previous Debug build on the same device can't quietly
-        // pin a TestFlight tester to the mock service — UserDefaults
-        // survives reinstalls under the same bundle ID. The Debug menu
-        // toggle still works in Debug builds (where it's reachable).
-        #if DEBUG
-        if let stored = UserDefaults.standard.object(forKey: Constant.useRealBackendKey) as? Bool {
+        if let stored = defaults.object(forKey: Constant.useRealBackendKey) as? Bool {
             return stored
         }
-        return false
-        #else
-        // The previous `buildEnvironment == .distribution` check relied on
-        // `hasEmbeddedMobileProvision()` returning `false`, but TestFlight
-        // builds also ship `embedded.mobileprovision` — so they were being
-        // classified as `.development` and silently falling back to the
-        // mock. Anchor on the build configuration instead: Release builds
-        // (TestFlight / App Store / Ad-Hoc) hit the real backend.
+        // Default ON: anyone who never touched the toggle gets real
+        // backend credits, including TestFlight dev builds.
         return true
-        #endif
     }
 
     public static func setUseRealBackend(_ value: Bool) {
@@ -72,7 +76,14 @@ public enum CreditsServices {
         UserDefaults.standard.set(value, forKey: Constant.useRealBackendKey)
     }
 
-    private enum Constant {
-        static let useRealBackendKey: String = "creditsServices.useRealBackend"
+    enum Constant {
+        /// Versioned key (v2): the original `creditsServices.useRealBackend`
+        /// key accumulated stale writes during the eras when the setter
+        /// persisted but the gate ignored the stored value (see the doc
+        /// comment on `resolveUseRealBackend`). Those stale off values would
+        /// have silently flipped TestFlight testers to mock credits once the
+        /// gate started honoring them. The old key is intentionally never
+        /// read - only deliberate toggles made after the fix persist under v2.
+        static let useRealBackendKey: String = "creditsServices.useRealBackend.v2"
     }
 }

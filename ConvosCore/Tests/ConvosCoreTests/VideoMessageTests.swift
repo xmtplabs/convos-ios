@@ -232,6 +232,87 @@ struct VideoMessageTests {
         #expect(result == "a photo")
     }
 
+    // MARK: - Agent Html Attachment Preview
+
+    @Test("Agent sending an html file with only the current user shows 'made you a thing'")
+    func testAgentHtmlPreviewOneOnOne() {
+        let result = DBLastMessageWithSource.attachmentsPreviewText(
+            senderName: "Robo",
+            senderIsAgent: true,
+            attachmentUrls: [makeHtmlJSON()],
+            attachmentsString: "thing.html",
+            otherMemberCount: 1,
+            shouldShowSenderName: false
+        )
+        #expect(result == "Robo made you a thing")
+    }
+
+    @Test("Agent sending an html file to a group shows 'made a thing for the group'")
+    func testAgentHtmlPreviewGroup() {
+        let result = DBLastMessageWithSource.attachmentsPreviewText(
+            senderName: "Robo",
+            senderIsAgent: true,
+            attachmentUrls: [makeHtmlJSON()],
+            attachmentsString: "thing.html",
+            otherMemberCount: 3,
+            shouldShowSenderName: true
+        )
+        #expect(result == "Robo made a thing for the group")
+    }
+
+    @Test("Non-agent sending an html file keeps the generic copy")
+    func testNonAgentHtmlPreview() {
+        let result = DBLastMessageWithSource.attachmentsPreviewText(
+            senderName: "Somebody",
+            senderIsAgent: false,
+            attachmentUrls: [makeHtmlJSON()],
+            attachmentsString: "thing.html",
+            otherMemberCount: 1,
+            shouldShowSenderName: false
+        )
+        #expect(result == "sent thing.html")
+    }
+
+    @Test("Agent sending a non-html file keeps the generic copy")
+    func testAgentNonHtmlPreview() {
+        let result = DBLastMessageWithSource.attachmentsPreviewText(
+            senderName: "Robo",
+            senderIsAgent: true,
+            attachmentUrls: [makeVideoJSON()],
+            attachmentsString: "a video",
+            otherMemberCount: 1,
+            shouldShowSenderName: false
+        )
+        #expect(result == "sent a video")
+    }
+
+    @Test("Agent sending multiple attachments keeps the generic copy")
+    func testAgentMultipleAttachmentsPreview() {
+        let htmlJSON = makeHtmlJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewText(
+            senderName: "Robo",
+            senderIsAgent: true,
+            attachmentUrls: [htmlJSON, htmlJSON],
+            attachmentsString: "2 attachments",
+            otherMemberCount: 1,
+            shouldShowSenderName: false
+        )
+        #expect(result == "sent 2 attachments")
+    }
+
+    private func makeHtmlJSON() -> String {
+        let stored = StoredRemoteAttachment(
+            url: "https://example.com/thing.enc",
+            contentDigest: "abc",
+            secret: Data("s".utf8),
+            salt: Data("s".utf8),
+            nonce: Data("n".utf8),
+            filename: "thing.html",
+            mimeType: "text/html"
+        )
+        return (try? stored.toJSON()) ?? ""
+    }
+
     private func makePhotoJSON() -> String {
         let stored = StoredRemoteAttachment(
             url: "https://example.com/photo.enc",

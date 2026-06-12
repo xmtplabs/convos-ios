@@ -103,7 +103,7 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
-    private var profileSettingsViewModel: ProfileSettingsViewModel = .shared
+    private let profileSettingsViewModel: ProfileSettingsViewModel
 
     var isSettingUpProfile: Bool {
         switch state {
@@ -242,6 +242,11 @@ final class ConversationOnboardingCoordinator {
 
     private let notificationCenter: NotificationCenterProtocol
     private let autodismissDurationOverride: CGFloat?
+    /// How long `startProfileSetupFlow` waits for the global profile to load
+    /// before giving up. On timeout the coordinator goes quiet rather than
+    /// guess: prompting an already-onboarded user is worse than prompting a
+    /// new user one conversation-open late.
+    private let profileLoadTimeout: TimeInterval
     @ObservationIgnored
     private var appLifecycleTask: Task<Void, Never>?
     @ObservationIgnored
@@ -249,10 +254,14 @@ final class ConversationOnboardingCoordinator {
 
     init(
         notificationCenter: NotificationCenterProtocol = SystemNotificationCenter(),
-        autodismissDurationOverride: CGFloat? = nil
+        autodismissDurationOverride: CGFloat? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
+        profileLoadTimeout: TimeInterval = 10
     ) {
         self.notificationCenter = notificationCenter
         self.autodismissDurationOverride = autodismissDurationOverride
+        self.profileSettingsViewModel = profileSettingsViewModel
+        self.profileLoadTimeout = profileLoadTimeout
         observeAppLifecycle()
     }
 
@@ -399,27 +408,48 @@ final class ConversationOnboardingCoordinator {
 
     /// Start or continue the profile onboarding flow
     private func startProfileSetupFlow(for conversationId: String) async {
+        // Don't decide on an unloaded snapshot: at cold launch (and right
+        // after pairing adoption) the shared profile view model still holds
+        // default values even for a fully-onboarded user, because the global
+        // profile only arrives once the inbox is ready. `.started` renders
+        // nothing, so waiting here shows no UI either way.
+        let profileLoaded = await profileSettingsViewModel.waitForProfileLoad(timeout: profileLoadTimeout)
+        guard profileLoaded else {
+            QAEvent.emit(.onboarding, "profile_load_timeout")
+            state = .idle
+            handleStateChange()
+            return
+        }
+
         let hasSetProfileForConversation = hasSetProfile(for: conversationId)
 
         let profileSettings = profileSettingsViewModel.profileSettings
 
-        if !hasShownProfileEditor {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "first_time"])
-            handleStateChange()
-        } else if profileSettings.isDefault && !hasSetProfileForConversation {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "no_profile"])
-            handleStateChange()
-        } else {
+        if !profileSettings.isDefault {
+            // A profile already exists, so never prompt — regardless of the
+            // device-local editor flag, which can lag the profile (e.g. it is
+            // set asynchronously on a freshly paired device). Backfill it so
+            // related gates (like the input bar's "Chat as Somebody") agree.
+            hasShownProfileEditor = true
             if !hasSetProfileForConversation {
                 setHasSetProfile(true, for: conversationId)
                 QAEvent.emit(.onboarding, "profile_auto_applied", ["name": profileSettings.profile.displayName])
             } else {
                 QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
             }
+            await transitionAfterProfileSetup()
+        } else if !hasShownProfileEditor {
+            shouldAnimateAvatarForProfileSetup = true
+            state = .setupProfile
+            QAEvent.emit(.onboarding, "setup_profile", ["reason": "first_time"])
+            handleStateChange()
+        } else if !hasSetProfileForConversation {
+            shouldAnimateAvatarForProfileSetup = true
+            state = .setupProfile
+            QAEvent.emit(.onboarding, "setup_profile", ["reason": "no_profile"])
+            handleStateChange()
+        } else {
+            QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
             await transitionAfterProfileSetup()
         }
     }

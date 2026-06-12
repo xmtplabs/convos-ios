@@ -30,6 +30,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
@@ -230,6 +231,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
+        }
+        messagesViewController.onTapCapabilityConnect = { prompt in
+            self.onTapCapabilityConnect(prompt)
         }
         messagesViewController.onRetryMessage = { message in
             self.onRetryMessage(message)

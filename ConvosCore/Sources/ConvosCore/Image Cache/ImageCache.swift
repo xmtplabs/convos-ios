@@ -407,8 +407,15 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     ///   - object: The ImageCacheable object this image is for
     /// - Returns: JPEG data ready for upload, or nil if compression fails
     public func prepareForUpload(_ image: UIImage, for object: any ImageCacheable) -> Data? {
-        let identifier = object.imageCacheIdentifier
+        prepareForUpload(image, forIdentifier: object.imageCacheIdentifier)
+    }
 
+    /// Identifier-based variant of `prepareForUpload(_:for:)`. Conversation
+    /// image uploads must pass the conversation's stable id directly:
+    /// `Conversation.imageCacheIdentifier` resolves to the other member's
+    /// inbox id while `imageURL` is nil, which would cache the conversation
+    /// image as that member's profile avatar.
+    public func prepareForUpload(_ image: UIImage, forIdentifier identifier: String) -> Data? {
         // Immediately set the cache so there is no delay showing in the UI
         cache.setObject(image, forKey: identifier as NSString, cost: memoryCost(for: image))
 

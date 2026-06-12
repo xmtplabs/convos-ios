@@ -30,6 +30,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var currentUserProfileImage: (() -> UIImage?)? { get set }
     var backwardsSecrecyInfoSheet: (() -> AnyView)? { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)? { get set }
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }

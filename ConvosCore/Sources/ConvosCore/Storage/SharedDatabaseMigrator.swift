@@ -196,16 +196,36 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration(
-            "backfillContactAgentTemplateFieldsFromMemberProfiles",
-            migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles
-        )
+        migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
+                                   migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
 
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 
         Self.registerRemovedStateMigrations(on: &migrator)
 
+        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
+
+        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
+
+        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+
         return migrator
+    }
+
+    /// Ledger of join-request message IDs that already admitted their
+    /// sender, shared with the notification service extension. Keyed by
+    /// message ID so revalidation passes cannot re-add a member the user
+    /// removed; see `DatabaseHandledJoinRequestStore`.
+    private static func createHandledJoinRequest(_ db: Database) throws {
+        try db.create(table: "handledJoinRequest") { t in
+            t.column("messageId", .text).notNull().primaryKey()
+            t.column("handledAt", .datetime).notNull()
+        }
+        try db.create(
+            index: "handledJoinRequest_handledAt",
+            on: "handledJoinRequest",
+            columns: ["handledAt"]
+        )
     }
 
     /// Persisted "the local user was removed from this conversation" marker.
@@ -424,6 +444,28 @@ extension SharedDatabaseMigrator {
             ON agentTemplate(slug)
             WHERE slug IS NOT NULL
             """)
+    }
+
+    /// Id of the backend ConnectionGrant record (POST /v2/connections/grants)
+    /// created when a local grant is pushed to the server. Nullable: rows
+    /// that predate the backend push, or whose push failed, have no backend
+    /// id and are skipped during backend revocation.
+    private static func addConnectionGrantBackendGrantId(_ db: Database) throws {
+        try db.alter(table: "connectionGrant") { t in
+            t.add(column: "backendGrantId", .text)
+        }
+    }
+
+    /// Bundle-scoped grants (connections picker): `bundleIds` is the JSON
+    /// array of permission-bundle ids the user toggled on (catalog ids like
+    /// "calendar.events"); `serviceVersion` is the catalog version the device
+    /// granted against. Both nullable: rows that predate bundles, or whose
+    /// service isn't in the catalog, are legacy whole-toolkit grants.
+    private static func addConnectionGrantBundleScope(_ db: Database) throws {
+        try db.alter(table: "connectionGrant") { t in
+            t.add(column: "bundleIds", .text)
+            t.add(column: "serviceVersion", .integer)
+        }
     }
 
     /// Rename `conversation.hasHadVerifiedAssistant` -> `hasHadVerifiedAgent`

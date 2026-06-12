@@ -34,7 +34,7 @@ struct ReplyReferenceView: View {
             return "agent"
         case .linkPreview(let preview):
             return preview.title ?? preview.displayHost
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest, .capabilityConnect:
             return ""
         case .connectionEvent(let summary),
              .connectionInvocation(let summary),

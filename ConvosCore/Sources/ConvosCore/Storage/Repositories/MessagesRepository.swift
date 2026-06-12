@@ -15,20 +15,27 @@ public struct MemberProfileInfo: Sendable {
     public let conversationId: String
     public let name: String?
     public let avatar: String?
-    public let isVerifiedConvosAgent: Bool
+    public let isAgent: Bool
+    public let agentVerification: AgentVerification
+
+    public var isVerifiedConvosAgent: Bool {
+        agentVerification.isConvosAgent
+    }
 
     public init(
         inboxId: String,
         conversationId: String,
         name: String?,
         avatar: String?,
-        isVerifiedConvosAgent: Bool = false
+        isAgent: Bool = false,
+        agentVerification: AgentVerification = .unverified
     ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
-        self.isVerifiedConvosAgent = isVerifiedConvosAgent
+        self.isAgent = isAgent
+        self.agentVerification = agentVerification
     }
 }
 
@@ -411,7 +418,8 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 conversationId: conversationId,
                 name: row.name,
                 avatar: row.avatar,
-                isVerifiedConvosAgent: row.agentVerification.isConvosAgent
+                isAgent: row.isAgent,
+                agentVerification: row.agentVerification
             )
         }
         return result
@@ -425,6 +433,8 @@ extension Array where Element == DBMessage {
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
+                         capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+                         latestPendingCapabilityRequestId: String? = nil,
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -455,7 +465,9 @@ extension Array where Element == DBMessage {
                     for: dbMessage,
                     currentInboxId: currentInboxId,
                     memberProfileCache: memberProfileCache,
-                    attachmentLocalStates: attachmentLocalStates
+                    attachmentLocalStates: attachmentLocalStates,
+                    capabilityResultsByRequestId: capabilityResultsByRequestId,
+                    latestPendingCapabilityRequestId: latestPendingCapabilityRequestId
                 ) else { return nil }
 
                 let message = Message(
@@ -488,7 +500,9 @@ extension Array where Element == DBMessage {
         for dbMessage: DBMessage,
         currentInboxId: String,
         memberProfileCache: MemberProfileCache,
-        attachmentLocalStates: [String: AttachmentLocalState]
+        attachmentLocalStates: [String: AttachmentLocalState],
+        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+        latestPendingCapabilityRequestId: String? = nil
     ) -> MessageContent? {
         switch dbMessage.contentType {
         case .text:
@@ -526,8 +540,15 @@ extension Array where Element == DBMessage {
                 return .connectionGrantRequest(request)
             }
             return .text("")
-        case .capabilityRequest, .capabilityRequestResult:
-            // Picker presentation is driven out-of-band; these aren't user-visible in the list.
+        case .capabilityRequest:
+            return resolveCapabilityConnectContent(
+                jsonText: dbMessage.text,
+                resultsByRequestId: capabilityResultsByRequestId,
+                latestPendingRequestId: latestPendingCapabilityRequestId
+            )
+        case .capabilityRequestResult:
+            // Results render indirectly: they flip the request row's pill state via
+            // the compose-time join, and approvals emit their own connection_event.
             return nil
         case .connectionEvent:
             return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionEvent(summary: $0) } ?? .text("")
@@ -543,6 +564,23 @@ extension Array where Element == DBMessage {
     private static func decodeConnectionSummary(jsonText: String?) -> ConnectionEventSummary? {
         guard let jsonText else { return nil }
         return try? JSONDecoder().decode(ConnectionEventSummary.self, from: Data(jsonText.utf8))
+    }
+
+    private static func resolveCapabilityConnectContent(
+        jsonText: String?,
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        latestPendingRequestId: String?
+    ) -> MessageContent? {
+        guard let jsonText,
+              let request = try? JSONDecoder().decode(CapabilityRequest.self, from: Data(jsonText.utf8)) else {
+            return nil
+        }
+        let prompt = CapabilityConnectPrompt.make(
+            request: request,
+            results: resultsByRequestId[request.requestId] ?? [],
+            isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
+        )
+        return .capabilityConnect(prompt: prompt)
     }
 
     private static func resolveUpdateContent(
@@ -991,6 +1029,35 @@ fileprivate extension Database {
             }
         }
 
+        // Correlate capability_request_result rows to the request rows in the
+        // window by requestId (mirrors the reaction join on sourceMessageId).
+        // Results are fetched conversation-wide because the correlation key
+        // lives in the JSON payload, not in sourceMessageId; the rows are rare.
+        // Skipping the query when no request row is visible is safe for the
+        // ValueObservation: the main message query already tracks the table,
+        // so a late-arriving result row still re-fires composition.
+        //
+        // First decision wins, in message-time order: one capability request
+        // is one connection ask for the whole conversation — the earliest
+        // validated (non-asker) result flips the pill for every member; the
+        // agent re-requests under a new requestId if it needs more. Both the
+        // resolution rule and the latest-pending computation are shared with
+        // CapabilityRequestRepository (the tap path), so a pill rendered
+        // `.pending` is always the request the approval sheet would open for.
+        var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        var latestPendingCapabilityRequestId: String?
+        if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
+            capabilityResultsByRequestId = try CapabilityRequestRepository.resultRecordsByRequestId(
+                conversationId: conversationId,
+                db: self
+            )
+            latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: self,
+                resultsByRequestId: capabilityResultsByRequestId
+            )?.requestId
+        }
+
         let localStates: [AttachmentLocalState]
         if let prefetchedLocalStates {
             localStates = prefetchedLocalStates
@@ -1015,6 +1082,8 @@ fileprivate extension Database {
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
+            capabilityResultsByRequestId: capabilityResultsByRequestId,
+            latestPendingCapabilityRequestId: latestPendingCapabilityRequestId,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating

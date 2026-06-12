@@ -1114,6 +1114,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
                 InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),

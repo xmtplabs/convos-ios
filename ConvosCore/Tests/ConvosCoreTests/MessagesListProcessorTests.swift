@@ -1134,6 +1134,58 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(readers.first?.profile.inboxId == absentInboxId)
         #expect(readers.first?.agentVerification == .unverified)
     }
+
+    @Test("Read-by members resolved from the memberProfiles cache keep their agent verification")
+    func readByMembersFallbackPreservesAgentVerification() {
+        let now = Date()
+        let conversationId = "conv-1"
+        let convosAgentInboxId = "quiet-convos-agent"
+        let oauthAgentInboxId = "quiet-oauth-agent"
+        let messages = [
+            makeMessage(id: "me-1", sender: currentUser, text: "Hello", date: now),
+        ]
+        let readAtNs = Int64(now.addingTimeInterval(5).timeIntervalSince1970 * 1_000_000_000)
+        let receipts = [
+            ReadReceiptEntry(inboxId: convosAgentInboxId, readAtNs: readAtNs),
+            ReadReceiptEntry(inboxId: oauthAgentInboxId, readAtNs: readAtNs + 1),
+        ]
+        let memberProfiles: [String: MemberProfileInfo] = [
+            convosAgentInboxId: MemberProfileInfo(
+                inboxId: convosAgentInboxId,
+                conversationId: conversationId,
+                name: "Quiet Convos Agent",
+                avatar: nil,
+                isAgent: true,
+                agentVerification: .verified(.convos)
+            ),
+            oauthAgentInboxId: MemberProfileInfo(
+                inboxId: oauthAgentInboxId,
+                conversationId: conversationId,
+                name: "Quiet OAuth Agent",
+                avatar: nil,
+                isAgent: true,
+                agentVerification: .verified(.userOAuth)
+            ),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            readReceipts: receipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: 2
+        )
+        let g = groups(from: result)
+        let readers = g.last { $0.isLastGroupSentByCurrentUser }?.readByMembers ?? []
+        #expect(readers.count == 2)
+        let byInbox = Dictionary(uniqueKeysWithValues: readers.map { ($0.profile.inboxId, $0) })
+        #expect(byInbox[convosAgentInboxId]?.isAgent == true)
+        #expect(byInbox[convosAgentInboxId]?.agentVerification == .verified(.convos))
+        #expect(byInbox[oauthAgentInboxId]?.isAgent == true)
+        #expect(byInbox[oauthAgentInboxId]?.agentVerification == .verified(.userOAuth))
+        // Avatar views gate the verification badge on the profile's isAgent
+        // flag, so the fallback-built profile must carry it too.
+        #expect(byInbox[convosAgentInboxId]?.profile.isAgent == true)
+        #expect(byInbox[oauthAgentInboxId]?.profile.isAgent == true)
+    }
 }
 
 // MARK: - Agent Builder Card Reconstruction Tests
@@ -1925,5 +1977,162 @@ extension MessagesListProcessorPendingBuilderCardTests {
         }
         // No message is lost in the split.
         #expect(Set(messageIds(from: result)) == ["pre-1", "pre-2", "post-1", "post-2"])
+    }
+
+    @Test("Make-boundary split keeps the Sent row only on the newer half")
+    func makeBoundarySplitKeepsSingleSentRow() {
+        let make = Date()
+        let messages = [
+            makeMessage(id: "pre", sender: currentUser, text: "Before Make", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "post", sender: currentUser, text: "After Make", date: make.addingTimeInterval(20)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let flagged = groups(from: result).filter(\.isLastGroupSentByCurrentUser)
+        #expect(flagged.count == 1)
+        #expect(flagged.first?.messages.map(\.messageId) == ["post"])
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Messages straddling the swallowed build bundle stay one group with one Sent row")
+    func messagesAroundSwallowedBundleStayGrouped() {
+        let make = Date()
+        // The user sends one message right after Make, the agent joins and the
+        // held bundle publishes (its row dated between the sends), then the
+        // user sends again. All rows share a sender, so the processor merges
+        // them into one group; swallowing the bundle row must not split it.
+        let messages = [
+            makeMessage(id: "please", sender: currentUser, text: "Please", date: make.addingTimeInterval(5)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Help me get healthier", date: make.addingTimeInterval(12)),
+            makeMessage(id: "ugh", sender: currentUser, text: "Ugh", date: make.addingTimeInterval(20)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Help me get healthier",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let g = groups(from: result)
+        #expect(g.count == 1)
+        #expect(g.first?.messages.map(\.messageId) == ["please", "ugh"])
+        #expect(g.filter(\.isLastGroupSentByCurrentUser).count == 1)
+
+        // The card renders at the Make slot, above both sends.
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let groupIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "please" }
+        }
+        #expect(cardIndex != nil && groupIndex != nil)
+        if let cardIndex, let groupIndex {
+            #expect(cardIndex < groupIndex)
+        }
+    }
+
+    @Test("Recipient run card between same-sender messages splits the group with one Sent row")
+    func runCardBetweenSameSenderMessagesKeepsSingleSentRow() {
+        let now = Date()
+        // No summary: the run keeps its run-anchored card (recipient view),
+        // which genuinely separates the two sends -- but only the bottom
+        // group may carry the Sent row.
+        let messages = [
+            makeMessage(id: "first", sender: currentUser, text: "First", date: now),
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: now.addingTimeInterval(10)),
+            makeMessage(id: "second", sender: currentUser, text: "Second", date: now.addingTimeInterval(20)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let g = groups(from: result)
+        #expect(g.count == 2)
+        let flagged = g.filter(\.isLastGroupSentByCurrentUser)
+        #expect(flagged.count == 1)
+        #expect(flagged.first?.messages.map(\.messageId) == ["second"])
+    }
+}
+
+private func makeConnectionInvocation(
+    id: String = UUID().uuidString,
+    sender: ConversationMember = otherUser,
+    date: Date = Date()
+) -> AnyMessage {
+    .message(Message(
+        id: id,
+        sender: sender,
+        source: .incoming,
+        status: .published,
+        content: .connectionInvocation(summary: ConnectionEventSummary(
+            text: "read calendar events",
+            outcome: .success,
+            icon: .calendar
+        )),
+        date: date,
+        reactions: []
+    ), .existing)
+}
+
+extension MessagesListProcessorAgentBuilderCardTests {
+    @Test("An invocation row landing between the bundle's publishes keeps one card")
+    func invisibleRowBetweenBundlePublishesKeepsOneCard() {
+        let now = Date()
+        // The bundle's attachment and prompt rows publish back to back, but a
+        // connection invocation (which never renders its own row) lands
+        // between them. One Make must still render one card, not an
+        // attachments-only card plus a prompt-only card.
+        let messages = [
+            makeAttachment(id: "b-att", sender: currentUser, date: now),
+            makeConnectionInvocation(id: "invoke", date: now.addingTimeInterval(1)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Track the fog", date: now.addingTimeInterval(2)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Track the fog")
+        #expect(cards.first?.attachments.count == 1)
+    }
+
+    @Test("Replacing a full-bleed bundle row with the card clears the neighbor's hairline adjacency")
+    func swallowedFullBleedBundleClearsStaleAdjacency() {
+        let now = Date()
+        // A full-bleed photo sits directly above the bundle's full-bleed
+        // attachment row, so the adjacency pass marks the pair before the
+        // bundle rows are replaced by the card. The photo must not keep
+        // hairline padding against the card row.
+        let messages = [
+            makeAttachment(id: "photo", sender: otherUser, date: now),
+            makeAttachment(id: "b-att", sender: currentUser, date: now.addingTimeInterval(5)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Track the fog", date: now.addingTimeInterval(6)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let photoGroup = groups(from: result).first { group in
+            group.messages.contains { $0.messageId == "photo" }
+        }
+        #expect(photoGroup != nil)
+        #expect(photoGroup?.adjacentToFullBleedBelow == false)
     }
 }

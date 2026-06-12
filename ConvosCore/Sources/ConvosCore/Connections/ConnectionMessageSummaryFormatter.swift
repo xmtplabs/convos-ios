@@ -5,13 +5,16 @@ public enum ConnectionMessageSummaryFormatter {
     public static func eventSummary(_ event: ConnectionEvent) -> ConnectionEventSummary {
         switch event.action {
         case .granted:
-            let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
+            // Service-branded status line: the message sender IS the granter, so
+            // `.messageSender` gives "You/<Name> connected Google Calendar" for
+            // free at render time — no extra identity on the wire.
             return .init(
-                text: grantedText(forProviderId: event.providerId, capability: event.capability),
+                text: "connected \(serviceDisplayName(forProviderId: event.providerId))",
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
-                actor: actor,
-                grantedToInboxId: event.grantedToInboxId
+                actor: .messageSender,
+                grantedToInboxId: event.grantedToInboxId,
+                providerId: event.providerId
             )
         case .revoked:
             let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
@@ -20,9 +23,25 @@ public enum ConnectionMessageSummaryFormatter {
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
                 actor: actor,
-                grantedToInboxId: event.grantedToInboxId
+                grantedToInboxId: event.grantedToInboxId,
+                providerId: event.providerId
             )
         }
+    }
+
+    /// User-facing brand name for a provider id: "Google Calendar" for
+    /// `composio.googlecalendar`, "Apple Health" for `device.health`.
+    public static func serviceDisplayName(forProviderId providerId: String) -> String {
+        let id = ProviderID(rawValue: providerId)
+        if let kind = ConnectionKind.fromDeviceProviderId(id) {
+            return DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind })?.displayName
+                ?? kind.displayName
+        }
+        if let serviceId = id.cloudServiceId {
+            return CloudCapabilityProvider.serviceDisplayNames[serviceId]
+                ?? CloudConnectionServiceNaming.displayName(for: "", fallbackFrom: serviceId)
+        }
+        return "a service"
     }
 
     public static func invocationSummary(_ invocation: ConnectionInvocation) -> ConnectionEventSummary {
@@ -114,18 +133,6 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func grantedText(forProviderId providerId: String, capability: ConnectionCapability?) -> String {
-        let id = ProviderID(rawValue: providerId)
-        if let kind = ConnectionKind.fromDeviceProviderId(id) {
-            return grantedText(forDeviceKind: kind, capability: capability)
-        }
-        if let serviceId = id.cloudServiceId,
-           let subject = CloudCapabilityProvider.serviceSubjectMap[serviceId] {
-            return grantedText(forSubject: subject, capability: capability)
-        }
-        return "has access to connection data"
-    }
-
     private static func revokedText(forProviderId providerId: String, capability: ConnectionCapability?) -> String {
         let id = ProviderID(rawValue: providerId)
         if let kind = ConnectionKind.fromDeviceProviderId(id) {
@@ -138,37 +145,14 @@ public enum ConnectionMessageSummaryFormatter {
         return "Connection removed"
     }
 
-    private static func grantedText(forDeviceKind kind: ConnectionKind, capability: ConnectionCapability?) -> String {
-        guard let capability else { return defaultGrantedText(forDeviceKind: kind) }
-        return "can \(verb(for: capability)) \(noun(forDeviceKind: kind))"
-    }
-
     private static func revokedText(forDeviceKind kind: ConnectionKind, capability: ConnectionCapability?) -> String {
         guard let capability else { return defaultRevokedText(forDeviceKind: kind) }
         return "\(noun(forDeviceKind: kind, capitalized: true)) \(capability.displayName.lowercased()) access removed"
     }
 
-    private static func grantedText(forSubject subject: CapabilitySubject, capability: ConnectionCapability?) -> String {
-        guard let capability else { return defaultGrantedText(forSubject: subject) }
-        return "can \(verb(for: capability)) \(noun(forSubject: subject))"
-    }
-
     private static func revokedText(forSubject subject: CapabilitySubject, capability: ConnectionCapability?) -> String {
         guard let capability else { return defaultRevokedText(forSubject: subject) }
         return "\(noun(forSubject: subject, capitalized: true)) \(capability.displayName.lowercased()) access removed"
-    }
-
-    private static func verb(for capability: ConnectionCapability) -> String {
-        switch capability {
-        case .read:
-            return "read"
-        case .writeCreate:
-            return "create"
-        case .writeUpdate:
-            return "edit"
-        case .writeDelete:
-            return "delete"
-        }
     }
 
     private static func noun(forDeviceKind kind: ConnectionKind, capitalized: Bool = false) -> String {
@@ -223,29 +207,6 @@ public enum ConnectionMessageSummaryFormatter {
         return capitalized ? value.prefix(1).uppercased() + value.dropFirst() : value
     }
 
-    private static func defaultGrantedText(forDeviceKind kind: ConnectionKind) -> String {
-        switch kind {
-        case .health:
-            return "has access to health data"
-        case .calendar:
-            return "has access to calendar data"
-        case .contacts:
-            return "has access to contacts data"
-        case .photos:
-            return "has access to photos"
-        case .music:
-            return "has access to music data"
-        case .homeKit:
-            return "has access to home data"
-        case .location:
-            return "has access to location data"
-        case .screenTime:
-            return "has access to Screen Time data"
-        case .motion:
-            return "has access to motion data"
-        }
-    }
-
     private static func defaultRevokedText(forDeviceKind kind: ConnectionKind) -> String {
         switch kind {
         case .health:
@@ -266,31 +227,6 @@ public enum ConnectionMessageSummaryFormatter {
             return "Screen Time connection removed"
         case .motion:
             return "Motion data connection removed"
-        }
-    }
-
-    private static func defaultGrantedText(forSubject subject: CapabilitySubject) -> String {
-        switch subject {
-        case .calendar:
-            return "has access to calendar data"
-        case .contacts:
-            return "has access to contacts data"
-        case .tasks:
-            return "has access to tasks"
-        case .mail:
-            return "has access to mail"
-        case .photos:
-            return "has access to photos"
-        case .fitness:
-            return "has access to fitness data"
-        case .music:
-            return "has access to music data"
-        case .location:
-            return "has access to location data"
-        case .home:
-            return "has access to home data"
-        case .screenTime:
-            return "has access to Screen Time data"
         }
     }
 
@@ -330,7 +266,7 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func icon(forProviderId providerId: String) -> ConnectionEventSummary.Icon {
+    public static func icon(forProviderId providerId: String) -> ConnectionEventSummary.Icon {
         let id = ProviderID(rawValue: providerId)
         if let kind = ConnectionKind.fromDeviceProviderId(id) {
             return icon(for: kind)
@@ -340,6 +276,10 @@ public enum ConnectionMessageSummaryFormatter {
             return icon(for: subject)
         }
         return .generic
+    }
+
+    public static func icon(forSubject subject: CapabilitySubject) -> ConnectionEventSummary.Icon {
+        icon(for: subject)
     }
 
     private static func icon(for subject: CapabilitySubject) -> ConnectionEventSummary.Icon {

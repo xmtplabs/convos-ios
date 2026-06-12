@@ -55,6 +55,24 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
         return messageId
     }
 
+    public func prepareForManualPublish(text: String) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
     public func publish() async throws {
         publishedCount += 1
     }

@@ -174,6 +174,14 @@ extension MessagingService {
             do {
                 let dbConversation = try await storeConversation(newGroup.group, inboxId: client.inboxId)
 
+                // The user deleted this conversation while the invite was
+                // still verifying -- it arrived denied and is filtered out
+                // of the list, so don't announce it.
+                guard dbConversation.consent != .denied else {
+                    Log.info("Suppressing welcome notification for denied conversation \(dbConversation.id)")
+                    return .droppedMessage
+                }
+
                 let displayName = (try? await getComputedDisplayName(
                     conversationId: dbConversation.id,
                     currentInboxId: client.inboxId
@@ -187,6 +195,9 @@ extension MessagingService {
                 )
             } catch {
                 Log.error("Failed to store conversation in NSE: \(error.localizedDescription)")
+                if await isLocallyDeniedInvite(group: newGroup.group) {
+                    return .droppedMessage
+                }
                 return .init(
                     title: newGroup.conversationName.orUntitled,
                     body: "Your invite was verified",
@@ -435,14 +446,12 @@ extension MessagingService {
             conversationId: conversationId,
             currentInboxId: currentInboxId
         )
-        let shouldShowSenderName = otherMemberCount > 1
-
         let body = try await buildNotificationBody(
             encodedContentType: encodedContentType,
             decodedMessage: decodedMessage,
             conversationId: conversationId,
             senderName: senderName,
-            shouldShowSenderName: shouldShowSenderName
+            otherMemberCount: otherMemberCount
         )
 
         guard let body else {
@@ -476,8 +485,9 @@ extension MessagingService {
         decodedMessage: DecodedMessage,
         conversationId: String,
         senderName: String,
-        shouldShowSenderName: Bool
+        otherMemberCount: Int
     ) async throws -> String? {
+        let shouldShowSenderName = otherMemberCount > 1
         switch encodedContentType {
         case ContentTypeText:
             let content = try decodedMessage.content() as Any
@@ -510,11 +520,67 @@ extension MessagingService {
             return nil
 
         case ContentTypeRemoteAttachment, ContentTypeMultiRemoteAttachment:
+            if let agentBody = try await agentMadeThingNotificationBody(
+                decodedMessage: decodedMessage,
+                conversationId: conversationId,
+                senderName: senderName,
+                otherMemberCount: otherMemberCount
+            ) {
+                return agentBody
+            }
             let attachmentText = try attachmentNotificationText(for: decodedMessage)
             return shouldShowSenderName ? "\(senderName) sent \(attachmentText)" : "sent \(attachmentText)"
 
         default:
             return nil
+        }
+    }
+
+    /// Returns the bespoke notification body for an agent sending a single
+    /// html file ("made you a thing" / "made a thing for the group"), or nil
+    /// when the message should use the generic attachment copy.
+    private func agentMadeThingNotificationBody(
+        decodedMessage: DecodedMessage,
+        conversationId: String,
+        senderName: String,
+        otherMemberCount: Int
+    ) async throws -> String? {
+        guard isHtmlFilename(try singleAttachmentFilename(for: decodedMessage)) else {
+            return nil
+        }
+        guard try await isMemberAgent(
+            inboxId: decodedMessage.senderInboxId,
+            conversationId: conversationId
+        ) else {
+            return nil
+        }
+        return otherMemberCount > 1
+            ? "\(senderName) made a thing for the group"
+            : "\(senderName) made you a thing"
+    }
+
+    private func singleAttachmentFilename(for decodedMessage: DecodedMessage) throws -> String? {
+        let content = try decodedMessage.content() as Any
+        if let attachment = content as? RemoteAttachment {
+            return attachment.filename
+        }
+        if let attachments = content as? [RemoteAttachment], attachments.count == 1 {
+            return attachments.first?.filename
+        }
+        return nil
+    }
+
+    private func isHtmlFilename(_ filename: String?) -> Bool {
+        guard let filename else { return false }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return false }
+        return utType.conforms(to: .html)
+    }
+
+    private func isMemberAgent(inboxId: String, conversationId: String) async throws -> Bool {
+        try await databaseReader.read { db in
+            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+            return profile?.isAgent ?? false
         }
     }
 
@@ -901,6 +967,29 @@ extension MessagingService {
             coreActions: coreActions
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
+    }
+
+    /// True when the local DB carries a denial for this group -- either its
+    /// own row or a deleted pending-invite draft sharing its invite tag
+    /// (the draft survives when storing the arriving group fails). Used to
+    /// suppress notifications for conversations the user deleted.
+    private func isLocallyDeniedInvite(group: XMTPiOS.Group) async -> Bool {
+        let groupId = group.id
+        let inviteTag = (try? group.inviteTag) ?? ""
+        let denied = try? await databaseReader.read { db in
+            var request = DBConversation
+                .filter(DBConversation.Columns.consent == Consent.denied)
+            if inviteTag.isEmpty {
+                request = request.filter(DBConversation.Columns.id == groupId)
+            } else {
+                request = request.filter(
+                    DBConversation.Columns.id == groupId
+                        || DBConversation.Columns.inviteTag == inviteTag
+                )
+            }
+            return try request.fetchOne(db) != nil
+        }
+        return denied ?? false
     }
 
     // MARK: - Computed Display Name

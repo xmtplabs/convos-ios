@@ -46,6 +46,7 @@ public extension InviteCoordinatorDelegate {
 public final class InviteCoordinator: @unchecked Sendable {
     private let privateKeyProvider: PrivateKeyProvider
     private let tagStorage: any InviteTagStorageProtocol
+    private let handledRequestStore: any HandledJoinRequestStoreProtocol
 
     public weak var delegate: (any InviteCoordinatorDelegate)? {
         get { lock.withLock { _delegate } }
@@ -57,10 +58,12 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     public init(
         privateKeyProvider: @escaping PrivateKeyProvider,
-        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()
+        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+        handledRequestStore: any HandledJoinRequestStoreProtocol = InMemoryHandledJoinRequestStore()
     ) {
         self.privateKeyProvider = privateKeyProvider
         self.tagStorage = tagStorage
+        self.handledRequestStore = handledRequestStore
     }
 
     // MARK: - Invite Creation
@@ -260,6 +263,21 @@ public final class InviteCoordinator: @unchecked Sendable {
         _ request: JoinRequest,
         client: any InviteClientProvider
     ) async -> JoinRequestDMOutcome {
+        // A join-request message admits its sender at most once. Checked
+        // before any validation so a replayed request (stream duplicate,
+        // catch-up, agent-join poll) does neither crypto work nor sends a
+        // stale error reply if the group's state has since changed.
+        // Membership alone cannot dedupe: after the creator removes the
+        // member, the already-honored request would look actionable again.
+        // Removal is not a block - a removed member rejoins by sending a
+        // fresh request (new message ID) with the same invite.
+        if await handledRequestStore.isHandled(messageId: request.messageId) {
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         let conversationId: String
         switch await validateInviteAndDecryptConversationId(request, client: client) {
         case .proceed(let value):
@@ -373,6 +391,28 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Whether the creator's consent state on the invited group should reject
+    /// an otherwise-valid join request.
+    ///
+    /// Only `.denied` is a real denial - the creator deleted, blocked, or
+    /// exploded the conversation (all three write `.denied`). `.unknown` is
+    /// not a denial: it means this particular installation has no consent
+    /// record for the group yet. A secondary device or a fresh reinstall of
+    /// the creator's inbox arrives at `.unknown` until libxmtp device sync
+    /// delivers the record, and `resolveInvitedGroup` itself pulls the group
+    /// down via `syncConversations()` in exactly that case, guaranteeing an
+    /// `.unknown` read. Rejecting `.unknown` told joiners a perfectly valid
+    /// invite "no longer exists" whenever a non-primary installation answered
+    /// first, so it is treated as allowed here.
+    static func shouldRejectJoin(for consent: ConsentState) -> Bool {
+        switch consent {
+        case .denied:
+            return true
+        case .allowed, .unknown:
+            return false
+        }
+    }
+
     private func resolveInvitedGroup(
         conversationId: String,
         request: JoinRequest,
@@ -420,8 +460,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
             return .stop(benignFailure(request, error: .processingFailed))
         }
-        guard consent == .allowed else {
-            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
+        if Self.shouldRejectJoin(for: consent) {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state is '\(consent)'")
             await sendJoinError(
                 .consentNotAllowed,
                 reason: "creator consent state is '\(consent)'",
@@ -454,6 +494,24 @@ public final class InviteCoordinator: @unchecked Sendable {
     ) async -> JoinRequestDMOutcome {
         let signedInvite = request.signedInvite
 
+        // The ledger is per-device; the DM marker is the cross-installation
+        // signal. Another installation of this inbox (paired device, prior
+        // install) may have honored this request and recorded it in the DM,
+        // which syncs everywhere the ledger does not.
+        if let requestSentAt = request.sentAt,
+           await hasJoinHandledMarker(
+               forTag: signedInvite.invitePayload.tag,
+               since: requestSentAt,
+               dmConversationId: request.dmConversationId,
+               client: client
+           ) {
+            await handledRequestStore.markHandled(messageId: request.messageId)
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         try? await group.sync()
 
         // Multiple processing paths (message stream, batch catch-up, and the
@@ -461,8 +519,17 @@ public final class InviteCoordinator: @unchecked Sendable {
         // If the joiner is already in the group, a previous pass handled it -
         // skip the re-add so we don't send duplicate profile snapshots or,
         // worse, a spurious error DM back to a joiner that already joined.
+        // Mark the request handled so it stays inert if the member is later
+        // removed; this also retires requests honored before the ledger
+        // existed, and the text copy of a typed+text pair. Send the marker
+        // too: a join honored before the marker shipped (or whose marker
+        // send failed) is otherwise invisible to other installations, and
+        // reaching this branch means no marker covers the request yet (the
+        // marker check above would have returned first).
         if let memberInboxIds = try? await group.members.map(\.inboxId),
            memberInboxIds.contains(request.joinerInboxId) {
+            await handledRequestStore.markHandled(messageId: request.messageId)
+            await sendJoinHandledMarker(for: request, client: client)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId
@@ -513,9 +580,12 @@ public final class InviteCoordinator: @unchecked Sendable {
             return benignFailure(request, error: .addMemberFailed)
         }
 
+        await handledRequestStore.markHandled(messageId: request.messageId)
+
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
         }
+        await sendJoinHandledMarker(for: request, client: client)
 
         let result = JoinResult(
             conversationId: conversationId,
@@ -558,7 +628,24 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         var firstBenignFailure: JoinRequestDMOutcome?
+        var handledOutcome: JoinRequestDMOutcome?
         for message in candidates {
+            // An already-honored request is inert, but it must not end the
+            // scan: the same DM can carry a fresh join request from a member
+            // who was removed and is rejoining with the same invite, or a
+            // pending request for a different group. The ledger pre-check is
+            // safe without verification because only verified, honored
+            // requests are ever written to it; marker-based suppression
+            // happens inside processMessageOutcome after signature
+            // verification, so tampered slugs still reach the malicious
+            // detection and DM blocking path.
+            if await handledRequestStore.isHandled(messageId: message.id) {
+                handledOutcome = handledOutcome ?? .alreadyMember(
+                    dmConversationId: dm.id,
+                    joinerInboxId: message.senderInboxId
+                )
+                continue
+            }
             let outcome = await processMessageOutcome(message, client: client)
             switch outcome {
             case .noJoinRequest:
@@ -567,7 +654,8 @@ public final class InviteCoordinator: @unchecked Sendable {
                 try? await dm.updateConsentState(state: .allowed)
                 return outcome
             case .alreadyMember:
-                return outcome
+                handledOutcome = handledOutcome ?? outcome
+                continue
             case .malicious:
                 return outcome
             case .benignFailure:
@@ -575,7 +663,7 @@ public final class InviteCoordinator: @unchecked Sendable {
                 continue
             }
         }
-        return firstBenignFailure ?? .noJoinRequest
+        return firstBenignFailure ?? handledOutcome ?? .noJoinRequest
     }
 
     private func benignFailure(
@@ -669,11 +757,113 @@ public final class InviteCoordinator: @unchecked Sendable {
         return false
     }
 
+    private struct JoinHandledMarker {
+        let tag: String
+        let sentAt: Date
+    }
+
+    /// Whether a creator-sent `invite_join_handled` marker covers a request
+    /// for `tag` sent at `requestSentAt`. Mirrors `hasAlreadySentJoinError`:
+    /// the marker dedupes per attempt (tag plus send order), so the text
+    /// copy of a typed+text pair is covered by the typed copy's marker,
+    /// while a fresh request sent after the marker is not.
+    private func hasJoinHandledMarker(
+        forTag tag: String,
+        since requestSentAt: Date,
+        dmConversationId: String,
+        client: any InviteClientProvider
+    ) async -> Bool {
+        // A covering marker is always sent after the request, so fetching
+        // from the request's send time is precise and naturally bounded.
+        guard let dm = try? await client.findConversation(conversationId: dmConversationId),
+              let messages = try? await dm.messages(afterNs: requestSentAt.nanosecondsSince1970 - 1) else {
+            return false
+        }
+        return Self.joinHandledMarkers(in: messages, creatorInboxId: client.inviteInboxId)
+            .contains { $0.tag == tag && $0.sentAt >= requestSentAt }
+    }
+
+    /// Best-effort cross-installation marker; the local ledger and the
+    /// membership check still dedupe if the send fails. Gated on the joiner
+    /// having sent a typed request: pre-typed builds (2.0.0 and earlier)
+    /// require their join request to be the DM's literal last message for
+    /// `hasOutgoingJoinRequest`, and a creator-sent marker displacing it
+    /// would break their consent bump for the newly joined group. Typed
+    /// sends ship in the same release as the windowed check, so a typed
+    /// request proves the joiner tolerates creator bookkeeping in the DM.
+    /// Herald always sends a typed copy (even though its newer text copy is
+    /// usually the one honored), so agent joins keep full marker protection.
+    private func sendJoinHandledMarker(
+        for request: JoinRequest,
+        client: any InviteClientProvider
+    ) async {
+        guard let dm = try? await client.findConversation(conversationId: request.dmConversationId),
+              await Self.joinerSendsTypedRequests(in: dm, joinerInboxId: request.joinerInboxId) else {
+            return
+        }
+        let handled = InviteJoinHandled(
+            inviteTag: request.signedInvite.invitePayload.tag,
+            handledMessageId: request.messageId,
+            timestamp: Date()
+        )
+        let codec = InviteJoinHandledCodec()
+        _ = try? await dm.send(
+            content: handled,
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
+    /// Whether the joiner has sent a typed join request in this DM. False
+    /// (including on a failed fetch) suppresses the handled marker, which
+    /// degrades safely: no marker means no cross-installation dedupe for
+    /// this join, never a broken joiner.
+    private static func joinerSendsTypedRequests(
+        in dm: XMTPiOS.Conversation,
+        joinerInboxId: String
+    ) async -> Bool {
+        guard let messages = try? await dm.messages(limit: Constant.typedCapabilityScanLimit) else {
+            return false
+        }
+        return messages.contains { message in
+            guard message.senderInboxId == joinerInboxId,
+                  let contentType = try? message.encodedContent.type else {
+                return false
+            }
+            return contentType == ContentTypeJoinRequest
+        }
+    }
+
+    /// Markers are only trusted from the creator's own inbox; a joiner
+    /// cannot forge one to suppress (or fake) an acceptance.
+    private static func joinHandledMarkers(
+        in messages: [XMTPiOS.DecodedMessage],
+        creatorInboxId: String
+    ) -> [JoinHandledMarker] {
+        let codec = InviteJoinHandledCodec()
+        var markers: [JoinHandledMarker] = []
+        for message in messages where message.senderInboxId == creatorInboxId {
+            guard let contentType = try? message.encodedContent.type,
+                  contentType == ContentTypeInviteJoinHandled,
+                  let marker = try? codec.decode(content: message.encodedContent) else {
+                continue
+            }
+            markers.append(JoinHandledMarker(tag: marker.inviteTag, sentAt: message.sentAt))
+        }
+        return markers
+    }
+
     private enum Constant {
         /// How many recent DM messages to scan when checking whether an
         /// error reply for an invite tag was already sent. Join-request DMs
-        /// carry very little traffic, so a small window is plenty.
+        /// carry very little traffic, so a small window is plenty. If a DM
+        /// somehow accumulates more than this between a request and its
+        /// revalidation, the worst case is one duplicate error reply.
         static let joinErrorDedupeScanLimit: Int = 50
+        /// Window for spotting a typed join request from the joiner when
+        /// deciding whether to send the handled marker. The typed copy sits
+        /// next to the honored request, so a small window suffices; missing
+        /// it only skips the marker, which degrades safely.
+        static let typedCapabilityScanLimit: Int = 20
         /// Underlying error descriptions (libxmtp, keychain) can be very
         /// long; cap the diagnostic reason so error replies stay small.
         static let joinErrorReasonMaxLength: Int = 500
@@ -707,24 +897,43 @@ extension Date {
 // MARK: - Dm Extension
 
 extension XMTPiOS.Dm {
+    /// Most recent signed invite the client sent in this DM, scanning a
+    /// small window of recent messages rather than only the literal last
+    /// one. The creator appends bookkeeping to the DM (invite_join_handled
+    /// markers, error replies), so on the joiner's side the join request is
+    /// often no longer the final message - requiring that would make
+    /// `hasOutgoingJoinRequest` go false the moment a join is honored,
+    /// which breaks the consent bump for the newly arrived group.
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
-        guard let lastMessage = try? await self.lastMessage(),
-              lastMessage.senderInboxId == clientInboxId,
-              let contentType = try? lastMessage.encodedContent.type else {
+        guard let messages = try? await self.messages(limit: Constant.outgoingInviteScanLimit) else {
             return nil
         }
 
-        let slug: String
-        if contentType == ContentTypeJoinRequest,
-           let joinRequest: JoinRequestContent = try? lastMessage.content() {
-            slug = joinRequest.inviteSlug
-        } else if contentType == ContentTypeText,
-                  let text: String = try? lastMessage.content() {
-            slug = text
-        } else {
-            return nil
-        }
+        for message in messages where message.senderInboxId == clientInboxId {
+            guard let contentType = try? message.encodedContent.type else { continue }
 
-        return try? SignedInvite.fromURLSafeSlug(slug)
+            let slug: String
+            if contentType == ContentTypeJoinRequest,
+               let joinRequest: JoinRequestContent = try? message.content() {
+                slug = joinRequest.inviteSlug
+            } else if contentType == ContentTypeText,
+                      let text: String = try? message.content() {
+                slug = text
+            } else {
+                continue
+            }
+
+            if let invite = try? SignedInvite.fromURLSafeSlug(slug) {
+                return invite
+            }
+        }
+        return nil
+    }
+
+    private enum Constant {
+        /// Window for finding the client's most recent join request among
+        /// interleaved creator bookkeeping. Join DMs carry very little
+        /// traffic, so a handful of messages is plenty.
+        static let outgoingInviteScanLimit: Int = 10
     }
 }

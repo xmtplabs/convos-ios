@@ -156,10 +156,12 @@ public struct JoinResult: Sendable {
 /// - `malicious`: Signature verification failed in a way that indicates
 ///   tampering. The DM is denied and the device unsubscribes from its
 ///   topic so it can no longer wake the inbox.
-/// - `alreadyMember`: The request decoded and verified, but the joiner is
-///   already in the group - another processing path (stream vs batch vs
-///   poll) handled this request first. No re-add, no snapshot, no error
-///   DM; the DM stays subscribed like `accepted`.
+/// - `alreadyMember`: The request needs no action - either the joiner is
+///   already in the group, or this exact message already admitted them
+///   once (handled-request ledger) and they may have since been removed.
+///   Another processing path (stream vs batch vs poll) handled this
+///   request first. No re-add, no snapshot, no error DM; the DM stays
+///   subscribed like `accepted`.
 /// - `noJoinRequest`: The message was not a join-request candidate.
 public enum JoinRequestDMOutcome: Sendable {
     case accepted(JoinResult, dmConversationId: String)
@@ -294,6 +296,35 @@ extension InviteJoinErrorType: Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+
+/// Marker the creator sends in the join DM after honoring a join request.
+///
+/// The local handled-request ledger only covers one device. Other
+/// installations of the creator's inbox (paired devices, reinstalls)
+/// revalidate the same DM history, and without a shared signal an
+/// already-honored request would look actionable to them again once the
+/// member is removed. The DM syncs to every installation, so the marker
+/// is checked the same way error replies are deduped: a request is
+/// handled when a creator-sent marker for the same invite tag exists at
+/// or after the request's send time. That retires the text copy of a
+/// typed+text pair too, while a fresh request after a removal (newer
+/// than any marker) stays actionable - removal is not a block.
+public struct InviteJoinHandled: Codable, Equatable, Sendable {
+    public let inviteTag: String
+
+    /// Message ID of the join request that was honored. Informational:
+    /// suppression compares invite tag and send order, not message IDs,
+    /// so duplicate copies of the same attempt are covered.
+    public let handledMessageId: String
+
+    public let timestamp: Date
+
+    public init(inviteTag: String, handledMessageId: String, timestamp: Date) {
+        self.inviteTag = inviteTag
+        self.handledMessageId = handledMessageId
+        self.timestamp = timestamp
     }
 }
 

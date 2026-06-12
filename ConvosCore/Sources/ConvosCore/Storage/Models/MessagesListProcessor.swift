@@ -85,26 +85,42 @@ public final class MessagesListProcessor: Sendable {
         return rebuilt
     }
 
-    /// Group build messages into runs of entries adjacent in the message stream.
-    /// One Make sends its prompt + attachment bundle back to back, so they form a
-    /// single run (and a single card); separate Make events split by other
-    /// messages form separate runs and render separate cards.
+    /// Group build messages into runs. One Make sends its prompt + attachment
+    /// bundle back to back, so they form a single run (and a single card);
+    /// separate Make events split by other visible messages form separate runs
+    /// and render separate cards. Rows that never render their own list item
+    /// (silent updates, connection invocations) don't break a run -- one
+    /// landing between the bundle's publishes must not turn one Make into two
+    /// cards.
     private static func buildRuns(in rawMessages: [AnyMessage], buildMessageIds: Set<String>) -> [[AnyMessage]] {
         guard !buildMessageIds.isEmpty else { return [] }
         var runs: [[AnyMessage]] = []
         var current: [AnyMessage] = []
-        var lastIndex: Int?
-        for (index, message) in rawMessages.enumerated() where buildMessageIds.contains(message.messageId) {
-            if let last = lastIndex, index == last + 1 {
+        var visibleRowSinceLastBuildRow: Bool = false
+        for message in rawMessages {
+            if buildMessageIds.contains(message.messageId) {
+                if visibleRowSinceLastBuildRow, !current.isEmpty {
+                    runs.append(current)
+                    current = []
+                }
                 current.append(message)
-            } else {
-                if !current.isEmpty { runs.append(current) }
-                current = [message]
+                visibleRowSinceLastBuildRow = false
+            } else if rendersOwnListRow(message.content) {
+                visibleRowSinceLastBuildRow = true
             }
-            lastIndex = index
         }
         if !current.isEmpty { runs.append(current) }
         return runs
+    }
+
+    /// Whether a message produces its own row in the list. Mirrors the two
+    /// silent paths in `processMessages`: contents hidden by
+    /// `showsInMessagesList`, and connection invocations, which the grouping
+    /// loop skips outright.
+    private static func rendersOwnListRow(_ content: MessageContent) -> Bool {
+        guard content.showsInMessagesList else { return false }
+        if case .connectionInvocation = content { return false }
+        return true
     }
 
     /// The `AgentBuilderConnection` raw values captured in a creator's local
@@ -197,30 +213,30 @@ public final class MessagesListProcessor: Sendable {
                 result.append(item)
                 continue
             }
-            // Walk the group, splitting it into build vs non-build segments.
-            // Build segments collapse into their run's card (emitted once);
-            // non-build segments stay as their own group with a stable id.
+            // Walk the group, collapsing build rows into their run's card
+            // (emitted once, where the run's first row sat); non-build
+            // messages stay as their own group with a stable id. A swallowed
+            // run (the creator's own latest build, which renders via the
+            // Make-anchored summary card instead) leaves nothing behind, so
+            // it must not split the surrounding same-sender messages into
+            // two groups -- that would render two "Sent" rows.
             var segment: [AnyMessage] = []
-            var segmentIsBuild: Bool = false
             func flushSegment() {
                 guard let first = segment.first else { return }
-                if segmentIsBuild {
-                    if let anchor = anchorByMessageId[first.messageId],
-                       !emittedAnchors.contains(anchor),
-                       let card = cardByAnchor[anchor] {
-                        emittedAnchors.insert(anchor)
-                        result.append(.agentBuilderSummary(card))
-                    }
-                } else {
-                    result.append(.messages(rebuiltGroup(group, id: "group-" + first.messageId, messages: segment)))
-                }
+                result.append(.messages(rebuiltGroup(group, id: "group-" + first.messageId, messages: segment)))
                 segment = []
             }
             for message in group.messages {
-                let isBuild: Bool = buildMessageIds.contains(message.messageId)
-                if !segment.isEmpty, isBuild != segmentIsBuild { flushSegment() }
-                segmentIsBuild = isBuild
-                segment.append(message)
+                guard buildMessageIds.contains(message.messageId) else {
+                    segment.append(message)
+                    continue
+                }
+                guard let anchor = anchorByMessageId[message.messageId],
+                      !emittedAnchors.contains(anchor),
+                      let card = cardByAnchor[anchor] else { continue }
+                emittedAnchors.insert(anchor)
+                flushSegment()
+                result.append(.agentBuilderSummary(card))
             }
             flushSegment()
         }
@@ -302,7 +318,8 @@ public final class MessagesListProcessor: Sendable {
             items = insertingContactCard(in: items, agent: agent)
         }
 
-        return items
+        items = reconcilingFullBleedAdjacency(in: items)
+        return clearingDuplicatedLastGroupFlags(in: items)
     }
 
     /// Strip date separators that no longer precede a message group. A
@@ -471,6 +488,23 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .capabilityConnect(let prompt) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let agentName = resolvedAskerName(for: prompt, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.capabilityConnect(id: msg.messageId, prompt: prompt, agentName: agentName, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
             if case .connectionInvocationResult(let resultSummary) = content {
                 lastMessageDate = msg.date
                 if !currentGroupMessages.isEmpty, currentSenderId != nil {
@@ -614,12 +648,15 @@ public final class MessagesListProcessor: Sendable {
                             inboxId: info.inboxId,
                             conversationId: info.conversationId,
                             name: info.name,
-                            avatar: info.avatar
+                            avatar: info.avatar,
+                            isAgent: info.isAgent
                         )
                         return ConversationMember(
                             profile: profile,
                             role: .member,
-                            isCurrentUser: false
+                            isCurrentUser: false,
+                            isAgent: info.isAgent,
+                            agentVerification: info.agentVerification
                         )
                     }
                     return nil
@@ -724,12 +761,91 @@ public final class MessagesListProcessor: Sendable {
             outcome: summary.outcome,
             icon: summary.icon,
             actor: summary.actor,
-            grantedToInboxId: summary.grantedToInboxId
+            grantedToInboxId: summary.grantedToInboxId,
+            providerId: summary.providerId
         )
+    }
+
+    /// Display name for the agent behind a connect prompt's "<Agent> wants to
+    /// connect" caption. Prefers the live member-profile lookup by the request's
+    /// `askerInboxId` (renames propagate like connection events); falls back to
+    /// the message sender's snapshot, which is the asker in practice.
+    private static func resolvedAskerName(
+        for prompt: CapabilityConnectPrompt,
+        sender: ConversationMember,
+        memberProfiles: [String: MemberProfileInfo]
+    ) -> String {
+        if let name = memberProfiles[prompt.askerInboxId]?.name, !name.isEmpty {
+            return name
+        }
+        return sender.profile.displayName
     }
 }
 
 private extension MessagesListProcessor {
+    /// Splitting a message group (run-card splice, Make-boundary insert)
+    /// copies the group's presentation flags into every half, but the
+    /// "last group" flags are positional -- if more than one group carries
+    /// one, each renders its own "Sent" status row. Keep each flag only on
+    /// its bottom-most carrier.
+    static func clearingDuplicatedLastGroupFlags(
+        in baseItems: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        var seenLastSentByCurrentUser: Bool = false
+        var seenLastBeforeOtherMembers: Bool = false
+        for index in items.indices.reversed() {
+            guard case .messages(var group) = items[index] else { continue }
+            var changed: Bool = false
+            if group.isLastGroupSentByCurrentUser {
+                if seenLastSentByCurrentUser {
+                    group.isLastGroupSentByCurrentUser = false
+                    changed = true
+                } else {
+                    seenLastSentByCurrentUser = true
+                }
+            }
+            if group.isLastGroupBeforeOtherMembers {
+                if seenLastBeforeOtherMembers {
+                    group.isLastGroupBeforeOtherMembers = false
+                    changed = true
+                } else {
+                    seenLastBeforeOtherMembers = true
+                }
+            }
+            if changed { items[index] = .messages(group) }
+        }
+        return items
+    }
+
+    /// The full-bleed adjacency pass runs before the card splices, so a group
+    /// can keep a flag from a full-bleed neighbor that was swallowed or
+    /// replaced by a card row -- rendering hairline padding against a
+    /// non-media row. Clear any flag whose neighbor is no longer a full-bleed
+    /// group (clear-only: a group never gains hairline treatment here).
+    static func reconcilingFullBleedAdjacency(
+        in baseItems: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        for index in items.indices {
+            guard case .messages(var group) = items[index],
+                  group.adjacentToFullBleedAbove || group.adjacentToFullBleedBelow else { continue }
+            let fullBleedAbove: Bool = index > 0 && items[index - 1].isFullBleedAttachmentGroup
+            let fullBleedBelow: Bool = index < items.count - 1 && items[index + 1].isFullBleedAttachmentGroup
+            var changed: Bool = false
+            if group.adjacentToFullBleedAbove, !fullBleedAbove {
+                group.adjacentToFullBleedAbove = false
+                changed = true
+            }
+            if group.adjacentToFullBleedBelow, !fullBleedBelow {
+                group.adjacentToFullBleedBelow = false
+                changed = true
+            }
+            if changed { items[index] = .messages(group) }
+        }
+        return items
+    }
+
     /// Insert the agent contact card as its own standalone row. The card has
     /// a single placement rule, so it never relocates as the agent's
     /// messages, connection events, or user replies stream in around it.

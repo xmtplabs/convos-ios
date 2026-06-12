@@ -1,7 +1,7 @@
 import ConvosConnections
 import Foundation
 
-/// Snapshot of what a capability picker card should render for a given
+/// Snapshot of what the capability approval sheet should render for a given
 /// `CapabilityRequest`. Pure value type — the SwiftUI view consumes this to draw the
 /// right variant, and posts a chosen `Set<ProviderID>` back to the resolver via
 /// `CapabilityRequestHandler.commit` on approve.
@@ -10,17 +10,69 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
     public let variant: Variant
     public let providers: [ProviderSummary]
     public let defaultSelection: Set<ProviderID>
+    /// Permission-bundle rows for the cloud providers on this card, one group
+    /// per provider whose service exists in the backend catalog
+    /// (`GET /v2/connections/services`). Empty when the catalog has no entry
+    /// for any provider (or wasn't reachable) — the card then renders the
+    /// pre-bundle provider rows only.
+    public let serviceBundles: [ServiceBundles]
 
     public init(
         request: CapabilityRequest,
         variant: Variant,
         providers: [ProviderSummary],
-        defaultSelection: Set<ProviderID>
+        defaultSelection: Set<ProviderID>,
+        serviceBundles: [ServiceBundles] = []
     ) {
         self.request = request
         self.variant = variant
         self.providers = providers
         self.defaultSelection = defaultSelection
+        self.serviceBundles = serviceBundles
+    }
+
+    /// Bundle rows for one cloud provider, resolved against the services
+    /// catalog at layout time (strings already localized for display).
+    public struct ServiceBundles: Sendable, Equatable, Hashable {
+        public let providerId: ProviderID
+        public let serviceId: String
+        public let serviceVersion: Int
+        public let rows: [Row]
+        /// Bundle ids the asking agent is currently granted for this service
+        /// in this conversation, resolved at layout time. Nil when no grant
+        /// exists; a legacy whole-toolkit grant (nil `bundleIds` on the grant
+        /// row) materializes as every row id. The approval sheet seeds its
+        /// toggles from this so unchecking an already-granted bundle reads as
+        /// an explicit revoke (Done-as-revoke).
+        public let grantedBundleIds: Set<String>?
+
+        public init(
+            providerId: ProviderID,
+            serviceId: String,
+            serviceVersion: Int,
+            rows: [Row],
+            grantedBundleIds: Set<String>? = nil
+        ) {
+            self.providerId = providerId
+            self.serviceId = serviceId
+            self.serviceVersion = serviceVersion
+            self.rows = rows
+            self.grantedBundleIds = grantedBundleIds
+        }
+
+        public struct Row: Sendable, Equatable, Hashable {
+            public let id: String
+            public let title: String
+            public let description: String
+            public let defaultEnabled: Bool
+
+            public init(id: String, title: String, description: String, defaultEnabled: Bool) {
+                self.id = id
+                self.title = title
+                self.description = description
+                self.defaultEnabled = defaultEnabled
+            }
+        }
     }
 
     public enum Variant: Sendable, Equatable {

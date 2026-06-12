@@ -3,10 +3,15 @@ import GRDB
 @preconcurrency import XMTPiOS
 
 public protocol CloudConnectionGrantWriterProtocol: Sendable {
+    /// `bundleIds` is the picker's bundle selection for the connection's
+    /// service (catalog ids like "calendar.events"). Pass nil when no picker
+    /// was involved (full-service consent paths); the writer then grants
+    /// every bundle the catalog lists for the service.
     func grantConnection(
         _ connectionId: String,
         to conversationId: String,
-        grantedToInboxId: String
+        grantedToInboxId: String,
+        bundleIds: [String]?
     ) async throws
     func revokeGrant(
         connectionId: String,
@@ -15,28 +20,48 @@ public protocol CloudConnectionGrantWriterProtocol: Sendable {
     ) async throws
 }
 
+public extension CloudConnectionGrantWriterProtocol {
+    /// Full-service consent convenience: no explicit bundle selection.
+    func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
+        try await grantConnection(
+            connectionId,
+            to: conversationId,
+            grantedToInboxId: grantedToInboxId,
+            bundleIds: nil
+        )
+    }
+}
+
 final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unchecked Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let myProfileWriter: any MyProfileWriterProtocol
+    private let servicesStore: any ConnectionServicesStoreProtocol
 
     init(
         sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
-        myProfileWriter: any MyProfileWriterProtocol
+        myProfileWriter: any MyProfileWriterProtocol,
+        servicesStore: any ConnectionServicesStoreProtocol
     ) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.myProfileWriter = myProfileWriter
+        self.servicesStore = servicesStore
     }
 
     func grantConnection(
         _ connectionId: String,
         to conversationId: String,
-        grantedToInboxId: String
+        grantedToInboxId: String,
+        bundleIds: [String]?
     ) async throws {
         guard !grantedToInboxId.isEmpty else {
             throw CloudConnectionGrantError.missingGrantedToInboxId
@@ -56,7 +81,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             conversationId: conversationId,
             serviceId: connection.serviceId,
             grantedToInboxId: grantedToInboxId,
-            grantedAt: Date()
+            grantedAt: Date(),
+            bundleIds: bundleIds
         )
 
         // Publish before persisting. If the publish fails we never commit the grant
@@ -72,6 +98,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         try await databaseWriter.write { db in
             try grant.save(db)
         }
+
+        await pushGrantToBackend(grant, connection: connection)
     }
 
     func revokeGrant(
@@ -91,7 +119,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 )
                 .fetchOne(db)
         }
-        guard existing != nil else {
+        guard let existing else {
             // Nothing to revoke, no-op.
             return
         }
@@ -114,6 +142,225 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                         && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
                 )
                 .deleteAll(db)
+        }
+
+        await revokeBackendGrant(for: existing)
+    }
+
+    /// Pushes one per-agent consent record to the backend grant store and
+    /// remembers the returned id on the local row so revocation can target it.
+    /// Grants are bundle-scoped against the services catalog (see
+    /// `resolveBundleScope`); a 400 `unknown_bundle` rejection means our
+    /// catalog cache is stale, so the push refetches it, drops ids the fresh
+    /// catalog no longer knows, and retries exactly once. Otherwise
+    /// best-effort with no retry: on failure the local grant stands, but the
+    /// backend will deny the agent's tool execution (403) until the user
+    /// re-grants, so the failure is logged at error level.
+    private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            guard let scope = await resolveBundleScope(
+                toolkit: connection.serviceId,
+                explicitSelection: grant.bundleIds
+            ) else { return }
+            let response: CloudConnectionsAPI.CreateGrantResponse
+            let pushedScope: BundleScope
+            do {
+                response = try await inboxReady.apiClient.createConnectionGrant(
+                    ownerInboxId: inboxReady.client.inboxId,
+                    granteeInboxId: grant.grantedToInboxId,
+                    conversationId: grant.conversationId,
+                    toolkit: connection.serviceId,
+                    bundleIds: scope.bundleIds,
+                    serviceVersion: scope.serviceVersion
+                )
+                pushedScope = scope
+            } catch CloudConnectionsAPI.GrantError.unknownBundle(let bundleId) {
+                Log.warning(
+                    "[CloudConnections] grant rejected for stale bundle id " +
+                    "(toolkit=\(connection.serviceId), bundleId=\(bundleId ?? "?")); " +
+                    "refetching services catalog and retrying once"
+                )
+                guard let retryScope = try await retryScope(
+                    afterUnknownBundleFor: connection.serviceId,
+                    firstAttempt: scope
+                ) else { return }
+                response = try await inboxReady.apiClient.createConnectionGrant(
+                    ownerInboxId: inboxReady.client.inboxId,
+                    granteeInboxId: grant.grantedToInboxId,
+                    conversationId: grant.conversationId,
+                    toolkit: connection.serviceId,
+                    bundleIds: retryScope.bundleIds,
+                    serviceVersion: retryScope.serviceVersion
+                )
+                pushedScope = retryScope
+            }
+            let updated = DBCloudConnectionGrant(
+                connectionId: grant.connectionId,
+                conversationId: grant.conversationId,
+                serviceId: grant.serviceId,
+                grantedToInboxId: grant.grantedToInboxId,
+                grantedAt: grant.grantedAt,
+                backendGrantId: response.id,
+                bundleIds: pushedScope.bundleIds,
+                serviceVersion: pushedScope.serviceVersion
+            )
+            try await databaseWriter.write { db in
+                try updated.save(db)
+            }
+        } catch {
+            Log.error(
+                "[CloudConnections] backend grant push failed; agent will get 403 from backend-mediated " +
+                "execution until the user re-grants (connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
+            )
+        }
+    }
+
+    private struct BundleScope {
+        /// Nil omits `bundleIds` from the request body — the backend's legacy
+        /// whole-toolkit path, used for services outside the catalog.
+        let bundleIds: [String]?
+        let serviceVersion: Int?
+    }
+
+    /// Maps the user's bundle selection (nil = full-service consent with no
+    /// picker involved) onto the cached services catalog:
+    /// - service in catalog + explicit selection → ids kept as picked,
+    ///   filtered to the catalog
+    /// - service in catalog + nil selection → every catalog bundle id,
+    ///   materialized here once so a later retry can only ever narrow it
+    /// - service proven absent from a successfully fetched catalog →
+    ///   explicit selection as-is, or the legacy whole-toolkit grant when
+    ///   there is none
+    /// - catalog UNREACHABLE → explicit selection as-is (the backend
+    ///   validates it), but a nil selection fails closed: without a
+    ///   successful fetch proving the service is uncataloged, omitting
+    ///   `bundleIds` could silently escalate a cataloged service to
+    ///   whole-toolkit access
+    ///
+    /// Returns nil to fail closed: a scope that would carry an empty
+    /// `bundleIds` array must never be pushed, because the backend treats an
+    /// empty array as whole-toolkit access — strictly more than the user
+    /// approved. That covers an explicit selection that is empty or no longer
+    /// maps to any known bundle, and a cataloged service that lists no
+    /// bundles at all.
+    private func resolveBundleScope(toolkit: String, explicitSelection: [String]?) async -> BundleScope? {
+        if let explicitSelection, explicitSelection.isEmpty {
+            Log.error(
+                "[CloudConnections] explicit bundle selection for \(toolkit) is empty; " +
+                "skipping backend push to avoid escalating an empty selection to " +
+                "whole-toolkit access"
+            )
+            return nil
+        }
+        let service: CloudConnectionsAPI.ServiceConfig?
+        do {
+            service = try await servicesStore.service(id: toolkit)
+        } catch {
+            guard let explicitSelection, !explicitSelection.isEmpty else {
+                Log.error(
+                    "[CloudConnections] services catalog unavailable for \(toolkit) and no explicit " +
+                    "bundle selection to fall back on; skipping backend push rather than risk " +
+                    "escalating to whole-toolkit access: \(error.localizedDescription)"
+                )
+                return nil
+            }
+            Log.warning(
+                "[CloudConnections] services catalog unavailable for \(toolkit); " +
+                "pushing the explicit bundle selection unfiltered: \(error.localizedDescription)"
+            )
+            return BundleScope(bundleIds: explicitSelection, serviceVersion: nil)
+        }
+        guard let service else {
+            return BundleScope(bundleIds: explicitSelection, serviceVersion: nil)
+        }
+        let known = service.bundles.map(\.id)
+        guard let explicitSelection else {
+            guard !known.isEmpty else {
+                Log.error(
+                    "[CloudConnections] catalog lists no bundles for \(toolkit); skipping " +
+                    "backend push rather than escalating an empty bundle list to " +
+                    "whole-toolkit access"
+                )
+                return nil
+            }
+            return BundleScope(bundleIds: known, serviceVersion: service.version)
+        }
+        let kept = explicitSelection.filter(Set(known).contains)
+        guard !kept.isEmpty else {
+            Log.error(
+                "[CloudConnections] none of the selected bundle ids exist in the catalog for " +
+                "\(toolkit) (selected=\(explicitSelection)); skipping backend push to avoid " +
+                "escalating an empty selection to whole-toolkit access"
+            )
+            return nil
+        }
+        return BundleScope(bundleIds: kept, serviceVersion: service.version)
+    }
+
+    /// Recovery scope after a 400 `unknown_bundle`: invalidate + refetch the
+    /// catalog, then intersect the ids of the FIRST attempt with the refreshed
+    /// catalog. The retry can only ever narrow the originally pushed scope —
+    /// recomputing from a nil selection against a refreshed catalog could
+    /// widen it past what was first materialized. Returns nil to give up
+    /// (fail closed): no bundles survived, the service vanished from the
+    /// catalog, or the rejected attempt didn't carry bundle ids at all
+    /// (the server only validates non-empty `bundleIds`, so that rejection
+    /// is unexpected and not retryable).
+    private func retryScope(
+        afterUnknownBundleFor toolkit: String,
+        firstAttempt: BundleScope
+    ) async throws -> BundleScope? {
+        guard let firstIds = firstAttempt.bundleIds, !firstIds.isEmpty else {
+            Log.error(
+                "[CloudConnections] unknown_bundle rejection for a grant that sent no bundle ids " +
+                "(toolkit=\(toolkit)); not retrying"
+            )
+            return nil
+        }
+        await servicesStore.invalidate()
+        guard let refreshed = try await servicesStore.service(id: toolkit) else {
+            Log.error(
+                "[CloudConnections] \(toolkit) is gone from the refreshed services catalog; " +
+                "failing closed instead of retrying the grant push"
+            )
+            return nil
+        }
+        let known = Set(refreshed.bundles.map(\.id))
+        let kept = firstIds.filter(known.contains)
+        guard !kept.isEmpty else {
+            Log.error(
+                "[CloudConnections] none of the pushed bundle ids survive the refreshed catalog for " +
+                "\(toolkit) (pushed=\(firstIds)); failing closed instead of retrying the grant push"
+            )
+            return nil
+        }
+        return BundleScope(bundleIds: kept, serviceVersion: refreshed.version)
+    }
+
+    /// Revokes the backend consent record for a grant that was just removed
+    /// locally. Uses the natural-key revoke (toolkit, conversation, grantee) so
+    /// it succeeds even when no backendGrantId was stored (the by-id path can't
+    /// run for those rows). Best-effort: a failure is logged and not retried;
+    /// the backend connection-level revoke (disconnect) independently cuts off
+    /// execution.
+    private func revokeBackendGrant(for grant: DBCloudConnectionGrant) async {
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            try await inboxReady.apiClient.revokeConnectionGrantByNaturalKey(
+                toolkit: grant.serviceId,
+                conversationId: grant.conversationId,
+                granteeInboxId: grant.grantedToInboxId
+            )
+        } catch {
+            Log.warning(
+                "[CloudConnections] backend grant revoke failed " +
+                "(toolkit=\(grant.serviceId), connectionId=\(grant.connectionId), " +
+                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                error.localizedDescription
+            )
         }
     }
 
