@@ -109,12 +109,12 @@ struct InviteCoordinatorIntegrationTests {
         #expect(!secondAccepted.contains { $0.conversationId == group1.id })
     }
 
-    /// Plain-text slug messages are no longer join requests: no member is
-    /// added and, critically, no invite_join_error is sent back. Herald
-    /// still sends a text copy of the slug next to its typed join request,
-    /// and the text copy must be inert.
-    @Test("Plain-text slug message is ignored: no join, no error reply")
-    func plainTextSlugIsIgnored() async throws {
+    /// Plain-text slug messages are still join requests: builds that predate
+    /// the typed joiner path (2.0.0 and earlier) send text only, so the
+    /// creator must keep accepting them until the installed fleet is on
+    /// typed-sending builds.
+    @Test("Plain-text slug message joins the group")
+    func plainTextSlugJoins() async throws {
         let creatorClient = try await createClient()
         let joinerClient = try await createClient()
         defer {
@@ -138,13 +138,46 @@ struct InviteCoordinatorIntegrationTests {
             client: creatorClient
         )
 
-        #expect(outcomes.compactMap(\.joinResult).isEmpty, "Text slug must not join the group")
+        #expect(outcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
 
         let memberInboxIds = try await group.members.map(\.inboxId)
-        #expect(!memberInboxIds.contains(joinerClient.inboxID))
+        #expect(memberInboxIds.contains(joinerClient.inboxID), "Text-slug joiner must be added to the group")
+    }
+
+    /// Herald sends a typed join_request plus a plain-text slug copy. A
+    /// failing pair must produce exactly one invite_join_error (the
+    /// per-attempt dedupe suppresses the second copy's reply) - this is the
+    /// flood-regression guard for keeping text acceptance enabled.
+    @Test("Typed plus text pair for a failing invite produces exactly one error")
+    func typedAndTextPairProducesSingleError() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let coordinator = makeCoordinator()
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+        // Rotate the tag so the invite above is revoked and the join fails
+        // down the error-sending path.
+        _ = try await coordinator.revokeInvites(for: group)
+
+        // sendJoinRequest sends the typed message; follow with the text
+        // copy the way Herald does.
+        let dm = try await coordinator.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        // Revalidate, as batch catch-up and the agent-join poll do.
+        _ = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
 
         let errorCount = try await joinErrorCount(inDmWith: joinerClient.inboxID, client: creatorClient)
-        #expect(errorCount == 0, "Ignored text slug must not produce an error reply")
+        #expect(errorCount == 1, "A failing typed+text pair must produce exactly one error reply")
     }
 
     /// The error-reply dedupe: revalidating the same failed join request

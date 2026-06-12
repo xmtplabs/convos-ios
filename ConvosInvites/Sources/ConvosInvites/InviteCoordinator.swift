@@ -144,16 +144,29 @@ public final class InviteCoordinator: @unchecked Sendable {
     ) async -> JoinRequestDMOutcome {
         guard message.senderInboxId != client.inviteInboxId else { return .noJoinRequest }
 
-        // Only the typed join_request content type is accepted. Plain-text
-        // slug messages (the original wire format, kept as a fallback until
-        // mid-2026) are deliberately ignored: senders that still emit a text
-        // copy alongside the typed message would otherwise produce duplicate
-        // processing and duplicate error replies.
-        guard let joinRequest: JoinRequestContent = try? message.content() else {
+        // The typed join_request content type is preferred, but a plain-text
+        // slug is still accepted: every app build that predates the typed
+        // joiner path sends text only, so dropping it strands those joiners
+        // with no reply at all. Senders like Herald emit a text copy next to
+        // the typed message; the duplicate does not produce a second error
+        // reply because sendJoinError dedupes per attempt (both copies of a
+        // pair predate whichever error is sent first). Text acceptance can
+        // only be removed once the installed fleet sends typed requests.
+        let slug: String
+        var profile: JoinRequestProfile?
+        var metadata: [String: String]?
+
+        if let joinRequest: JoinRequestContent = try? message.content() {
+            slug = joinRequest.inviteSlug
+            profile = joinRequest.profile
+            metadata = joinRequest.metadata
+        } else if let text: String = try? message.content() {
+            slug = text
+        } else {
             return .noJoinRequest
         }
 
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(joinRequest.inviteSlug) else {
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else {
             return .noJoinRequest
         }
 
@@ -163,8 +176,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             signedInvite: signedInvite,
             messageId: message.id,
             sentAt: message.sentAt,
-            profile: joinRequest.profile,
-            metadata: joinRequest.metadata
+            profile: profile,
+            metadata: metadata
         )
 
         return await processJoinRequest(request, client: client)
@@ -530,14 +543,14 @@ public final class InviteCoordinator: @unchecked Sendable {
             )
         }
 
-        // ContentTypeText is deliberately absent: plain-text slug messages
-        // are no longer join requests. Senders like Herald still emit a text
-        // copy next to the typed message for older creators; treating it as
-        // a second join request produced duplicate processing and duplicate
-        // error replies. Do not re-add text support here.
+        // Text slugs are still join requests: every build that predates the
+        // typed joiner path (2.0.0 and earlier) sends text only. The Herald
+        // typed+text pair does not double-reply because sendJoinError
+        // dedupes per attempt. Remove ContentTypeText here only once the
+        // installed fleet sends typed requests.
         let candidates = messages.filter { message in
             guard let contentType = try? message.encodedContent.type,
-                  contentType == ContentTypeJoinRequest,
+                  contentType == ContentTypeText || contentType == ContentTypeJoinRequest,
                   message.senderInboxId != client.inviteInboxId else {
                 return false
             }
