@@ -544,8 +544,8 @@ struct ComputeLayoutServiceBundlesTests {
         #expect(group?.rows.first?.description == "View and edit events on all calendars")
     }
 
-    @Test("defaultBundleSelection seeds from the catalog's defaultEnabled flags")
-    func defaultSelectionFollowsDefaultEnabled() async {
+    @Test("bundle rows carry the catalog's defaultEnabled flags")
+    func rowsCarryDefaultEnabledFlags() async {
         let registry = await makeRegistry([
             StubProvider(
                 id: googleCalendar,
@@ -563,7 +563,9 @@ struct ComputeLayoutServiceBundlesTests {
             conversationId: "conv-1",
             services: [calendarService()]
         )
-        #expect(layout.defaultBundleSelection == ["googlecalendar": ["calendar.events.read"]])
+        let rows = layout.serviceBundles.first?.rows ?? []
+        #expect(rows.map(\.id) == ["calendar.events", "calendar.events.read"])
+        #expect(rows.map(\.defaultEnabled) == [false, true])
     }
 
     @Test("an empty catalog leaves the layout bundle-free")
@@ -585,6 +587,78 @@ struct ComputeLayoutServiceBundlesTests {
             conversationId: "conv-1"
         )
         #expect(layout.serviceBundles.isEmpty)
-        #expect(layout.defaultBundleSelection.isEmpty)
+    }
+
+    // MARK: - Existing-grant stamping (Done-as-revoke seeding)
+
+    private func makeGrant(
+        conversationId: String = "conv-1",
+        grantedToInboxId: String = "agent-1",
+        bundleIds: [String]?
+    ) -> CloudConnectionGrant {
+        CloudConnectionGrant(
+            connectionId: "conn-1",
+            conversationId: conversationId,
+            serviceId: "googlecalendar",
+            grantedToInboxId: grantedToInboxId,
+            grantedAt: Date(timeIntervalSince1970: 0),
+            bundleIds: bundleIds
+        )
+    }
+
+    private func computeLayout(existingGrants: [CloudConnectionGrant]) async -> CapabilityPickerLayout {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        return await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()],
+            existingGrants: existingGrants
+        )
+    }
+
+    @Test("the asking agent's grant stamps its bundle ids onto the group")
+    func existingGrantStampsBundleIds() async {
+        let layout = await computeLayout(existingGrants: [makeGrant(bundleIds: ["calendar.events"])])
+        #expect(layout.serviceBundles.first?.grantedBundleIds == ["calendar.events"])
+    }
+
+    @Test("a whole-toolkit grant (nil bundleIds) materializes as every catalog row")
+    func wholeToolkitGrantCoversEveryRow() async {
+        let layout = await computeLayout(existingGrants: [makeGrant(bundleIds: nil)])
+        #expect(layout.serviceBundles.first?.grantedBundleIds == ["calendar.events", "calendar.events.read"])
+    }
+
+    @Test("no grant leaves grantedBundleIds nil")
+    func noGrantLeavesNil() async {
+        let layout = await computeLayout(existingGrants: [])
+        #expect(layout.serviceBundles.count == 1)
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
+    }
+
+    @Test("another agent's grant must not seed this agent's sheet")
+    func otherAgentsGrantIsIgnored() async {
+        let layout = await computeLayout(
+            existingGrants: [makeGrant(grantedToInboxId: "agent-2", bundleIds: ["calendar.events"])]
+        )
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
+    }
+
+    @Test("another conversation's grant must not seed this sheet")
+    func otherConversationsGrantIsIgnored() async {
+        let layout = await computeLayout(
+            existingGrants: [makeGrant(conversationId: "conv-2", bundleIds: ["calendar.events"])]
+        )
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
     }
 }

@@ -338,6 +338,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
+    /// Request id whose connect-before-grant step (OS prompt / OAuth) is in
+    /// flight — re-entrancy guard for `onCapabilityApprove`.
+    @ObservationIgnored
+    private var connectOnApproveInFlightRequestId: String?
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -1530,6 +1534,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                         resolver: resolver,
                         handler: handler,
                         servicesStore: self.messagingService.connectionServicesStore(),
+                        cloudConnectionRepository: self.session.cloudConnectionRepository(),
                         conversationId: conversationId
                     )
                     // Discard if a newer request arrived while we were computing —
@@ -1802,36 +1807,237 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         presentingCapabilityApproval = true
     }
 
-    /// User tapped Approve in the approval sheet with this provider selection.
-    /// Persists the resolution so future tool calls route to the same set, then
-    /// posts a `capability_request_result(.approved)` reply for the agent.
-    /// `bundleSelection` is the per-service permission-bundle toggle state
-    /// (service id → toggled-on bundle ids) for the cloud providers approved.
+    /// User tapped the approval sheet's primary button with this provider
+    /// selection. Persists the resolution so future tool calls route to the
+    /// same set, then posts a `capability_request_result(.approved)` reply for
+    /// the agent. `bundleSelection` is the per-service permission-bundle toggle
+    /// state (service id → toggled-on bundle ids) for the cloud providers
+    /// approved.
+    ///
+    /// Done-as-revoke: a selected service whose toggles are ALL off is the
+    /// user opting that service out. When the asking agent already holds a
+    /// grant for it, the tap revokes that grant (natural key — connection,
+    /// conversation, agent); without one it's a decline-style no-op. Either
+    /// way the empty selection never reaches the grant writer (an empty
+    /// bundle array escalates to whole-toolkit access) and the request stays
+    /// pending — same posture as a swipe-down dismiss.
+    ///
+    /// Selected providers that aren't linked yet are connected FIRST (device
+    /// kinds run the OS permission prompt, cloud services run OAuth) and the
+    /// SAME approval — including the sheet's toggle state — is sent only after
+    /// every connect succeeds. On cancel/failure the layout recomputes and the
+    /// sheet stays up so the user can retry or swipe down.
     func onCapabilityApprove(
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>] = [:]
     ) {
-        guard let request = pendingCapabilityPickerLayout?.request else {
-            pendingCapabilityPickerLayout = nil
+        guard let layout = pendingCapabilityPickerLayout else { return }
+        let request = layout.request
+        let conversationId = conversation.id
+
+        let split = Self.splitCapabilityApproval(
+            providerIds: providerIds,
+            bundleSelection: bundleSelection
+        )
+        if !split.uncheckedServiceIds.isEmpty {
+            revokeUncheckedCapabilityGrants(
+                serviceIds: split.uncheckedServiceIds,
+                request: request,
+                conversationId: conversationId,
+                recomputeLayoutAfter: split.approvedProviderIds.isEmpty
+            )
+        }
+        guard !split.approvedProviderIds.isEmpty else {
+            // Nothing left to grant: any existing grants for the unchecked
+            // services were revoked above; without one the tap is a pure
+            // decline. No `.approved` result may go out for an empty provider
+            // set, so the request stays pending (the no-Deny posture) and the
+            // pill remains tappable — only the sheet dismisses.
+            presentingCapabilityApproval = false
             return
         }
-        approveCapabilityRequest(
-            request,
-            providerIds: providerIds,
-            bundleSelection: bundleSelection,
-            conversationId: conversation.id
+        let providerIds = split.approvedProviderIds
+        let bundleSelection = split.approvedBundleSelection
+
+        // Sorted for deterministic ordering when several providers need a
+        // connect step (in practice it's one).
+        let unlinked = layout.providers
+            .filter { providerIds.contains($0.id) && !$0.linked }
+            .map(\.id)
+            .sorted { $0.rawValue < $1.rawValue }
+        guard !unlinked.isEmpty else {
+            approveCapabilityRequest(
+                request,
+                providerIds: providerIds,
+                bundleSelection: bundleSelection,
+                conversationId: conversationId
+            )
+            return
+        }
+        // Re-entrancy guard: the OAuth session can stay up a while and the
+        // sheet's button remains tappable underneath it.
+        guard connectOnApproveInFlightRequestId != request.requestId else { return }
+        connectOnApproveInFlightRequestId = request.requestId
+        let authorizer = session.deviceConnectionAuthorizer()
+        let registry = session.capabilityProviderRegistry()
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            let allLinked = await Self.connectUnlinkedProviders(
+                unlinked,
+                authorizer: authorizer,
+                registry: registry,
+                cloudConnectionManager: manager
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.connectOnApproveInFlightRequestId = nil
+                if allLinked {
+                    // Always approve the *captured* request — a newer request
+                    // might have arrived during the connect step and replaced
+                    // the picker layout's request, and we must not approve it
+                    // on the old tap's behalf. The captured conversationId
+                    // keeps the result in the conversation that originated the
+                    // request even if the user navigated away. Approving
+                    // before SessionManager's cloud-connection observer
+                    // registers the newly linked provider is safe because the
+                    // resolver only stores the providerId.
+                    self.approveCapabilityRequest(
+                        request,
+                        providerIds: providerIds,
+                        bundleSelection: bundleSelection,
+                        conversationId: conversationId
+                    )
+                } else {
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
+            }
+        }
+    }
+
+    /// How one Done tap splits across services. Pure value — computed by
+    /// `splitCapabilityApproval` and unit-tested directly.
+    struct CapabilityApprovalSplit: Equatable {
+        /// Providers the `.approved` result (and grant upsert) covers.
+        let approvedProviderIds: Set<ProviderID>
+        /// `bundleSelection` minus the all-off services — every value is
+        /// non-empty, so an empty array can never reach the grant writer.
+        let approvedBundleSelection: [String: Set<String>]
+        /// Cloud service ids whose toggles were all off: revoke when the agent
+        /// holds a grant, no-op otherwise. Sorted for determinism.
+        let uncheckedServiceIds: [String]
+    }
+
+    /// Splits the sheet's Done payload per service: services with at least one
+    /// toggle on are approved as before; services with every toggle off come
+    /// out as `uncheckedServiceIds` and their provider leaves the approved
+    /// set. Services without a bundle entry (no catalog rows) pass through —
+    /// they have no toggles to uncheck.
+    static func splitCapabilityApproval(
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>]
+    ) -> CapabilityApprovalSplit {
+        let uncheckedServiceIds = bundleSelection
+            .filter { $0.value.isEmpty }
+            .keys
+            .sorted()
+        let unchecked = Set(uncheckedServiceIds)
+        let approvedProviderIds = providerIds.filter { providerId in
+            guard let serviceId = providerId.cloudServiceId else { return true }
+            return !unchecked.contains(serviceId)
+        }
+        return CapabilityApprovalSplit(
+            approvedProviderIds: approvedProviderIds,
+            approvedBundleSelection: bundleSelection.filter { !$0.value.isEmpty },
+            uncheckedServiceIds: uncheckedServiceIds
         )
     }
 
-    /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
-    /// tool call doesn't silently route through stale state, then posts a
-    /// `capability_request_result(.denied)` reply for the agent.
-    func onCapabilityDeny() {
-        guard let request = pendingCapabilityPickerLayout?.request else {
-            pendingCapabilityPickerLayout = nil
-            return
+    /// Kicks off the Done-as-revoke side of an approval tap. After the revokes
+    /// land, a pure-revoke tap (nothing approved) recomputes the still-pending
+    /// layout so a re-opened sheet seeds from the post-revoke grant state
+    /// instead of the stale snapshot; an approve alongside already clears the
+    /// layout, and `recomputeCapabilityPickerLayout`'s locally-handled guard
+    /// would discard the result anyway.
+    private func revokeUncheckedCapabilityGrants(
+        serviceIds: [String],
+        request: CapabilityRequest,
+        conversationId: String,
+        recomputeLayoutAfter: Bool
+    ) {
+        let grantWriter = messagingService.connectionGrantWriter()
+        let eventWriter = messagingService.connectionEventWriter()
+        let resolver = session.capabilityResolver()
+        let repository = session.cloudConnectionRepository()
+        let grantedToInboxId = request.askerInboxId
+        Task { @MainActor [weak self] in
+            let revoked = await Self.revokeUncheckedCloudGrants(
+                serviceIds: serviceIds,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId,
+                grantWriter: grantWriter,
+                eventWriter: eventWriter,
+                resolver: resolver,
+                repository: repository
+            )
+            guard recomputeLayoutAfter, !revoked.isEmpty else { return }
+            self?.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
         }
-        denyCapabilityRequest(request, conversationId: conversation.id)
+    }
+
+    /// Done-as-revoke: for each service whose toggles were all off at Done
+    /// time, drop the asking agent's existing grant by its natural key
+    /// (connection, conversation, agent) and mirror the conversation-info
+    /// revoke toggle's side effects in the same order — the user-visible
+    /// `connection_event revoked` group-update line first, then resolver
+    /// cleanup (which re-arms `persistApprovedCloudCapabilities`' idempotency
+    /// gate so a later re-approval emits its own granted line). Services
+    /// without an existing grant are a pure no-op: nothing is created,
+    /// nothing is sent. Returns the service ids actually revoked.
+    static func revokeUncheckedCloudGrants( // swiftlint:disable:this function_parameter_count
+        serviceIds: [String],
+        grantedToInboxId: String,
+        conversationId: String,
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        eventWriter: any ConnectionEventWriterProtocol,
+        resolver: any CapabilityResolver,
+        repository: any CloudConnectionRepositoryProtocol
+    ) async -> [String] {
+        // Fail closed on an unreadable grants table: without proof a grant
+        // exists we must not guess at connection ids to revoke.
+        let grants = (try? await repository.grants(for: conversationId)) ?? []
+        var revokedServiceIds: [String] = []
+        for serviceId in serviceIds {
+            guard let grant = grants.first(where: {
+                $0.serviceId == serviceId && $0.grantedToInboxId == grantedToInboxId
+            }) else { continue }
+            do {
+                try await grantWriter.revokeGrant(
+                    connectionId: grant.connectionId,
+                    from: conversationId,
+                    grantedToInboxId: grantedToInboxId
+                )
+            } catch {
+                Log.error("Failed to revoke cloud grant for \(serviceId) → \(grantedToInboxId): \(error.localizedDescription)")
+                continue
+            }
+            revokedServiceIds.append(serviceId)
+            let providerId = ProviderID(rawValue: "composio.\(serviceId)")
+            // Revoke text is a complete sentence ("Calendar connection
+            // removed") rendered conversation-level, so grantedToInboxId
+            // stays nil — same as the conversation-info revoke path.
+            try? await eventWriter.sendRevoked(
+                providerId: providerId.rawValue,
+                capability: nil,
+                grantedToInboxId: nil,
+                in: conversationId
+            )
+            do {
+                try await resolver.removeProvider(providerId, fromConversation: conversationId)
+            } catch {
+                Log.warning("Failed to clear resolver entries for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        }
+        return revokedServiceIds
     }
 
     private func approveCapabilityRequest(
@@ -1852,19 +2058,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             status: .approved,
             providerIds: providerIds,
             bundleSelection: bundleSelection,
-            conversationId: conversationId
-        )
-    }
-
-    private func denyCapabilityRequest(_ request: CapabilityRequest, conversationId: String) {
-        locallyHandledCapabilityRequestIds.insert(request.requestId)
-        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
-            pendingCapabilityPickerLayout = nil
-        }
-        sendCapabilityResult(
-            request: request,
-            status: .denied,
-            providerIds: [],
             conversationId: conversationId
         )
     }
@@ -2166,123 +2359,74 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
-    /// User tapped a Connect row. Routes to the matching path for the provider's
-    /// kind: device providers go through `DeviceConnectionAuthorizer` for the iOS
-    /// permission prompt, cloud providers run OAuth via `CloudConnectionManager`.
-    /// On success either path treats the connect tap itself as the user's approval —
-    /// they came to this card from a `capability_request`, just granted access, and
-    /// would otherwise have to tap Approve again on the same card. On cancel/decline
-    /// the picker recomputes so the user can pick a different provider or deny.
-    func onCapabilityConnect(providerId: ProviderID) {
-        if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
-            connectDeviceProvider(kind: kind, providerId: providerId)
-            return
-        }
-        if let serviceId = providerId.cloudServiceId {
-            connectCloudProvider(serviceId: serviceId, providerId: providerId)
-            return
-        }
-        Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
-    }
-
-    private func connectDeviceProvider(kind: ConnectionKind, providerId: ProviderID) {
-        guard let request = pendingCapabilityPickerLayout?.request else { return }
-        let conversationId = conversation.id
-        let session = self.session
-        let registry = session.capabilityProviderRegistry()
-        let authorizer = session.deviceConnectionAuthorizer()
-        Task { [weak self] in
-            do {
-                _ = try await authorizer.requestAuthorization(for: kind)
-            } catch {
-                Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
-            }
-            let status = await authorizer.currentAuthorization(for: kind)
-            let isLinked = status.canDeliverData
-            if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
-                // Capture authorizer + kind, not a fixed Bool — the user can revoke
-                // permission in Settings later, and the registry needs the live state.
-                let updated = DeviceCapabilityProvider(
-                    id: spec.id,
-                    subject: spec.subject,
-                    displayName: spec.displayName,
-                    iconName: spec.iconName,
-                    capabilities: spec.capabilities,
-                    subjectNounPhrase: spec.subjectNounPhrase,
-                    linkedByUser: {
-                        await authorizer.currentAuthorization(for: kind).canDeliverData
+    /// Links every provider in `providerIds` that isn't connected yet — device
+    /// kinds run the OS permission prompt via `DeviceConnectionAuthorizer`,
+    /// cloud services run OAuth via `CloudConnectionManager`. Returns true only
+    /// when EVERY provider ends up linked; the caller must not send the
+    /// approval otherwise (fail closed — granting an unlinked provider would
+    /// persist a resolution that can't deliver data).
+    static func connectUnlinkedProviders(
+        _ providerIds: [ProviderID],
+        authorizer: any DeviceConnectionAuthorizer,
+        registry: any CapabilityProviderRegistry,
+        cloudConnectionManager: any CloudConnectionManagerProtocol
+    ) async -> Bool {
+        for providerId in providerIds {
+            if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
+                guard await linkDeviceProvider(kind: kind, authorizer: authorizer, registry: registry) else {
+                    return false
+                }
+            } else if let serviceId = providerId.cloudServiceId {
+                do {
+                    _ = try await cloudConnectionManager.connect(serviceId: serviceId)
+                } catch let oauthError as OAuthError {
+                    if case .cancelled = oauthError {
+                        // User backed out of the OAuth sheet — the approval
+                        // sheet stays up so they can retry or swipe down.
+                    } else {
+                        Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
                     }
-                )
-                await registry.register(updated)
-            }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                if isLinked {
-                    // Always approve the *captured* request — a newer request might
-                    // have arrived during the OS prompt and replaced the picker
-                    // layout's request, and we must not approve it on its behalf.
-                    // Also pass the captured conversationId so the result lands in
-                    // the conversation that originated the request even if the user
-                    // navigated away during the prompt.
-                    // Device providers carry no permission bundles (bundles attach to
-                    // cloud services only), so there is no selection to thread here;
-                    // an empty map means "no per-service selection".
-                    self.approveCapabilityRequest(
-                        request,
-                        providerIds: [providerId],
-                        bundleSelection: [:],
-                        conversationId: conversationId
-                    )
-                } else {
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                    return false
+                } catch {
+                    Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
+                    return false
                 }
+            } else {
+                Log.warning("Unsupported provider for connect-on-approve: \(providerId.rawValue)")
+                return false
             }
         }
+        return true
     }
 
-    private func connectCloudProvider(serviceId: String, providerId: ProviderID) {
-        guard let request = pendingCapabilityPickerLayout?.request else { return }
-        let conversationId = conversation.id
-        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
-        Task { [weak self] in
-            do {
-                _ = try await manager.connect(serviceId: serviceId)
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    // The cloud-connection observer in SessionManager will register the
-                    // newly-linked provider; approving here is safe even if that hasn't
-                    // ticked yet because the resolver only stores the providerId.
-                    // The Connect tap carries no bundle toggle state (onConnect is
-                    // provider-id only), so pass no selection: a nil per-service
-                    // lookup routes the grant through the writer's full-service
-                    // consent path (all catalog bundles, fail closed on a catalog
-                    // outage) — never an empty bundleIds array.
-                    self.approveCapabilityRequest(
-                        request,
-                        providerIds: [providerId],
-                        bundleSelection: [:],
-                        conversationId: conversationId
-                    )
-                }
-            } catch let oauthError as OAuthError {
-                if case .cancelled = oauthError {
-                    // User backed out of the OAuth sheet — leave the picker open so they
-                    // can pick a different provider.
-                } else {
-                    Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
-                }
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
-                }
-            } catch {
-                Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
-                }
-            }
+    private static func linkDeviceProvider(
+        kind: ConnectionKind,
+        authorizer: any DeviceConnectionAuthorizer,
+        registry: any CapabilityProviderRegistry
+    ) async -> Bool {
+        do {
+            _ = try await authorizer.requestAuthorization(for: kind)
+        } catch {
+            Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
         }
+        let status = await authorizer.currentAuthorization(for: kind)
+        if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
+            // Capture authorizer + kind, not a fixed Bool — the user can revoke
+            // permission in Settings later, and the registry needs the live state.
+            let updated = DeviceCapabilityProvider(
+                id: spec.id,
+                subject: spec.subject,
+                displayName: spec.displayName,
+                iconName: spec.iconName,
+                capabilities: spec.capabilities,
+                subjectNounPhrase: spec.subjectNounPhrase,
+                linkedByUser: {
+                    await authorizer.currentAuthorization(for: kind).canDeliverData
+                }
+            )
+            await registry.register(updated)
+        }
+        return status.canDeliverData
     }
 
     private func recomputeCapabilityPickerLayout(for request: CapabilityRequest, conversationId: String) {
@@ -2297,6 +2441,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 resolver: resolver,
                 handler: handler,
                 servicesStore: self.messagingService.connectionServicesStore(),
+                cloudConnectionRepository: self.session.cloudConnectionRepository(),
                 conversationId: conversationId
             )
             // If a newer request arrived OR the user already approved/denied this one,
@@ -2315,21 +2460,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// per-bundle selection. Best-effort fetch: when the catalog is
     /// unreachable the sheet renders provider-only rows, and the grant writer
     /// fails closed on its own catalog resolution.
-    static func computeCapabilityPickerLayout(
+    ///
+    /// The conversation's existing grants are fetched alongside so the layout
+    /// carries the asking agent's granted bundle state — the sheet seeds its
+    /// toggles from it and treats unchecking as a revoke. Best-effort too: an
+    /// unreadable grants table only loses the seeded state (the sheet falls
+    /// back to all-ON and a re-approve is an idempotent upsert).
+    static func computeCapabilityPickerLayout( // swiftlint:disable:this function_parameter_count
         request: CapabilityRequest,
         registry: any CapabilityProviderRegistry,
         resolver: any CapabilityResolver,
         handler: CapabilityRequestHandler,
         servicesStore: any ConnectionServicesStoreProtocol,
+        cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         conversationId: String
     ) async -> CapabilityPickerLayout {
         let services = (try? await servicesStore.catalog()) ?? []
+        let existingGrants = (try? await cloudConnectionRepository.grants(for: conversationId)) ?? []
         return await handler.computeLayout(
             request: request,
             registry: registry,
             resolver: resolver,
             conversationId: conversationId,
-            services: services
+            services: services,
+            existingGrants: existingGrants
         )
     }
 
@@ -3827,8 +3981,8 @@ extension ConversationViewModel {
     }
 
     /// Resolved display name for the agent that emitted `request`, or nil if the agent
-    /// is not (or no longer) in the conversation. Used by the capability picker card to
-    /// label the asker. Connection-event summaries do their own name resolution at
+    /// is not (or no longer) in the conversation. Used by the capability approval sheet
+    /// to label the asker. Connection-event summaries do their own name resolution at
     /// processor time via `MemberProfileInfo`.
     func askerDisplayName(for request: CapabilityRequest) -> String? {
         conversation.members

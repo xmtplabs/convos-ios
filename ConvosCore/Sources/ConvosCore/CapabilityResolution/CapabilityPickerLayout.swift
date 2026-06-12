@@ -1,7 +1,7 @@
 import ConvosConnections
 import Foundation
 
-/// Snapshot of what a capability picker card should render for a given
+/// Snapshot of what the capability approval sheet should render for a given
 /// `CapabilityRequest`. Pure value type — the SwiftUI view consumes this to draw the
 /// right variant, and posts a chosen `Set<ProviderID>` back to the resolver via
 /// `CapabilityRequestHandler.commit` on approve.
@@ -31,16 +31,6 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
         self.serviceBundles = serviceBundles
     }
 
-    /// Initial toggle state per service: the ids of bundles whose catalog
-    /// `defaultEnabled` is true, keyed by service id.
-    public var defaultBundleSelection: [String: Set<String>] {
-        var selection: [String: Set<String>] = [:]
-        for group in serviceBundles {
-            selection[group.serviceId] = Set(group.rows.filter(\.defaultEnabled).map(\.id))
-        }
-        return selection
-    }
-
     /// Bundle rows for one cloud provider, resolved against the services
     /// catalog at layout time (strings already localized for display).
     public struct ServiceBundles: Sendable, Equatable, Hashable {
@@ -48,12 +38,26 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
         public let serviceId: String
         public let serviceVersion: Int
         public let rows: [Row]
+        /// Bundle ids the asking agent is currently granted for this service
+        /// in this conversation, resolved at layout time. Nil when no grant
+        /// exists; a legacy whole-toolkit grant (nil `bundleIds` on the grant
+        /// row) materializes as every row id. The approval sheet seeds its
+        /// toggles from this so unchecking an already-granted bundle reads as
+        /// an explicit revoke (Done-as-revoke).
+        public let grantedBundleIds: Set<String>?
 
-        public init(providerId: ProviderID, serviceId: String, serviceVersion: Int, rows: [Row]) {
+        public init(
+            providerId: ProviderID,
+            serviceId: String,
+            serviceVersion: Int,
+            rows: [Row],
+            grantedBundleIds: Set<String>? = nil
+        ) {
             self.providerId = providerId
             self.serviceId = serviceId
             self.serviceVersion = serviceVersion
             self.rows = rows
+            self.grantedBundleIds = grantedBundleIds
         }
 
         public struct Row: Sendable, Equatable, Hashable {
