@@ -473,12 +473,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         providerIds: providerIds,
                         bundleSelection: bundleSelection
                     )
-                },
-                onDeny: {
-                    viewModel.onCapabilityDeny()
-                },
-                onConnect: { providerId in
-                    viewModel.onCapabilityConnect(providerId: providerId)
                 }
             )
         } else {

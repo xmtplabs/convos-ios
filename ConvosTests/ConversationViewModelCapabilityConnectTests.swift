@@ -1,10 +1,12 @@
 @testable import Convos
+import ConvosConnections
 import ConvosCore
 import XCTest
 
 /// Covers the transcript connect pill's view-model seam: the tap handler
 /// gating, the auto-dismiss tie between the pending layout and the approval
-/// sheet, and the shared layout computation that must always resolve the
+/// sheet, the connect-before-grant sequencing for providers that aren't
+/// linked yet, and the shared layout computation that must always resolve the
 /// services catalog (the OAuth-error recompute path used to omit it, dropping
 /// bundle rows so an approve silently escalated to full-service consent).
 @MainActor
@@ -113,7 +115,86 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
                        "Resolving the request elsewhere must close the sheet")
     }
 
+    // MARK: - Connect-before-grant (pre-connect approvals)
+
+    func testApproveLinkedProviderResolvesImmediately() {
+        let viewModel = makeViewModel()
+        viewModel.pendingCapabilityPickerLayout = makeLayout(requestId: "req-1")
+
+        viewModel.onCapabilityApprove(
+            providerIds: [ProviderID(rawValue: "composio.googlecalendar")],
+            bundleSelection: ["googlecalendar": ["calendar.events"]]
+        )
+
+        XCTAssertNil(viewModel.pendingCapabilityPickerLayout,
+                     "No connect step needed — the approval resolves synchronously")
+    }
+
+    func testApproveUnlinkedProviderConnectsBeforeSendingResult() async {
+        let viewModel = makeViewModel()
+        viewModel.pendingCapabilityPickerLayout = makeLayout(
+            requestId: "req-1",
+            variant: .connectAndApprove,
+            linked: false
+        )
+
+        viewModel.onCapabilityApprove(
+            providerIds: [ProviderID(rawValue: "composio.googlecalendar")],
+            bundleSelection: ["googlecalendar": ["calendar.events"]]
+        )
+
+        XCTAssertNotNil(viewModel.pendingCapabilityPickerLayout,
+                        "The grant must wait for the connect step — approving immediately would resolve a request whose provider can't deliver data")
+
+        await waitUntil { viewModel.pendingCapabilityPickerLayout == nil }
+        XCTAssertNil(viewModel.pendingCapabilityPickerLayout,
+                     "Once the connect succeeds the captured approval must go out and dismiss the sheet")
+    }
+
+    func testConnectUnlinkedProvidersSucceedsThroughOAuth() async {
+        let linked = await ConversationViewModel.connectUnlinkedProviders(
+            [ProviderID(rawValue: "composio.googlecalendar")],
+            authorizer: StubDeviceAuthorizer(),
+            registry: InMemoryCapabilityProviderRegistry(),
+            cloudConnectionManager: MockCloudConnectionManager()
+        )
+
+        XCTAssertTrue(linked)
+    }
+
+    func testConnectUnlinkedProvidersFailsClosedWhenOAuthCancelled() async {
+        let linked = await ConversationViewModel.connectUnlinkedProviders(
+            [ProviderID(rawValue: "composio.googlecalendar")],
+            authorizer: StubDeviceAuthorizer(),
+            registry: InMemoryCapabilityProviderRegistry(),
+            cloudConnectionManager: CancelledCloudConnectionManager()
+        )
+
+        XCTAssertFalse(linked, "A cancelled OAuth must never let the approval proceed")
+    }
+
+    func testConnectUnlinkedProvidersFailsClosedForUnknownProvider() async {
+        let linked = await ConversationViewModel.connectUnlinkedProviders(
+            [ProviderID(rawValue: "bogus.provider")],
+            authorizer: StubDeviceAuthorizer(),
+            registry: InMemoryCapabilityProviderRegistry(),
+            cloudConnectionManager: MockCloudConnectionManager()
+        )
+
+        XCTAssertFalse(linked, "Providers with no connect path must fail closed")
+    }
+
     // MARK: - Helpers
+
+    private func waitUntil(
+        timeout: TimeInterval = 5.0,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
 
     private func makeViewModel() -> ConversationViewModel {
         ConversationViewModel(
@@ -135,21 +216,25 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
         )
     }
 
-    private func makeLayout(requestId: String) -> CapabilityPickerLayout {
+    private func makeLayout(
+        requestId: String,
+        variant: CapabilityPickerLayout.Variant = .confirm,
+        linked: Bool = true
+    ) -> CapabilityPickerLayout {
         CapabilityPickerLayout(
             request: makeRequest(requestId: requestId),
-            variant: .confirm,
+            variant: variant,
             providers: [
                 CapabilityPickerLayout.ProviderSummary(
                     id: ProviderID(rawValue: "composio.googlecalendar"),
                     displayName: "Google Calendar",
                     iconName: "calendar",
                     subject: .calendar,
-                    linked: true,
+                    linked: linked,
                     supportsCapability: true
                 ),
             ],
-            defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")]
+            defaultSelection: linked ? [ProviderID(rawValue: "composio.googlecalendar")] : []
         )
     }
 
@@ -163,4 +248,17 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             status: status
         )
     }
+}
+
+// MARK: - Stubs
+
+private struct StubDeviceAuthorizer: DeviceConnectionAuthorizer {
+    func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus { .notDetermined }
+    func requestAuthorization(for kind: ConnectionKind) async throws -> ConnectionAuthorizationStatus { .notDetermined }
+}
+
+private struct CancelledCloudConnectionManager: CloudConnectionManagerProtocol {
+    func connect(serviceId: String) async throws -> CloudConnection { throw OAuthError.cancelled }
+    func disconnect(connectionId: String) async throws {}
+    func refreshConnections() async throws -> [CloudConnection] { [] }
 }

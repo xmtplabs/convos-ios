@@ -1,7 +1,7 @@
 import ConvosConnections
 import Foundation
 
-/// Snapshot of what a capability picker card should render for a given
+/// Snapshot of what the capability approval sheet should render for a given
 /// `CapabilityRequest`. Pure value type — the SwiftUI view consumes this to draw the
 /// right variant, and posts a chosen `Set<ProviderID>` back to the resolver via
 /// `CapabilityRequestHandler.commit` on approve.
@@ -29,16 +29,6 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
         self.providers = providers
         self.defaultSelection = defaultSelection
         self.serviceBundles = serviceBundles
-    }
-
-    /// Initial toggle state per service: the ids of bundles whose catalog
-    /// `defaultEnabled` is true, keyed by service id.
-    public var defaultBundleSelection: [String: Set<String>] {
-        var selection: [String: Set<String>] = [:]
-        for group in serviceBundles {
-            selection[group.serviceId] = Set(group.rows.filter(\.defaultEnabled).map(\.id))
-        }
-        return selection
     }
 
     /// Bundle rows for one cloud provider, resolved against the services

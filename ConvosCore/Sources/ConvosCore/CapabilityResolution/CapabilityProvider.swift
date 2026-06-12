@@ -47,8 +47,8 @@ public extension CapabilityProvider {
 }
 
 /// Emitted on `CapabilityProviderRegistry.providerChanges` to drive reactive UI refresh
-/// (e.g. the picker card subscribes so it can update in place when the user taps "Connect"
-/// and completes OAuth).
+/// (e.g. so an approval surface can update in place when a provider links via OAuth or
+/// an OS permission prompt).
 public enum ProviderChange: Sendable, Equatable {
     case added(ProviderID)
     case removed(ProviderID)

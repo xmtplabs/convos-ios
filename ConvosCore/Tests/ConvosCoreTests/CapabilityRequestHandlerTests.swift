@@ -544,8 +544,8 @@ struct ComputeLayoutServiceBundlesTests {
         #expect(group?.rows.first?.description == "View and edit events on all calendars")
     }
 
-    @Test("defaultBundleSelection seeds from the catalog's defaultEnabled flags")
-    func defaultSelectionFollowsDefaultEnabled() async {
+    @Test("bundle rows carry the catalog's defaultEnabled flags")
+    func rowsCarryDefaultEnabledFlags() async {
         let registry = await makeRegistry([
             StubProvider(
                 id: googleCalendar,
@@ -563,7 +563,9 @@ struct ComputeLayoutServiceBundlesTests {
             conversationId: "conv-1",
             services: [calendarService()]
         )
-        #expect(layout.defaultBundleSelection == ["googlecalendar": ["calendar.events.read"]])
+        let rows = layout.serviceBundles.first?.rows ?? []
+        #expect(rows.map(\.id) == ["calendar.events", "calendar.events.read"])
+        #expect(rows.map(\.defaultEnabled) == [false, true])
     }
 
     @Test("an empty catalog leaves the layout bundle-free")
@@ -585,6 +587,5 @@ struct ComputeLayoutServiceBundlesTests {
             conversationId: "conv-1"
         )
         #expect(layout.serviceBundles.isEmpty)
-        #expect(layout.defaultBundleSelection.isEmpty)
     }
 }
