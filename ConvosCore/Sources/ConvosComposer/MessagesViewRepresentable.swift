@@ -99,6 +99,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onAgentOutOfCredits: @escaping () -> Void,
         creditsDepleted: Bool,
         onTapUpdateMember: @escaping (ConversationMember) -> Void,
+        onTapCapabilityConnect: @escaping (CapabilityConnectPrompt) -> Void = { _ in },
         onRetryMessage: @escaping (AnyMessage) -> Void,
         onDeleteMessage: @escaping (AnyMessage) -> Void,
         onRetryAgentJoin: @escaping () -> Void,
@@ -150,6 +151,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onAgentOutOfCredits = onAgentOutOfCredits
         self.creditsDepleted = creditsDepleted
         self.onTapUpdateMember = onTapUpdateMember
+        self.onTapCapabilityConnect = onTapCapabilityConnect
         self.onRetryMessage = onRetryMessage
         self.onDeleteMessage = onDeleteMessage
         self.onRetryAgentJoin = onRetryAgentJoin

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -160,4 +161,5 @@ struct CapabilityConnectPromptView: View {
     }
     .padding()
 }
+#endif
 #endif

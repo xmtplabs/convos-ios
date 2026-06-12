@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 
@@ -14,8 +15,8 @@ import Foundation
 /// gains a new branded service: add the asset under that name, then add the
 /// matching case here. Unmapped slugs intentionally return nil — callers
 /// render the provider's SF Symbol instead of a missing-asset image.
-enum ConnectionServiceIcon {
-    static func assetName(forServiceId serviceId: String?) -> String? {
+public enum ConnectionServiceIcon {
+    public static func assetName(forServiceId serviceId: String?) -> String? {
         switch serviceId {
         case "googlecalendar":
             return "connectionGoogleCalendar"
@@ -24,7 +25,7 @@ enum ConnectionServiceIcon {
         }
     }
 
-    static func assetName(forProviderId providerId: String?) -> String? {
+    public static func assetName(forProviderId providerId: String?) -> String? {
         guard let providerId else { return nil }
         if providerId == "device.health" {
             return "connectionAppleHealth"
@@ -32,3 +33,4 @@ enum ConnectionServiceIcon {
         return assetName(forServiceId: ProviderID(rawValue: providerId).cloudServiceId)
     }
 }
+#endif
