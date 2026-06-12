@@ -291,9 +291,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// state (title and avatar cluster) inside `conversation.members`.
     @ObservationIgnored
     private var pendingSyntheticAgentMembers: [ConversationMember] = []
+    /// Time-box for the synthetic overlay, mirroring
+    /// `optimisticAgentExpiryTask` above: if a provisioned instance never
+    /// surfaces as a member with matching template metadata (e.g. an
+    /// agent that joins but never publishes its profile), the synthetics
+    /// are dropped after the same window instead of promising the picked
+    /// agents forever.
+    @ObservationIgnored
+    private var pendingSyntheticAgentExpiryTask: Task<Void, Never>?
     /// Latest conversation as emitted by the DB publisher, before any
     /// synthetic-member overlay. Kept so optimistic state can be rolled
-    /// back to ground truth when an add-members or agents/join call fails.
+    /// back to ground truth when an add-members or agents/join call
+    /// fails. Only retained while the seeded gate or the synthetic
+    /// overlay is active; dropped on steady-state emissions.
     @ObservationIgnored
     private var latestRawConversation: Conversation?
     let typingIndicatorManager: TypingIndicatorManager
@@ -1091,6 +1101,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask?.cancel()
         assistantJoinTimeoutTask?.cancel()
     }
 
@@ -1423,7 +1434,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 // stays open so later member additions / removals
                 // propagate normally. Non-seeded VMs default to "gate
                 // open", so this is a no-op for them.
-                latestRawConversation = conversation
+                if !hasMetSeededExpectation || !pendingSyntheticAgentMembers.isEmpty {
+                    latestRawConversation = conversation
+                } else {
+                    latestRawConversation = nil
+                }
                 if !hasMetSeededExpectation {
                     if conversation.membersWithoutCurrent.count < expectedSeededMemberCount {
                         return
@@ -1596,6 +1611,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// `pendingSyntheticAgentMembers`).
     func markSeeded(expectingMemberCount count: Int, pendingAgentMembers: [ConversationMember] = []) {
         pendingSyntheticAgentMembers = pendingAgentMembers
+        if !pendingAgentMembers.isEmpty {
+            armPendingSyntheticAgentExpiry()
+        }
         guard count > 0 else { return }
         expectedSeededMemberCount = count
         hasMetSeededExpectation = false
@@ -1635,6 +1653,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             latestRawConversation = conversation
         }
         pendingSyntheticAgentMembers += agentMembers
+        if !agentMembers.isEmpty {
+            armPendingSyntheticAgentExpiry()
+        }
         if !humanMembers.isEmpty {
             expectedSeededMemberCount = conversation.membersWithoutCurrent.count + humanMembers.count
             hasMetSeededExpectation = false
@@ -1688,7 +1709,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 stillPending.append(synthetic)
             }
         }
+        let fallbackMatchCount = unmatchedSynthetics.count - stillPending.count
+        if fallbackMatchCount > 0 {
+            Log.info("Optimistic agent overlay: count-based fallback matched \(fallbackMatchCount) joined agent(s) without templateId metadata")
+        }
         pendingSyntheticAgentMembers = stillPending
+        if stillPending.isEmpty {
+            pendingSyntheticAgentExpiryTask?.cancel()
+            pendingSyntheticAgentExpiryTask = nil
+        }
         // An emission can already carry the synthetics themselves (the
         // placeholder VM's mock repository re-emits the seeded draft);
         // skip those so members never duplicate.
@@ -1702,11 +1731,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// from the latest raw DB emission, so a failed agents/join doesn't
     /// leave the indicator promising an agent that will never arrive.
     private func clearPendingSyntheticAgents() {
+        pendingSyntheticAgentExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask = nil
         guard !pendingSyntheticAgentMembers.isEmpty else { return }
         pendingSyntheticAgentMembers = []
         guard let raw = latestRawConversation else { return }
         guard hasMetSeededExpectation else { return }
         conversation = raw
+    }
+
+    /// Starts (or restarts) the synthetic-overlay time-box. Fires only if
+    /// synthetics are still pending when the window elapses - the overlay
+    /// cancels the task as soon as the last synthetic is matched by a
+    /// real member.
+    private func armPendingSyntheticAgentExpiry() {
+        pendingSyntheticAgentExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(AgentBuilderPlaceholder.displayDuration))
+            guard !Task.isCancelled, let self, !self.pendingSyntheticAgentMembers.isEmpty else { return }
+            Log.info("Optimistic agent overlay expired with \(self.pendingSyntheticAgentMembers.count) synthetic(s) still pending - dropping")
+            self.clearPendingSyntheticAgents()
+        }
     }
 
     func startOnboarding() {
