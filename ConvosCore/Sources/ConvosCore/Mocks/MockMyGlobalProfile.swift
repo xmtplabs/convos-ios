@@ -77,19 +77,31 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
 
 public final class MockMyGlobalProfileRepository: MyGlobalProfileRepositoryProtocol, @unchecked Sendable {
     public let myGlobalProfilePublisher: AnyPublisher<MyProfile?, Never>
-    private let subject: CurrentValueSubject<MyProfile?, Never>
+    public let myGlobalProfileLoadStatePublisher: AnyPublisher<MyGlobalProfileLoadState, Never>
+    private let subject: CurrentValueSubject<MyGlobalProfileLoadState, Never>
 
     public init(initial: MyProfile? = nil) {
-        let subject = CurrentValueSubject<MyProfile?, Never>(initial)
+        let subject = CurrentValueSubject<MyGlobalProfileLoadState, Never>(.loaded(initial))
         self.subject = subject
-        self.myGlobalProfilePublisher = subject.eraseToAnyPublisher()
+        self.myGlobalProfileLoadStatePublisher = subject.eraseToAnyPublisher()
+        self.myGlobalProfilePublisher = subject
+            .compactMap { (state: MyGlobalProfileLoadState) -> MyProfile?? in
+                guard case .loaded(let profile) = state else { return nil }
+                return .some(profile)
+            }
+            .eraseToAnyPublisher()
     }
 
     public func fetch() throws -> MyProfile? {
-        subject.value
+        guard case .loaded(let profile) = subject.value else { return nil }
+        return profile
     }
 
     public func setForTesting(_ profile: MyProfile?) {
-        subject.send(profile)
+        subject.send(.loaded(profile))
+    }
+
+    public func setLoadStateForTesting(_ state: MyGlobalProfileLoadState) {
+        subject.send(state)
     }
 }
