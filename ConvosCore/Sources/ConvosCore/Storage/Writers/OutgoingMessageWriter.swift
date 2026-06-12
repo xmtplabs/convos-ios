@@ -321,6 +321,15 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         )
     }
 
+    private func restartSendClock(clientMessageId: String) {
+        guard let data = sendMetricData[clientMessageId] else { return }
+        sendMetricData[clientMessageId] = SendMetricData(
+            startTime: CFAbsoluteTimeGetCurrent(),
+            attachmentMimeTypes: data.attachmentMimeTypes,
+            hasText: data.hasText
+        )
+    }
+
     private func emitSentMessage(clientMessageId: String, isSuccess: Bool) async {
         guard let data = sendMetricData.removeValue(forKey: clientMessageId) else { return }
         // Skip the member-count + agent-presence DB read on the hot send path
@@ -915,18 +924,32 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             bundleClientMessageId: bundleClientMessageId
         )
 
-        // The gate must run BEFORE any prepare call: preparing queues libxmtp
-        // send intents, and any concurrent publish or group sync flushes every
-        // pending intent to the network (a read receipt fires the moment the
-        // user lands in the chat after Make, and the agent-join polling itself
-        // syncs the group every few seconds). Held here, no part of the brief
-        // exists in the XMTP store until the agent can read it.
+        // The gate must run BEFORE any prepare call so no part of the brief
+        // exists in the XMTP store until the agent can read it. The builder
+        // prepares use `prepareForManualPublish` (no queued send intent), but
+        // rows prepared pre-join would still publish into the pre-join epoch
+        // when the explicit publishes below run -- the hold has to come first
+        // either way.
         if awaitsAgentJoin {
-            await Self.waitForAgentMember(
+            let joined: Bool = await Self.waitForAgentMember(
                 in: databaseWriter,
                 conversationId: conversationId,
                 timeout: Self.agentMemberWaitTimeout
             )
+            // A cancelled hold must abort, not publish: cancellation resolves
+            // the gate's race immediately and is otherwise indistinguishable
+            // from a timeout, and publishing now would ship the brief into a
+            // pre-join epoch -- the bug this gate exists to prevent.
+            try Task.checkCancellation()
+            if !joined {
+                QAEvent.emit(.message, "builder_bundle_gate_timeout", [
+                    "conversationId": conversationId,
+                    "timeoutSecs": String(Int(Self.agentMemberWaitTimeout)),
+                ])
+            }
+            // Restart the send clock so the metric measures the send itself,
+            // not however long the agent took to join.
+            restartSendClock(clientMessageId: text.isEmpty ? bundleClientMessageId : textClientMessageId)
         }
 
         // Prepare (but don't publish) the bundle messages so the manifest can
@@ -961,10 +984,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     /// How long the builder-bundle send waits for the joining agent to become
-    /// a member before proceeding anyway. Matches the agent-join polling
-    /// window in `SessionStateManager`; on expiry the bundle sends regardless
-    /// so a failed or slow join doesn't strand the user's brief (the pre-fix
-    /// behavior, just delayed).
+    /// a member before proceeding anyway. Matches
+    /// `SyncingManager.Constant.agentJoinPollWindow` (and the agent backend's
+    /// own give-up window); `MessagesListProcessor.pendingCardDisplayWindow`
+    /// (180) must stay larger than this hold. On expiry the bundle sends
+    /// regardless so a failed or slow join doesn't strand the user's brief,
+    /// a `builder_bundle_gate_timeout` event is emitted, and the
+    /// `UnsentBuilderBriefReplayer` covers the process dying mid-hold.
     private static let agentMemberWaitTimeout: TimeInterval = 150
 
     /// Waits until the conversation has a current agent member, or the
@@ -1020,7 +1046,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             return first
         }
         if !joined {
-            Log.warning("Builder bundle: no agent member in \(conversationId) after waiting; publishing anyway")
+            if Task.isCancelled {
+                Log.warning("Builder bundle: agent wait cancelled for \(conversationId)")
+            } else {
+                Log.warning("Builder bundle: no agent member in \(conversationId) after waiting; publishing anyway")
+            }
         }
         return joined
     }
@@ -1087,7 +1117,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         let messageId: String
         do {
-            messageId = try await sender.prepare(multiRemoteAttachment: staged.multi)
+            messageId = try await sender.prepareForManualPublish(multiRemoteAttachment: staged.multi)
             try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: staged.jsonList)
         } catch {
             try? await markMessageFailed(clientMessageId: clientMessageId)
@@ -1112,7 +1142,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         let xmtpMessageId: String
         do {
-            xmtpMessageId = try await sender.prepare(text: text)
+            xmtpMessageId = try await sender.prepareForManualPublish(text: text)
         } catch {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
@@ -1137,15 +1167,17 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         return xmtpMessageId
     }
 
-    /// Publish the manifest first, then the bundle, then the text. Publishing
-    /// the manifest commit first means it is the first to reach the network, so
-    /// recipients usually process it before the messages it hides. This is
-    /// best-effort ordering, not a guarantee -- delivery/sort order on
-    /// recipients can differ. Final correctness does not depend on it: the
-    /// reactive `builder_bundle_hidden_message` filter re-runs when the manifest
-    /// lands, so a late manifest only means a brief flash, never a permanently
-    /// visible brief. All three were prepared into the group's shared local
-    /// store, so a freshly-resolved sender publishes them by id.
+    /// Publish the manifest first, then the bundle, then the text. The call
+    /// order here IS the wire order only because all three were prepared via
+    /// `prepareForManualPublish` (no queued send intents): an intent-queueing
+    /// prepare would let any concurrent publish or group sync flush the
+    /// bundle and text ahead of the manifest in queue order. Delivery/sort
+    /// order on recipients can still differ, so final correctness does not
+    /// depend on it: the reactive `builder_bundle_hidden_message` filter
+    /// re-runs when the manifest lands, so a late manifest only means a
+    /// brief flash, never a permanently visible brief. All three were
+    /// prepared into the group's shared local store, so a freshly-resolved
+    /// sender publishes them by id.
     private func publishPreparedBuilderBundle(
         manifestIds: [String],
         prepared: PreparedAttachmentBundle?,
@@ -1161,7 +1193,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
             }
             sender = resolvedSender
-            manifestMessageId = try await resolvedSender.prepare(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
+            manifestMessageId = try await resolvedSender.prepareForManualPublish(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
         } catch {
             // Sender resolution and the manifest prepare run before anything
             // publishes, but the bundle and text are already persisted

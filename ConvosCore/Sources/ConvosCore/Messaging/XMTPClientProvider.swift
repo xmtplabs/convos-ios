@@ -12,6 +12,16 @@ public protocol MessageSender {
     func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
     func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
+    /// Variants that stage the message in the local store without queueing a
+    /// libxmtp send intent (`prepareMessage(noSend: true)`). A queued intent
+    /// is flushed by any subsequent publish or group sync on the conversation
+    /// in queue order, which destroys a caller-controlled publish order;
+    /// these leave publication entirely to `publishMessage(messageId:)`. The
+    /// agent-builder bundle uses them so the manifest actually reaches the
+    /// network before the brief messages it hides.
+    func prepareForManualPublish(text: String) async throws -> String
+    func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
+    func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
@@ -316,6 +326,26 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: builderBundleManifest,
             options: .init(contentType: BuilderBundleManifestCodec().contentType)
+        )
+    }
+
+    public func prepareForManualPublish(text: String) async throws -> String {
+        return try await prepareMessage(content: text, noSend: true)
+    }
+
+    public func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
+            noSend: true
+        )
+    }
+
+    public func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType),
+            noSend: true
         )
     }
 

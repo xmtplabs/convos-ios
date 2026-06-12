@@ -610,12 +610,21 @@ final class AgentBuilderViewModel: Identifiable {
             let summaryToPersist: AgentBuilderSummary = plan.summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
+            // The `.ready`-time join can have been skipped (conversation not
+            // ready yet, slug not hydrated) -- re-fire it now that the user
+            // committed; the `didRequestAgentJoin` latch makes this a no-op
+            // when the early join already ran.
+            requestAgentJoinIfNeeded()
             // Detach the agent-join task from this VM: the builder sheet tears
             // down after Make and `deinit` cancels `agentJoinTask`, which
             // could abort the join request mid-flight -- the bundle send below
             // then waits for an agent that never joins. Dropping the
             // reference (without cancelling) lets the join finish on its own.
             agentJoinTask = nil
+            // Gate the send on the agent joining only when a join request was
+            // actually launched; if it never was (no slug even at Make), the
+            // hold would wait for an agent that was never asked to come.
+            let joinAttempted: Bool = didRequestAgentJoin
             Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
                 // Persist the summary (with its `bundledMessageIds`) before
@@ -645,7 +654,8 @@ final class AgentBuilderViewModel: Identifiable {
                     text: summaryToPersist.prompt,
                     voiceMemo: voiceMemoSnapshot,
                     textMessageId: textMessageId,
-                    bundleMessageId: bundleMessageId
+                    bundleMessageId: bundleMessageId,
+                    awaitsAgentJoin: joinAttempted
                 )
             }
         }
@@ -772,11 +782,16 @@ final class AgentBuilderViewModel: Identifiable {
                 }
                 do {
                     _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
-                    return true
                 } catch {
+                    // Still gate the send: a thrown request is ambiguous --
+                    // the server may have received it and provisioned the
+                    // agent (client-side timeout, connection dropped after
+                    // the request went out). Publishing immediately would
+                    // ship the brief into the pre-join epoch; the gate's
+                    // timeout already covers the agent truly never arriving.
                     Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
-                    return false
                 }
+                return true
             }
             // Persist the summary before the send so the chat the user returns
             // to renders the card immediately (its `summaryPublisher` picks
@@ -791,9 +806,11 @@ final class AgentBuilderViewModel: Identifiable {
             } catch {
                 Log.error("AgentBuilder(existing): pending media upload await failed: \(error.localizedDescription)")
             }
-            // `awaitsAgentJoin: false` when the join was never requested (no
-            // slug) or its request failed -- holding the bundle for an agent
-            // that will never arrive only delays the inevitable publish.
+            // `awaitsAgentJoin: false` only when the join was never requested
+            // at all (no slug) -- an agent that was never asked to come will
+            // never arrive, so holding the bundle just delays the inevitable
+            // publish. A request that was sent but threw still gates (see the
+            // join task above).
             let joinRequested: Bool = await joinTask.value
             await innerVM.sendBuilderBundle(
                 text: summaryToPersist.prompt,
