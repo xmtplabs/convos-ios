@@ -20,11 +20,11 @@ struct ConnectionGrantWriterTests {
         let profileWriter: MockMyProfileWriter
         let writer: CloudConnectionGrantWriter
 
-        init(inboxId: String = "mock-inbox-id") {
+        init(inboxId: String = "mock-inbox-id", apiClient: (any ConvosAPIClientProtocol)? = nil) {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
             let profileWriter = MockMyProfileWriter()
             let mockClient = MockXMTPClientProvider(inboxId: inboxId)
-            let sessionStateManager = MockSessionStateManager(mockClient: mockClient)
+            let sessionStateManager = MockSessionStateManager(mockClient: mockClient, mockAPIClient: apiClient)
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager
             self.profileWriter = profileWriter
@@ -32,8 +32,25 @@ struct ConnectionGrantWriterTests {
                 sessionStateManager: sessionStateManager,
                 databaseWriter: databaseManager.dbWriter,
                 databaseReader: databaseManager.dbReader,
-                myProfileWriter: profileWriter
+                myProfileWriter: profileWriter,
+                servicesStore: Self.makeServicesStore(apiClient: apiClient)
             )
+        }
+
+        /// Catalog reads go through the same (stubbed) API client the push
+        /// uses, mirroring production wiring. Fixtures without a client get an
+        /// empty catalog: every push takes the legacy whole-toolkit path.
+        private static func makeServicesStore(
+            apiClient: (any ConvosAPIClientProtocol)?
+        ) -> ConnectionServicesStore {
+            guard let apiClient else {
+                return ConnectionServicesStore(fetchServices: {
+                    CloudConnectionsAPI.ServicesResponse(services: [])
+                })
+            }
+            return ConnectionServicesStore(fetchServices: {
+                try await apiClient.getConnectionServices()
+            })
         }
 
         func seedConnection(
@@ -91,14 +108,16 @@ struct ConnectionGrantWriterTests {
             connectionId: String,
             conversationId: String,
             serviceId: String,
-            grantedToInboxId: String = "agent-1"
+            grantedToInboxId: String = "agent-1",
+            backendGrantId: String? = nil
         ) throws {
             let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
                 grantedToInboxId: grantedToInboxId,
-                grantedAt: Date()
+                grantedAt: Date(),
+                backendGrantId: backendGrantId
             )
             try databaseManager.dbWriter.write { db in
                 try grant.save(db)
@@ -306,5 +325,539 @@ struct ConnectionGrantWriterTests {
         #expect(payload.grants.count == 2)
         let serviceIds = Set(payload.grants.map(\.service))
         #expect(serviceIds == ["googlecalendar", "googledrive"])
+    }
+
+    // MARK: - Backend grant push
+
+    @Test("Grant: pushes one backend consent record and stores the returned id")
+    func grantPushesBackendGrantAndStoresId() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.ownerInboxId == "mock-inbox-id")
+        #expect(call.granteeInboxId == "agent-1")
+        #expect(call.conversationId == conversationId)
+        #expect(call.toolkit == connection.serviceId)
+        // No catalog entry for the service: the writer omits bundleIds and
+        // serviceVersion, which the backend treats as a legacy whole-toolkit
+        // grant. The legacy `actions` and `connectionId` fields are gone from
+        // the API surface entirely.
+        #expect(call.bundleIds == nil)
+        #expect(call.serviceVersion == nil)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
+    @Test("Grant: backend push failure keeps the local grant with a nil backend id")
+    func grantSurvivesBackendPushFailure() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "local grant should stand when the backend push fails")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Revoke: revokes the backend grant by natural key when a backend id is stored")
+    func revokeRevokesBackendGrant() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_rev"
+        try fixture.seedConversation(id: conversationId)
+        try fixture.seedGrant(
+            connectionId: connection.id,
+            conversationId: conversationId,
+            serviceId: connection.serviceId,
+            backendGrantId: "backend-grant-42"
+        )
+
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
+
+        // The natural-key revoke is the primary path; the unreliable by-id DELETE
+        // is no longer used.
+        #expect(recordingClient.revokeCalls.isEmpty)
+        #expect(recordingClient.naturalKeyRevokeCalls == [
+            .init(toolkit: connection.serviceId, conversationId: conversationId, granteeInboxId: "agent-1"),
+        ])
+    }
+
+    @Test("Revoke: still revokes the backend grant by natural key when no backend id is stored")
+    func revokeUsesNaturalKeyWithoutStoredId() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_backend_natural"
+        try fixture.seedConversation(id: conversationId)
+        try fixture.seedGrant(
+            connectionId: connection.id,
+            conversationId: conversationId,
+            serviceId: connection.serviceId
+        )
+
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
+
+        // Natural-key revoke succeeds even though no backendGrantId was ever
+        // stored -- this is the reliability fix over the by-id DELETE.
+        #expect(recordingClient.revokeCalls.isEmpty)
+        #expect(recordingClient.naturalKeyRevokeCalls == [
+            .init(toolkit: connection.serviceId, conversationId: conversationId, granteeInboxId: "agent-1"),
+        ])
+    }
+
+    // MARK: - Bundle-scoped grants
+
+    /// Catalog fixture for the default `seedConnection` service
+    /// ("googlecalendar").
+    private static func calendarCatalog(
+        version: Int,
+        bundleIds: [String]
+    ) -> [CloudConnectionsAPI.ServiceConfig] {
+        [
+            CloudConnectionsAPI.ServiceConfig(
+                id: "googlecalendar",
+                composioSlug: "googlecalendar",
+                version: version,
+                displayName: .init(values: ["en": "Google Calendar"]),
+                bundles: bundleIds.map { id in
+                    CloudConnectionsAPI.ServiceBundle(
+                        id: id,
+                        title: .init(values: ["en": id]),
+                        description: .init(values: ["en": "About \(id)"]),
+                        defaultEnabled: false
+                    )
+                }
+            ),
+        ]
+    }
+
+    @Test("Grant: explicit bundle selection is pushed with the catalog service version")
+    func grantPushesExplicitBundleSelection() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.events", "calendar.events.read"]),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_bundles"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.events"]
+        )
+
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.bundleIds == ["calendar.events"])
+        #expect(call.serviceVersion == 2)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.bundleIds == ["calendar.events"])
+        #expect(stored.first?.serviceVersion == 2)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
+    @Test("Grant: no explicit selection grants every catalog bundle for the service")
+    func grantWithoutSelectionGrantsAllCatalogBundles() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 5, bundleIds: ["calendar.events", "calendar.events.read"]),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_bundles_all"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.bundleIds == ["calendar.events", "calendar.events.read"])
+        #expect(call.serviceVersion == 5)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.bundleIds == ["calendar.events", "calendar.events.read"])
+        #expect(stored.first?.serviceVersion == 5)
+    }
+
+    @Test("Grant: fails closed when the cataloged service lists no bundles and there is no selection")
+    func grantFailsClosedWhenCatalogServiceHasNoBundles() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 4, bundleIds: []),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_zero_bundles"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // A cataloged service with zero bundles must not materialize an empty
+        // bundleIds array: the backend's legacy path treats that as
+        // whole-toolkit access. The push is skipped entirely.
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: fails closed on an explicit empty selection — never pushed as whole-toolkit")
+    func grantFailsClosedOnExplicitEmptySelection() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 4, bundleIds: []),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_empty_selection"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: []
+        )
+
+        // An explicit empty selection means the user approved zero bundles;
+        // pushing it would escalate to whole-toolkit access (the backend
+        // treats an empty array as the legacy whole-toolkit path).
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: explicit empty selection fails closed even for an uncataloged service")
+    func grantFailsClosedOnExplicitEmptySelectionForUncatalogedService() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        // Empty catalog: the service is proven absent, the path that would
+        // otherwise pass the selection through as-is.
+        recordingClient.servicesCatalogQueue = []
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_empty_uncataloged"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: []
+        )
+
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: unknown_bundle refetches the catalog, drops unknown ids, and retries once")
+    func grantRetriesOnceOnUnknownBundle() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.old", "calendar.events"]),
+            Self.calendarCatalog(version: 3, bundleIds: ["calendar.events"]),
+        ]
+        recordingClient.createErrorQueue = [
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.old"),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_stale"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.old", "calendar.events"]
+        )
+
+        #expect(recordingClient.createCalls.count == 2)
+        #expect(recordingClient.createCalls.first?.bundleIds == ["calendar.old", "calendar.events"])
+        let retry = try #require(recordingClient.createCalls.last)
+        #expect(retry.bundleIds == ["calendar.events"])
+        #expect(retry.serviceVersion == 3)
+        #expect(recordingClient.servicesFetchCount == 2)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.bundleIds == ["calendar.events"])
+        #expect(stored.first?.serviceVersion == 3)
+        #expect(stored.first?.backendGrantId == "backend-grant-2")
+    }
+
+    @Test("Grant: a second unknown_bundle rejection gives up — exactly one retry, no loop")
+    func grantGivesUpAfterOneUnknownBundleRetry() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.events"]),
+            Self.calendarCatalog(version: 3, bundleIds: ["calendar.events"]),
+        ]
+        recordingClient.createErrorQueue = [
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.events"),
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.events"),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_stale_twice"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.events"]
+        )
+
+        // Two attempts (original + one retry), then the push is abandoned:
+        // the local grant stands with no backend id, same as any push failure.
+        #expect(recordingClient.createCalls.count == 2)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: fails closed when the refreshed catalog knows none of the selected bundles")
+    func grantFailsClosedWhenSelectionVanishesFromCatalog() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.old"]),
+            Self.calendarCatalog(version: 3, bundleIds: ["calendar.events"]),
+        ]
+        recordingClient.createErrorQueue = [
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.old"),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_vanished"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.old"]
+        )
+
+        // No retry: pushing an empty bundle set would escalate to whole-toolkit
+        // access, strictly more than the user approved.
+        #expect(recordingClient.createCalls.count == 1)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: catalog outage with no explicit selection fails closed — no whole-toolkit push")
+    func grantFailsClosedOnCatalogOutageWithoutSelection() async throws {
+        struct CatalogDown: Error {}
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesError = CatalogDown()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_outage"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // An unreachable catalog must not be conflated with "service not in
+        // catalog": omitting bundleIds here could grant whole-toolkit access
+        // for a service that IS cataloged. The push is skipped entirely.
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: catalog outage with an explicit selection pushes it unfiltered, no version")
+    func grantPushesExplicitSelectionDuringCatalogOutage() async throws {
+        struct CatalogDown: Error {}
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesError = CatalogDown()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_outage_explicit"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: ["calendar.events"]
+        )
+
+        // The user's explicit picks are safe to transmit — the backend
+        // validates them against its own catalog.
+        #expect(recordingClient.createCalls.count == 1)
+        let call = try #require(recordingClient.createCalls.first)
+        #expect(call.bundleIds == ["calendar.events"])
+        #expect(call.serviceVersion == nil)
+    }
+
+    @Test("Grant: the unknown_bundle retry never widens a nil-selection grant past the first attempt")
+    func grantRetryNeverWidensScope() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 2, bundleIds: ["calendar.events"]),
+            Self.calendarCatalog(version: 3, bundleIds: ["calendar.events", "calendar.brand.new"]),
+        ]
+        recordingClient.createErrorQueue = [
+            CloudConnectionsAPI.GrantError.unknownBundle(bundleId: "calendar.events"),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_no_widen"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // The nil selection materialized to the v2 catalog (["calendar.events"])
+        // on the first attempt. The retry intersects THAT with the refreshed
+        // catalog — it must not pick up v3's extra bundle.
+        #expect(recordingClient.createCalls.count == 2)
+        #expect(recordingClient.createCalls.first?.bundleIds == ["calendar.events"])
+        let retry = try #require(recordingClient.createCalls.last)
+        #expect(retry.bundleIds == ["calendar.events"])
+        #expect(retry.bundleIds?.contains("calendar.brand.new") == false)
+        #expect(retry.serviceVersion == 3)
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.bundleIds == ["calendar.events"])
+    }
+}
+
+/// Records backend grant push/revoke calls made by `CloudConnectionGrantWriter`
+/// so tests can assert the consent records sent to the server. Also serves the
+/// services catalog: `servicesCatalogQueue` is consumed one response per fetch
+/// (the last entry repeats), so tests can model a stale catalog that changes
+/// across the unknown_bundle refetch.
+private final class RecordingGrantAPIClient: TestStubAPIClient {
+    struct CreateCall: Sendable {
+        let ownerInboxId: String
+        let granteeInboxId: String
+        let conversationId: String
+        let toolkit: String
+        let bundleIds: [String]?
+        let serviceVersion: Int?
+    }
+
+    struct NaturalKeyRevokeCall: Sendable, Equatable {
+        let toolkit: String
+        let conversationId: String?
+        let granteeInboxId: String?
+    }
+
+    var createCalls: [CreateCall] = []
+    var revokeCalls: [String] = []
+    var naturalKeyRevokeCalls: [NaturalKeyRevokeCall] = []
+    var createError: Error?
+    /// Thrown once per entry (after the attempt is recorded), then discarded —
+    /// models a 400 the server rejects before a later attempt succeeds.
+    var createErrorQueue: [Error] = []
+    var servicesCatalogQueue: [[CloudConnectionsAPI.ServiceConfig]] = []
+    var servicesFetchCount: Int = 0
+    /// When set, every catalog fetch fails — models a backend/network outage.
+    var servicesError: Error?
+
+    override func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        servicesFetchCount += 1
+        if let servicesError {
+            throw servicesError
+        }
+        guard let catalog = servicesCatalogQueue.first else {
+            return CloudConnectionsAPI.ServicesResponse(services: [])
+        }
+        if servicesCatalogQueue.count > 1 {
+            servicesCatalogQueue.removeFirst()
+        }
+        return CloudConnectionsAPI.ServicesResponse(services: catalog)
+    }
+
+    override func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        createCalls.append(CreateCall(
+            ownerInboxId: ownerInboxId,
+            granteeInboxId: granteeInboxId,
+            conversationId: conversationId,
+            toolkit: toolkit,
+            bundleIds: bundleIds,
+            serviceVersion: serviceVersion
+        ))
+        if let createError {
+            throw createError
+        }
+        if !createErrorQueue.isEmpty {
+            throw createErrorQueue.removeFirst()
+        }
+        return CloudConnectionsAPI.CreateGrantResponse(id: "backend-grant-\(createCalls.count)")
+    }
+
+    override func revokeConnectionGrant(id: String) async throws {
+        revokeCalls.append(id)
+    }
+
+    override func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        naturalKeyRevokeCalls.append(NaturalKeyRevokeCall(
+            toolkit: toolkit,
+            conversationId: conversationId,
+            granteeInboxId: granteeInboxId
+        ))
+        return 1
     }
 }

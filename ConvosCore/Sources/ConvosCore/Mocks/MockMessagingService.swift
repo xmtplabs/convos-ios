@@ -133,6 +133,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockConnectionGrantWriter()
     }
 
+    public func connectionServicesStore() -> any ConnectionServicesStoreProtocol {
+        ConnectionServicesStore(fetchServices: { CloudConnectionsAPI.ServicesResponse(services: []) })
+    }
+
     public func connectionEventWriter() -> any ConnectionEventWriterProtocol {
         MockConnectionEventWriter()
     }

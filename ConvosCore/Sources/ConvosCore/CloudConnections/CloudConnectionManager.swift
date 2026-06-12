@@ -226,6 +226,10 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                 "[CloudConnections] \(context) had no grant writer injected; metadata for " +
                 "\(conversationCount) conversation(s) will remain stale until the next grant/revoke"
             )
+            // The writer normally revokes the backend consent records as part of
+            // revokeGrant; with no writer injected that path can't run, so revoke
+            // them directly to keep the backend grant store in sync.
+            await revokeBackendGrants(grants, context: context)
             return
         }
         for grant in grants {
@@ -240,6 +244,36 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                     "[CloudConnections] failed to republish grants \(context) " +
                     "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
                     "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+                )
+                // The writer only revokes the backend record after a successful
+                // metadata publish, so a throw here means the backend grant
+                // survived. Revoke it directly; the row is about to be cascade-
+                // deleted with the connection, taking the stored id with it.
+                await revokeBackendGrants([grant], context: context)
+            }
+        }
+    }
+
+    /// Directly revokes the backend consent records for grants whose normal
+    /// writer-mediated revocation didn't run. Uses the natural-key revoke so it
+    /// works even for rows that never stored a backendGrantId (push failed or
+    /// hadn't happened). Best-effort: failures are logged and never propagate;
+    /// the connection-level backend revoke independently cuts off agent
+    /// execution.
+    private func revokeBackendGrants(_ grants: [DBCloudConnectionGrant], context: String) async {
+        for grant in grants {
+            do {
+                try await apiClient.revokeConnectionGrantByNaturalKey(
+                    toolkit: grant.serviceId,
+                    conversationId: grant.conversationId,
+                    granteeInboxId: grant.grantedToInboxId
+                )
+            } catch {
+                Log.warning(
+                    "[CloudConnections] failed to revoke backend grant \(context) " +
+                    "(toolkit=\(grant.serviceId), connectionId=\(grant.connectionId), " +
+                    "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+                    error.localizedDescription
                 )
             }
         }

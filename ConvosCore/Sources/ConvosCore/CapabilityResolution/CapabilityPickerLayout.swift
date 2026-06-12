@@ -10,17 +10,65 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
     public let variant: Variant
     public let providers: [ProviderSummary]
     public let defaultSelection: Set<ProviderID>
+    /// Permission-bundle rows for the cloud providers on this card, one group
+    /// per provider whose service exists in the backend catalog
+    /// (`GET /v2/connections/services`). Empty when the catalog has no entry
+    /// for any provider (or wasn't reachable) — the card then renders the
+    /// pre-bundle provider rows only.
+    public let serviceBundles: [ServiceBundles]
 
     public init(
         request: CapabilityRequest,
         variant: Variant,
         providers: [ProviderSummary],
-        defaultSelection: Set<ProviderID>
+        defaultSelection: Set<ProviderID>,
+        serviceBundles: [ServiceBundles] = []
     ) {
         self.request = request
         self.variant = variant
         self.providers = providers
         self.defaultSelection = defaultSelection
+        self.serviceBundles = serviceBundles
+    }
+
+    /// Initial toggle state per service: the ids of bundles whose catalog
+    /// `defaultEnabled` is true, keyed by service id.
+    public var defaultBundleSelection: [String: Set<String>] {
+        var selection: [String: Set<String>] = [:]
+        for group in serviceBundles {
+            selection[group.serviceId] = Set(group.rows.filter(\.defaultEnabled).map(\.id))
+        }
+        return selection
+    }
+
+    /// Bundle rows for one cloud provider, resolved against the services
+    /// catalog at layout time (strings already localized for display).
+    public struct ServiceBundles: Sendable, Equatable, Hashable {
+        public let providerId: ProviderID
+        public let serviceId: String
+        public let serviceVersion: Int
+        public let rows: [Row]
+
+        public init(providerId: ProviderID, serviceId: String, serviceVersion: Int, rows: [Row]) {
+            self.providerId = providerId
+            self.serviceId = serviceId
+            self.serviceVersion = serviceVersion
+            self.rows = rows
+        }
+
+        public struct Row: Sendable, Equatable, Hashable {
+            public let id: String
+            public let title: String
+            public let description: String
+            public let defaultEnabled: Bool
+
+            public init(id: String, title: String, description: String, defaultEnabled: Bool) {
+                self.id = id
+                self.title = title
+                self.description = description
+                self.defaultEnabled = defaultEnabled
+            }
+        }
     }
 
     public enum Variant: Sendable, Equatable {
