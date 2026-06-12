@@ -8,6 +8,9 @@ import Foundation
 /// dot under it.
 struct ThingOverviewItem: Identifiable, Hashable {
     let conversation: Conversation
+    /// Inbox id of the agent that sent the attachment, so the detail
+    /// view's indicator can open that agent's contact card.
+    let senderInboxId: String
     let attachmentKey: String
     let filename: String?
     let mimeType: String?
@@ -104,6 +107,7 @@ final class ThingsOverviewViewModel {
             guard let convo = conversationsById[id] else { return nil }
             return ThingOverviewItem(
                 conversation: convo,
+                senderInboxId: file.senderInboxId,
                 attachmentKey: file.attachmentKey,
                 filename: file.filename,
                 mimeType: file.mimeType,
