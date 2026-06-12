@@ -5,7 +5,8 @@ import SwiftUI
 /// caption above a tappable service pill (Figma frame 4900). The pill persists
 /// in history; its trailing accessory reflects the derived status — chevron
 /// while pending (tap opens the approval sheet), checkmark once any member's
-/// approval lands, nothing once dismissed.
+/// approval lands, nothing once dismissed or superseded by a newer request
+/// (both render inert: no accessory, taps disabled).
 struct CapabilityConnectPromptView: View {
     let prompt: CapabilityConnectPrompt
     let agentName: String
@@ -81,7 +82,7 @@ struct CapabilityConnectPromptView: View {
             Image(systemName: "checkmark")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
-        case .dismissed:
+        case .dismissed, .superseded:
             EmptyView()
         }
     }
@@ -106,7 +107,7 @@ struct CapabilityConnectPromptView: View {
 }
 
 #if DEBUG
-#Preview("Pending / Connected / Dismissed") {
+#Preview("Pending / Connected / Dismissed / Superseded") {
     VStack(spacing: DesignConstants.Spacing.step6x) {
         CapabilityConnectPromptView(
             prompt: CapabilityConnectPrompt(
@@ -140,6 +141,18 @@ struct CapabilityConnectPromptView: View {
                 serviceId: nil,
                 icon: .calendar,
                 status: .dismissed
+            ),
+            agentName: "Assistant",
+            onTap: {}
+        )
+        CapabilityConnectPromptView(
+            prompt: CapabilityConnectPrompt(
+                requestId: "req-4",
+                askerInboxId: "agent",
+                serviceName: "Google Calendar",
+                serviceId: "googlecalendar",
+                icon: .calendar,
+                status: .superseded
             ),
             agentName: "Assistant",
             onTap: {}

@@ -7,10 +7,14 @@ import GRDB
 /// publishes the latest one that hasn't been resolved by a matching
 /// `capability_request_result` yet. The picker UI subscribes — when the publisher
 /// emits a non-nil `CapabilityRequest`, the conversation view model recomputes the
-/// `CapabilityPickerLayout` and surfaces the card.
+/// `CapabilityPickerLayout` and surfaces the approval sheet.
 ///
-/// Resolution detection is by `requestId`: a `capability_request_result` with the same
-/// `requestId` (regardless of status) marks the request as resolved.
+/// Resolution detection joins result rows on `requestId` and applies
+/// `CapabilityConnectPrompt.resolution` — the SAME validated rule the transcript
+/// pill derives its display state from, so "tap path open" and "pill pending"
+/// can never disagree. First responder wins: any member's validated
+/// approve/deny/cancel resolves the request for the whole conversation;
+/// asker-authored rows and non-decision statuses never resolve it.
 public protocol CapabilityRequestRepositoryProtocol: Sendable {
     var pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> { get }
 }
@@ -35,48 +39,77 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
             .eraseToAnyPublisher()
     }()
 
-    /// Visible for testing — pure function over a `Database`. Walks every
-    /// capability_request message for the conversation in descending date order, and
-    /// returns the first one whose `requestId` doesn't appear in any
-    /// capability_request_result row.
+    /// Pure function over a `Database` (visible for testing). Walks every
+    /// capability_request message for the conversation in descending date
+    /// order and returns the first one that no validated result resolves.
     static func computeLatestPendingRequest(conversationId: String, db: Database) -> CapabilityRequest? {
         do {
-            let resolvedIds = try resolvedRequestIds(conversationId: conversationId, db: db)
-            let requests = try DBMessage
-                .filter(DBMessage.Columns.conversationId == conversationId)
-                .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequest.rawValue)
-                .order(DBMessage.Columns.dateNs.desc)
-                .fetchAll(db)
-            for row in requests {
-                guard let text = row.text,
-                      let data = text.data(using: .utf8),
-                      let request = try? JSONDecoder().decode(CapabilityRequest.self, from: data) else {
-                    continue
-                }
-                if !resolvedIds.contains(request.requestId) {
-                    return request
-                }
-            }
-            return nil
+            let resultsByRequestId = try resultRecordsByRequestId(conversationId: conversationId, db: db)
+            return try computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: db,
+                resultsByRequestId: resultsByRequestId
+            )
         } catch {
             return nil
         }
     }
 
-    private static func resolvedRequestIds(conversationId: String, db: Database) throws -> Set<String> {
+    /// Shared with `MessagesRepository`'s compose-time join, which uses the
+    /// returned request to decide which unresolved pill renders `.pending`
+    /// (actionable) versus `.superseded` — keeping the transcript and the tap
+    /// path on one verdict. Resolution per request is
+    /// `CapabilityConnectPrompt.resolution`: first validated responder wins,
+    /// asker-authored rows never count.
+    static func computeLatestPendingRequest(
+        conversationId: String,
+        db: Database,
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]]
+    ) throws -> CapabilityRequest? {
+        let requests = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequest.rawValue)
+            .order(DBMessage.Columns.dateNs.desc)
+            .fetchAll(db)
+        for row in requests {
+            guard let text = row.text,
+                  let data = text.data(using: .utf8),
+                  let request = try? JSONDecoder().decode(CapabilityRequest.self, from: data) else {
+                continue
+            }
+            let resolution = CapabilityConnectPrompt.resolution(
+                results: resultsByRequestId[request.requestId] ?? [],
+                askerInboxId: request.askerInboxId
+            )
+            if resolution == nil {
+                return request
+            }
+        }
+        return nil
+    }
+
+    /// Every capability_request_result row in the conversation, decoded and
+    /// keyed by `requestId`, each carrying the row's XMTP-attested `senderId`
+    /// — the inputs `CapabilityConnectPrompt.resolution` validates against.
+    static func resultRecordsByRequestId(
+        conversationId: String,
+        db: Database
+    ) throws -> [String: [CapabilityConnectPrompt.ResultRecord]] {
         let results = try DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
             .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequestResult.rawValue)
             .fetchAll(db)
-        var ids: Set<String> = []
+        var recordsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
         for row in results {
             guard let text = row.text,
                   let data = text.data(using: .utf8),
                   let result = try? JSONDecoder().decode(CapabilityRequestResult.self, from: data) else {
                 continue
             }
-            ids.insert(result.requestId)
+            recordsByRequestId[result.requestId, default: []].append(
+                .init(senderId: row.senderId, status: result.status)
+            )
         }
-        return ids
+        return recordsByRequestId
     }
 }

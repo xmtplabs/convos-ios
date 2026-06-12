@@ -1789,10 +1789,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     // MARK: - Capability picker
 
     /// User tapped the transcript's capability connect pill. Pending pills open
-    /// the approval sheet for the request they carry; connected/dismissed pills
-    /// are inert. Only the latest observed request has a computed layout (the
-    /// "only show the last request" rule), so taps on superseded pending pills
-    /// are no-ops.
+    /// the approval sheet for the request they carry; connected/dismissed/
+    /// superseded pills are inert. The derivation only renders `.pending` on
+    /// the request `CapabilityRequestRepository` surfaces as the layout (same
+    /// shared rule), so the layout-match guard below is just a race guard: it
+    /// covers the gap while a freshly answered or newly superseded request
+    /// hasn't re-derived yet (e.g. `locallyHandledCapabilityRequestIds`).
     func onTapCapabilityConnectPrompt(_ prompt: CapabilityConnectPrompt) {
         guard prompt.status == .pending else { return }
         guard let layout = pendingCapabilityPickerLayout,

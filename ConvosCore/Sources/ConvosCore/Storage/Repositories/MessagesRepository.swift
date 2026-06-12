@@ -434,6 +434,7 @@ extension Array where Element == DBMessage {
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
                          capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+                         latestPendingCapabilityRequestId: String? = nil,
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -465,7 +466,8 @@ extension Array where Element == DBMessage {
                     currentInboxId: currentInboxId,
                     memberProfileCache: memberProfileCache,
                     attachmentLocalStates: attachmentLocalStates,
-                    capabilityResultsByRequestId: capabilityResultsByRequestId
+                    capabilityResultsByRequestId: capabilityResultsByRequestId,
+                    latestPendingCapabilityRequestId: latestPendingCapabilityRequestId
                 ) else { return nil }
 
                 let message = Message(
@@ -499,7 +501,8 @@ extension Array where Element == DBMessage {
         currentInboxId: String,
         memberProfileCache: MemberProfileCache,
         attachmentLocalStates: [String: AttachmentLocalState],
-        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+        latestPendingCapabilityRequestId: String? = nil
     ) -> MessageContent? {
         switch dbMessage.contentType {
         case .text:
@@ -540,7 +543,8 @@ extension Array where Element == DBMessage {
         case .capabilityRequest:
             return resolveCapabilityConnectContent(
                 jsonText: dbMessage.text,
-                resultsByRequestId: capabilityResultsByRequestId
+                resultsByRequestId: capabilityResultsByRequestId,
+                latestPendingRequestId: latestPendingCapabilityRequestId
             )
         case .capabilityRequestResult:
             // Results render indirectly: they flip the request row's pill state via
@@ -564,7 +568,8 @@ extension Array where Element == DBMessage {
 
     private static func resolveCapabilityConnectContent(
         jsonText: String?,
-        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]]
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        latestPendingRequestId: String?
     ) -> MessageContent? {
         guard let jsonText,
               let request = try? JSONDecoder().decode(CapabilityRequest.self, from: Data(jsonText.utf8)) else {
@@ -572,7 +577,8 @@ extension Array where Element == DBMessage {
         }
         let prompt = CapabilityConnectPrompt.make(
             request: request,
-            results: resultsByRequestId[request.requestId] ?? []
+            results: resultsByRequestId[request.requestId] ?? [],
+            isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
         )
         return .capabilityConnect(prompt: prompt)
     }
@@ -1030,21 +1036,26 @@ fileprivate extension Database {
         // Skipping the query when no request row is visible is safe for the
         // ValueObservation: the main message query already tracks the table,
         // so a late-arriving result row still re-fires composition.
+        //
+        // First responder wins: one capability request is one connection ask
+        // for the whole conversation — the first validated (non-asker) result
+        // flips the pill for every member; the agent re-requests under a new
+        // requestId if it needs more. Both the resolution rule and the
+        // latest-pending computation are shared with CapabilityRequestRepository
+        // (the tap path), so a pill rendered `.pending` is always the request
+        // the approval sheet would open for.
         var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        var latestPendingCapabilityRequestId: String?
         if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
-            let resultRows = try DBMessage
-                .filter(DBMessage.Columns.conversationId == conversationId)
-                .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequestResult.rawValue)
-                .fetchAll(self)
-            for row in resultRows {
-                guard let text = row.text,
-                      let result = try? JSONDecoder().decode(CapabilityRequestResult.self, from: Data(text.utf8)) else {
-                    continue
-                }
-                capabilityResultsByRequestId[result.requestId, default: []].append(
-                    .init(senderId: row.senderId, status: result.status)
-                )
-            }
+            capabilityResultsByRequestId = try CapabilityRequestRepository.resultRecordsByRequestId(
+                conversationId: conversationId,
+                db: self
+            )
+            latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: self,
+                resultsByRequestId: capabilityResultsByRequestId
+            )?.requestId
         }
 
         let localStates: [AttachmentLocalState]
@@ -1072,6 +1083,7 @@ fileprivate extension Database {
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
             capabilityResultsByRequestId: capabilityResultsByRequestId,
+            latestPendingCapabilityRequestId: latestPendingCapabilityRequestId,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating

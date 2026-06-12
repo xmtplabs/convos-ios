@@ -79,10 +79,23 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
         let viewModel = makeViewModel()
         viewModel.pendingCapabilityPickerLayout = makeLayout(requestId: "req-2")
 
+        viewModel.onTapCapabilityConnectPrompt(makePrompt(requestId: "req-1", status: .superseded))
+
+        XCTAssertFalse(viewModel.presentingCapabilityApproval,
+                       "Superseded pills derive a non-pending status and stay inert")
+    }
+
+    func testTapPendingPromptWithMismatchedLayoutIsInert() {
+        // Race guard: the derivation re-renders asynchronously, so a pill can
+        // still read `.pending` for one frame after the layout moved on (e.g.
+        // locally answered request). The layout-match guard must absorb that.
+        let viewModel = makeViewModel()
+        viewModel.pendingCapabilityPickerLayout = makeLayout(requestId: "req-2")
+
         viewModel.onTapCapabilityConnectPrompt(makePrompt(requestId: "req-1", status: .pending))
 
         XCTAssertFalse(viewModel.presentingCapabilityApproval,
-                       "Only the latest observed request is actionable")
+                       "Only the request backing the pending layout is actionable")
     }
 
     func testClearingLayoutDismissesApprovalSheet() {

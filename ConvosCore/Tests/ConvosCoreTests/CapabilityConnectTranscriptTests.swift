@@ -27,14 +27,20 @@ struct CapabilityConnectTranscriptTests {
 
     @Test("no result rows leaves the prompt pending")
     func pendingWithoutResults() {
-        #expect(CapabilityConnectPrompt.displayStatus(results: [], askerInboxId: asker) == .pending)
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        #expect(status == .pending)
     }
 
     @Test("an approved result row flips the prompt to connected")
     func connectedOnApproval() {
         let status = CapabilityConnectPrompt.displayStatus(
             results: [.init(senderId: approver, status: .approved)],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         #expect(status == .connected)
     }
@@ -46,7 +52,8 @@ struct CapabilityConnectTranscriptTests {
                 .init(senderId: approver, status: .denied),
                 .init(senderId: "another-member", status: .approved),
             ],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         #expect(status == .connected)
     }
@@ -55,11 +62,13 @@ struct CapabilityConnectTranscriptTests {
     func dismissedOnDenyOrCancel() {
         let denied = CapabilityConnectPrompt.displayStatus(
             results: [.init(senderId: approver, status: .denied)],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         let cancelled = CapabilityConnectPrompt.displayStatus(
             results: [.init(senderId: approver, status: .cancelled)],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         #expect(denied == .dismissed)
         #expect(cancelled == .dismissed)
@@ -69,7 +78,8 @@ struct CapabilityConnectTranscriptTests {
     func askerResultsIgnored() {
         let status = CapabilityConnectPrompt.displayStatus(
             results: [.init(senderId: asker, status: .approved)],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         #expect(status == .pending)
     }
@@ -81,16 +91,41 @@ struct CapabilityConnectTranscriptTests {
                 .init(senderId: approver, status: .staleResource),
                 .init(senderId: approver, status: .unknown),
             ],
-            askerInboxId: asker
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
         )
         #expect(status == .pending)
+    }
+
+    @Test("an unresolved request that is not the latest renders superseded")
+    func supersededWhenNotLatestUnresolved() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: false
+        )
+        #expect(status == .superseded)
+    }
+
+    @Test("a resolved request stays resolved even when a newer request exists")
+    func resolutionWinsOverSupersession() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [.init(senderId: approver, status: .approved)],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: false
+        )
+        #expect(status == .connected)
     }
 
     // MARK: - Prompt factory
 
     @Test("cloud preferred provider resolves brand name, slug, and icon")
     func cloudProviderBranding() {
-        let prompt = CapabilityConnectPrompt.make(request: makeRequest(), results: [])
+        let prompt = CapabilityConnectPrompt.make(
+            request: makeRequest(),
+            results: [],
+            isLatestUnresolvedRequest: true
+        )
         #expect(prompt.serviceName == "Google Calendar")
         #expect(prompt.serviceId == "googlecalendar")
         #expect(prompt.icon == .calendar)
@@ -100,7 +135,11 @@ struct CapabilityConnectTranscriptTests {
 
     @Test("missing preferred providers falls back to the subject name")
     func subjectFallback() {
-        let prompt = CapabilityConnectPrompt.make(request: makeRequest(preferredProviders: nil), results: [])
+        let prompt = CapabilityConnectPrompt.make(
+            request: makeRequest(preferredProviders: nil),
+            results: [],
+            isLatestUnresolvedRequest: true
+        )
         #expect(prompt.serviceName == "Calendar")
         #expect(prompt.serviceId == nil)
         #expect(prompt.icon == .calendar)
@@ -110,7 +149,8 @@ struct CapabilityConnectTranscriptTests {
     func deviceProviderName() {
         let prompt = CapabilityConnectPrompt.make(
             request: makeRequest(preferredProviders: [ProviderID(rawValue: "device.calendar")]),
-            results: []
+            results: [],
+            isLatestUnresolvedRequest: true
         )
         #expect(prompt.serviceName == "Apple Calendar")
         #expect(prompt.serviceId == nil)
@@ -174,6 +214,90 @@ struct CapabilityConnectTranscriptTests {
 
         let messages = try harness.fetchMessages()
         #expect(messages.isEmpty)
+    }
+
+    // MARK: - Layer agreement (pill derivation vs CapabilityRequestRepository)
+
+    // Both layers share CapabilityConnectPrompt.resolution: the pill shows
+    // `.pending` exactly when the repository surfaces that request as the
+    // pending picker layout (the tap path). Each test pins both verdicts on
+    // the same database so the pill can never look actionable while the tap
+    // path would refuse it, or vice versa.
+
+    @Test("non-asker approval resolves the request in both layers")
+    func agreementOnNonAskerApproval() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 2)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .connected)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("asker-authored approval leaves the request open in both layers")
+    func agreementOnAskerAuthoredApproval() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: asker, status: .approved, sortId: 2)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .pending)
+        #expect(try harness.latestPendingRequestId() == "req-1")
+    }
+
+    @Test("asker-authored cancellation cannot kill the request for the room")
+    func agreementOnAskerAuthoredCancellation() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: asker, status: .cancelled, sortId: 2)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .pending)
+        #expect(try harness.latestPendingRequestId() == "req-1")
+    }
+
+    @Test("duplicate results agree: first approval wins for both layers")
+    func agreementOnDuplicateResults() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .denied, sortId: 2)
+        try harness.insertResultRow(requestId: "req-1", senderId: harness.currentInboxId, status: .approved, sortId: 3)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 4)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .connected)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("non-decision statuses leave the request open in both layers")
+    func agreementOnNonDecisionStatuses() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .staleResource, sortId: 2)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .unknown, sortId: 3)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .pending)
+        #expect(try harness.latestPendingRequestId() == "req-1")
+    }
+
+    @Test("a newer unresolved request supersedes the older one in both layers")
+    func agreementOnSupersededRequest() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(requestId: "req-1"), sortId: 1)
+        try harness.insertRequestRow(makeRequest(requestId: "req-2"), sortId: 2)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .superseded)
+        #expect(try harness.fetchPrompt(requestId: "req-2")?.status == .pending)
+        #expect(try harness.latestPendingRequestId() == "req-2")
+    }
+
+    @Test("resolving the newer request hands actionability back to the older one")
+    func agreementOnSupersededFlipBack() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(requestId: "req-1"), sortId: 1)
+        try harness.insertRequestRow(makeRequest(requestId: "req-2"), sortId: 2)
+        try harness.insertResultRow(requestId: "req-2", senderId: approver, status: .approved, sortId: 3)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .pending)
+        #expect(try harness.fetchPrompt(requestId: "req-2")?.status == .connected)
+        #expect(try harness.latestPendingRequestId() == "req-1")
     }
 }
 
@@ -242,13 +366,32 @@ private struct HydrationHarness {
     }
 
     func fetchPrompt() throws -> CapabilityConnectPrompt? {
-        for anyMessage in try fetchMessages() {
+        try fetchPrompts().first
+    }
+
+    func fetchPrompt(requestId: String) throws -> CapabilityConnectPrompt? {
+        try fetchPrompts().first { $0.requestId == requestId }
+    }
+
+    /// The repository half of the layer-agreement assertions: the request the
+    /// tap path would open the approval sheet for, nil when none is pending.
+    func latestPendingRequestId() throws -> String? {
+        try dbManager.dbReader.read { db in
+            CapabilityRequestRepository.computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: db
+            )?.requestId
+        }
+    }
+
+    private func fetchPrompts() throws -> [CapabilityConnectPrompt] {
+        try fetchMessages().compactMap { anyMessage in
             if case .message(let message, _) = anyMessage,
                case .capabilityConnect(let prompt) = message.content {
                 return prompt
             }
+            return nil
         }
-        return nil
     }
 
     private func insertRow(
