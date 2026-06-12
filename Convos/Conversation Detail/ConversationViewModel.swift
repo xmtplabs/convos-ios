@@ -1534,6 +1534,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                         resolver: resolver,
                         handler: handler,
                         servicesStore: self.messagingService.connectionServicesStore(),
+                        cloudConnectionRepository: self.session.cloudConnectionRepository(),
                         conversationId: conversationId
                     )
                     // Discard if a newer request arrived while we were computing —
@@ -1813,6 +1814,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// state (service id → toggled-on bundle ids) for the cloud providers
     /// approved.
     ///
+    /// Done-as-revoke: a selected service whose toggles are ALL off is the
+    /// user opting that service out. When the asking agent already holds a
+    /// grant for it, the tap revokes that grant (natural key — connection,
+    /// conversation, agent); without one it's a decline-style no-op. Either
+    /// way the empty selection never reaches the grant writer (an empty
+    /// bundle array escalates to whole-toolkit access) and the request stays
+    /// pending — same posture as a swipe-down dismiss.
+    ///
     /// Selected providers that aren't linked yet are connected FIRST (device
     /// kinds run the OS permission prompt, cloud services run OAuth) and the
     /// SAME approval — including the sheet's toggle state — is sent only after
@@ -1825,6 +1834,31 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard let layout = pendingCapabilityPickerLayout else { return }
         let request = layout.request
         let conversationId = conversation.id
+
+        let split = Self.splitCapabilityApproval(
+            providerIds: providerIds,
+            bundleSelection: bundleSelection
+        )
+        if !split.uncheckedServiceIds.isEmpty {
+            revokeUncheckedCapabilityGrants(
+                serviceIds: split.uncheckedServiceIds,
+                request: request,
+                conversationId: conversationId,
+                recomputeLayoutAfter: split.approvedProviderIds.isEmpty
+            )
+        }
+        guard !split.approvedProviderIds.isEmpty else {
+            // Nothing left to grant: any existing grants for the unchecked
+            // services were revoked above; without one the tap is a pure
+            // decline. No `.approved` result may go out for an empty provider
+            // set, so the request stays pending (the no-Deny posture) and the
+            // pill remains tappable — only the sheet dismisses.
+            presentingCapabilityApproval = false
+            return
+        }
+        let providerIds = split.approvedProviderIds
+        let bundleSelection = split.approvedBundleSelection
+
         // Sorted for deterministic ordering when several providers need a
         // connect step (in practice it's one).
         let unlinked = layout.providers
@@ -1878,6 +1912,132 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
             }
         }
+    }
+
+    /// How one Done tap splits across services. Pure value — computed by
+    /// `splitCapabilityApproval` and unit-tested directly.
+    struct CapabilityApprovalSplit: Equatable {
+        /// Providers the `.approved` result (and grant upsert) covers.
+        let approvedProviderIds: Set<ProviderID>
+        /// `bundleSelection` minus the all-off services — every value is
+        /// non-empty, so an empty array can never reach the grant writer.
+        let approvedBundleSelection: [String: Set<String>]
+        /// Cloud service ids whose toggles were all off: revoke when the agent
+        /// holds a grant, no-op otherwise. Sorted for determinism.
+        let uncheckedServiceIds: [String]
+    }
+
+    /// Splits the sheet's Done payload per service: services with at least one
+    /// toggle on are approved as before; services with every toggle off come
+    /// out as `uncheckedServiceIds` and their provider leaves the approved
+    /// set. Services without a bundle entry (no catalog rows) pass through —
+    /// they have no toggles to uncheck.
+    static func splitCapabilityApproval(
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>]
+    ) -> CapabilityApprovalSplit {
+        let uncheckedServiceIds = bundleSelection
+            .filter { $0.value.isEmpty }
+            .keys
+            .sorted()
+        let unchecked = Set(uncheckedServiceIds)
+        let approvedProviderIds = providerIds.filter { providerId in
+            guard let serviceId = providerId.cloudServiceId else { return true }
+            return !unchecked.contains(serviceId)
+        }
+        return CapabilityApprovalSplit(
+            approvedProviderIds: approvedProviderIds,
+            approvedBundleSelection: bundleSelection.filter { !$0.value.isEmpty },
+            uncheckedServiceIds: uncheckedServiceIds
+        )
+    }
+
+    /// Kicks off the Done-as-revoke side of an approval tap. After the revokes
+    /// land, a pure-revoke tap (nothing approved) recomputes the still-pending
+    /// layout so a re-opened sheet seeds from the post-revoke grant state
+    /// instead of the stale snapshot; an approve alongside already clears the
+    /// layout, and `recomputeCapabilityPickerLayout`'s locally-handled guard
+    /// would discard the result anyway.
+    private func revokeUncheckedCapabilityGrants(
+        serviceIds: [String],
+        request: CapabilityRequest,
+        conversationId: String,
+        recomputeLayoutAfter: Bool
+    ) {
+        let grantWriter = messagingService.connectionGrantWriter()
+        let eventWriter = messagingService.connectionEventWriter()
+        let resolver = session.capabilityResolver()
+        let repository = session.cloudConnectionRepository()
+        let grantedToInboxId = request.askerInboxId
+        Task { @MainActor [weak self] in
+            let revoked = await Self.revokeUncheckedCloudGrants(
+                serviceIds: serviceIds,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId,
+                grantWriter: grantWriter,
+                eventWriter: eventWriter,
+                resolver: resolver,
+                repository: repository
+            )
+            guard recomputeLayoutAfter, !revoked.isEmpty else { return }
+            self?.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+        }
+    }
+
+    /// Done-as-revoke: for each service whose toggles were all off at Done
+    /// time, drop the asking agent's existing grant by its natural key
+    /// (connection, conversation, agent) and mirror the conversation-info
+    /// revoke toggle's side effects in the same order — the user-visible
+    /// `connection_event revoked` group-update line first, then resolver
+    /// cleanup (which re-arms `persistApprovedCloudCapabilities`' idempotency
+    /// gate so a later re-approval emits its own granted line). Services
+    /// without an existing grant are a pure no-op: nothing is created,
+    /// nothing is sent. Returns the service ids actually revoked.
+    static func revokeUncheckedCloudGrants( // swiftlint:disable:this function_parameter_count
+        serviceIds: [String],
+        grantedToInboxId: String,
+        conversationId: String,
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        eventWriter: any ConnectionEventWriterProtocol,
+        resolver: any CapabilityResolver,
+        repository: any CloudConnectionRepositoryProtocol
+    ) async -> [String] {
+        // Fail closed on an unreadable grants table: without proof a grant
+        // exists we must not guess at connection ids to revoke.
+        let grants = (try? await repository.grants(for: conversationId)) ?? []
+        var revokedServiceIds: [String] = []
+        for serviceId in serviceIds {
+            guard let grant = grants.first(where: {
+                $0.serviceId == serviceId && $0.grantedToInboxId == grantedToInboxId
+            }) else { continue }
+            do {
+                try await grantWriter.revokeGrant(
+                    connectionId: grant.connectionId,
+                    from: conversationId,
+                    grantedToInboxId: grantedToInboxId
+                )
+            } catch {
+                Log.error("Failed to revoke cloud grant for \(serviceId) → \(grantedToInboxId): \(error.localizedDescription)")
+                continue
+            }
+            revokedServiceIds.append(serviceId)
+            let providerId = ProviderID(rawValue: "composio.\(serviceId)")
+            // Revoke text is a complete sentence ("Calendar connection
+            // removed") rendered conversation-level, so grantedToInboxId
+            // stays nil — same as the conversation-info revoke path.
+            try? await eventWriter.sendRevoked(
+                providerId: providerId.rawValue,
+                capability: nil,
+                grantedToInboxId: nil,
+                in: conversationId
+            )
+            do {
+                try await resolver.removeProvider(providerId, fromConversation: conversationId)
+            } catch {
+                Log.warning("Failed to clear resolver entries for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        }
+        return revokedServiceIds
     }
 
     private func approveCapabilityRequest(
@@ -2281,6 +2441,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 resolver: resolver,
                 handler: handler,
                 servicesStore: self.messagingService.connectionServicesStore(),
+                cloudConnectionRepository: self.session.cloudConnectionRepository(),
                 conversationId: conversationId
             )
             // If a newer request arrived OR the user already approved/denied this one,
@@ -2299,21 +2460,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// per-bundle selection. Best-effort fetch: when the catalog is
     /// unreachable the sheet renders provider-only rows, and the grant writer
     /// fails closed on its own catalog resolution.
-    static func computeCapabilityPickerLayout(
+    ///
+    /// The conversation's existing grants are fetched alongside so the layout
+    /// carries the asking agent's granted bundle state — the sheet seeds its
+    /// toggles from it and treats unchecking as a revoke. Best-effort too: an
+    /// unreadable grants table only loses the seeded state (the sheet falls
+    /// back to all-ON and a re-approve is an idempotent upsert).
+    static func computeCapabilityPickerLayout( // swiftlint:disable:this function_parameter_count
         request: CapabilityRequest,
         registry: any CapabilityProviderRegistry,
         resolver: any CapabilityResolver,
         handler: CapabilityRequestHandler,
         servicesStore: any ConnectionServicesStoreProtocol,
+        cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         conversationId: String
     ) async -> CapabilityPickerLayout {
         let services = (try? await servicesStore.catalog()) ?? []
+        let existingGrants = (try? await cloudConnectionRepository.grants(for: conversationId)) ?? []
         return await handler.computeLayout(
             request: request,
             registry: registry,
             resolver: resolver,
             conversationId: conversationId,
-            services: services
+            services: services,
+            existingGrants: existingGrants
         )
     }
 

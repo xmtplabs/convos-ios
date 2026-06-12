@@ -38,12 +38,26 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
         public let serviceId: String
         public let serviceVersion: Int
         public let rows: [Row]
+        /// Bundle ids the asking agent is currently granted for this service
+        /// in this conversation, resolved at layout time. Nil when no grant
+        /// exists; a legacy whole-toolkit grant (nil `bundleIds` on the grant
+        /// row) materializes as every row id. The approval sheet seeds its
+        /// toggles from this so unchecking an already-granted bundle reads as
+        /// an explicit revoke (Done-as-revoke).
+        public let grantedBundleIds: Set<String>?
 
-        public init(providerId: ProviderID, serviceId: String, serviceVersion: Int, rows: [Row]) {
+        public init(
+            providerId: ProviderID,
+            serviceId: String,
+            serviceVersion: Int,
+            rows: [Row],
+            grantedBundleIds: Set<String>? = nil
+        ) {
             self.providerId = providerId
             self.serviceId = serviceId
             self.serviceVersion = serviceVersion
             self.rows = rows
+            self.grantedBundleIds = grantedBundleIds
         }
 
         public struct Row: Sendable, Equatable, Hashable {

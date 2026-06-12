@@ -50,6 +50,7 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             resolver: resolver,
             handler: CapabilityRequestHandler(),
             servicesStore: servicesStore,
+            cloudConnectionRepository: MockConnectionRepository(),
             conversationId: "test-convo"
         )
 

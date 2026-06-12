@@ -14,6 +14,13 @@ import SwiftUI
 /// toggle state below) only after the connect succeeds. Layouts with more
 /// than one candidate provider add a chooser section in the same grouped-row
 /// style; layouts without catalog bundles simply omit the permissions section.
+///
+/// Done-as-revoke: when the asking agent already holds a grant for a service,
+/// the toggles seed from the granted state, and turning them ALL off does NOT
+/// disable the button — tapping it then revokes that grant (the view model
+/// splits per service). Without an existing grant, all-off + Done is a
+/// decline-style no-op dismiss; an empty bundle selection never turns into a
+/// grant.
 struct CapabilityApprovalSheetView: View {
     let layout: CapabilityPickerLayout
     let agentName: String?
@@ -29,6 +36,54 @@ struct CapabilityApprovalSheetView: View {
         // while the sheet is up — @State survives re-render otherwise.
         .id(layout.request.requestId)
     }
+
+    // MARK: - Seeding (internal for unit tests)
+
+    /// Providers the sheet offers. Consent shapes (`confirm` / `verbConsent`)
+    /// are locked to the layout's default selection; picker shapes offer every
+    /// provider that can fulfill the verb (linked or not — unlinked ones
+    /// connect on approve).
+    static func selectableProviders(
+        for layout: CapabilityPickerLayout
+    ) -> [CapabilityPickerLayout.ProviderSummary] {
+        let eligible = layout.providers.filter(\.supportsCapability)
+        switch layout.variant {
+        case .confirm, .verbConsent:
+            return eligible.filter { layout.defaultSelection.contains($0.id) }
+        case .singleSelect, .multiSelect, .connectAndApprove:
+            return eligible
+        }
+    }
+
+    static func seedSelection(for layout: CapabilityPickerLayout) -> Set<ProviderID> {
+        let selectable = selectableProviders(for: layout)
+        // A sole candidate is preselected even when the layout carries no
+        // default (a pre-connect `connectAndApprove` has none) — the pill the
+        // user tapped already named this service.
+        if selectable.count == 1, let only = selectable.first {
+            return [only.id]
+        }
+        return layout.defaultSelection
+    }
+
+    /// Toggle seed per service. With an existing grant the rows mirror the
+    /// granted state (granted ids ON, the rest OFF — ids the catalog no
+    /// longer knows are dropped), so unchecking reads as an explicit revoke
+    /// of what stands today. Without a grant every row seeds ON: the user
+    /// expressed intent by tapping the connect pill, the sheet is a
+    /// confirmation with per-bundle opt-out.
+    static func seedBundleSelection(for layout: CapabilityPickerLayout) -> [String: Set<String>] {
+        var seed: [String: Set<String>] = [:]
+        for group in layout.serviceBundles {
+            let allRowIds = Set(group.rows.map(\.id))
+            if let granted = group.grantedBundleIds {
+                seed[group.serviceId] = granted.intersection(allRowIds)
+            } else {
+                seed[group.serviceId] = allRowIds
+            }
+        }
+        return seed
+    }
 }
 
 private struct ApprovalSheetContent: View {
@@ -37,9 +92,9 @@ private struct ApprovalSheetContent: View {
     let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
 
     @State private var selection: Set<ProviderID>
-    /// Toggled-on bundle ids per service id. All rows start ON: the user
-    /// expressed intent by tapping the connect pill, so the sheet is a
-    /// confirmation with per-bundle opt-out.
+    /// Toggled-on bundle ids per service id, seeded by
+    /// `CapabilityApprovalSheetView.seedBundleSelection`: the granted state
+    /// when the agent already holds a grant, all-ON otherwise.
     @State private var enabledBundleIds: [String: Set<String>]
 
     init(
@@ -50,8 +105,8 @@ private struct ApprovalSheetContent: View {
         self.layout = layout
         self.agentName = agentName
         self.onApprove = onApprove
-        _selection = State(initialValue: Self.seedSelection(for: layout))
-        _enabledBundleIds = State(initialValue: Self.seedBundleSelection(for: layout))
+        _selection = State(initialValue: CapabilityApprovalSheetView.seedSelection(for: layout))
+        _enabledBundleIds = State(initialValue: CapabilityApprovalSheetView.seedBundleSelection(for: layout))
     }
 
     var body: some View {
@@ -74,10 +129,10 @@ private struct ApprovalSheetContent: View {
         // content (a recompute after a failed OAuth, a provider linking from
         // elsewhere) — resync the seeds so stale rows don't stay checked.
         .onChange(of: layout.defaultSelection) { _, _ in
-            selection = Self.seedSelection(for: layout)
+            selection = CapabilityApprovalSheetView.seedSelection(for: layout)
         }
         .onChange(of: layout.serviceBundles) { _, _ in
-            enabledBundleIds = Self.seedBundleSelection(for: layout)
+            enabledBundleIds = CapabilityApprovalSheetView.seedBundleSelection(for: layout)
         }
     }
 
@@ -88,7 +143,7 @@ private struct ApprovalSheetContent: View {
     /// provider that can fulfill the verb (linked or not — unlinked ones
     /// connect on approve).
     private var selectableProviders: [CapabilityPickerLayout.ProviderSummary] {
-        Self.selectableProviders(for: layout)
+        CapabilityApprovalSheetView.selectableProviders(for: layout)
     }
 
     /// Non-nil when the sheet renders the pure Figma single-service shape.
@@ -107,18 +162,18 @@ private struct ApprovalSheetContent: View {
         layout.serviceBundles.filter { selection.contains($0.providerId) }
     }
 
-    /// Approve needs a provider selection, and every selected bundle-scoped
-    /// service needs at least one bundle toggled on — an empty bundle set
-    /// would read as consent while granting nothing (and an empty bundle list
-    /// is forbidden to ever reach the grant writer).
+    /// The primary button only needs a provider selection — bundle toggles
+    /// never disable it. An all-off service is a valid submission: the view
+    /// model revokes the agent's existing grant for it (Done-as-revoke) or
+    /// treats it as a decline-style no-op, and an empty bundle set never
+    /// reaches the grant writer either way.
     private var approveEnabled: Bool {
-        guard !selection.isEmpty else { return false }
-        return selectedBundleGroups.allSatisfy { group in
-            !(enabledBundleIds[group.serviceId] ?? []).isEmpty
-        }
+        !selection.isEmpty
     }
 
     /// The bundle toggle state pruned to the services the approval covers.
+    /// Empty sets pass through deliberately — they are the view model's
+    /// revoke/no-op signal for that service.
     private var approvedBundleSelection: [String: Set<String>] {
         var approved: [String: Set<String>] = [:]
         for group in selectedBundleGroups {
@@ -128,39 +183,17 @@ private struct ApprovalSheetContent: View {
     }
 
     /// True when approving will run a connect step (OS prompt / OAuth) first.
+    /// A selected-but-unlinked provider whose toggles are all off doesn't
+    /// count: the tap grants it nothing, so there is nothing to connect for
+    /// and the button honestly reads "Done".
     private var needsConnect: Bool {
-        layout.providers.contains { selection.contains($0.id) && !$0.linked }
-    }
-
-    private static func selectableProviders(
-        for layout: CapabilityPickerLayout
-    ) -> [CapabilityPickerLayout.ProviderSummary] {
-        let eligible = layout.providers.filter(\.supportsCapability)
-        switch layout.variant {
-        case .confirm, .verbConsent:
-            return eligible.filter { layout.defaultSelection.contains($0.id) }
-        case .singleSelect, .multiSelect, .connectAndApprove:
-            return eligible
+        layout.providers.contains { provider in
+            guard selection.contains(provider.id), !provider.linked else { return false }
+            guard let group = layout.serviceBundles.first(where: { $0.providerId == provider.id }) else {
+                return true
+            }
+            return !(enabledBundleIds[group.serviceId] ?? []).isEmpty
         }
-    }
-
-    private static func seedSelection(for layout: CapabilityPickerLayout) -> Set<ProviderID> {
-        let selectable = selectableProviders(for: layout)
-        // A sole candidate is preselected even when the layout carries no
-        // default (a pre-connect `connectAndApprove` has none) — the pill the
-        // user tapped already named this service.
-        if selectable.count == 1, let only = selectable.first {
-            return [only.id]
-        }
-        return layout.defaultSelection
-    }
-
-    private static func seedBundleSelection(for layout: CapabilityPickerLayout) -> [String: Set<String>] {
-        var seed: [String: Set<String>] = [:]
-        for group in layout.serviceBundles {
-            seed[group.serviceId] = Set(group.rows.map(\.id))
-        }
-        return seed
     }
 
     // MARK: - Header
@@ -387,7 +420,8 @@ private struct WideSwitchToggleStyle: ToggleStyle {
 
 #if DEBUG
 private func previewBundles(
-    providerId: String = "composio.googlecalendar"
+    providerId: String = "composio.googlecalendar",
+    grantedBundleIds: Set<String>? = nil
 ) -> [CapabilityPickerLayout.ServiceBundles] {
     [
         CapabilityPickerLayout.ServiceBundles(
@@ -401,7 +435,8 @@ private func previewBundles(
                     description: "View and edit events on all calendars",
                     defaultEnabled: false
                 ),
-            ]
+            ],
+            grantedBundleIds: grantedBundleIds
         ),
     ]
 }
@@ -453,6 +488,20 @@ private func previewRequest() -> CapabilityRequest {
             providers: [previewProvider(linked: false)],
             defaultSelection: [],
             serviceBundles: previewBundles()
+        ),
+        agentName: "Assistant",
+        onApprove: { _, _ in }
+    )
+}
+
+#Preview("Existing grant — uncheck to revoke") {
+    CapabilityApprovalSheetView(
+        layout: CapabilityPickerLayout(
+            request: previewRequest(),
+            variant: .confirm,
+            providers: [previewProvider(linked: true)],
+            defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")],
+            serviceBundles: previewBundles(grantedBundleIds: ["calendar.events"])
         ),
         agentName: "Assistant",
         onApprove: { _, _ in }
