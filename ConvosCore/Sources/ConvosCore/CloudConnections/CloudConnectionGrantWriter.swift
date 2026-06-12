@@ -240,11 +240,21 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     ///   `bundleIds` could silently escalate a cataloged service to
     ///   whole-toolkit access
     ///
-    /// Returns nil to fail closed: an explicit selection that no longer maps
-    /// to any known bundle must not be pushed, because the backend treats an
-    /// empty `bundleIds` array as whole-toolkit access — strictly more than
-    /// the user approved.
+    /// Returns nil to fail closed: a scope that would carry an empty
+    /// `bundleIds` array must never be pushed, because the backend treats an
+    /// empty array as whole-toolkit access — strictly more than the user
+    /// approved. That covers an explicit selection that is empty or no longer
+    /// maps to any known bundle, and a cataloged service that lists no
+    /// bundles at all.
     private func resolveBundleScope(toolkit: String, explicitSelection: [String]?) async -> BundleScope? {
+        if let explicitSelection, explicitSelection.isEmpty {
+            Log.error(
+                "[CloudConnections] explicit bundle selection for \(toolkit) is empty; " +
+                "skipping backend push to avoid escalating an empty selection to " +
+                "whole-toolkit access"
+            )
+            return nil
+        }
         let service: CloudConnectionsAPI.ServiceConfig?
         do {
             service = try await servicesStore.service(id: toolkit)
@@ -268,6 +278,14 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         }
         let known = service.bundles.map(\.id)
         guard let explicitSelection else {
+            guard !known.isEmpty else {
+                Log.error(
+                    "[CloudConnections] catalog lists no bundles for \(toolkit); skipping " +
+                    "backend push rather than escalating an empty bundle list to " +
+                    "whole-toolkit access"
+                )
+                return nil
+            }
             return BundleScope(bundleIds: known, serviceVersion: service.version)
         }
         let kept = explicitSelection.filter(Set(known).contains)

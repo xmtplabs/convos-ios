@@ -510,6 +510,83 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.serviceVersion == 5)
     }
 
+    @Test("Grant: fails closed when the cataloged service lists no bundles and there is no selection")
+    func grantFailsClosedWhenCatalogServiceHasNoBundles() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 4, bundleIds: []),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_zero_bundles"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        // A cataloged service with zero bundles must not materialize an empty
+        // bundleIds array: the backend's legacy path treats that as
+        // whole-toolkit access. The push is skipped entirely.
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: fails closed on an explicit empty selection — never pushed as whole-toolkit")
+    func grantFailsClosedOnExplicitEmptySelection() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        recordingClient.servicesCatalogQueue = [
+            Self.calendarCatalog(version: 4, bundleIds: []),
+        ]
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_empty_selection"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: []
+        )
+
+        // An explicit empty selection means the user approved zero bundles;
+        // pushing it would escalate to whole-toolkit access (the backend
+        // treats an empty array as the legacy whole-toolkit path).
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Grant: explicit empty selection fails closed even for an uncataloged service")
+    func grantFailsClosedOnExplicitEmptySelectionForUncatalogedService() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        // Empty catalog: the service is proven absent, the path that would
+        // otherwise pass the selection through as-is.
+        recordingClient.servicesCatalogQueue = []
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_empty_uncataloged"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnection(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: []
+        )
+
+        #expect(recordingClient.createCalls.isEmpty)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
     @Test("Grant: unknown_bundle refetches the catalog, drops unknown ids, and retries once")
     func grantRetriesOnceOnUnknownBundle() async throws {
         let recordingClient = RecordingGrantAPIClient()
