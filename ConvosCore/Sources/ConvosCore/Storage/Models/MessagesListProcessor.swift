@@ -631,7 +631,8 @@ public final class MessagesListProcessor: Sendable {
                             inboxId: info.inboxId,
                             conversationId: info.conversationId,
                             name: info.name,
-                            avatar: info.avatar
+                            avatar: info.avatar,
+                            isAgent: info.isAgent
                         )
                         return ConversationMember(
                             profile: profile,

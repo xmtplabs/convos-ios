@@ -1181,6 +1181,10 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(byInbox[convosAgentInboxId]?.agentVerification == .verified(.convos))
         #expect(byInbox[oauthAgentInboxId]?.isAgent == true)
         #expect(byInbox[oauthAgentInboxId]?.agentVerification == .verified(.userOAuth))
+        // Avatar views gate the verification badge on the profile's isAgent
+        // flag, so the fallback-built profile must carry it too.
+        #expect(byInbox[convosAgentInboxId]?.profile.isAgent == true)
+        #expect(byInbox[oauthAgentInboxId]?.profile.isAgent == true)
     }
 }
 
