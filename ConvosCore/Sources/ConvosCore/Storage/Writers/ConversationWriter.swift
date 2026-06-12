@@ -402,8 +402,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         currentMemberInboxIds: Set<String>,
         in db: Database
     ) throws {
-        guard let localInboxId = try DBInbox.currentInboxId(db),
-              currentMemberInboxIds.contains(localInboxId) else { return }
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            // Expected only during account teardown or before first inbox
+            // registration; logged so an unexpectedly missing inbox is
+            // visible in diagnostics rather than silently skipping the clear.
+            Log.warning("clearRemovedMarkerIfMember: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(localInboxId) else { return }
         try ConversationLocalState
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .filter(ConversationLocalState.Columns.wasRemoved == true)
