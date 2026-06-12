@@ -1,4 +1,5 @@
 import ConvosCore
+import LinkPresentation
 import Photos
 import SwiftUI
 
@@ -26,6 +27,7 @@ struct MessageContextMenuOverlay: View {
     @State private var isPoofDismissing: Bool = false
     @State private var keyboardHeight: CGFloat = 0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -123,11 +125,20 @@ struct MessageContextMenuOverlay: View {
                 height: state.bubbleFrame.height
             )
             let isPhoto: Bool = photoAttachment != nil
+            // HTML tiles are fixed 160pt squares, not full-bleed photos; the
+            // photo layout would shrink and recenter them, so keep them on
+            // the text-bubble path where the tile holds its size and place.
+            let isHTMLTile: Bool = photoAttachment?.isHTMLFile == true
+            let usesPhotoLayout: Bool = isPhoto && !isHTMLTile && !state.isReplyParent
+            let menuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
+                ? C.photoMenuEstimatedHeight
+                : C.textMenuEstimatedHeight
             let endBubble = endBubbleRect(
                 source: localBubble,
                 screenSize: screenSize,
                 safeTop: safeTop,
-                isPhoto: isPhoto && !state.isReplyParent
+                isPhoto: usesPhotoLayout,
+                menuHeight: menuEstimatedHeight
             )
             let activeBubble: CGRect = appeared ? endBubble : localBubble
             let keyboardTop: CGFloat = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
@@ -305,7 +316,8 @@ struct MessageContextMenuOverlay: View {
         source: CGRect,
         screenSize: CGSize,
         safeTop: CGFloat,
-        isPhoto: Bool = false
+        isPhoto: Bool = false,
+        menuHeight: CGFloat = C.textMenuEstimatedHeight
     ) -> CGRect {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
@@ -313,7 +325,6 @@ struct MessageContextMenuOverlay: View {
         var endWidth: CGFloat = source.width - (photoInset * 2)
         var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
 
-        let menuHeight: CGFloat = isPhoto ? C.photoMenuEstimatedHeight : C.textMenuEstimatedHeight
         let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.verticalBreathingRoom
         let maxContentHeight: CGFloat = screenSize.height - minY - bottomPadding - C.verticalBreathingRoom
 
@@ -484,6 +495,16 @@ struct MessageContextMenuOverlay: View {
                 }
 
                 if let attachment = photoAttachment {
+                    if attachment.isHTMLFile {
+                        let senderName = message.sender.profile.displayName
+                        let appearance = colorScheme.uiUserInterfaceStyle
+                        let shareAction = {
+                            shareRenderedAttachment(attachment, fallbackTitle: senderName, appearance: appearance)
+                            dismissMenu()
+                        }
+                        ContextMenuRow(icon: "square.and.arrow.up", title: "Share", action: shareAction)
+                    }
+
                     let saveAction = {
                         saveAttachment(attachment)
                         dismissMenu()
@@ -619,9 +640,12 @@ struct MessageContextMenuOverlay: View {
                 )
             }
         } else if attachment.isHTMLFile {
-            let radius: CGFloat = state.isReplyParent
+            // The tile rests at its natural corner radius in the list, so
+            // keep it constant during the menu transition instead of
+            // animating from square; only reply-parent thumbnails shrink it.
+            let radius: CGFloat? = state.isReplyParent
                 ? DesignConstants.CornerRadius.regular
-                : (appeared ? C.photoCornerRadius : 0)
+                : nil
             HTMLAttachmentBubble(
                 attachment: attachment,
                 profile: profile,
@@ -932,6 +956,105 @@ private func saveFileToFiles(key: String, filename: String?) {
         } catch {
             Log.error("Failed to save file: \(error)")
         }
+    }
+}
+
+/// Shares an HTML or Markdown attachment with the same payload as
+/// `AttachmentShareLink` (the share button on the attachment preview and
+/// thing detail screens): the full-page rendered image for HTML, titled
+/// after the artifact, with the square tile as the share sheet preview.
+private func shareRenderedAttachment(
+    _ attachment: HydratedAttachment,
+    fallbackTitle: String?,
+    appearance: UIUserInterfaceStyle
+) {
+    Task { @MainActor in
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            guard let payload = await AttachmentSharePayload.resolve(
+                attachment: attachment,
+                fileURL: fileURL,
+                appearance: appearance,
+                fallbackTitle: fallbackTitle
+            ) else {
+                Log.error("Share skipped: no share payload resolved for attachment")
+                return
+            }
+            presentShareSheet(for: payload)
+        } catch {
+            Log.error("Failed to share attachment: \(error)")
+        }
+    }
+}
+
+@MainActor
+private func presentShareSheet(for payload: AttachmentSharePayload) {
+    guard let primaryItem = payload.items.first else { return }
+    let itemSource = SharePayloadItemSource(
+        url: primaryItem,
+        title: payload.title,
+        previewImage: payload.previewImage
+    )
+    var activityItems: [Any] = [itemSource]
+    for item in payload.items.dropFirst() {
+        activityItems.append(item)
+    }
+    let activityVC = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+          let root = scene.keyWindow?.rootViewController else { return }
+    var presenter = root
+    while let presented = presenter.presentedViewController {
+        presenter = presented
+    }
+    activityVC.popoverPresentationController?.sourceView = presenter.view
+    activityVC.popoverPresentationController?.sourceRect = CGRect(
+        x: presenter.view.bounds.midX,
+        y: presenter.view.bounds.midY,
+        width: 0, height: 0
+    )
+    presenter.present(activityVC, animated: true)
+}
+
+/// Wraps the primary share URL so the activity sheet header shows the
+/// artifact title and tile thumbnail, matching `ShareLink`'s `SharePreview`
+/// in `AttachmentShareLink`.
+private final class SharePayloadItemSource: NSObject, UIActivityItemSource {
+    private let url: URL
+    private let title: String
+    private let previewImage: UIImage?
+
+    init(url: URL, title: String, previewImage: UIImage?) {
+        self.url = url
+        self.title = title
+        self.previewImage = previewImage
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        title
+    }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = title
+        metadata.originalURL = url
+        if let previewImage {
+            metadata.imageProvider = NSItemProvider(object: previewImage)
+        }
+        return metadata
     }
 }
 
