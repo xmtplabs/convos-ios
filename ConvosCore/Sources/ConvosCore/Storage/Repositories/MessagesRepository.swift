@@ -1037,13 +1037,13 @@ fileprivate extension Database {
         // ValueObservation: the main message query already tracks the table,
         // so a late-arriving result row still re-fires composition.
         //
-        // First responder wins: one capability request is one connection ask
-        // for the whole conversation — the first validated (non-asker) result
-        // flips the pill for every member; the agent re-requests under a new
-        // requestId if it needs more. Both the resolution rule and the
-        // latest-pending computation are shared with CapabilityRequestRepository
-        // (the tap path), so a pill rendered `.pending` is always the request
-        // the approval sheet would open for.
+        // First decision wins, in message-time order: one capability request
+        // is one connection ask for the whole conversation — the earliest
+        // validated (non-asker) result flips the pill for every member; the
+        // agent re-requests under a new requestId if it needs more. Both the
+        // resolution rule and the latest-pending computation are shared with
+        // CapabilityRequestRepository (the tap path), so a pill rendered
+        // `.pending` is always the request the approval sheet would open for.
         var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
         var latestPendingCapabilityRequestId: String?
         if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {

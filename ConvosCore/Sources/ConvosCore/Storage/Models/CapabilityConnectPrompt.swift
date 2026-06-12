@@ -15,9 +15,11 @@ public struct CapabilityConnectPrompt: Hashable, Codable, Sendable {
         /// conversation's latest unresolved ask — tapping opens the approval
         /// sheet.
         case pending
-        /// An approved result row landed (from any member's device).
+        /// The first validated result row (in message-time order, from any
+        /// member's device) was an approval.
         case connected
-        /// A denied or cancelled result row landed and no approval exists.
+        /// The first validated result row (in message-time order) was a
+        /// denial or cancellation.
         case dismissed
         /// Still unresolved, but a newer unresolved request has taken over as
         /// the conversation's single actionable ask. Rendered inert; flips
@@ -26,14 +28,27 @@ public struct CapabilityConnectPrompt: Hashable, Codable, Sendable {
     }
 
     /// One `capability_request_result` row reduced to what status derivation
-    /// needs: who sent it and what they decided.
+    /// needs: who sent it, what they decided, and where the row sits in
+    /// message time. `sentAtNs` (the message's `dateNs`) plus `messageId` (the
+    /// stable tiebreaker for identical timestamps) give
+    /// `resolution(results:askerInboxId:)` its first-decision ordering; both
+    /// come off the synced message row, so every device sorts identically.
     public struct ResultRecord: Hashable, Sendable {
         public let senderId: String
         public let status: CapabilityRequestResult.Status
+        public let sentAtNs: Int64
+        public let messageId: String
 
-        public init(senderId: String, status: CapabilityRequestResult.Status) {
+        public init(
+            senderId: String,
+            status: CapabilityRequestResult.Status,
+            sentAtNs: Int64,
+            messageId: String
+        ) {
             self.senderId = senderId
             self.status = status
+            self.sentAtNs = sentAtNs
+            self.messageId = messageId
         }
     }
 
@@ -97,12 +112,16 @@ public extension CapabilityConnectPrompt {
     /// picker layout, i.e. the tap path) — both layers must always agree on
     /// whether a request is still open.
     ///
-    /// First responder wins: one capability request is one connection ask for
-    /// the whole conversation. The first validated result resolves it for
-    /// every member — on approval the pill flips to `.connected`
-    /// conversation-wide (and the grant separately broadcasts as a
-    /// `connection_event`); an agent that needs more access re-requests under
-    /// a new `requestId`.
+    /// First decision wins, in message-time order: one capability request is
+    /// one connection ask for the whole conversation, and the EARLIEST
+    /// validated result resolves it for every member — approved flips the
+    /// pill to `.connected` conversation-wide (and the grant separately
+    /// broadcasts as a `connection_event`); denied/cancelled resolves to
+    /// `.dismissed` just as finally — an agent that still needs access
+    /// re-requests under a new `requestId`. Results are sorted here (sent
+    /// timestamp, then message id as the stable tiebreaker) rather than
+    /// trusting callers to pass them ordered, so the temporal guarantee
+    /// holds in every call path.
     ///
     /// Validation: a result only counts when its XMTP-attested sender (the
     /// envelope's `senderInboxId`, persisted as the row's `senderId`) is not
@@ -111,14 +130,21 @@ public extension CapabilityConnectPrompt {
     /// `validateConnectionGrantRequest`; the result payload carries no sender
     /// claim of its own, so the envelope identity is the only trusted input.
     /// `staleResource` and forward-compat `unknown` statuses are not user
-    /// decisions, so they never resolve. Returns nil while unresolved.
+    /// decisions, so they are skipped, never resolving. Returns nil while
+    /// unresolved.
     static func resolution(results: [ResultRecord], askerInboxId: String) -> Status? {
-        let decisions = results.filter { $0.senderId != askerInboxId }
-        if decisions.contains(where: { $0.status == .approved }) {
-            return .connected
+        let ordered = results.sorted {
+            ($0.sentAtNs, $0.messageId) < ($1.sentAtNs, $1.messageId)
         }
-        if decisions.contains(where: { $0.status == .denied || $0.status == .cancelled }) {
-            return .dismissed
+        for record in ordered where record.senderId != askerInboxId {
+            switch record.status {
+            case .approved:
+                return .connected
+            case .denied, .cancelled:
+                return .dismissed
+            case .staleResource, .unknown:
+                continue
+            }
         }
         return nil
     }

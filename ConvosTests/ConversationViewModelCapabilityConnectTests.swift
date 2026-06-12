@@ -54,7 +54,10 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
         XCTAssertEqual(layout.serviceBundles.count, 1,
                        "Catalog-backed services must surface their bundle rows")
         XCTAssertEqual(layout.serviceBundles.first?.serviceId, "googlecalendar")
-        XCTAssertEqual(layout.serviceBundles.first?.rows.map(\.id), ["calendar.events"])
+        let rows = layout.serviceBundles.first?.rows ?? []
+        XCTAssertFalse(rows.isEmpty,
+                       "Empty bundle rows would silently escalate an approve to full-service consent")
+        XCTAssertEqual(rows.map(\.id), ["calendar.events"])
     }
 
     func testTapPendingPromptPresentsApprovalSheet() {

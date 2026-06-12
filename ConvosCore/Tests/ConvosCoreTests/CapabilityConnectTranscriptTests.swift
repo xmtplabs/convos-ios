@@ -23,6 +23,23 @@ struct CapabilityConnectTranscriptTests {
         )
     }
 
+    /// `sentAtNs`/`messageId` position the record in message time for the
+    /// first-decision-wins ordering; the id defaults to one derived from the
+    /// timestamp so single-record tests stay terse.
+    private func record(
+        from senderId: String,
+        _ status: CapabilityRequestResult.Status,
+        at sentAtNs: Int64 = 0,
+        id messageId: String? = nil
+    ) -> CapabilityConnectPrompt.ResultRecord {
+        .init(
+            senderId: senderId,
+            status: status,
+            sentAtNs: sentAtNs,
+            messageId: messageId ?? "message-\(sentAtNs)"
+        )
+    }
+
     // MARK: - Status derivation (requestId join)
 
     @Test("no result rows leaves the prompt pending")
@@ -38,19 +55,32 @@ struct CapabilityConnectTranscriptTests {
     @Test("an approved result row flips the prompt to connected")
     func connectedOnApproval() {
         let status = CapabilityConnectPrompt.displayStatus(
-            results: [.init(senderId: approver, status: .approved)],
+            results: [record(from: approver, .approved)],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
         )
         #expect(status == .connected)
     }
 
-    @Test("approval wins over an earlier denial")
-    func approvalWinsOverDenial() {
+    @Test("an earlier denial dismisses even when an approval lands later")
+    func earlierDenialWinsOverLaterApproval() {
         let status = CapabilityConnectPrompt.displayStatus(
             results: [
-                .init(senderId: approver, status: .denied),
-                .init(senderId: "another-member", status: .approved),
+                record(from: approver, .denied, at: 1),
+                record(from: "another-member", .approved, at: 2),
+            ],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        #expect(status == .dismissed)
+    }
+
+    @Test("an earlier approval connects even when a denial lands later")
+    func earlierApprovalWinsOverLaterDenial() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [
+                record(from: approver, .approved, at: 1),
+                record(from: "another-member", .denied, at: 2),
             ],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
@@ -58,15 +88,64 @@ struct CapabilityConnectTranscriptTests {
         #expect(status == .connected)
     }
 
+    @Test("resolution orders by message time, not by array order")
+    func resolutionIgnoresArrayOrder() {
+        // The approval comes first in the array but was sent later — the
+        // earlier denial must still win.
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [
+                record(from: "another-member", .approved, at: 2),
+                record(from: approver, .denied, at: 1),
+            ],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        #expect(status == .dismissed)
+    }
+
+    @Test("an asker denial earlier than a valid approval still connects")
+    func askerDenialSkippedBeforeValidApproval() {
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: [
+                record(from: asker, .denied, at: 1),
+                record(from: approver, .approved, at: 2),
+            ],
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        #expect(status == .connected)
+    }
+
+    @Test("identical timestamps resolve deterministically via the message id tiebreaker")
+    func identicalTimestampsUseMessageIdTiebreaker() {
+        let results = [
+            record(from: approver, .denied, at: 5, id: "message-b"),
+            record(from: "another-member", .approved, at: 5, id: "message-a"),
+        ]
+        let status = CapabilityConnectPrompt.displayStatus(
+            results: results,
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        let reversedStatus = CapabilityConnectPrompt.displayStatus(
+            results: results.reversed(),
+            askerInboxId: asker,
+            isLatestUnresolvedRequest: true
+        )
+        // "message-a" (the approval) sorts first regardless of array order.
+        #expect(status == .connected)
+        #expect(reversedStatus == .connected)
+    }
+
     @Test("denied and cancelled results dismiss the prompt")
     func dismissedOnDenyOrCancel() {
         let denied = CapabilityConnectPrompt.displayStatus(
-            results: [.init(senderId: approver, status: .denied)],
+            results: [record(from: approver, .denied)],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
         )
         let cancelled = CapabilityConnectPrompt.displayStatus(
-            results: [.init(senderId: approver, status: .cancelled)],
+            results: [record(from: approver, .cancelled)],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
         )
@@ -77,7 +156,7 @@ struct CapabilityConnectTranscriptTests {
     @Test("the asker cannot resolve its own request")
     func askerResultsIgnored() {
         let status = CapabilityConnectPrompt.displayStatus(
-            results: [.init(senderId: asker, status: .approved)],
+            results: [record(from: asker, .approved)],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
         )
@@ -88,8 +167,8 @@ struct CapabilityConnectTranscriptTests {
     func nonDecisionStatusesStayPending() {
         let status = CapabilityConnectPrompt.displayStatus(
             results: [
-                .init(senderId: approver, status: .staleResource),
-                .init(senderId: approver, status: .unknown),
+                record(from: approver, .staleResource, at: 1),
+                record(from: approver, .unknown, at: 2),
             ],
             askerInboxId: asker,
             isLatestUnresolvedRequest: true
@@ -110,7 +189,7 @@ struct CapabilityConnectTranscriptTests {
     @Test("a resolved request stays resolved even when a newer request exists")
     func resolutionWinsOverSupersession() {
         let status = CapabilityConnectPrompt.displayStatus(
-            results: [.init(senderId: approver, status: .approved)],
+            results: [record(from: approver, .approved)],
             askerInboxId: asker,
             isLatestUnresolvedRequest: false
         )
@@ -254,13 +333,60 @@ struct CapabilityConnectTranscriptTests {
         #expect(try harness.latestPendingRequestId() == "req-1")
     }
 
-    @Test("duplicate results agree: first approval wins for both layers")
+    @Test("duplicate results agree: the earliest decision wins for both layers")
     func agreementOnDuplicateResults() throws {
         let harness = try HydrationHarness(asker: asker, approver: approver)
         try harness.insertRequestRow(makeRequest(), sortId: 1)
         try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .denied, sortId: 2)
         try harness.insertResultRow(requestId: "req-1", senderId: harness.currentInboxId, status: .approved, sortId: 3)
         try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 4)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .dismissed)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("denial before approval dismisses in both layers")
+    func agreementOnDenialBeforeApproval() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .denied, sortId: 2)
+        try harness.insertResultRow(requestId: "req-1", senderId: harness.currentInboxId, status: .approved, sortId: 3)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .dismissed)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("approval before denial connects in both layers")
+    func agreementOnApprovalBeforeDenial() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 2)
+        try harness.insertResultRow(requestId: "req-1", senderId: harness.currentInboxId, status: .denied, sortId: 3)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .connected)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("an asker denial then a valid approval connects in both layers")
+    func agreementOnAskerDenialThenApproval() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        try harness.insertResultRow(requestId: "req-1", senderId: asker, status: .denied, sortId: 2)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 3)
+
+        #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .connected)
+        #expect(try harness.latestPendingRequestId() == nil)
+    }
+
+    @Test("identical timestamps agree deterministically via the message id tiebreaker")
+    func agreementOnIdenticalTimestamps() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        let sharedNs = Int64(harness.now.timeIntervalSince1970 * 1_000_000_000) + 10
+        // Same dateNs on both rows; the lower message id ("message-2", the
+        // approval) must win in both layers regardless of insertion order.
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .denied, sortId: 3, dateNs: sharedNs)
+        try harness.insertResultRow(requestId: "req-1", senderId: approver, status: .approved, sortId: 2, dateNs: sharedNs)
 
         #expect(try harness.fetchPrompt(requestId: "req-1")?.status == .connected)
         #expect(try harness.latestPendingRequestId() == nil)
@@ -339,7 +465,8 @@ private struct HydrationHarness {
         requestId: String,
         senderId: String,
         status: CapabilityRequestResult.Status,
-        sortId: Int64
+        sortId: Int64,
+        dateNs: Int64? = nil
     ) throws {
         let result = CapabilityRequestResult(
             requestId: requestId,
@@ -352,7 +479,8 @@ private struct HydrationHarness {
             contentType: .capabilityRequestResult,
             senderId: senderId,
             text: String(decoding: json, as: UTF8.self),
-            sortId: sortId
+            sortId: sortId,
+            dateNs: dateNs
         )
     }
 
@@ -398,7 +526,8 @@ private struct HydrationHarness {
         contentType: MessageContentType,
         senderId: String,
         text: String,
-        sortId: Int64
+        sortId: Int64,
+        dateNs: Int64? = nil
     ) throws {
         try dbManager.dbWriter.write { db in
             try DBMessage(
@@ -406,7 +535,7 @@ private struct HydrationHarness {
                 clientMessageId: "message-\(sortId)",
                 conversationId: conversationId,
                 senderId: senderId,
-                dateNs: Int64(now.timeIntervalSince1970 * 1_000_000_000) + sortId,
+                dateNs: dateNs ?? Int64(now.timeIntervalSince1970 * 1_000_000_000) + sortId,
                 date: now,
                 sortId: sortId,
                 status: .published,

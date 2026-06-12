@@ -12,9 +12,9 @@ import GRDB
 /// Resolution detection joins result rows on `requestId` and applies
 /// `CapabilityConnectPrompt.resolution` — the SAME validated rule the transcript
 /// pill derives its display state from, so "tap path open" and "pill pending"
-/// can never disagree. First responder wins: any member's validated
-/// approve/deny/cancel resolves the request for the whole conversation;
-/// asker-authored rows and non-decision statuses never resolve it.
+/// can never disagree. First decision wins, in message-time order: the earliest
+/// validated approve/deny/cancel resolves the request for the whole
+/// conversation; asker-authored rows and non-decision statuses never resolve it.
 public protocol CapabilityRequestRepositoryProtocol: Sendable {
     var pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> { get }
 }
@@ -51,6 +51,7 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
                 resultsByRequestId: resultsByRequestId
             )
         } catch {
+            Log.error("CapabilityRequestRepository: computeLatestPendingRequest failed for \(conversationId): \(error)")
             return nil
         }
     }
@@ -59,8 +60,8 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
     /// returned request to decide which unresolved pill renders `.pending`
     /// (actionable) versus `.superseded` — keeping the transcript and the tap
     /// path on one verdict. Resolution per request is
-    /// `CapabilityConnectPrompt.resolution`: first validated responder wins,
-    /// asker-authored rows never count.
+    /// `CapabilityConnectPrompt.resolution`: the first validated decision in
+    /// message-time order wins, asker-authored rows never count.
     static func computeLatestPendingRequest(
         conversationId: String,
         db: Database,
@@ -90,7 +91,12 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
 
     /// Every capability_request_result row in the conversation, decoded and
     /// keyed by `requestId`, each carrying the row's XMTP-attested `senderId`
-    /// — the inputs `CapabilityConnectPrompt.resolution` validates against.
+    /// plus its message-time position (`dateNs` + message id) — the inputs
+    /// `CapabilityConnectPrompt.resolution` validates and orders against.
+    /// The query orders by sent timestamp with the message id as a stable
+    /// tiebreaker so each bucket is already in message-time order, and
+    /// `resolution` re-sorts on the same key anyway, so first-decision-wins
+    /// cannot be bypassed by an unordered caller.
     static func resultRecordsByRequestId(
         conversationId: String,
         db: Database
@@ -98,6 +104,7 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
         let results = try DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
             .filter(DBMessage.Columns.contentType == MessageContentType.capabilityRequestResult.rawValue)
+            .order(DBMessage.Columns.dateNs.asc, DBMessage.Columns.id.asc)
             .fetchAll(db)
         var recordsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
         for row in results {
@@ -107,7 +114,7 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
                 continue
             }
             recordsByRequestId[result.requestId, default: []].append(
-                .init(senderId: row.senderId, status: result.status)
+                .init(senderId: row.senderId, status: result.status, sentAtNs: row.dateNs, messageId: row.id)
             )
         }
         return recordsByRequestId

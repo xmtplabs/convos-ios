@@ -152,7 +152,8 @@ private struct BundleApprovalSheetContent: View {
     }
 
     private func permissionRow(_ row: CapabilityPickerLayout.ServiceBundles.Row) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
+        let binding: Binding<Bool> = bundleBinding(row.id)
+        return HStack(spacing: DesignConstants.Spacing.step2x) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(row.title)
                     .font(.body)
@@ -164,7 +165,7 @@ private struct BundleApprovalSheetContent: View {
                 }
             }
             Spacer(minLength: 0)
-            Toggle(row.title, isOn: bundleBinding(row.id))
+            Toggle(row.title, isOn: binding)
                 .toggleStyle(WideSwitchToggleStyle())
                 .labelsHidden()
         }
@@ -173,7 +174,7 @@ private struct BundleApprovalSheetContent: View {
     }
 
     private var doneButton: some View {
-        let approveAction = {
+        let approveAction: () -> Void = {
             onApprove([content.provider.id], [content.group.serviceId: enabledBundleIds])
         }
         // An empty toggle set must never approve: it would read as consent
