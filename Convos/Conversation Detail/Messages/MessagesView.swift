@@ -115,6 +115,9 @@ struct MessagesView<BottomBarContent: View>: View {
     /// for HTML attachments. Non-HTML previews still go through the
     /// UIKit path in `MessagesViewController.presentAttachmentPreview`.
     @State private var htmlAttachmentPreview: HTMLAttachmentPreviewItem?
+    /// Same bridge for non-HTML file attachments (PDFs etc.) - no zoom
+    /// transition, just the preview sheet.
+    @State private var fileAttachmentPreview: FileAttachmentPreviewItem?
     /// Shared namespace between the `HTMLAttachmentBubble` source and
     /// the sheet's `.navigationTransition(.zoom(...))` destination.
     @Namespace private var htmlAttachmentTransitionNamespace: Namespace.ID
@@ -207,6 +210,14 @@ struct MessagesView<BottomBarContent: View>: View {
             htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             onPresentHTMLAttachmentPreview: { attachment, fileURL, sender, sentAt in
                 htmlAttachmentPreview = HTMLAttachmentPreviewItem(
+                    attachment: attachment,
+                    fileURL: fileURL,
+                    sender: sender,
+                    sentAt: sentAt
+                )
+            },
+            onPresentFileAttachmentPreview: { attachment, fileURL, sender, sentAt in
+                fileAttachmentPreview = FileAttachmentPreviewItem(
                     attachment: attachment,
                     fileURL: fileURL,
                     sender: sender,
@@ -348,6 +359,15 @@ struct MessagesView<BottomBarContent: View>: View {
             )
             .navigationTransition(.zoom(sourceID: item.attachment.key, in: htmlAttachmentTransitionNamespace))
         }
+        .sheet(item: $fileAttachmentPreview) { item in
+            AttachmentPreviewSheet(
+                attachment: item.attachment,
+                fileURL: item.fileURL,
+                sender: item.sender,
+                sentAt: item.sentAt,
+                profileSheetContent: profileSheetForMember
+            )
+        }
     }
 }
 
@@ -357,6 +377,16 @@ struct MessagesView<BottomBarContent: View>: View {
 /// representable bridges the call into SwiftUI state when an HTML
 /// attachment is tapped, so the matched-geometry zoom transition can fire.
 struct HTMLAttachmentPreviewItem: Identifiable, Equatable {
+    let id: UUID = UUID()
+    let attachment: HydratedAttachment
+    let fileURL: URL
+    let sender: ConversationMember
+    let sentAt: Date
+}
+
+/// Same payload for non-HTML file attachments; presented without the zoom
+/// transition (the file bubble has no matched-geometry source).
+struct FileAttachmentPreviewItem: Identifiable, Equatable {
     let id: UUID = UUID()
     let attachment: HydratedAttachment
     let fileURL: URL

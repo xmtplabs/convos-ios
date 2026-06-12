@@ -45,6 +45,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
     var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
+    var onPresentFileAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
     var agentBuilderSummaryProvider: ((AgentBuilderCardContent, Namespace.ID?) -> AnyView)?
     var currentUserProfileImage: (() -> UIImage?)?
     var backwardsSecrecyInfoSheet: (() -> AnyView)?
@@ -112,6 +113,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         agentBuilderTransitionNamespace: Namespace.ID? = nil,
         htmlAttachmentTransitionNamespace: Namespace.ID? = nil,
         onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
+        onPresentFileAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
         agentBuilderSummaryProvider: ((AgentBuilderCardContent, Namespace.ID?) -> AnyView)? = nil,
         currentUserProfileImage: (() -> UIImage?)? = nil,
         backwardsSecrecyInfoSheet: (() -> AnyView)? = nil,
@@ -162,6 +164,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace
         self.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace
         self.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
+        self.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
         self.agentBuilderSummaryProvider = agentBuilderSummaryProvider
         self.currentUserProfileImage = currentUserProfileImage
         self.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet
@@ -253,6 +256,7 @@ let menuPresented = contextMenuState.isPresented
             messagesViewController.restoreBottomInsetAfterContextMenu()
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
+        messagesViewController.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,

@@ -59,6 +59,11 @@ final class ShareComposeModel {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var isReady: Bool = false
     var isSending: Bool = false
+    /// User-visible reason the share sheet cannot proceed (intent target gone,
+    /// no conversations, bootstrap failure). Nil while usable.
+    var unavailableReason: String?
+    /// User-visible send failure; the sheet stays open so content is not lost.
+    var sendError: String?
     var messages: [MessagesListItemType] = []
     /// The sharer's per-conversation profile, for the composer's avatar.
     /// Resolved from the target conversation's members; placeholder until then.
@@ -96,7 +101,13 @@ final class ShareComposeModel {
             ImageCompression.configure(IOSImageCompression())
             PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
             RichLinkMetadata.configure(IOSRichLinkMetadataProvider())
-            if let firebaseConfigURL = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
+            // App Attest is unavailable in app extensions, so the extension can
+            // only attest with the debug provider - which must never ship in a
+            // production build. Outside production, force it with the Dev token;
+            // in production, skip App Check configuration entirely until the
+            // main-app-vended token story lands (gated sends will fail there).
+            if !environment.isProduction,
+               let firebaseConfigURL = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
                 FirebaseHelperCore.configure(
                     with: firebaseConfigURL,
                     debugToken: Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN,
@@ -112,7 +123,21 @@ final class ShareComposeModel {
 
             let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
             let intent = extensionContext?.intent as? INSendMessageIntent
-            let target = conversations.first { $0.id == intent?.conversationIdentifier } ?? conversations.first
+            // When the share came from a donated suggestion, only that exact
+            // conversation is an acceptable target - falling back to an
+            // arbitrary one would send under the suggested conversation's name.
+            let target: Conversation?
+            if let wantedId = intent?.conversationIdentifier {
+                target = conversations.first { $0.id == wantedId }
+                if target == nil {
+                    unavailableReason = "This convo is no longer available."
+                }
+            } else {
+                target = conversations.first
+                if target == nil {
+                    unavailableReason = "No convos to share into yet."
+                }
+            }
             targetConversationId = target?.id
             targetConversation = target
             // The donated intent carries the conversation's display name
@@ -130,9 +155,13 @@ final class ShareComposeModel {
             if let image = await Self.loadSharedImage(extensionContext: extensionContext) {
                 appendPhoto(image)
             }
+            if messageText.isEmpty, let sharedText = await Self.loadSharedText(extensionContext: extensionContext) {
+                messageText = sharedText
+            }
             isReady = targetConversationId != nil
         } catch {
             Log.error("prepare failed: \(error.localizedDescription)")
+            unavailableReason = "Convos could not start. Try again."
         }
     }
 
@@ -155,11 +184,17 @@ final class ShareComposeModel {
         repository.startObserving()
     }
 
-    func send() async {
-        guard let client, let targetConversationId else {
-            return
+    /// Sends the staged content and waits for the actual XMTP publish (the
+    /// writer's send only enqueues; the publish runs in a detached queue task,
+    /// so returning before the sentMessage emission would let completeRequest
+    /// kill the process mid-publish). Returns true when everything published.
+    func send() async -> Bool {
+        guard !isSending, let client, let targetConversationId else {
+            return false
         }
         isSending = true
+        defer { isSending = false }
+        sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let messagingService = client.session.messagingService()
         do {
@@ -173,20 +208,73 @@ final class ShareComposeModel {
                     for: targetConversationId,
                     backgroundUploadManager: ForegroundUploadManager()
                 )
-                try await imageWriter.send(image: photo.image)
+                try await Self.sendAndAwaitPublish(writer: imageWriter) {
+                    try await imageWriter.send(image: photo.image)
+                }
             }
             if !text.isEmpty {
                 let textWriter = messagingService.messageWriter(
                     for: targetConversationId,
                     backgroundUploadManager: UnavailableBackgroundUploadManager()
                 )
-                try await textWriter.send(text: text)
+                try await Self.sendAndAwaitPublish(writer: textWriter) {
+                    try await textWriter.send(text: text)
+                }
             }
-            Log.info("sent to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
+            Log.info("published to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
+            return true
         } catch {
             Log.error("send failed: \(error.localizedDescription)")
+            sendError = "Sending failed. Check your connection and try again."
+            return false
         }
-        isSending = false
+    }
+
+    private enum SendError: Error {
+        case publishTimedOut
+        case publishStreamEnded
+    }
+
+    /// Runs the enqueue operation and suspends until the writer's sentMessage
+    /// publisher confirms the publish (or times out). The subscription is
+    /// created eagerly before the operation so a fast publish cannot be missed.
+    private static func sendAndAwaitPublish(
+        writer: any OutgoingMessageWriterProtocol,
+        timeout: TimeInterval = 30,
+        operation: () async throws -> Void
+    ) async throws {
+        var cancellable: AnyCancellable?
+        let published = AsyncStream<Void> { continuation in
+            cancellable = writer.sentMessage
+                .first()
+                .sink { _ in
+                    continuation.yield(())
+                    continuation.finish()
+                }
+        }
+        defer { cancellable?.cancel() }
+
+        try await operation()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await _ in published {
+                    return
+                }
+                throw SendError.publishStreamEnded
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw SendError.publishTimedOut
+            }
+            do {
+                try await group.next()
+                group.cancelAll()
+            } catch {
+                group.cancelAll()
+                throw error
+            }
+        }
     }
 
     private static func loadSharedImage(extensionContext: NSExtensionContext?) async -> UIImage? {
@@ -203,15 +291,68 @@ final class ShareComposeModel {
         return nil
     }
 
+    private static func loadSharedText(extensionContext: NSExtensionContext?) async -> String? {
+        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
+            return nil
+        }
+        for item in items {
+            for provider in item.attachments ?? [] {
+                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+                   let urlString = await loadText(from: provider, type: .url) {
+                    return urlString
+                }
+                if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
+                   let text = await loadText(from: provider, type: .plainText) {
+                    return text
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func loadText(from provider: NSItemProvider, type: UTType) async -> String? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: type.identifier, options: nil) { item, _ in
+                switch item {
+                case let url as URL:
+                    continuation.resume(returning: url.absoluteString)
+                case let text as String:
+                    continuation.resume(returning: text)
+                default:
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Decodes image data capped at 2048px on the long edge; a full-camera
+    /// share would otherwise decode tens of megapixels inside the appex
+    /// memory budget.
+    private static func downsampledImage(from data: Data, maxPixel: CGFloat = 2048) -> UIImage? {
+        let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
     private static func loadImage(from provider: NSItemProvider) async -> UIImage? {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, _ in
                 let image: UIImage?
                 switch item {
                 case let url as URL:
-                    image = (try? Data(contentsOf: url)).flatMap { UIImage(data: $0) }
+                    image = (try? Data(contentsOf: url)).flatMap { downsampledImage(from: $0) }
                 case let data as Data:
-                    image = UIImage(data: data)
+                    image = downsampledImage(from: data)
                 case let provided as UIImage:
                     image = provided
                 default:
@@ -271,6 +412,23 @@ struct ShareComposeView: View {
         .onChange(of: focusState) { _, newFocus in
             focusCoordinator.syncFocusState(newFocus)
         }
+        .alert(
+            "Couldn't send",
+            isPresented: sendErrorPresented,
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(model.sendError ?? "") }
+        )
+    }
+
+    private var sendErrorPresented: Binding<Bool> {
+        Binding(
+            get: { model.sendError != nil },
+            set: { presented in
+                if !presented {
+                    model.sendError = nil
+                }
+            }
+        )
     }
 
     /// App-chrome top bar: the conversation indicator pill centered (once a
@@ -352,6 +510,8 @@ struct ShareComposeView: View {
                 scrollToBottomTrigger: { _ in },
                 messageInputFocusTrigger: { _ in }
             )
+        } else if let reason = model.unavailableReason {
+            ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
         } else {
             Spacer(minLength: 0)
         }
@@ -359,9 +519,11 @@ struct ShareComposeView: View {
 
     private var composerBar: some View {
         let handleSend = {
+            guard !model.isSending else { return }
             Task { @MainActor in
-                await model.send()
-                onSend()
+                if await model.send() {
+                    onSend()
+                }
             }
         }
         return MessagesBottomBar(
@@ -382,7 +544,7 @@ struct ShareComposeView: View {
             pinsExpandedInput: true,
             messagesTextFieldEnabled: model.isReady,
             onProfilePhotoTap: {},
-            onSendMessage: { _ = handleSend() },
+            onSendMessage: handleSend,
             onClearInvite: {},
             onClearLinkPreview: {},
             onClearMediaAttachment: { id in model.removeAttachment(id: id) },
