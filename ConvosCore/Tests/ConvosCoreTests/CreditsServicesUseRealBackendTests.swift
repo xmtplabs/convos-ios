@@ -50,4 +50,15 @@ struct CreditsServicesUseRealBackendTests {
             defaults: defaults
         ) == true)
     }
+
+    @Test("a value stored under the legacy (pre-v2) key is ignored")
+    func legacyKeyValueIsIgnored() {
+        let defaults = Self.makeDefaults()
+        // Stale writes from the eras when the gate ignored the stored value
+        // live under the old key; the v2 key must orphan them.
+        let legacyKey = "creditsServices.useRealBackend"
+        #expect(CreditsServices.Constant.useRealBackendKey != legacyKey)
+        defaults.set(false, forKey: legacyKey)
+        #expect(CreditsServices.resolveUseRealBackend(environment: .tests, defaults: defaults) == true)
+    }
 }

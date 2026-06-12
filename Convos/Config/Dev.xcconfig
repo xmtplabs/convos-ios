@@ -5,7 +5,9 @@ CONFIG_FILE = config.dev.json
 DEVELOPMENT_TEAM = FY4NZR34Z3
 
 // Swift compiler flags - define DEBUG for conditional compilation (if needed for dev/testflight)
-// Note: SWIFT_ACTIVE_COMPILATION_CONDITIONS propagates to Swift Package dependencies
+// Note: this does not propagate to Swift Package dependencies (e.g. ConvosCore) - Xcode builds
+// packages in their release configuration unless the app configuration is literally named "Debug",
+// so #if DEBUG inside packages stays inactive in Dev/Local builds.
 // Comment out the line below if you don't want DEBUG in TestFlight builds
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
 
