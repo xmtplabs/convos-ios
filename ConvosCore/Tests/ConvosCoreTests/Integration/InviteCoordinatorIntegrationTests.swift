@@ -225,6 +225,73 @@ struct InviteCoordinatorIntegrationTests {
         #expect(errorCount == 2, "A retried join request gets its own error reply")
     }
 
+    /// Regression test for removed agents instantly rejoining: join-request
+    /// DMs are durable, and batch catch-up / the agent-join poll revalidate
+    /// them after the member list changes. Before the handled-request ledger,
+    /// the only dedupe was "is the joiner currently a member", so removing
+    /// the member made the already-honored request actionable again and the
+    /// next pass silently re-added them. The ledger keys on message ID:
+    /// the replayed request stays inert, while a fresh request with the same
+    /// invite still joins (removal is not a block).
+    @Test("Replayed join request does not re-add a removed member; a fresh request does")
+    func replayedJoinRequestStaysInertAfterRemoval() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        // One ledger shared by two coordinator instances, mirroring how
+        // production passes build a fresh coordinator per batch around the
+        // shared database-backed store.
+        let ledger = InMemoryHandledJoinRequestStore()
+        let key = creatorInviteKey
+        let firstPass = InviteCoordinator(privateKeyProvider: { _ in key }, handledRequestStore: ledger)
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstPass.revokeInvites(for: group)
+        let invite = try await firstPass.createInvite(for: group, client: creatorClient)
+
+        _ = try await firstPass.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID))
+
+        // Revalidate the full DM history, as batch catch-up and the
+        // agent-join poll do after the removal.
+        let secondPass = InviteCoordinator(privateKeyProvider: { _ in key }, handledRequestStore: ledger)
+        let replayOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "Revalidating an already-honored join request must not re-add the removed member"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(
+            !memberInboxIds.contains(joinerClient.inboxID),
+            "Removed member must stay removed after revalidation passes"
+        )
+
+        // Removal is not a block: a fresh join request with the same valid
+        // invite is a new attempt and joins again.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await secondPass.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh join request from a removed member must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID), "Fresh request re-adds the removed member")
+    }
+
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
         let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
         let messages = try await dm.messages()

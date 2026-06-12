@@ -46,6 +46,7 @@ public extension InviteCoordinatorDelegate {
 public final class InviteCoordinator: @unchecked Sendable {
     private let privateKeyProvider: PrivateKeyProvider
     private let tagStorage: any InviteTagStorageProtocol
+    private let handledRequestStore: any HandledJoinRequestStoreProtocol
 
     public weak var delegate: (any InviteCoordinatorDelegate)? {
         get { lock.withLock { _delegate } }
@@ -57,10 +58,12 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     public init(
         privateKeyProvider: @escaping PrivateKeyProvider,
-        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()
+        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+        handledRequestStore: any HandledJoinRequestStoreProtocol = InMemoryHandledJoinRequestStore()
     ) {
         self.privateKeyProvider = privateKeyProvider
         self.tagStorage = tagStorage
+        self.handledRequestStore = handledRequestStore
     }
 
     // MARK: - Invite Creation
@@ -454,6 +457,19 @@ public final class InviteCoordinator: @unchecked Sendable {
     ) async -> JoinRequestDMOutcome {
         let signedInvite = request.signedInvite
 
+        // A join-request message admits its sender at most once. Membership
+        // alone cannot dedupe revalidation passes: after the creator removes
+        // the member, the already-honored request would look actionable
+        // again and silently re-add them. Removal is not a block - a removed
+        // member rejoins by sending a fresh request (new message ID) with
+        // the same invite.
+        if await handledRequestStore.isHandled(messageId: request.messageId) {
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         try? await group.sync()
 
         // Multiple processing paths (message stream, batch catch-up, and the
@@ -461,8 +477,12 @@ public final class InviteCoordinator: @unchecked Sendable {
         // If the joiner is already in the group, a previous pass handled it -
         // skip the re-add so we don't send duplicate profile snapshots or,
         // worse, a spurious error DM back to a joiner that already joined.
+        // Mark the request handled so it stays inert if the member is later
+        // removed; this also retires requests honored before the ledger
+        // existed, and the text copy of a typed+text pair.
         if let memberInboxIds = try? await group.members.map(\.inboxId),
            memberInboxIds.contains(request.joinerInboxId) {
+            await handledRequestStore.markHandled(messageId: request.messageId)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId
@@ -513,6 +533,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             return benignFailure(request, error: .addMemberFailed)
         }
 
+        await handledRequestStore.markHandled(messageId: request.messageId)
+
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
         }
@@ -558,7 +580,18 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         var firstBenignFailure: JoinRequestDMOutcome?
+        var handledOutcome: JoinRequestDMOutcome?
         for message in candidates {
+            // An already-honored request is inert, but it must not end the
+            // scan: the same DM can carry a fresh join request from a member
+            // who was removed and is rejoining with the same invite.
+            if await handledRequestStore.isHandled(messageId: message.id) {
+                handledOutcome = handledOutcome ?? .alreadyMember(
+                    dmConversationId: dm.id,
+                    joinerInboxId: message.senderInboxId
+                )
+                continue
+            }
             let outcome = await processMessageOutcome(message, client: client)
             switch outcome {
             case .noJoinRequest:
@@ -575,7 +608,7 @@ public final class InviteCoordinator: @unchecked Sendable {
                 continue
             }
         }
-        return firstBenignFailure ?? .noJoinRequest
+        return firstBenignFailure ?? handledOutcome ?? .noJoinRequest
     }
 
     private func benignFailure(
