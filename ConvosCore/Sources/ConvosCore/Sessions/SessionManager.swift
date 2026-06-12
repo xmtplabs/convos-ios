@@ -153,6 +153,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // and enablement stores being ready to query.
             _ = self.agentBuilderConnectionGrantReplayer()
 
+            // Replay any builder brief whose send a previous process died
+            // holding (the agent-join hold can last 150s; see
+            // UnsentBuilderBriefReplayer).
+            _ = self.unsentBuilderBriefReplayer()
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -846,6 +851,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// stream over `agentBuilderSummary` + member rows. Constructed by
     /// the accessor in `SessionManager+AgentBuilderGrantReplayer.swift`.
     let agentBuilderGrantReplayerLock: OSAllocatedUnfairLock<AgentBuilderConnectionGrantReplayer?> = .init(initialState: nil)
+
+    /// Session-wide unsent-brief replayer (one-shot scan at session start).
+    /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
+    let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in
