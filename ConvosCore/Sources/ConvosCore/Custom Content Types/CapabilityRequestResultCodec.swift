@@ -63,6 +63,10 @@ public struct CapabilityRequestResultCodec: ContentCodec {
             "Declined \(content.subject.displayName.lowercased()) access"
         case .cancelled:
             "Cancelled \(content.subject.displayName.lowercased()) access request"
+        case .staleResource:
+            "Asked to refresh \(content.subject.displayName.lowercased()) permissions"
+        case .unknown:
+            "Updated \(content.subject.displayName.lowercased()) access request"
         }
     }
 

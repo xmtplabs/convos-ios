@@ -12,12 +12,16 @@ public struct CapabilityRequestHandler: Sendable {
     public init() {}
 
     /// Snapshot the registry + resolver state for this request and decide which card
-    /// variant to render.
+    /// variant to render. `services` is the (cached) backend connections catalog;
+    /// providers whose service appears there get permission-bundle rows on the
+    /// returned layout. Pass `[]` when the catalog is unavailable — the card then
+    /// falls back to plain provider rows.
     public func computeLayout(
         request: CapabilityRequest,
         registry: any CapabilityProviderRegistry,
         resolver: any CapabilityResolver,
-        conversationId: String
+        conversationId: String,
+        services: [CloudConnectionsAPI.ServiceConfig] = []
     ) async -> CapabilityPickerLayout {
         let providersForSubject = await registry.providers(for: request.subject)
         let summaries = await Self.summarize(
@@ -49,7 +53,8 @@ public struct CapabilityRequestHandler: Sendable {
         if let consent = verbConsentLayout(
             request: request,
             summaries: summaries,
-            existingResolutions: existingResolutions
+            existingResolutions: existingResolutions,
+            services: services
         ) {
             return consent
         }
@@ -58,11 +63,13 @@ public struct CapabilityRequestHandler: Sendable {
         let allowsFederationOnRead = request.subject.allowsReadFederation && request.capability == .read
 
         if linkedSummaries.isEmpty {
+            let providers = summaries.filter(\.supportsCapability)
             return CapabilityPickerLayout(
                 request: request,
                 variant: .connectAndApprove,
-                providers: summaries.filter(\.supportsCapability),
-                defaultSelection: []
+                providers: providers,
+                defaultSelection: [],
+                serviceBundles: Self.serviceBundles(for: providers, services: services)
             )
         }
 
@@ -71,7 +78,8 @@ public struct CapabilityRequestHandler: Sendable {
                 request: request,
                 variant: .confirm,
                 providers: summaries,
-                defaultSelection: [only.id]
+                defaultSelection: [only.id],
+                serviceBundles: Self.serviceBundles(for: summaries, services: services)
             )
         }
 
@@ -85,7 +93,8 @@ public struct CapabilityRequestHandler: Sendable {
             request: request,
             variant: variant,
             providers: summaries,
-            defaultSelection: defaultSelection
+            defaultSelection: defaultSelection,
+            serviceBundles: Self.serviceBundles(for: summaries, services: services)
         )
     }
 
@@ -184,7 +193,8 @@ public struct CapabilityRequestHandler: Sendable {
     private func verbConsentLayout(
         request: CapabilityRequest,
         summaries: [CapabilityPickerLayout.ProviderSummary],
-        existingResolutions: [ConnectionCapability: Set<ProviderID>]
+        existingResolutions: [ConnectionCapability: Set<ProviderID>],
+        services: [CloudConnectionsAPI.ServiceConfig]
     ) -> CapabilityPickerLayout? {
         // The new verb already has a resolution → no card needed at all; caller
         // shouldn't have invoked this path. Defensive nil — picker layer treats nil
@@ -252,8 +262,40 @@ public struct CapabilityRequestHandler: Sendable {
             request: request,
             variant: .verbConsent,
             providers: relevant,
-            defaultSelection: Set(relevant.map(\.id))
+            defaultSelection: Set(relevant.map(\.id)),
+            serviceBundles: Self.serviceBundles(for: relevant, services: services)
         )
+    }
+
+    /// One bundle group per cloud provider on the card whose service exists in
+    /// the catalog. Localized copy is resolved here so the layout stays a pure
+    /// render snapshot.
+    private static func serviceBundles(
+        for providers: [CapabilityPickerLayout.ProviderSummary],
+        services: [CloudConnectionsAPI.ServiceConfig]
+    ) -> [CapabilityPickerLayout.ServiceBundles] {
+        guard !services.isEmpty else { return [] }
+        let servicesById = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0) })
+        return providers.compactMap { provider in
+            guard let serviceId = provider.id.cloudServiceId,
+                  let service = servicesById[serviceId],
+                  !service.bundles.isEmpty else {
+                return nil
+            }
+            return CapabilityPickerLayout.ServiceBundles(
+                providerId: provider.id,
+                serviceId: serviceId,
+                serviceVersion: service.version,
+                rows: service.bundles.map { bundle in
+                    CapabilityPickerLayout.ServiceBundles.Row(
+                        id: bundle.id,
+                        title: bundle.title.resolved(),
+                        description: bundle.description.resolved(),
+                        defaultEnabled: bundle.defaultEnabled
+                    )
+                }
+            )
+        }
     }
 
     private func honorPreferredProviders(

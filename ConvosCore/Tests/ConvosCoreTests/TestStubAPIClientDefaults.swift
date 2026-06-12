@@ -70,13 +70,17 @@ extension ConvosAPIClientProtocol {
     /// Defaults for the backend connection-grant push so pre-existing fixtures
     /// don't have to re-stub them. Tests that exercise the push specifically
     /// should override on their fixture.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        CloudConnectionsAPI.ServicesResponse(services: [])
+    }
+
     func createConnectionGrant(
         ownerInboxId: String,
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
-        actions: [String],
-        connectionId: String?
+        bundleIds: [String]?,
+        serviceVersion: Int?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
     }
@@ -135,13 +139,17 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
 
     /// Declared on the base (not just the protocol-extension default) so
     /// subclasses can `override` them.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        CloudConnectionsAPI.ServicesResponse(services: [])
+    }
+
     func createConnectionGrant(
         ownerInboxId: String,
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
-        actions: [String],
-        connectionId: String?
+        bundleIds: [String]?,
+        serviceVersion: Int?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         CloudConnectionsAPI.CreateGrantResponse(id: "test-grant-\(UUID().uuidString)")
     }

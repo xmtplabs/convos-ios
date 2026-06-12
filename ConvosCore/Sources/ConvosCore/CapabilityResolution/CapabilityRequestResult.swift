@@ -14,6 +14,32 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
         case approved
         case denied
         case cancelled
+        /// Agent → device: the device granted against a stale services-catalog
+        /// version. `staleServices` names the services to refetch; the device
+        /// refetches their config and retries the capability call once.
+        case staleResource = "stale_resource"
+        /// Forward-compat catch-all: a status this build doesn't know yet.
+        /// Never sent by this client; decoding maps unrecognized raw values
+        /// here instead of throwing so newer peers can't break old devices.
+        case unknown
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            self = Status(rawValue: raw) ?? .unknown
+        }
+    }
+
+    /// One stale catalog entry named by a `stale_resource` reply: the service
+    /// id and the version the agent expects the device to know about.
+    public struct StaleService: Codable, Sendable, Hashable {
+        public let id: String
+        public let expectedVersion: Int
+
+        public init(id: String, expectedVersion: Int) {
+            self.id = id
+            self.expectedVersion = expectedVersion
+        }
     }
 
     public let version: Int
@@ -29,6 +55,9 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
     /// Action schemas compatible with the approved capability, filtered to the providers
     /// returned above. Empty for `.denied` / `.cancelled`.
     public let availableActions: [AvailableAction]
+    /// Only populated on `.staleResource`: the services whose catalog config
+    /// the device should refetch before retrying. Empty for every other status.
+    public let staleServices: [StaleService]
 
     public init(
         version: Int = CapabilityRequestResult.supportedVersion,
@@ -37,7 +66,8 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
         subject: CapabilitySubject,
         capability: ConnectionCapability,
         providers: [ProviderID] = [],
-        availableActions: [AvailableAction] = []
+        availableActions: [AvailableAction] = [],
+        staleServices: [StaleService] = []
     ) {
         self.version = version
         self.requestId = requestId
@@ -46,10 +76,11 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
         self.capability = capability
         self.providers = Self.truncatedProviders(providers)
         self.availableActions = Self.truncatedAvailableActions(availableActions)
+        self.staleServices = staleServices
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, requestId, status, subject, capability, providers, availableActions
+        case version, requestId, status, subject, capability, providers, availableActions, staleServices
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,6 +94,7 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
         let rawAvailableActions = try container.decodeIfPresent([AvailableAction].self, forKey: .availableActions) ?? []
         self.providers = Self.truncatedProviders(rawProviders)
         self.availableActions = Self.truncatedAvailableActions(rawAvailableActions)
+        self.staleServices = try container.decodeIfPresent([StaleService].self, forKey: .staleServices) ?? []
     }
 
     private static func truncatedProviders(_ providers: [ProviderID]) -> [ProviderID] {

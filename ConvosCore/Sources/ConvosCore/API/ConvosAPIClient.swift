@@ -111,23 +111,33 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse]
     func revokeCloudConnection(connectionId: String) async throws
 
+    /// Fetches the backend-owned connections-picker catalog: one entry per
+    /// service, each with its permission bundles. The response is served with
+    /// `Cache-Control: private, max-age=300`; callers should go through
+    /// `ConnectionServicesStore`, which honors that TTL client-side, instead
+    /// of hitting this directly.
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse
+
     /// Pushes one per-agent consent record to the backend grant store. The
     /// backend uses these records to authorize agent tool execution; without
     /// the push the agent gets 403. Re-posting the same (owner, grantee,
     /// conversation, toolkit) tuple upserts (also un-revokes) and returns the
     /// same id.
     ///
-    /// `actions` lists the Composio action slugs the grant authorizes. An empty
-    /// array is whole-toolkit access (the backend's fallback): the agent may
-    /// call any action on the toolkit. Pass the user-approved action slugs to
-    /// scope the grant; pass `[]` only when no per-action scope is available.
+    /// `bundleIds` lists the permission-bundle ids the user toggled on
+    /// (e.g. "calendar.events"); the backend resolves them to Composio
+    /// actions at exec time. `nil` omits the field — for toolkits outside
+    /// the catalog the backend treats that as the legacy whole-toolkit
+    /// grant. `serviceVersion` is the catalog version the device granted
+    /// against (audit/stale telemetry). An unknown bundle id surfaces as
+    /// `CloudConnectionsAPI.GrantError.unknownBundle`.
     func createConnectionGrant(
         ownerInboxId: String,
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
-        actions: [String],
-        connectionId: String?
+        bundleIds: [String]?,
+        serviceVersion: Int?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse
 
     /// Revokes a backend consent record previously created by
@@ -863,13 +873,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let _: EmptyResponse = try await performRequest(request)
     }
 
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        let request = try authenticatedRequest(for: "v2/connections/services", method: "GET")
+        return try await performRequest(request)
+    }
+
     func createConnectionGrant(
         ownerInboxId: String,
         granteeInboxId: String,
         conversationId: String,
         toolkit: String,
-        actions: [String],
-        connectionId: String?
+        bundleIds: [String]?,
+        serviceVersion: Int?
     ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
         var request = try authenticatedRequest(for: "v2/connections/grants", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -879,8 +894,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             let granteeInboxId: String
             let conversationId: String
             let toolkit: String
-            let actions: [String]
-            let connectionId: String?
+            let bundleIds: [String]?
+            let serviceVersion: Int?
         }
         request.httpBody = try JSONEncoder().encode(
             GrantBody(
@@ -888,12 +903,30 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
                 granteeInboxId: granteeInboxId,
                 conversationId: conversationId,
                 toolkit: toolkit,
-                actions: actions,
-                connectionId: connectionId
+                bundleIds: bundleIds,
+                serviceVersion: serviceVersion
             )
         )
 
-        return try await performRequest(request)
+        do {
+            return try await performRequest(request)
+        } catch let APIError.badRequest(message) {
+            // The unknown-bundle 400 body is `{"code": "unknown_bundle",
+            // "bundleId": "<id>"}` — no `message`/`error` key, so
+            // `parseErrorMessage` passes the raw JSON body through. Decode it
+            // here so callers get a typed staleness signal they can retry on.
+            struct GrantErrorBody: Decodable {
+                let code: String
+                let bundleId: String?
+            }
+            if let message,
+               let data = message.data(using: .utf8),
+               let body = try? JSONDecoder().decode(GrantErrorBody.self, from: data),
+               body.code == "unknown_bundle" {
+                throw CloudConnectionsAPI.GrantError.unknownBundle(bundleId: body.bundleId)
+            }
+            throw APIError.badRequest(message)
+        }
     }
 
     func revokeConnectionGrant(id: String) async throws {
