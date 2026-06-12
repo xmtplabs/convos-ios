@@ -197,30 +197,30 @@ public final class MessagesListProcessor: Sendable {
                 result.append(item)
                 continue
             }
-            // Walk the group, splitting it into build vs non-build segments.
-            // Build segments collapse into their run's card (emitted once);
-            // non-build segments stay as their own group with a stable id.
+            // Walk the group, collapsing build rows into their run's card
+            // (emitted once, where the run's first row sat); non-build
+            // messages stay as their own group with a stable id. A swallowed
+            // run (the creator's own latest build, which renders via the
+            // Make-anchored summary card instead) leaves nothing behind, so
+            // it must not split the surrounding same-sender messages into
+            // two groups -- that would render two "Sent" rows.
             var segment: [AnyMessage] = []
-            var segmentIsBuild: Bool = false
             func flushSegment() {
                 guard let first = segment.first else { return }
-                if segmentIsBuild {
-                    if let anchor = anchorByMessageId[first.messageId],
-                       !emittedAnchors.contains(anchor),
-                       let card = cardByAnchor[anchor] {
-                        emittedAnchors.insert(anchor)
-                        result.append(.agentBuilderSummary(card))
-                    }
-                } else {
-                    result.append(.messages(rebuiltGroup(group, id: "group-" + first.messageId, messages: segment)))
-                }
+                result.append(.messages(rebuiltGroup(group, id: "group-" + first.messageId, messages: segment)))
                 segment = []
             }
             for message in group.messages {
-                let isBuild: Bool = buildMessageIds.contains(message.messageId)
-                if !segment.isEmpty, isBuild != segmentIsBuild { flushSegment() }
-                segmentIsBuild = isBuild
-                segment.append(message)
+                guard buildMessageIds.contains(message.messageId) else {
+                    segment.append(message)
+                    continue
+                }
+                guard let anchor = anchorByMessageId[message.messageId],
+                      !emittedAnchors.contains(anchor),
+                      let card = cardByAnchor[anchor] else { continue }
+                emittedAnchors.insert(anchor)
+                flushSegment()
+                result.append(.agentBuilderSummary(card))
             }
             flushSegment()
         }
@@ -302,7 +302,7 @@ public final class MessagesListProcessor: Sendable {
             items = insertingContactCard(in: items, agent: agent)
         }
 
-        return items
+        return clearingDuplicatedLastGroupFlags(in: items)
     }
 
     /// Strip date separators that no longer precede a message group. A
@@ -730,6 +730,41 @@ public final class MessagesListProcessor: Sendable {
 }
 
 private extension MessagesListProcessor {
+    /// Splitting a message group (run-card splice, Make-boundary insert)
+    /// copies the group's presentation flags into every half, but the
+    /// "last group" flags are positional -- if more than one group carries
+    /// one, each renders its own "Sent" status row. Keep each flag only on
+    /// its bottom-most carrier.
+    static func clearingDuplicatedLastGroupFlags(
+        in baseItems: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        var seenLastSentByCurrentUser: Bool = false
+        var seenLastBeforeOtherMembers: Bool = false
+        for index in items.indices.reversed() {
+            guard case .messages(var group) = items[index] else { continue }
+            var changed: Bool = false
+            if group.isLastGroupSentByCurrentUser {
+                if seenLastSentByCurrentUser {
+                    group.isLastGroupSentByCurrentUser = false
+                    changed = true
+                } else {
+                    seenLastSentByCurrentUser = true
+                }
+            }
+            if group.isLastGroupBeforeOtherMembers {
+                if seenLastBeforeOtherMembers {
+                    group.isLastGroupBeforeOtherMembers = false
+                    changed = true
+                } else {
+                    seenLastBeforeOtherMembers = true
+                }
+            }
+            if changed { items[index] = .messages(group) }
+        }
+        return items
+    }
+
     /// Insert the agent contact card as its own standalone row. The card has
     /// a single placement rule, so it never relocates as the agent's
     /// messages, connection events, or user replies stream in around it.

@@ -1926,4 +1926,93 @@ extension MessagesListProcessorPendingBuilderCardTests {
         // No message is lost in the split.
         #expect(Set(messageIds(from: result)) == ["pre-1", "pre-2", "post-1", "post-2"])
     }
+
+    @Test("Make-boundary split keeps the Sent row only on the newer half")
+    func makeBoundarySplitKeepsSingleSentRow() {
+        let make = Date()
+        let messages = [
+            makeMessage(id: "pre", sender: currentUser, text: "Before Make", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "post", sender: currentUser, text: "After Make", date: make.addingTimeInterval(20)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let flagged = groups(from: result).filter(\.isLastGroupSentByCurrentUser)
+        #expect(flagged.count == 1)
+        #expect(flagged.first?.messages.map(\.messageId) == ["post"])
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Messages straddling the swallowed build bundle stay one group with one Sent row")
+    func messagesAroundSwallowedBundleStayGrouped() {
+        let make = Date()
+        // The user sends one message right after Make, the agent joins and the
+        // held bundle publishes (its row dated between the sends), then the
+        // user sends again. All rows share a sender, so the processor merges
+        // them into one group; swallowing the bundle row must not split it.
+        let messages = [
+            makeMessage(id: "please", sender: currentUser, text: "Please", date: make.addingTimeInterval(5)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Help me get healthier", date: make.addingTimeInterval(12)),
+            makeMessage(id: "ugh", sender: currentUser, text: "Ugh", date: make.addingTimeInterval(20)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Help me get healthier",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let g = groups(from: result)
+        #expect(g.count == 1)
+        #expect(g.first?.messages.map(\.messageId) == ["please", "ugh"])
+        #expect(g.filter(\.isLastGroupSentByCurrentUser).count == 1)
+
+        // The card renders at the Make slot, above both sends.
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let groupIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "please" }
+        }
+        #expect(cardIndex != nil && groupIndex != nil)
+        if let cardIndex, let groupIndex {
+            #expect(cardIndex < groupIndex)
+        }
+    }
+
+    @Test("Recipient run card between same-sender messages splits the group with one Sent row")
+    func runCardBetweenSameSenderMessagesKeepsSingleSentRow() {
+        let now = Date()
+        // No summary: the run keeps its run-anchored card (recipient view),
+        // which genuinely separates the two sends -- but only the bottom
+        // group may carry the Sent row.
+        let messages = [
+            makeMessage(id: "first", sender: currentUser, text: "First", date: now),
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: now.addingTimeInterval(10)),
+            makeMessage(id: "second", sender: currentUser, text: "Second", date: now.addingTimeInterval(20)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let g = groups(from: result)
+        #expect(g.count == 2)
+        let flagged = g.filter(\.isLastGroupSentByCurrentUser)
+        #expect(flagged.count == 1)
+        #expect(flagged.first?.messages.map(\.messageId) == ["second"])
+    }
 }
