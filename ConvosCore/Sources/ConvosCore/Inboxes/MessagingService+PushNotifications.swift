@@ -174,6 +174,14 @@ extension MessagingService {
             do {
                 let dbConversation = try await storeConversation(newGroup.group, inboxId: client.inboxId)
 
+                // The user deleted this conversation while the invite was
+                // still verifying -- it arrived denied and is filtered out
+                // of the list, so don't announce it.
+                guard dbConversation.consent != .denied else {
+                    Log.info("Suppressing welcome notification for denied conversation \(dbConversation.id)")
+                    return .droppedMessage
+                }
+
                 let displayName = (try? await getComputedDisplayName(
                     conversationId: dbConversation.id,
                     currentInboxId: client.inboxId
@@ -187,6 +195,9 @@ extension MessagingService {
                 )
             } catch {
                 Log.error("Failed to store conversation in NSE: \(error.localizedDescription)")
+                if await isLocallyDeniedInvite(group: newGroup.group) {
+                    return .droppedMessage
+                }
                 return .init(
                     title: newGroup.conversationName.orUntitled,
                     body: "Your invite was verified",
@@ -901,6 +912,29 @@ extension MessagingService {
             coreActions: coreActions
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
+    }
+
+    /// True when the local DB carries a denial for this group -- either its
+    /// own row or a deleted pending-invite draft sharing its invite tag
+    /// (the draft survives when storing the arriving group fails). Used to
+    /// suppress notifications for conversations the user deleted.
+    private func isLocallyDeniedInvite(group: XMTPiOS.Group) async -> Bool {
+        let groupId = group.id
+        let inviteTag = (try? group.inviteTag) ?? ""
+        let denied = try? await databaseReader.read { db in
+            var request = DBConversation
+                .filter(DBConversation.Columns.consent == Consent.denied)
+            if inviteTag.isEmpty {
+                request = request.filter(DBConversation.Columns.id == groupId)
+            } else {
+                request = request.filter(
+                    DBConversation.Columns.id == groupId
+                        || DBConversation.Columns.inviteTag == inviteTag
+                )
+            }
+            return try request.fetchOne(db) != nil
+        }
+        return denied ?? false
     }
 
     // MARK: - Computed Display Name
