@@ -85,26 +85,42 @@ public final class MessagesListProcessor: Sendable {
         return rebuilt
     }
 
-    /// Group build messages into runs of entries adjacent in the message stream.
-    /// One Make sends its prompt + attachment bundle back to back, so they form a
-    /// single run (and a single card); separate Make events split by other
-    /// messages form separate runs and render separate cards.
+    /// Group build messages into runs. One Make sends its prompt + attachment
+    /// bundle back to back, so they form a single run (and a single card);
+    /// separate Make events split by other visible messages form separate runs
+    /// and render separate cards. Rows that never render their own list item
+    /// (silent updates, connection invocations) don't break a run -- one
+    /// landing between the bundle's publishes must not turn one Make into two
+    /// cards.
     private static func buildRuns(in rawMessages: [AnyMessage], buildMessageIds: Set<String>) -> [[AnyMessage]] {
         guard !buildMessageIds.isEmpty else { return [] }
         var runs: [[AnyMessage]] = []
         var current: [AnyMessage] = []
-        var lastIndex: Int?
-        for (index, message) in rawMessages.enumerated() where buildMessageIds.contains(message.messageId) {
-            if let last = lastIndex, index == last + 1 {
+        var visibleRowSinceLastBuildRow: Bool = false
+        for message in rawMessages {
+            if buildMessageIds.contains(message.messageId) {
+                if visibleRowSinceLastBuildRow, !current.isEmpty {
+                    runs.append(current)
+                    current = []
+                }
                 current.append(message)
-            } else {
-                if !current.isEmpty { runs.append(current) }
-                current = [message]
+                visibleRowSinceLastBuildRow = false
+            } else if rendersOwnListRow(message.content) {
+                visibleRowSinceLastBuildRow = true
             }
-            lastIndex = index
         }
         if !current.isEmpty { runs.append(current) }
         return runs
+    }
+
+    /// Whether a message produces its own row in the list. Mirrors the two
+    /// silent paths in `processMessages`: contents hidden by
+    /// `showsInMessagesList`, and connection invocations, which the grouping
+    /// loop skips outright.
+    private static func rendersOwnListRow(_ content: MessageContent) -> Bool {
+        guard content.showsInMessagesList else { return false }
+        if case .connectionInvocation = content { return false }
+        return true
     }
 
     /// The `AgentBuilderConnection` raw values captured in a creator's local
@@ -302,6 +318,7 @@ public final class MessagesListProcessor: Sendable {
             items = insertingContactCard(in: items, agent: agent)
         }
 
+        items = reconcilingFullBleedAdjacency(in: items)
         return clearingDuplicatedLastGroupFlags(in: items)
     }
 
@@ -795,6 +812,34 @@ private extension MessagesListProcessor {
                 } else {
                     seenLastBeforeOtherMembers = true
                 }
+            }
+            if changed { items[index] = .messages(group) }
+        }
+        return items
+    }
+
+    /// The full-bleed adjacency pass runs before the card splices, so a group
+    /// can keep a flag from a full-bleed neighbor that was swallowed or
+    /// replaced by a card row -- rendering hairline padding against a
+    /// non-media row. Clear any flag whose neighbor is no longer a full-bleed
+    /// group (clear-only: a group never gains hairline treatment here).
+    static func reconcilingFullBleedAdjacency(
+        in baseItems: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        for index in items.indices {
+            guard case .messages(var group) = items[index],
+                  group.adjacentToFullBleedAbove || group.adjacentToFullBleedBelow else { continue }
+            let fullBleedAbove: Bool = index > 0 && items[index - 1].isFullBleedAttachmentGroup
+            let fullBleedBelow: Bool = index < items.count - 1 && items[index + 1].isFullBleedAttachmentGroup
+            var changed: Bool = false
+            if group.adjacentToFullBleedAbove, !fullBleedAbove {
+                group.adjacentToFullBleedAbove = false
+                changed = true
+            }
+            if group.adjacentToFullBleedBelow, !fullBleedBelow {
+                group.adjacentToFullBleedBelow = false
+                changed = true
             }
             if changed { items[index] = .messages(group) }
         }
