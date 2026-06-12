@@ -744,8 +744,8 @@ public actor ConversationStateMachine {
         }
 
         let dm = try await client.newConversation(with: inviterInboxId)
-        let text = try invite.toURLSafeSlug()
-        _ = try await dm.prepare(text: text)
+        let joinRequest = JoinRequestContent(inviteSlug: try invite.toURLSafeSlug())
+        _ = try await dm.prepare(joinRequest: joinRequest)
         try await dm.publish()
 
         Log.info("[PERF] NewConversation.joinRequestSent")
@@ -1321,14 +1321,16 @@ extension ConversationStateMachine {
         text: String,
         bundleItems: [MultiAttachmentBundleItem],
         textClientMessageId: String,
-        bundleClientMessageId: String
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
     ) async throws {
         let writer = try await getOrCreateMessageWriter()
         try await writer.sendBuilderBundle(
             text: text,
             bundleItems: bundleItems,
             textClientMessageId: textClientMessageId,
-            bundleClientMessageId: bundleClientMessageId
+            bundleClientMessageId: bundleClientMessageId,
+            awaitsAgentJoin: awaitsAgentJoin
         )
     }
 }

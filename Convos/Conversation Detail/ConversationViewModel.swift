@@ -150,6 +150,37 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// regular conversation open, etc.) are unaffected.
     private var expectedSeededMemberCount: Int = 0
     private var hasMetSeededExpectation: Bool = true
+    /// Synthetic agent members for picked templates (built via
+    /// `AgentShareInfo.optimisticCardMember(conversationId:)`) overlaid
+    /// onto every incoming DB emission until the real provisioned
+    /// instance joins. Unlike picked humans - who are added before the
+    /// state machine emits `.ready`, so the count gate above covers them -
+    /// agent instances join asynchronously via `agents/join` well after
+    /// `.ready`. Gating emissions on them would block invite and metadata
+    /// updates for the whole provisioning window, so they're overlaid
+    /// instead: emissions flow through, and the indicator keeps rendering
+    /// the picked end state. Cleared per-template as the matching real
+    /// member lands, or wholesale when the join call fails. Distinct from
+    /// `optimisticAgentIdentity` above: that paints a single pending agent
+    /// for the template flows; this carries the picker's multi-member end
+    /// state (title and avatar cluster) inside `conversation.members`.
+    @ObservationIgnored
+    private var pendingSyntheticAgentMembers: [ConversationMember] = []
+    /// Time-box for the synthetic overlay, mirroring
+    /// `optimisticAgentExpiryTask` above: if a provisioned instance never
+    /// surfaces as a member with matching template metadata (e.g. an
+    /// agent that joins but never publishes its profile), the synthetics
+    /// are dropped after the same window instead of promising the picked
+    /// agents forever.
+    @ObservationIgnored
+    private var pendingSyntheticAgentExpiryTask: Task<Void, Never>?
+    /// Latest conversation as emitted by the DB publisher, before any
+    /// synthetic-member overlay. Kept so optimistic state can be rolled
+    /// back to ground truth when an add-members or agents/join call
+    /// fails. Only retained while the seeded gate or the synthetic
+    /// overlay is active; dropped on steady-state emissions.
+    @ObservationIgnored
+    private var latestRawConversation: Conversation?
     let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
@@ -431,7 +462,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // persisted Make commit time. Only within the placeholder window -
         // a stale rehydrated summary isn't a join the user is watching.
         if !conversation.members.contains(where: \.isVerifiedConvosAgent) {
-            beginAssistantJoinWait(surface: .builderPlaceholder, startedAt: summary.cutoffDate)
+            beginAssistantJoinWait(source: .agentBuilder, startedAt: summary.cutoffDate)
         }
     }
 
@@ -789,6 +820,24 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var agentJoinTaskId: String?
 
+    /// One agents/join call: the template requested (nil means the backend's
+    /// default agent) and the requestId that keys its in-stream status
+    /// bubble.
+    struct AgentJoinAttempt {
+        let templateId: String?
+        let requestId: String
+    }
+
+    /// The agents/join call(s) behind the most recent failure bubble. The
+    /// retry affordance replays these so a failed templated join retries the
+    /// same template instead of falling back to a bare default-agent join,
+    /// and reuses the original requestId so the existing status bubble
+    /// updates in place. Note the backend may have processed a call whose
+    /// response was lost, so a retry can still double-join until agents/join
+    /// gains a server-side idempotency key.
+    @ObservationIgnored
+    private var failedAgentJoins: [AgentJoinAttempt] = []
+
     /// Telemetry anchors for the assistant joining/verifying wait: set when
     /// an agents/join call succeeds (or rebased on the agent builder's Make
     /// commit time), cleared when the verified assistant arrives or the wait
@@ -796,7 +845,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinWaitStartedAt: Date?
     @ObservationIgnored
-    private var assistantJoinWaitSurface: AssistantJoinSurface?
+    private var assistantJoinWaitSource: AssistantJoinSource?
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
@@ -927,6 +976,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask?.cancel()
         assistantJoinTimeoutTask?.cancel()
     }
 
@@ -1259,15 +1309,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 // stays open so later member additions / removals
                 // propagate normally. Non-seeded VMs default to "gate
                 // open", so this is a no-op for them.
+                if !hasMetSeededExpectation || !pendingSyntheticAgentMembers.isEmpty {
+                    latestRawConversation = conversation
+                } else {
+                    latestRawConversation = nil
+                }
                 if !hasMetSeededExpectation {
                     if conversation.membersWithoutCurrent.count < expectedSeededMemberCount {
                         return
                     }
                     hasMetSeededExpectation = true
                 }
+                let displayConversation = overlayingPendingSyntheticAgents(on: conversation)
                 let previousId = self.conversation.id
                 let wasViewingConversation = self.isViewingConversation
-                self.conversation = conversation
+                self.conversation = displayConversation
                 self.loadConversationImage(for: conversation)
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
@@ -1422,10 +1478,155 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// already reflects the picked contacts. Other code paths must
     /// not call this - the default state is "gate open" so DB
     /// emissions flow through normally.
-    func markSeeded(expectingMemberCount count: Int) {
+    ///
+    /// `count` covers picked humans only - they're added before the state
+    /// machine emits `.ready`, so gating on them is short-lived. Picked
+    /// agent templates go in `pendingAgentMembers` instead and are
+    /// overlaid onto emissions until the provisioned instance joins (see
+    /// `pendingSyntheticAgentMembers`).
+    func markSeeded(expectingMemberCount count: Int, pendingAgentMembers: [ConversationMember] = []) {
+        pendingSyntheticAgentMembers = pendingAgentMembers
+        if !pendingAgentMembers.isEmpty {
+            armPendingSyntheticAgentExpiry()
+        }
         guard count > 0 else { return }
         expectedSeededMemberCount = count
         hasMetSeededExpectation = false
+    }
+
+    /// Optimistically renders the picker's selection into the displayed
+    /// conversation before the real add-members / agents-join calls land,
+    /// so the indicator shows the end state instead of "New Convo".
+    /// Used by the Compose flow, where the conversation already exists
+    /// when the picker confirms (unlike the seeded-draft flow, which goes
+    /// through `markSeeded` at VM construction). Humans are appended as
+    /// synthetic members and the emission gate is armed until the real
+    /// rows catch up; agent templates are overlaid until each provisioned
+    /// instance joins.
+    func seedOptimisticPickedMembers(inboxIds: [String], agentTemplateIds: [String]) {
+        let conversationId = conversation.id
+        let contactsRepository = messagingService.contactsRepository()
+        // Skip anyone already in the displayed conversation so seeding can
+        // never duplicate a real member (or a prior seed of the same pick).
+        let existingInboxIds = Set(conversation.members.map(\.profile.inboxId))
+        let humanMembers: [ConversationMember] = inboxIds
+            .compactMap { contactsRepository.contact(for: $0) }
+            .map { $0.syntheticMember(conversationId: conversationId) }
+            .filter { !existingInboxIds.contains($0.profile.inboxId) }
+        // Agent contacts are canonical rows keyed by agentTemplateId, so
+        // picked templates resolve back through the same contacts
+        // repository. A templateId with no contact row (e.g. a suggested
+        // agent the user never chatted with) is skipped - that selection
+        // just keeps the non-optimistic behavior.
+        let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: agentTemplateIds)) ?? []
+        let agentMembers: [ConversationMember] = agentContacts
+            .compactMap(\.agentShareInfo)
+            .map { $0.optimisticCardMember(conversationId: conversationId) }
+            .filter { !existingInboxIds.contains($0.profile.inboxId) }
+        guard !(humanMembers.isEmpty && agentMembers.isEmpty) else { return }
+        if latestRawConversation == nil {
+            latestRawConversation = conversation
+        }
+        pendingSyntheticAgentMembers += agentMembers
+        if !agentMembers.isEmpty {
+            armPendingSyntheticAgentExpiry()
+        }
+        if !humanMembers.isEmpty {
+            expectedSeededMemberCount = conversation.membersWithoutCurrent.count + humanMembers.count
+            hasMetSeededExpectation = false
+        }
+        conversation = conversation.withMembers(conversation.members + humanMembers + agentMembers)
+    }
+
+    /// Rolls the optimistic human members back to the latest DB ground
+    /// truth and reopens the emission gate. Called when the real
+    /// add-members call fails, so the indicator stops promising members
+    /// that will never arrive. Pending synthetic agents are left alone -
+    /// their lifecycle is tied to the agents/join call instead.
+    func rollbackOptimisticPickedMembers() {
+        guard !hasMetSeededExpectation else { return }
+        hasMetSeededExpectation = true
+        expectedSeededMemberCount = 0
+        guard let raw = latestRawConversation else { return }
+        conversation = overlayingPendingSyntheticAgents(on: raw)
+    }
+
+    /// Overlays not-yet-joined synthetic agent members onto a DB-emitted
+    /// conversation so the indicator keeps showing the picked end state
+    /// while agent instances provision. A synthetic is dropped once a real
+    /// member covers it - matched by the templateId profile metadata the
+    /// agent runtime writes, with a count-based fallback for joined agents
+    /// whose metadata hasn't resolved yet.
+    private func overlayingPendingSyntheticAgents(on conversation: Conversation) -> Conversation {
+        guard !pendingSyntheticAgentMembers.isEmpty else { return conversation }
+        var unmatchedAgents = conversation.membersWithoutCurrent.filter { member in
+            member.isAgent && !member.isOptimisticAgentMember
+        }
+        var unmatchedSynthetics: [ConversationMember] = []
+        for synthetic in pendingSyntheticAgentMembers {
+            let templateId = synthetic.optimisticAgentTemplateId
+            if templateId != nil,
+               let index = unmatchedAgents.firstIndex(where: { $0.profile.agentTemplateId == templateId }) {
+                unmatchedAgents.remove(at: index)
+            } else {
+                unmatchedSynthetics.append(synthetic)
+            }
+        }
+        // Count-based fallback: a joined agent whose templateId metadata
+        // hasn't resolved yet consumes one unmatched synthetic. With several
+        // simultaneous joins this can briefly pair the wrong identities, but
+        // it self-corrects on the next emission once metadata arrives.
+        var stillPending: [ConversationMember] = []
+        for synthetic in unmatchedSynthetics {
+            if let index = unmatchedAgents.firstIndex(where: { $0.profile.agentTemplateId == nil }) {
+                unmatchedAgents.remove(at: index)
+            } else {
+                stillPending.append(synthetic)
+            }
+        }
+        let fallbackMatchCount = unmatchedSynthetics.count - stillPending.count
+        if fallbackMatchCount > 0 {
+            Log.info("Optimistic agent overlay: count-based fallback matched \(fallbackMatchCount) joined agent(s) without templateId metadata")
+        }
+        pendingSyntheticAgentMembers = stillPending
+        if stillPending.isEmpty {
+            pendingSyntheticAgentExpiryTask?.cancel()
+            pendingSyntheticAgentExpiryTask = nil
+        }
+        // An emission can already carry the synthetics themselves (the
+        // placeholder VM's mock repository re-emits the seeded draft);
+        // skip those so members never duplicate.
+        let existingInboxIds = Set(conversation.members.map(\.profile.inboxId))
+        let overlayMembers = stillPending.filter { !existingInboxIds.contains($0.profile.inboxId) }
+        guard !overlayMembers.isEmpty else { return conversation }
+        return conversation.withMembers(conversation.members + overlayMembers)
+    }
+
+    /// Drops any not-yet-joined synthetic agent members and re-renders
+    /// from the latest raw DB emission, so a failed agents/join doesn't
+    /// leave the indicator promising an agent that will never arrive.
+    private func clearPendingSyntheticAgents() {
+        pendingSyntheticAgentExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask = nil
+        guard !pendingSyntheticAgentMembers.isEmpty else { return }
+        pendingSyntheticAgentMembers = []
+        guard let raw = latestRawConversation else { return }
+        guard hasMetSeededExpectation else { return }
+        conversation = raw
+    }
+
+    /// Starts (or restarts) the synthetic-overlay time-box. Fires only if
+    /// synthetics are still pending when the window elapses - the overlay
+    /// cancels the task as soon as the last synthetic is matched by a
+    /// real member.
+    private func armPendingSyntheticAgentExpiry() {
+        pendingSyntheticAgentExpiryTask?.cancel()
+        pendingSyntheticAgentExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(AgentBuilderPlaceholder.displayDuration))
+            guard !Task.isCancelled, let self, !self.pendingSyntheticAgentMembers.isEmpty else { return }
+            Log.info("Optimistic agent overlay expired with \(self.pendingSyntheticAgentMembers.count) synthetic(s) still pending - dropping")
+            self.clearPendingSyntheticAgents()
+        }
     }
 
     func startOnboarding() {
@@ -2296,7 +2497,8 @@ extension ConversationViewModel {
         text: String,
         voiceMemo: BuilderVoiceMemoSnapshot?,
         textMessageId: String? = nil,
-        bundleMessageId: String? = nil
+        bundleMessageId: String? = nil,
+        awaitsAgentJoin: Bool = true
     ) async {
         defer { isAwaitingBuilderBundleSend = false }
         let writer = cachedMessageWriter
@@ -2342,7 +2544,8 @@ extension ConversationViewModel {
                 text: text,
                 bundleItems: bundleItems,
                 textClientMessageId: resolvedTextClientMessageId,
-                bundleClientMessageId: resolvedBundleClientMessageId
+                bundleClientMessageId: resolvedBundleClientMessageId,
+                awaitsAgentJoin: awaitsAgentJoin
             )
         } catch {
             Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
@@ -3001,13 +3204,15 @@ extension ConversationViewModel {
     /// is a bare join (the backend provisions its default agent); a
     /// non-nil id provisions a fresh instance of that template. The
     /// caller-facing `agents/join` body no longer accepts `instructions`.
+    /// Pass `requestId` only when replaying a failed attempt, so the
+    /// replay updates the existing status bubble instead of adding one.
     ///
     /// Single-flight: a new call cancels any prior in-flight join request
     /// (retry-from-error semantics for the chat-header "+" menu). For
     /// multi-template fan-out (picker confirms N templates at once) use
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
-    func requestAgentJoin(templateId: String?) {
+    func requestAgentJoin(templateId: String?, requestId: String = UUID().uuidString) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
@@ -3017,12 +3222,11 @@ extension ConversationViewModel {
         // here too), not at API success - a fast agent can arrive via the
         // stream before agents/join returns, which would otherwise lose the
         // assistant_joined sample.
-        let surface: AssistantJoinSurface = templateId == nil ? .statusMessage : .contactCard
-        beginAssistantJoinWait(surface: surface)
+        let source: AssistantJoinSource = templateId == nil ? .addToConversation : .agentTemplate
+        beginAssistantJoinWait(source: source)
 
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
-        let requestId = UUID().uuidString
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
@@ -3039,6 +3243,7 @@ extension ConversationViewModel {
             await MainActor.run {
                 guard let self else { return }
                 if outcome == .failed {
+                    self.failedAgentJoins = [AgentJoinAttempt(templateId: templateId, requestId: requestId)]
                     self.onAgentJoinError()
                     // The user is watching the failure UI now, not a join
                     // wait. A superseding retap exits as .cancelled, so this
@@ -3052,6 +3257,25 @@ extension ConversationViewModel {
             }
         }
         agentJoinTaskId = taskId
+    }
+
+    /// Replays the agents/join call(s) behind the failure bubble's retry
+    /// button. Without the recorded attempts (e.g. the process restarted
+    /// since the failure was written), falls back to a bare default-agent
+    /// join, the pre-existing behavior.
+    func retryAgentJoin() {
+        let failures = failedAgentJoins
+        failedAgentJoins = []
+        guard !failures.isEmpty else {
+            requestAgentJoin(templateId: nil)
+            return
+        }
+        Log.info("retryAgentJoin replaying \(failures.count) failed join(s)")
+        if failures.count == 1, let failure = failures.first {
+            requestAgentJoin(templateId: failure.templateId, requestId: failure.requestId)
+        } else {
+            runSequentialAgentJoins(failures)
+        }
     }
 
     /// Bare-join convenience for the in-conversation "add an agent"
@@ -3080,43 +3304,53 @@ extension ConversationViewModel {
     /// session state machine under concurrent waiters).
     func requestAgentJoins(templateIds: [String]) {
         guard !templateIds.isEmpty else { return }
+        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
+        let joins = templateIds.map { AgentJoinAttempt(templateId: $0, requestId: UUID().uuidString) }
+        runSequentialAgentJoins(joins)
+    }
+
+    private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
+        guard !joins.isEmpty else { return }
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
-        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
 
         // Batch adds return to the chat, so the join progress shows as
         // in-stream pending status bubbles. Anchored at request time for the
         // same fast-arrival reason as requestAgentJoin; the first verified
         // arrival ends the wait measurement.
-        beginAssistantJoinWait(surface: .statusMessage)
+        beginAssistantJoinWait(source: .addToConversation)
 
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
         Task { [weak self] in
-            var anyFailed = false
+            var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
-            for (index, templateId) in templateIds.enumerated() {
+            for (index, join) in joins.enumerated() {
                 if index > 0 {
                     // Brief gap between calls so the previous broadcast's
                     // libxmtp message-send fully settles before the next
                     // call's broadcast / API races against it.
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
-                let requestId = UUID().uuidString
                 let outcome = await Self.performAgentJoinCall(
-                    templateId: templateId,
+                    templateId: join.templateId,
                     slug: slug,
                     conversationId: conversationId,
-                    requestId: requestId,
+                    requestId: join.requestId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
-                if outcome == .failed { anyFailed = true }
+                if outcome == .failed { failed.append(join) }
                 if outcome == .succeeded { anySucceeded = true }
             }
-            if anyFailed {
-                await MainActor.run { self?.onAgentJoinError() }
+            let failedJoins = failed
+            if !failedJoins.isEmpty {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.failedAgentJoins = failedJoins
+                    self.onAgentJoinError()
+                }
             }
             if !anySucceeded {
                 // Every call failed or was cancelled - nothing is joining,
@@ -3132,10 +3366,10 @@ extension ConversationViewModel {
     /// wait measurement. Anchored at `startedAt` so the agent-builder flow
     /// can use the persisted Make commit time; an already-running wait keeps
     /// its earlier anchor so retries don't shrink the measured duration.
-    private func beginAssistantJoinWait(surface: AssistantJoinSurface, startedAt: Date = Date()) {
+    private func beginAssistantJoinWait(source: AssistantJoinSource, startedAt: Date = Date()) {
         if assistantJoinWaitStartedAt == nil {
             assistantJoinWaitStartedAt = startedAt
-            assistantJoinWaitSurface = surface
+            assistantJoinWaitSource = source
         }
         armAssistantJoinTimeout()
     }
@@ -3152,10 +3386,11 @@ extension ConversationViewModel {
         }
     }
 
-    /// Emits `assistant_join_timed_out` when the wait window elapses without
-    /// a verified assistant appearing. The measurement stops here - an
-    /// assistant that arrives later is not counted as a completed wait (the
-    /// user already watched the joining state fail).
+    /// Emits `assistant_joined` with `is_success: false` when the wait
+    /// window elapses without a verified assistant appearing. The
+    /// measurement stops here - an assistant that arrives later is not
+    /// counted as a completed wait (the user already watched the joining
+    /// state fail).
     private func emitAssistantJoinTimedOut() {
         guard let startedAt = assistantJoinWaitStartedAt else { return }
         guard !conversation.members.contains(where: \.isVerifiedConvosAgent) else {
@@ -3163,10 +3398,17 @@ extension ConversationViewModel {
             return
         }
         let waitDuration = Float(Date().timeIntervalSince(startedAt))
-        let surface: AssistantJoinSurface = assistantJoinWaitSurface ?? .statusMessage
+        let source: AssistantJoinSource = assistantJoinWaitSource ?? .addToConversation
         clearAssistantJoinWait()
         let actions: any CoreActions = coreActions
-        Task { await actions.assistantJoinTimedOut(waitDuration: waitDuration, surface: surface) }
+        Task {
+            await actions.assistantJoined(
+                waitDuration: waitDuration,
+                source: source,
+                memberCount: nil,
+                isSuccess: false
+            )
+        }
     }
 
     /// Emits `assistant_joined` when a verified assistant transitions into
@@ -3177,18 +3419,25 @@ extension ConversationViewModel {
               !oldValue.members.contains(where: \.isVerifiedConvosAgent),
               conversation.members.contains(where: \.isVerifiedConvosAgent) else { return }
         let waitDuration = Float(Date().timeIntervalSince(startedAt))
-        let surface: AssistantJoinSurface = assistantJoinWaitSurface ?? .statusMessage
+        let source: AssistantJoinSource = assistantJoinWaitSource ?? .addToConversation
         let memberCount = conversation.members.count
         clearAssistantJoinWait()
         let actions: any CoreActions = coreActions
-        Task { await actions.assistantJoined(waitDuration: waitDuration, surface: surface, memberCount: memberCount) }
+        Task {
+            await actions.assistantJoined(
+                waitDuration: waitDuration,
+                source: source,
+                memberCount: memberCount,
+                isSuccess: true
+            )
+        }
     }
 
     private func clearAssistantJoinWait() {
         assistantJoinTimeoutTask?.cancel()
         assistantJoinTimeoutTask = nil
         assistantJoinWaitStartedAt = nil
-        assistantJoinWaitSurface = nil
+        assistantJoinWaitSource = nil
     }
 
     /// Discriminates the three outcomes of an `agents/join` call so callers
@@ -3290,6 +3539,7 @@ extension ConversationViewModel {
 
     private func onAgentJoinError() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        clearPendingSyntheticAgents()
     }
 
     func leaveConvo() {

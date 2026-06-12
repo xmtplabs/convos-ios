@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "jarod/assistant-join-metrics",
-        "revision" : "db0dde49c87c670758ca7a14488d863701a9be1d"
+        "branch" : "main",
+        "revision" : "b82d23fc47fd2a9ed41370369a783306b9fbdc8a"
       }
     },
     {

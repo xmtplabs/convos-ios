@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -19,6 +20,12 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     }
 
     public func prepare(text: String) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepare(joinRequest: JoinRequestContent) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)
         return messageId

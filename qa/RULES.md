@@ -109,9 +109,9 @@ test's `screen` prerequisite or a navigation step doesn't match the screen.
 
 ### Tabs
 
-- Two tabs in the system tab bar: **Chats** (`message.fill`) and **Stuff**
+- Two tabs in the system tab bar: **Chats** (`message.fill`) and **Things**
   (`square.grid.2x2.fill`). Select a tab by tapping its label ("Chats" /
-  "Stuff").
+  "Things").
 - The **Search** tab was removed. Any step that taps a search tab or
   `search-tab` is stale - there is no search entry point right now.
 - On iPhone the tab bar is at the bottom; on iPad it is at the top.

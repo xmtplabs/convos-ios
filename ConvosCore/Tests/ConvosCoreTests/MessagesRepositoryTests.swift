@@ -494,7 +494,8 @@ struct MessagesRepositoryTests {
             isUnreadUpdatedAt: now,
             isMuted: false,
             pinnedOrder: nil,
-            hidesInviteCard: false
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
 
         try DBConversationMember(

@@ -127,7 +127,9 @@ struct MessagesGroupView: View {
     }
 
     private var singleTyperIndicator: some View {
-        let isTypingOnly = displayGroup.allMessages.isEmpty
+        // The contact-card section already renders the sender label above
+        // the card, so a typing-only card group must not add a second one.
+        let isTypingOnly = displayGroup.allMessages.isEmpty && displayGroup.agentContactCard == nil
 
         return Group {
             if isTypingOnly && !displayGroup.sender.isCurrentUser {
@@ -228,7 +230,10 @@ struct MessagesGroupView: View {
         }
 
         let isLastInGroup: Bool = message == displayGroup.messages.last
+        // A continuation chunk follows this group in the same sender run, so
+        // its visual bottom is not the end of the run -- no tail.
         let isLast: Bool = isLastInGroup && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
+            && !displayGroup.isContinuedBelow
         // When the last message is a voice memo with a transcript row attached, the
         // transcript becomes the visual bottom of the group, so the tail moves from
         // the voice memo bubble down onto the transcript row.
@@ -303,11 +308,15 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func contactCardRow(card: AgentContactCardInfo) -> some View {
-        // The card is the visual "last item" of the group only when the
-        // agent hasn't sent any messages yet (synthesized empty group).
-        // Otherwise the regular `messageRowContent` avatar overlay handles
-        // the leading avatar on the last message — we don't want to double up.
-        let cardIsLast: Bool = displayGroup.allMessages.isEmpty && !displayGroup.showsTypingIndicator && !displayGroup.showsThinkingIndicator
+        // The card shows its own bottom-leading avatar only when it is the
+        // visual end of the agent's run: nothing else in this group below it
+        // and no agent message group directly underneath. When the agent's
+        // messages sit directly below, that group's avatar overlay handles
+        // the leading avatar - we don't want to double up.
+        let cardIsLast: Bool = displayGroup.allMessages.isEmpty
+            && !displayGroup.showsTypingIndicator
+            && !displayGroup.showsThinkingIndicator
+            && !displayGroup.contactCardPrecedesAgentMessages
         HStack(alignment: .bottom, spacing: avatarSpacing) {
             if !displayGroup.sender.isCurrentUser {
                 Color.clear
@@ -614,6 +623,23 @@ struct MessagesGroupView: View {
         }
     }
 
+    /// Seam padding between split chunks of one sender run matches the
+    /// in-group bubble spacing (`stepX`, half on each side of the seam) so
+    /// the split is invisible.
+    private var groupTopPadding: CGFloat {
+        if displayGroup.continuesPreviousGroup {
+            return DesignConstants.Spacing.stepX / 2
+        }
+        return displayGroup.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x
+    }
+
+    private var groupBottomPadding: CGFloat {
+        if displayGroup.isContinuedBelow {
+            return DesignConstants.Spacing.stepX / 2
+        }
+        return displayGroup.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             if let card = displayGroup.agentContactCard {
@@ -647,8 +673,8 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.top, displayGroup.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
-        .padding(.bottom, displayGroup.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.top, groupTopPadding)
+        .padding(.bottom, groupBottomPadding)
         // Apply group changes through the mirror without animating layout:
         // the mirror only updates in `onChange` -- after the reconfigure's
         // sizing pass -- so the cell reports its old height during the batch

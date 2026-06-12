@@ -53,7 +53,7 @@ prevents flaky test starts caused by leftover navigation state.
 | `settings` | A settings row such as `my-info-row` or `delete-all-data-button` is visible | Tap `app-indicator-pill` from `conversations_list` (no settings tab / gear icon). Dismiss with a swipe-down. |
 | `profile_editor` | `profile-display-name-field` is visible | Open from settings (`my-info-row`) or the conversation toolbar |
 
-> Shell note: the home is a standard `TabView` with **Chats** and **Stuff**
+> Shell note: the home is a standard `TabView` with **Chats** and **Things**
 > tabs (Search was removed). Settings opens from the `app-indicator-pill`,
 > not a tab. See `qa/RULES.md` "Home Shell & Navigation" for the full map.
 

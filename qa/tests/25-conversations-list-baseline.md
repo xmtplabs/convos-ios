@@ -3,7 +3,7 @@
 > **Stale - needs rewrite for the #910 home shell.** This doc captures the
 > pre-rework conversations list and its bottom toolbar (`app-settings-button`,
 > `scan-button`, `filter-button`, the old tab bar). Under #910 the home is a
-> standard TabView (Chats / Stuff, Search removed), settings moved to the
+> standard TabView (Chats / Things, Search removed), settings moved to the
 > `app-indicator-pill`, compose moved to the top trailing toolbar, and the
 > scan button was removed. Treat the toolbar/navigation details below as
 > outdated until this baseline is re-captured. See `qa/RULES.md` "Home Shell

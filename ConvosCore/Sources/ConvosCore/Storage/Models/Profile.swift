@@ -209,6 +209,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let templateIdKey: String = "templateId"
         static let publishedURLKey: String = "publishedUrl"
         static let instanceIdKey: String = "instanceId"
+        static let emailKey: String = "email"
     }
 }
 
@@ -251,6 +252,19 @@ extension Profile {
     /// log correlation.
     public var agentInstanceId: String? {
         metadata?[Constant.instanceIdKey]?.stringValue
+    }
+
+    /// The agent's email address, read from the agent's per-conversation
+    /// profile metadata. The runtime assigns an address when the agent is
+    /// created; nil for human members and for older agents created before
+    /// addresses were assigned. Drives the contact card's Contact Info
+    /// section. Empty / whitespace-only values are coerced to nil, mirroring
+    /// `agentTemplateId` above.
+    public var agentEmail: String? {
+        metadata?[Constant.emailKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 
     /// The Ed25519 attestation signature this agent published in its

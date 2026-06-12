@@ -5,7 +5,7 @@ import ConvosMetrics
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum StuffFilter: String, CaseIterable, Identifiable {
+enum ThingsFilter: String, CaseIterable, Identifiable {
     case all = "All"
     case links = "Links"
     case files = "Files"
@@ -13,7 +13,7 @@ enum StuffFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum StuffItem: Identifiable {
+enum ThingItem: Identifiable {
     case file(AgentFile)
     case link(AgentLink)
 
@@ -35,7 +35,7 @@ enum StuffItem: Identifiable {
 @MainActor
 @Observable
 class AgentFilesLinksViewModel {
-    var filter: StuffFilter = .all
+    var filter: ThingsFilter = .all
     var searchText: String = ""
     var files: [AgentFile] = []
     var links: [AgentLink] = []
@@ -86,10 +86,10 @@ class AgentFilesLinksViewModel {
         filter != .all || !searchText.isEmpty
     }
 
-    var filteredItems: [StuffItem] {
+    var filteredItems: [ThingItem] {
         let query = searchText.lowercased()
 
-        var items: [StuffItem] = []
+        var items: [ThingItem] = []
 
         if filter == .all || filter == .files {
             for file in files where matches(file: file, query: query) {
@@ -180,7 +180,7 @@ struct AgentFilesLinksView: View {
             .background(.colorBackgroundRaisedSecondary)
             .applyTitle(usesInlineHeader: usesInlineHeader)
             .safeAreaBar(edge: .bottom) {
-                StuffSearchBar(
+                ThingsSearchBar(
                     searchText: $viewModel.searchText,
                     filter: $viewModel.filter,
                     focusBinding: focusBinding
@@ -230,7 +230,7 @@ struct AgentFilesLinksView: View {
     private var bodyContent: some View {
         if usesInlineHeader {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Stuff")
+                Text("Things")
                     .font(.largeTitle.bold())
                     .foregroundStyle(.colorTextPrimary)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -299,7 +299,7 @@ struct AgentFilesLinksView: View {
     }
 
     @ViewBuilder
-    private func row(for item: StuffItem) -> some View {
+    private func row(for item: ThingItem) -> some View {
         switch item {
         case .file(let file):
             fileRow(file)
@@ -354,7 +354,7 @@ struct AgentFilesLinksView: View {
             }
         }
         return Button(action: action) {
-            StuffRowContent(
+            ThingRowContent(
                 thumbnail: { linkThumbnail(link) },
                 title: link.displayTitle,
                 subtitle: relativeDate(for: link.date),
@@ -405,7 +405,7 @@ private struct FileRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            StuffRowContent(
+            ThingRowContent(
                 thumbnail: { thumbnail },
                 title: displayTitle,
                 subtitle: subtitle,
@@ -503,12 +503,12 @@ private struct FileRow: View {
                 }
             }
         } catch {
-            Log.error("Failed to load Stuff list file metadata: \(error)")
+            Log.error("Failed to load Things list file metadata: \(error)")
         }
     }
 }
 
-private struct StuffRowContent<Thumbnail: View>: View {
+private struct ThingRowContent<Thumbnail: View>: View {
     @ViewBuilder let thumbnail: () -> Thumbnail
     let title: String
     let subtitle: String
@@ -517,15 +517,15 @@ private struct StuffRowContent<Thumbnail: View>: View {
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             thumbnail()
-                .frame(width: StuffRowMetrics.thumbnailSize, height: StuffRowMetrics.thumbnailSize)
+                .frame(width: ThingRowMetrics.thumbnailSize, height: ThingRowMetrics.thumbnailSize)
                 .background(Color.colorFillMinimal)
-                .clipShape(RoundedRectangle(cornerRadius: StuffRowMetrics.thumbnailCornerRadius))
+                .clipShape(RoundedRectangle(cornerRadius: ThingRowMetrics.thumbnailCornerRadius))
                 .overlay(
-                    RoundedRectangle(cornerRadius: StuffRowMetrics.thumbnailCornerRadius)
+                    RoundedRectangle(cornerRadius: ThingRowMetrics.thumbnailCornerRadius)
                         .strokeBorder(Color.colorBorderEdge, lineWidth: 1.0)
                 )
 
-            VStack(alignment: .leading, spacing: StuffRowMetrics.titleSubtitleSpacing) {
+            VStack(alignment: .leading, spacing: ThingRowMetrics.titleSubtitleSpacing) {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
@@ -548,7 +548,7 @@ private struct StuffRowContent<Thumbnail: View>: View {
     }
 }
 
-private enum StuffRowMetrics {
+private enum ThingRowMetrics {
     static let thumbnailSize: CGFloat = 47.0
     static let thumbnailCornerRadius: CGFloat = 16.0
     static let titleSubtitleSpacing: CGFloat = 3.0
@@ -561,15 +561,15 @@ private extension View {
             self
         } else {
             self
-                .navigationTitle("Stuff")
+                .navigationTitle("Things")
                 .toolbarTitleDisplayMode(.large)
         }
     }
 }
 
-private struct StuffSearchBar: View {
+private struct ThingsSearchBar: View {
     @Binding var searchText: String
-    @Binding var filter: StuffFilter
+    @Binding var filter: ThingsFilter
     var focusBinding: FocusState<MessagesViewInputFocus?>.Binding?
 
     var body: some View {
@@ -595,9 +595,9 @@ private struct StuffSearchBar: View {
     private var searchTextField: some View {
         let textField = TextField("Search", text: $searchText)
             .textFieldStyle(.plain)
-            .accessibilityIdentifier("stuff-search-field")
+            .accessibilityIdentifier("things-search-field")
         if let focusBinding {
-            textField.focused(focusBinding, equals: .stuffSearchBar)
+            textField.focused(focusBinding, equals: .thingsSearchBar)
         } else {
             textField
         }
@@ -605,7 +605,7 @@ private struct StuffSearchBar: View {
 
     private var filterMenu: some View {
         Menu {
-            ForEach(StuffFilter.allCases) { option in
+            ForEach(ThingsFilter.allCases) { option in
                 let action = { filter = option }
                 Button(action: action) {
                     if option == filter {
@@ -623,6 +623,6 @@ private struct StuffSearchBar: View {
         }
         .accessibilityLabel("Filter")
         .accessibilityValue(filter.rawValue)
-        .accessibilityIdentifier("stuff-filter-button")
+        .accessibilityIdentifier("things-filter-button")
     }
 }

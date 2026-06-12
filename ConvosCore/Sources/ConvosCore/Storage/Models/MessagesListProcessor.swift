@@ -2,6 +2,12 @@ import Foundation
 
 public final class MessagesListProcessor: Sendable {
     private static let hourInSeconds: TimeInterval = 3600
+    /// Long same-sender runs split into display groups of at most this many
+    /// messages so a single collection cell never builds and measures dozens
+    /// of bubbles at once (the dominant cost when opening a conversation).
+    /// Continuation chunks render seamlessly via `continuesPreviousGroup` /
+    /// `isContinuedBelow`.
+    private static let maxMessagesPerDisplayGroup: Int = 10
 
     public static func process(
         _ messages: [AnyMessage],
@@ -69,10 +75,13 @@ public final class MessagesListProcessor: Sendable {
         rebuilt.agentContactCard = group.agentContactCard
         rebuilt.thinkingByMessageId = group.thinkingByMessageId
         rebuilt.hidesSenderLabel = group.hidesSenderLabel
+        rebuilt.continuesPreviousGroup = group.continuesPreviousGroup
+        rebuilt.isContinuedBelow = group.isContinuedBelow
         rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
         rebuilt.thinkingContent = group.thinkingContent
         rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
         rebuilt.contactCardThinkingDescriptor = group.contactCardThinkingDescriptor
+        rebuilt.contactCardPrecedesAgentMessages = group.contactCardPrecedesAgentMessages
         return rebuilt
     }
 
@@ -168,11 +177,14 @@ public final class MessagesListProcessor: Sendable {
             guard let anchor = run.first?.messageId else { continue }
             for message in run { anchorByMessageId[message.messageId] = anchor }
             let ownsSummary: Bool = !summaryIds.isEmpty && run.contains { summaryIds.contains($0.messageId) }
-            cardByAnchor[anchor] = makeCardContent(
-                run: run,
-                anchor: anchor,
-                summary: ownsSummary ? agentBuilderSummary : nil
-            )
+            // The creator's own latest build renders via the Make-anchored
+            // summary card (see applyAgentBuilderCardsAndContactCard): its
+            // position tracks when the user tapped Make, not when the held
+            // bundle eventually published. Swallow those rows without
+            // emitting a run card; every other build (recipients, older
+            // builds whose summary was replaced) keeps its run-anchored card.
+            guard !ownsSummary else { continue }
+            cardByAnchor[anchor] = makeCardContent(run: run, anchor: anchor, summary: nil)
         }
 
         var result: [MessagesListItemType] = []
@@ -260,47 +272,34 @@ public final class MessagesListProcessor: Sendable {
             items = dropOrphanDateSeparators(in: items)
         }
 
-        if let agent = verifiedAgent {
-            let cardInfo = AgentContactCardInfo(
-                profile: agent.profile,
-                agentDescription: agent.profile.agentDescription
-            )
-            let firstAgentGroupIndex: Int? = items.firstIndex { item in
-                guard case .messages(let group) = item else { return false }
-                return group.sender.profile.inboxId == agent.profile.inboxId
-            }
-            if let idx = firstAgentGroupIndex, case .messages(var group) = items[idx] {
-                group.agentContactCard = cardInfo
-                items[idx] = .messages(group)
-            } else {
-                var cardGroup = MessagesGroup(
-                    id: "agent-contact-card-\(agent.profile.inboxId)",
-                    sender: agent,
-                    messages: [],
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: false
+        // The creator's card, anchored at the Make moment (the summary's
+        // cutoffDate) rather than at the position the held bundle eventually
+        // published -- messages sent while the send waited for the agent to
+        // join stay below the card. The run reconstruction above swallows the
+        // summary's own rows without emitting a card, so this is the sole
+        // creator-side card and it never relocates when the rows land.
+        // Before the rows land it renders from the summary alone, time-boxed
+        // so a summary whose rows later expire (disappearing messages)
+        // doesn't resurrect a card in an old chat. An empty raw snapshot of
+        // an existing conversation means history hasn't loaded yet -- skip
+        // that emission (the loaded one follows immediately) instead of
+        // flashing the card at the top of a one-item list.
+        if let summary = agentBuilderSummary {
+            let summaryIds: Set<String> = summary.bundledMessageIds
+            let rowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
+            let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
+            let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
+            if rowsLanded || (withinWindow && !awaitingHistory) {
+                insertSummaryCard(
+                    .agentBuilderSummary(makePendingCardContent(summary: summary)),
+                    into: &items,
+                    cutoffDate: summary.cutoffDate
                 )
-                cardGroup.agentContactCard = cardInfo
-                // The summary card must always sit above the contact card. When a
-                // summary card exists, anchor the synthesized contact card right
-                // after it -- in the home flow the agent joins *before* the Make
-                // bundle, so the join-update row can sort above the summary;
-                // anchoring on the join row there would put the contact card
-                // first. Non-builder agent conversations (no summary card) fall
-                // back to the agent-join row, then index 0.
-                let builderCardIndex: Int? = items.lastIndex { item in
-                    if case .agentBuilderSummary = item { return true }
-                    return false
-                }
-                let joinUpdateIndex: Int? = items.firstIndex { item in
-                    guard case .update(_, let update, _) = item else { return false }
-                    return update.addedVerifiedAgent
-                }
-                let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
-                    ?? joinUpdateIndex.map { $0 + 1 }
-                    ?? 0
-                items.insert(.messages(cardGroup), at: insertionIndex)
             }
+        }
+
+        if let agent = verifiedAgent {
+            items = insertingContactCard(in: items, agent: agent)
         }
 
         return items
@@ -640,6 +639,9 @@ public final class MessagesListProcessor: Sendable {
                         }
                     let newMembers = newInboxIds.compactMap(resolveMember)
                     let members: [ConversationMember] = kept + newMembers
+                    let continuesPrevious = group.continuesPreviousGroup
+                    let continuedBelow = group.isContinuedBelow
+                    let hidesLabel = group.hidesSenderLabel
                     group = MessagesGroup(
                         id: group.id,
                         sender: group.sender,
@@ -653,6 +655,9 @@ public final class MessagesListProcessor: Sendable {
                         isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
                         voiceMemoTranscripts: group.voiceMemoTranscripts
                     )
+                    group.continuesPreviousGroup = continuesPrevious
+                    group.isContinuedBelow = continuedBelow
+                    group.hidesSenderLabel = hidesLabel
                 }
             }
 
@@ -681,51 +686,6 @@ public final class MessagesListProcessor: Sendable {
         }
 
         return items
-    }
-
-    @inline(__always)
-    // swiftlint:disable:next function_parameter_count
-    private static func flush(
-        _ items: inout [MessagesListItemType],
-        _ messages: [AnyMessage],
-        _ isLastGroup: Bool,
-        _ isLastGroupSentByCurrentUser: Bool,
-        _ lastCurrentUserIndex: inout Int?,
-        _ memberCount: Int,
-        _ lastOnlyVisibleIndex: inout Int?,
-        _ voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
-    ) {
-        guard let startMsg = messages.first else { return }
-        let sender = startMsg.sender
-
-        var groupTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
-        if !voiceMemoTranscripts.isEmpty {
-            for message in messages {
-                let messageId = message.messageId
-                if let transcript = voiceMemoTranscripts[messageId] {
-                    groupTranscripts[messageId] = transcript
-                }
-            }
-        }
-
-        var group = MessagesGroup(
-            id: "group-" + startMsg.messageId,
-            sender: sender,
-            messages: messages,
-            isLastGroup: isLastGroup,
-            isLastGroupSentByCurrentUser: isLastGroupSentByCurrentUser,
-            voiceMemoTranscripts: groupTranscripts
-        )
-
-        if sender.isCurrentUser {
-            lastCurrentUserIndex = items.count
-            if memberCount == 0 {
-                group.onlyVisibleToSender = true
-                lastOnlyVisibleIndex = items.count
-            }
-        }
-
-        items.append(.messages(group))
     }
 
     /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
@@ -765,6 +725,248 @@ public final class MessagesListProcessor: Sendable {
             icon: summary.icon,
             actor: summary.actor,
             grantedToInboxId: summary.grantedToInboxId
+        )
+    }
+}
+
+private extension MessagesListProcessor {
+    /// Insert the agent contact card as its own standalone row. The card has
+    /// a single placement rule, so it never relocates as the agent's
+    /// messages, connection events, or user replies stream in around it.
+    /// Anchor chain: right after this agent's builder summary card (the
+    /// first summary between the agent's join row and the agent's first
+    /// message group -- the summary always sits above the card, and later
+    /// Makes add summaries further down that must not steal the card); else
+    /// right after this agent's most recent join update row (non-builder
+    /// agent conversations; matching on inboxId keeps the card off other or
+    /// former agents' join rows, and re-adds anchor on the latest join);
+    /// else right before the agent's first message group (join row outside
+    /// the loaded window); else the top of the list.
+    static func insertingContactCard(
+        in baseItems: [MessagesListItemType],
+        agent: ConversationMember
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        var cardGroup = MessagesGroup(
+            id: "agent-contact-card-\(agent.profile.inboxId)",
+            sender: agent,
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        )
+        cardGroup.agentContactCard = AgentContactCardInfo(
+            profile: agent.profile,
+            agentDescription: agent.profile.agentDescription
+        )
+        let joinUpdateIndex: Int? = items.lastIndex { item in
+            guard case .update(_, let update, _) = item else { return false }
+            return update.addedVerifiedAgent
+                && update.addedMembers.contains { $0.profile.inboxId == agent.profile.inboxId }
+        }
+        let firstAgentGroupIndex: Int? = items.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.sender.profile.inboxId == agent.profile.inboxId
+        }
+        // This agent's Make summary lives between its join row and its first
+        // message group (in the home flow the join sorts directly above the
+        // summary). Bounding the search keeps the card anchored to its own
+        // summary when later Makes append summaries further down the list.
+        // A re-added agent's old messages can sit above its latest join row;
+        // the clamp collapses the range so the card anchors on the join.
+        let searchStart: Int = joinUpdateIndex ?? 0
+        let searchEnd: Int = max(searchStart, firstAgentGroupIndex ?? items.count)
+        let summarySearchRange: Range<Int> = searchStart..<searchEnd
+        let builderCardIndex: Int? = items[summarySearchRange].firstIndex { item in
+            if case .agentBuilderSummary = item { return true }
+            return false
+        }
+        let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
+            ?? joinUpdateIndex.map { $0 + 1 }
+            ?? firstAgentGroupIndex
+            ?? 0
+        // When the agent's own messages sit directly below the card, the
+        // pair renders as one visual run: the card keeps the sender label,
+        // the group below drops its duplicate label, and the leading avatar
+        // attaches to that group's last message instead of the card.
+        if insertionIndex < items.count,
+           case .messages(var below) = items[insertionIndex],
+           below.sender.profile.inboxId == agent.profile.inboxId {
+            below.hidesSenderLabel = true
+            items[insertionIndex] = .messages(below)
+            cardGroup.contactCardPrecedesAgentMessages = true
+        }
+        // The full-bleed adjacency pass ran before the splice, so groups on
+        // either side of the card may still carry flags from when they were
+        // adjacent to each other. The card row is never full bleed; clear
+        // the flags facing it.
+        if insertionIndex > 0, case .messages(var above) = items[insertionIndex - 1] {
+            above.adjacentToFullBleedBelow = false
+            items[insertionIndex - 1] = .messages(above)
+        }
+        if insertionIndex < items.count, case .messages(var below) = items[insertionIndex] {
+            below.adjacentToFullBleedAbove = false
+            items[insertionIndex] = .messages(below)
+        }
+        items.insert(.messages(cardGroup), at: insertionIndex)
+        return items
+    }
+
+    @inline(__always)
+    // swiftlint:disable:next function_parameter_count
+    static func flush(
+        _ items: inout [MessagesListItemType],
+        _ messages: [AnyMessage],
+        _ isLastGroup: Bool,
+        _ isLastGroupSentByCurrentUser: Bool,
+        _ lastCurrentUserIndex: inout Int?,
+        _ memberCount: Int,
+        _ lastOnlyVisibleIndex: inout Int?,
+        _ voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    ) {
+        guard !messages.isEmpty else { return }
+        let sender = messages[0].sender
+
+        var chunks: [[AnyMessage]] = []
+        var index = 0
+        while index < messages.count {
+            let end = min(index + maxMessagesPerDisplayGroup, messages.count)
+            chunks.append(Array(messages[index..<end]))
+            index = end
+        }
+
+        for (chunkIndex, chunk) in chunks.enumerated() {
+            guard let startMsg = chunk.first else { continue }
+            let isFinalChunk = chunkIndex == chunks.count - 1
+
+            var groupTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+            if !voiceMemoTranscripts.isEmpty {
+                for message in chunk {
+                    let messageId = message.messageId
+                    if let transcript = voiceMemoTranscripts[messageId] {
+                        groupTranscripts[messageId] = transcript
+                    }
+                }
+            }
+
+            var group = MessagesGroup(
+                id: "group-" + startMsg.messageId,
+                sender: sender,
+                messages: chunk,
+                isLastGroup: isFinalChunk && isLastGroup,
+                isLastGroupSentByCurrentUser: isFinalChunk && isLastGroupSentByCurrentUser,
+                voiceMemoTranscripts: groupTranscripts
+            )
+            if chunkIndex > 0 {
+                group.continuesPreviousGroup = true
+                group.hidesSenderLabel = true
+            }
+            group.isContinuedBelow = !isFinalChunk
+
+            if sender.isCurrentUser {
+                lastCurrentUserIndex = items.count
+                if memberCount == 0 {
+                    group.onlyVisibleToSender = true
+                    lastOnlyVisibleIndex = items.count
+                }
+            }
+
+            items.append(.messages(group))
+        }
+    }
+
+    /// How long after Make the summary-only card may render while its build
+    /// messages haven't landed. Covers the writer's agent-join hold (150s)
+    /// with margin; past it, a row-less summary is history, not a pending
+    /// build.
+    private static let pendingCardDisplayWindow: TimeInterval = 180
+
+    /// Insert the summary card at its chronological Make slot: right after
+    /// the bottom-most message older than `cutoffDate`. Consecutive
+    /// same-sender messages merge into one group, so messages sent around
+    /// Make routinely share a group whose span straddles the boundary --
+    /// comparing whole groups would shove the card above the entire merged
+    /// group (the top of the list in a fresh chat). When the boundary falls
+    /// inside a group, split it at the boundary and seat the card between
+    /// the halves, the same way `reconstructBuilderCards` splices run cards
+    /// into groups. Falls back to the top of the newer groups (nothing
+    /// older) or the end of the list (no message groups at all).
+    private static func insertSummaryCard(
+        _ card: MessagesListItemType,
+        into items: inout [MessagesListItemType],
+        cutoffDate: Date
+    ) {
+        var firstNewerGroupIndex: Int = items.count
+        for (index, item) in items.enumerated().reversed() {
+            guard case .messages(let group) = item,
+                  let firstDate = group.messages.first?.date,
+                  let lastDate = group.messages.last?.date else { continue }
+            if lastDate <= cutoffDate {
+                items.insert(card, at: index + 1)
+                return
+            }
+            if firstDate <= cutoffDate {
+                let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
+                let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
+                guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
+                let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
+                let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
+                items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
+                return
+            }
+            firstNewerGroupIndex = index
+        }
+        items.insert(card, at: firstNewerGroupIndex)
+    }
+
+    /// Card content built from the summary alone, for the window between Make
+    /// and the build messages landing. Mirrors `makeCardContent` with the
+    /// summary's stored snapshots standing in for the not-yet-persisted
+    /// messages; the anchor reuses the first bundled id so the cell identity
+    /// is stable when the real run-anchored card takes over.
+    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+        let anchor: String = summary.bundledMessageIds.min() ?? summary.id.uuidString
+        let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
+            switch attachment {
+            case let .photo(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "image/jpeg",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .video(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "video/mp4",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .file(id, filename, mimeType, fileSize):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: mimeType,
+                    fileSize: fileSize,
+                    filename: filename
+                )
+            case let .voiceMemo(id, duration, levels):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "audio/m4a",
+                    duration: duration,
+                    waveformLevels: levels
+                )
+            case .connection:
+                // Rendered via `connectionIdentifiers`, not as a media chip.
+                return nil
+            }
+        }
+        return AgentBuilderCardContent(
+            id: "agent-builder-card-" + anchor,
+            prompt: summary.prompt,
+            attachments: attachments,
+            creatorIsCurrentUser: true,
+            creatorDisplayName: "",
+            connectionIdentifiers: builderConnectionIdentifiers(from: summary),
+            existingConversation: summary.existingConversation,
+            transitionEligible: !summary.existingConversation
         )
     }
 }

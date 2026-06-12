@@ -343,7 +343,8 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
-        Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
+        let reason = error.reason ?? "none"
+        Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId), reason: \(reason)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
     }
 

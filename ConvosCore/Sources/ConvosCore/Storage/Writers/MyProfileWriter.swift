@@ -143,9 +143,12 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
                 try updatedProfile.save(db)
             }
             do {
-                try await group.updateProfile(updatedProfile)
+                // updateProfile merges (it preserves image fields absent on
+                // the incoming side), so removal goes through the explicit
+                // clearing API.
+                try await group.clearProfileAvatar(inboxId: updatedProfile.inboxId)
             } catch {
-                Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+                Log.warning("Failed to clear avatar in appData (best-effort): \(error.localizedDescription)")
             }
             await sendProfileUpdate(profile: updatedProfile, group: group)
             return
@@ -222,8 +225,11 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
 
         if global.imageData == nil {
             // Global avatar was cleared. Propagate the removal so the per-conversation avatar
-            // doesn't outlive it.
-            if member?.avatar != nil {
+            // doesn't outlive it. Requires the digest to be cleared too: image bytes that are
+            // merely not rehydrated yet (fresh pairing, mid-hydration launch) keep their
+            // digest, and propagating a "removal" the user never made would strip the avatar
+            // for every other member.
+            if global.imageContentDigest == nil, member?.avatar != nil {
                 try await update(
                     avatar: nil,
                     imageSourceContentDigest: nil,

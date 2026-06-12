@@ -17,7 +17,7 @@ blocked_reason: >
   still exists in ConversationsViewModel (activeFilter / applyFilter) but
   there is no user control to select a non-All filter. Filters may be
   re-added in the future - re-enable this test then. Steps below are
-  preserved unchanged. (stuff-filter-button is a separate Stuff-tab
+  preserved unchanged. (things-filter-button is a separate Things-tab
   control, not this.)
 
 prerequisites:

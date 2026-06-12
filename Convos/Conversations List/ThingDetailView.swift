@@ -5,15 +5,15 @@ import SwiftUI
 
 /// Push-friendly companion to `AttachmentPreviewSheet`: shows the same
 /// rendered HTML preview the in-conversation tap shows, but inside the
-/// Stuff tab's navigation stack (no inner NavigationStack of its own —
+/// Things tab's navigation stack (no inner NavigationStack of its own —
 /// the parent stack owns the back button).
 ///
 /// On appear, loads the local file URL for the attachment via
 /// `FileAttachmentLoader`. While the file is downloading we render a
 /// `colorFillTertiary` placeholder so the push transition has something
 /// to land on.
-struct StuffDetailView: View {
-    let item: StuffOverviewItem
+struct ThingDetailView: View {
+    let item: ThingOverviewItem
 
     @State private var fileURL: URL?
     @State private var htmlBodyBackgroundColor: Color?
@@ -23,10 +23,8 @@ struct StuffDetailView: View {
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
-        navigator = StuffDetailCollector(
-            instance: navState,
-            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
-        )
+        let delegate: CollectorDelegate = PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        navigator = StuffDetailCollector(instance: navState, delegate: delegate)
     }
 
     var body: some View {
@@ -82,21 +80,27 @@ struct StuffDetailView: View {
     private var trailingShareButton: some ToolbarContent {
         if let fileURL {
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(item: fileURL) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Share")
-                .accessibilityIdentifier("stuff-detail-share")
+                AttachmentShareLink(
+                    attachment: item.hydratedAttachment,
+                    fileURL: fileURL,
+                    fallbackTitle: item.conversation.computedDisplayName
+                )
+                .accessibilityIdentifier("thing-detail-share")
             }
         }
     }
 
     private func loadFile() async {
+        // Drop the previous attachment's state first: the share button must
+        // not pair the new attachment with the old file while it loads, and
+        // a stale error must not overlay freshly loaded content.
+        fileURL = nil
+        loadError = nil
         do {
             let url = try await FileAttachmentLoader.loadFile(for: item.hydratedAttachment)
             fileURL = url
         } catch {
-            Log.error("StuffDetailView: failed to load file for \(item.conversation.id): \(error)")
+            Log.error("ThingDetailView: failed to load file for \(item.conversation.id): \(error)")
             loadError = error.localizedDescription
         }
     }

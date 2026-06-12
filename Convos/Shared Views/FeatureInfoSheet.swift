@@ -110,6 +110,8 @@ struct TightLineHeightText: UIViewRepresentable {
     let text: String
     let fontSize: CGFloat
     let lineHeight: CGFloat
+    var weight: UIFont.Weight = .bold
+    var textAlignment: NSTextAlignment = .natural
 
     func makeUIView(context: Context) -> SelfSizingLabel {
         let label = SelfSizingLabel()
@@ -127,13 +129,14 @@ struct TightLineHeightText: UIViewRepresentable {
     }
 
     private func configureLabel(_ label: SelfSizingLabel) {
-        let font: UIFont = .systemFont(ofSize: fontSize, weight: .bold)
+        let font: UIFont = .systemFont(ofSize: fontSize, weight: weight)
         let overflow: CGFloat = max(0, font.lineHeight - lineHeight)
         label.clipsToBounds = false
         label.descenderPadding = overflow
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.minimumLineHeight = lineHeight
         paragraphStyle.maximumLineHeight = lineHeight
+        paragraphStyle.alignment = textAlignment
         label.attributedText = NSAttributedString(
             string: text,
             attributes: [

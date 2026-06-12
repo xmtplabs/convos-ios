@@ -8,14 +8,10 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
 
     public func joinedConversation(
         verificationDuration: Float,
-        memberCount: Int,
-        hasAssistant: Bool,
-        source: ConversationSource
-    ) async {}
-
-    public func conversationJoinTimedOut(
-        waitDuration: Float,
-        source: ConversationSource
+        memberCount: Int?,
+        hasAssistant: Bool?,
+        source: ConversationSource,
+        isSuccess: Bool
     ) async {}
 
     public func invitedToConversation(memberCount: Int, hasAssistant: Bool) async {}
@@ -24,13 +20,9 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
 
     public func assistantJoined(
         waitDuration: Float,
-        surface: AssistantJoinSurface,
-        memberCount: Int
-    ) async {}
-
-    public func assistantJoinTimedOut(
-        waitDuration: Float,
-        surface: AssistantJoinSurface
+        source: AssistantJoinSource,
+        memberCount: Int?,
+        isSuccess: Bool
     ) async {}
 
     public func assistantJoinRescuedByPolling(

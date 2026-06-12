@@ -10,7 +10,7 @@ public enum MessagesViewInputFocus: Hashable, Sendable {
     case conversationName
     case voiceMemoRecording
     case sideConvoName
-    case stuffSearchBar
+    case thingsSearchBar
     case agentBuilder
 }
 #endif

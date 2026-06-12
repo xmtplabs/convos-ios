@@ -15,11 +15,11 @@ struct ContactsView: View {
     /// Whether to render the contacts-scoped compose button. The Contacts
     /// tab hides it because the shell's shared toolbar already provides a
     /// compose button (whose `onStartConvo` opens the same contacts picker),
-    /// so the tab's top bar matches Chats and Stuff exactly.
+    /// so the tab's top bar matches Chats and Things exactly.
     private let showsComposeButton: Bool
     /// Optional request from the shell to scroll the list to a given section
     /// id once it appears. Used by the "See suggested agents" button in the
-    /// empty Stuff state; consumed (set back to nil) after the scroll lands.
+    /// empty Things state; consumed (set back to nil) after the scroll lands.
     private let scrollTarget: Binding<String?>?
 
     init(
@@ -46,21 +46,7 @@ struct ContactsView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.sections.isEmpty && !viewModel.isFiltering {
-                // No own contacts and no active search. Surface suggested
-                // agents once they load; show a spinner while they're in
-                // flight so we don't flash the onboarding empty state, and
-                // fall back to it only when there's genuinely nothing to show.
-                if viewModel.isLoadingSuggestedAgents {
-                    loadingState
-                } else {
-                    emptyState
-                }
-            } else {
-                contactsContent
-            }
-        }
+        contactsContent
         .task { await viewModel.loadSuggestedAgentsIfNeeded() }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -102,7 +88,7 @@ struct ContactsView: View {
                 .safeAreaBar(edge: .top) {
                     ContactsSearchBar(
                         query: $viewModel.searchQuery,
-                        placeholder: "Search contacts",
+                        placeholder: "People and agents",
                         accessibilityIdentifier: "contacts-search-field",
                         filter: $viewModel.filter,
                         showBlocked: $viewModel.showBlocked
@@ -117,14 +103,22 @@ struct ContactsView: View {
         }
     }
 
-    /// Shows the filtered empty state when a search or filter matches nothing,
-    /// keeping the search bar above so the user can clear the search; otherwise
-    /// the contacts list. Reached only when `sections` is non-empty or a filter
-    /// is active, so an empty `sections` here always means "nothing matched".
+    /// Shows the filtered empty state when a search or filter matches nothing
+    /// (keeping the search bar above so the user can clear it), a spinner while
+    /// the suggested-agents first page is in flight for a user with no
+    /// contacts, and otherwise the contacts list. There is no full-screen
+    /// onboarding empty state: with zero saved contacts the list simply renders
+    /// the suggested-agents section.
     @ViewBuilder
     private var listOrFilteredEmptyState: some View {
         if viewModel.sections.isEmpty {
-            filteredEmptyState
+            if viewModel.isFiltering {
+                filteredEmptyState
+            } else if viewModel.isLoadingSuggestedAgents {
+                loadingState
+            } else {
+                Color.colorBackgroundRaisedSecondary
+            }
         } else {
             contactList
         }
@@ -240,14 +234,9 @@ struct ContactsView: View {
         )
     }
 
-    private var emptyState: some View {
-        ContactsEmptyStateView()
-            .background(.colorBackgroundRaisedSecondary)
-    }
-
     /// Shown while the suggested-agents first page is in flight and the user
-    /// has no contacts yet, so the onboarding empty state doesn't flash before
-    /// the suggestions arrive.
+    /// has no contacts yet, so the list area doesn't flash empty before the
+    /// suggestions arrive.
     private var loadingState: some View {
         ProgressView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)

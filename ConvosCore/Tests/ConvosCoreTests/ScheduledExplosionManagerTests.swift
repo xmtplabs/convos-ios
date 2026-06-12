@@ -298,19 +298,16 @@ private class ScheduledExplosionTestFixtures {
 }
 
 /// Wait for a scheduling task to start and then complete.
-/// The observer callback is dispatched async to the main queue, so we first
-/// need to yield to let it fire, then wait for the resulting task to finish.
+/// Polling for the in-flight task to appear and then disappear is racy:
+/// fast paths (e.g. an already-expired conversation) create and remove the
+/// task between two polls, so the "appear" phase times out. The manager
+/// records completed conversationIds instead, which observes the same
+/// lifecycle without a window to miss.
 private func waitForSchedulingTaskCompletion(
     fixtures: ScheduledExplosionTestFixtures,
     conversationId: String
 ) async throws {
-    // Phase 1: wait for the task to appear (callback has fired)
-    try await waitUntil(timeout: .seconds(3)) {
-        fixtures.manager.hasSchedulingTask(for: conversationId)
-    }
-
-    // Phase 2: wait for the task to complete (removed from dictionary)
-    try await waitUntil(timeout: .seconds(3)) {
-        !fixtures.manager.hasSchedulingTask(for: conversationId)
+    try await waitUntil(timeout: .seconds(6)) {
+        fixtures.manager.hasCompletedSchedulingTask(for: conversationId)
     }
 }

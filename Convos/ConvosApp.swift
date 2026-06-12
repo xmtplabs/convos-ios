@@ -36,19 +36,25 @@ struct ConvosApp: App {
 
         // Verbose libxmtp logs are invaluable in dev/local but too chatty (and too
         // revealing of protocol internals) to persist on every production device.
+        // Activation does file I/O (and formats an internal error description on
+        // its failure path), so it runs off the synchronous launch path; the
+        // handful of libxmtp log lines emitted before it lands are an accepted
+        // trade for ~20ms of pre-first-frame main-thread time.
         let libXMTPLogLevel: Client.LogLevel = environment.isProduction ? .warn : .debug
-        Log.info("Activating LibXMTP file log writer at \(environment.defaultXMTPLogsDirectoryURL.path) (level=\(libXMTPLogLevel), rotation=hourly, maxFiles=10)…")
-        Client.activatePersistentLibXMTPLogWriter(
-            logLevel: libXMTPLogLevel,
-            rotationSchedule: .hourly,
-            maxFiles: 10,
-            customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
-            processType: .main
-        )
-        Log.info("LibXMTP file log writer activated")
-        Log.info("Setting LibXMTP native log level to \(libXMTPLogLevel)…")
-        Client.setLibXMTPNativeLogLevel(libXMTPLogLevel)
-        Log.info("LibXMTP native log level set to \(libXMTPLogLevel)")
+        Task.detached(priority: .utility) {
+            Log.info("Activating LibXMTP file log writer at \(environment.defaultXMTPLogsDirectoryURL.path) (level=\(libXMTPLogLevel), rotation=hourly, maxFiles=10)…")
+            Client.activatePersistentLibXMTPLogWriter(
+                logLevel: libXMTPLogLevel,
+                rotationSchedule: .hourly,
+                maxFiles: 10,
+                customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
+                processType: .main
+            )
+            Log.info("LibXMTP file log writer activated")
+            Log.info("Setting LibXMTP native log level to \(libXMTPLogLevel)…")
+            Client.setLibXMTPNativeLogLevel(libXMTPLogLevel)
+            Log.info("LibXMTP native log level set to \(libXMTPLogLevel)")
+        }
         Log.info("App starting with environment: \(environment)")
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
@@ -115,7 +121,15 @@ struct ConvosApp: App {
         // PushNotificationRegistrar.configure(...) ran inside `PlatformProviders.iOS`
         // above, so AppDelegate's APNS callback uses the static accessor directly
         // (see ConvosAppDelegate.didRegisterForRemoteNotificationsWithDeviceToken).
-        profileSettingsViewModel.bind(session: convos.session)
+        // Deferred one runloop turn: bind() synchronously constructs the
+        // messaging service reader stack, which doesn't need to block the
+        // first frame -- the profile UI is reactive and fills in as soon as
+        // the binding lands.
+        let profileViewModel = profileSettingsViewModel
+        let profileSession = convos.session
+        Task { @MainActor in
+            profileViewModel.bind(session: profileSession)
+        }
 
         let metricsSession = convos.session
         Task {

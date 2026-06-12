@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Top-trailing compose button shared between the Chats and Stuff tabs.
+/// Top-trailing compose button shared between the Chats and Things tabs.
 /// Triggers `conversationsViewModel.onStartConvo()` which sets the
 /// `newConversationViewModel` binding observed by `MainTabView`'s
 /// `NewConversationView` sheet. The button applies

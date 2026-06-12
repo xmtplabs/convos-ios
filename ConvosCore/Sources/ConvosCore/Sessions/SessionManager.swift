@@ -767,7 +767,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// registration that can be reset via `deleteAllInboxes`.
     public func isAccountOrphaned() throws -> Bool {
         try databaseReader.read { db in
-            guard (try DBInbox.fetchAll(db).first) != nil else { return false }
+            guard try DBInbox.currentInboxId(db) != nil else { return false }
             let nonDraftCount = try Int.fetchOne(
                 db,
                 sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
@@ -789,7 +789,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard (try DBConversation.fetchOne(db, key: conversationId)) != nil else {
                     return nil
                 }
-                return try DBInbox.fetchAll(db).first?.inboxId
+                return try DBInbox.currentInboxId(db)
             }
         } catch {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")

@@ -131,7 +131,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
     /// is harmless.
     static func currentInboxId(from dbReader: any DatabaseReader) -> String {
         (try? dbReader.read { db in
-            try DBInbox.fetchAll(db).first?.inboxId
+            try DBInbox.currentInboxId(db)
         }) ?? ""
     }
 
@@ -896,6 +896,7 @@ private extension LightweightConversationDetails {
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
             hidesInviteCard: conversationLocalState.hidesInviteCard,
+            wasRemoved: conversationLocalState.wasRemoved,
             lastMessage: nil,
             imageURL: imageURL,
             imageSalt: conversation.imageSalt,

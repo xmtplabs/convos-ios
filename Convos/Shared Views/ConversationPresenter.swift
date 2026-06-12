@@ -69,6 +69,13 @@ struct ConversationPresenter<Content: View>: View {
         return viewModel.presentingShareView
     }
 
+    /// Read-only when the host asks for it (stale/removed device) or when
+    /// the local user was removed from this conversation but can still view
+    /// it. Mirrors `ConversationView.effectiveReadOnly` for the indicator.
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel?.conversation.wasRemoved == true
+    }
+
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
@@ -173,14 +180,14 @@ struct ConversationPresenter<Content: View>: View {
             viewModel: viewModel,
             placeholderOverride: indicatorPlaceholderOverride,
             subtitleOverride: indicatorSubtitleOverride,
-            allowsEditing: allowsIndicatorEditing && !isReadOnly,
+            allowsEditing: allowsIndicatorEditing && !effectiveReadOnly,
             focusState: $focusState,
             focusCoordinator: focusCoordinator
         )
         .environment(\.forcedAgentVerification, pendingAgentOverride)
         .environment(\.pendingAgentIdentity, pendingAgentIdentity)
         .hoverEffect(.lift)
-        .disabled(isReadOnly)
+        .disabled(effectiveReadOnly)
         .matchedGeometryEffect(
             id: AdaptiveAppIndicatorConstant.indicatorShellId,
             in: sharedIndicatorNamespace ?? indicatorNamespace,
@@ -236,6 +243,11 @@ struct ConversationIndicatorWrapper: View {
     let allowsEditing: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
+    /// When set, a tap on the collapsed indicator invokes this instead of
+    /// the default quick-edit / conversation-info behavior. Used by the
+    /// Things detail push, where tapping the indicator opens the contact
+    /// card of the agent that made the thing.
+    var onTapOverride: (() -> Void)?
 
     var body: some View {
         ConversationIndicator(
@@ -257,6 +269,10 @@ struct ConversationIndicatorWrapper: View {
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: {
+                if let onTapOverride {
+                    onTapOverride()
+                    return
+                }
                 guard allowsEditing else { return }
                 viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator)
             },

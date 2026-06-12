@@ -7,6 +7,7 @@ public protocol MessageSender {
     func sendTypingIndicator(isTyping: Bool) async throws
     func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
+    func prepare(joinRequest: JoinRequestContent) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
@@ -281,6 +282,13 @@ extension XMTPiOS.Conversation: MessageSender {
 
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
+    }
+
+    public func prepare(joinRequest: JoinRequestContent) async throws -> String {
+        return try await prepareMessage(
+            content: joinRequest,
+            options: .init(contentType: JoinRequestCodec().contentType)
+        )
     }
 
     public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {

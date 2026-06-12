@@ -75,7 +75,8 @@ struct MessagesRepositoryBenchmarkTests {
             isUnreadUpdatedAt: now,
             isMuted: false,
             pinnedOrder: nil,
-            hidesInviteCard: false
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
 
         for (i, inboxId) in memberInboxIds.enumerated() {

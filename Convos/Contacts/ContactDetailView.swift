@@ -33,6 +33,9 @@ import SwiftUI
 //     opening the picker so a synthetic / non-yet-stored contact is
 //     promoted to a real one
 //   - Share - template-backed agents with a published link, after New chat
+//   - Contact Info - agents with an email address in their profile
+//     metadata; the row opens the mail composer, the trailing button
+//     copies the address
 //   - Remove - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
 //   - Block / Unblock - hidden for the current user; both modes otherwise
@@ -185,9 +188,9 @@ struct ContactDetailView: View {
     /// Existing conversation pushed when a "Convos with you" row is tapped.
     /// `embedsNavigationStack: false` lands the view on the host stack with
     /// the system back button instead of nesting a second stack. The tab bar
-    /// is hidden here (mirroring `StuffDetailView`) because the Contacts tab
+    /// is hidden here (mirroring `ThingDetailView`) because the Contacts tab
     /// entry point pushes onto a tab stack whose shell only hides the bar for
-    /// Chats/Stuff selections; without this the bar overlaps the composer.
+    /// Chats/Things selections; without this the bar overlaps the composer.
     /// Harmless in sheet entry points, which have no tab bar.
     @ViewBuilder
     private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
@@ -341,6 +344,7 @@ struct ContactDetailView: View {
                         && mode.canRemoveMembers,
                     showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
+                    agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
@@ -763,6 +767,10 @@ private struct ContactDetailActions: View {
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
+    /// Agent's email address from its profile metadata. Renders the
+    /// "Contact Info" section under Share when present; nil (humans and
+    /// older agents created before addresses were assigned) hides it.
+    let agentEmail: String?
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
@@ -798,6 +806,12 @@ private struct ContactDetailActions: View {
             }
             if showShare {
                 shareRow
+            }
+            if let agentEmail {
+                ContactDetailEmailSection(
+                    email: agentEmail,
+                    contactDisplayName: contactDisplayName
+                )
             }
             if showRemove {
                 removeRow
@@ -922,7 +936,97 @@ private struct ContactDetailActionRow: View {
     }
 }
 
-// MARK: - Share row (template-backed agents)
+// MARK: - Contact Info section (agents with an email address)
+
+/// The "Contact Info" section on an agent's contact card: a labeled card
+/// with the agent's email address. Tapping the row opens the user's
+/// default mail client via a `mailto:` link; the trailing button copies
+/// the address and briefly swaps to a checkmark as confirmation. Rendered
+/// only when the agent's profile metadata carries an email - older agents
+/// created before the runtime assigned addresses don't have one. Header +
+/// rounded-card shape mirrors `AgentTemplateConversationsSection`.
+private struct ContactDetailEmailSection: View {
+    let email: String
+    let contactDisplayName: String
+
+    @Environment(\.openURL) private var openURL: OpenURLAction
+    @State private var didCopy: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text("Contact Info")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.leading, DesignConstants.Spacing.step2x)
+            emailCard
+        }
+    }
+
+    private var emailCard: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            emailButton
+            copyButton
+        }
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .background(
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                .fill(.colorBackgroundRaised)
+        )
+    }
+
+    private var emailButton: some View {
+        let action = { openMailComposer() }
+        return Button(action: action) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text(email)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Email")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Email \(contactDisplayName) at \(email)")
+        .accessibilityIdentifier("contact-detail-email")
+    }
+
+    private var copyButton: some View {
+        let iconName: String = didCopy ? "checkmark" : "square.on.square"
+        let iconColor: Color = didCopy ? .colorTextPrimary : .colorTextSecondary
+        let label: String = didCopy ? "Copied" : "Copy email address"
+        let action = { copyToClipboard() }
+        return Button(action: action) {
+            Image(systemName: iconName)
+                .font(.title3)
+                .foregroundStyle(iconColor)
+                .frame(width: 44.0, height: 44.0)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("contact-detail-email-copy")
+    }
+
+    private func openMailComposer() {
+        guard let url = URL(string: "mailto:\(email)") else { return }
+        openURL(url)
+    }
+
+    private func copyToClipboard() {
+        UIPasteboard.general.string = email
+        didCopy = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            didCopy = false
+        }
+    }
+}
 
 // MARK: - Debug instance id row (internal builds only)
 
@@ -1120,7 +1224,8 @@ extension Contact {
         agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil,
         profileEmoji: String? = nil,
-        agentInstanceId: String? = nil
+        agentInstanceId: String? = nil,
+        agentEmail: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -1136,7 +1241,8 @@ extension Contact {
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
-            agentInstanceId: agentInstanceId
+            agentInstanceId: agentInstanceId,
+            agentEmail: agentEmail
         )
     }
 
@@ -1165,6 +1271,7 @@ extension Contact {
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         let emoji: String? = member.profile.profileEmoji
         let instanceId: String? = member.profile.agentInstanceId
+        let email: String? = member.profile.agentEmail
         let attestation: String? = member.profile.agentAttestation
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             let resolvedPublishedURL: String? = templatePublishedURL ?? stored.agentTemplatePublishedURL
@@ -1174,6 +1281,7 @@ extension Contact {
                 .with(profileEmoji: emoji)
                 .with(agentInstanceId: instanceId)
                 .with(agentVerification: member.agentVerification)
+                .with(agentEmail: email)
                 .with(agentAttestation: attestation)
         }
         return .synthetic(
@@ -1188,7 +1296,8 @@ extension Contact {
             agentTemplateId: templateId,
             agentTemplatePublishedURL: templatePublishedURL,
             profileEmoji: emoji,
-            agentInstanceId: instanceId
+            agentInstanceId: instanceId,
+            agentEmail: email
         )
         .with(agentAttestation: attestation)
     }
@@ -1237,6 +1346,22 @@ extension Contact {
                 displayName: "Tifoso",
                 agentVerification: .verified(.convos),
                 agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
+            ),
+            contactsWriter: MockContactsWriter(),
+            contactsRepository: MockContactsRepository(),
+            coreActions: NoOpCoreActions()
+        )
+    }
+}
+
+#Preview("Agent template with email") {
+    NavigationStack {
+        ContactDetailView(
+            contact: .mock(
+                displayName: "Tifoso",
+                agentVerification: .verified(.convos),
+                agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o",
+                agentEmail: "tifoso.123456@ai.convos.org"
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository(),

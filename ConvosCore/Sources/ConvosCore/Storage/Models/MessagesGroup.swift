@@ -32,6 +32,16 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// surrounding chrome already identifies the sender (e.g. the thinking
     /// detail sheet's pill) set this to true to avoid the redundant label.
     public var hidesSenderLabel: Bool = false
+    /// True when this group is a continuation chunk of a longer same-sender
+    /// run that `MessagesListProcessor` split for layout performance (one
+    /// giant cell would otherwise build and measure dozens of bubbles at
+    /// once). The view hides the sender label and tightens the top seam so
+    /// the split is invisible.
+    public var continuesPreviousGroup: Bool = false
+    /// True when a continuation chunk follows this group in the same
+    /// same-sender run. The view suppresses the bubble tail on the last
+    /// message and tightens the bottom seam.
+    public var isContinuedBelow: Bool = false
     /// When true, the group renders a trailing pulsing-dot thinking bubble
     /// after its messages — visually the bottom-most item of the run, so
     /// `MessagesGroupView`'s avatar overlay attaches to the bubble instead
@@ -59,6 +69,12 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// (post-Make). The card is the canonical anchor for "the agent
     /// is thinking about your build input".
     public var contactCardThinkingDescriptor: ThinkingSessionDescriptor?
+    /// True when this synthesized contact-card row is immediately followed
+    /// by a message group from the same agent. The card defers its
+    /// bottom-leading avatar to that group's last message (and the group
+    /// below hides its duplicate sender label) so the pair reads as one
+    /// visual run.
+    public var contactCardPrecedesAgentMessages: Bool = false
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
@@ -145,10 +161,13 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.agentContactCard == rhs.agentContactCard &&
         lhs.thinkingByMessageId == rhs.thinkingByMessageId &&
         lhs.hidesSenderLabel == rhs.hidesSenderLabel &&
+        lhs.continuesPreviousGroup == rhs.continuesPreviousGroup &&
+        lhs.isContinuedBelow == rhs.isContinuedBelow &&
         lhs.showsThinkingIndicator == rhs.showsThinkingIndicator &&
         lhs.thinkingContent == rhs.thinkingContent &&
         lhs.usesThoughtBubbleStyle == rhs.usesThoughtBubbleStyle &&
-        lhs.contactCardThinkingDescriptor == rhs.contactCardThinkingDescriptor
+        lhs.contactCardThinkingDescriptor == rhs.contactCardThinkingDescriptor &&
+        lhs.contactCardPrecedesAgentMessages == rhs.contactCardPrecedesAgentMessages
     }
 }
 
@@ -170,10 +189,13 @@ extension MessagesGroup: Hashable {
         hasher.combine(agentContactCard)
         hasher.combine(thinkingByMessageId)
         hasher.combine(hidesSenderLabel)
+        hasher.combine(continuesPreviousGroup)
+        hasher.combine(isContinuedBelow)
         hasher.combine(showsThinkingIndicator)
         hasher.combine(thinkingContent)
         hasher.combine(usesThoughtBubbleStyle)
         hasher.combine(contactCardThinkingDescriptor)
+        hasher.combine(contactCardPrecedesAgentMessages)
     }
 }
 

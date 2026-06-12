@@ -24,6 +24,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// chat that already has members. The plus-menu "Convo code" entry
     /// still reaches the QR on demand.
     public let hidesInviteCard: Bool
+    /// True when the local user was removed from this conversation (persisted
+    /// from a GroupUpdated removal, cleared when a sync proves membership
+    /// again). List queries already exclude removed conversations; this
+    /// surfaces the state to any view that can still reach one - e.g. it was
+    /// open when the removal landed - so it renders read-only.
+    public let wasRemoved: Bool
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
     public let imageSalt: Data?
@@ -60,6 +66,47 @@ public extension Conversation {
 
     var membersWithoutCurrent: [ConversationMember] {
         members.filter { !$0.isCurrentUser }
+    }
+
+    /// Copy of this conversation with `members` replaced. Used by the
+    /// optimistic contacts-picker flows to overlay synthetic members onto
+    /// a DB-emitted conversation so the chat header keeps rendering the
+    /// picked end state while the real member additions are in flight.
+    func withMembers(_ newMembers: [ConversationMember]) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: newMembers,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
     }
 
     var displayName: String {

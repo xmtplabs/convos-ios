@@ -2,11 +2,11 @@ import ConvosComposer
 import ConvosCore
 import SwiftUI
 
-/// Cross-conversation "Stuff" tab. Renders a grid of the most
+/// Cross-conversation "Things" tab. Renders a grid of the most
 /// recent agent-sent HTML attachment from every conversation, with the
 /// conversation's display name + unread dot under each preview square.
-/// See [[StuffOverviewViewModel]] for the data layer and
-/// [[StuffPreviewCell]] for the cell.
+/// See [[ThingsOverviewViewModel]] for the data layer and
+/// [[ThingPreviewCell]] for the cell.
 ///
 /// Layout spec (from the design):
 /// - 24pt outer horizontal margins
@@ -18,7 +18,7 @@ import SwiftUI
 ///
 /// Tapping a cell pushes the conversation detail onto this tab's own
 /// `NavigationStack` (via `pushedConversations`), so the user stays on
-/// the Stuff tab when they tap the back button. The path is bound up
+/// the Things tab when they tap the back button. The path is bound up
 /// to `MainTabView` so the bottom chrome can hide while a conversation
 /// is pushed on either tab.
 ///
@@ -28,19 +28,19 @@ import SwiftUI
 /// `pushedConversations.last`, so pushing a cell flips the indicator
 /// from the leading app pill to the centered conversation pill, and
 /// popping back flips it the other way.
-struct StuffTabView: View {
+struct ThingsTabView: View {
     let appIndicatorContext: AppIndicatorContext
     @Bindable var conversationsViewModel: ConversationsViewModel
-    @Binding var pushedItems: [StuffOverviewItem]
+    @Binding var pushedItems: [ThingOverviewItem]
     /// Fired on every scroll tick with the grid's current Y offset.
     /// `MainTabView` aggregates this with the Chats tab's offset to drive
     /// the builder bar's expand/collapse state.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Invoked when the user taps "See suggested agents" in the empty state.
-    /// The shell switches to the Contacts tab and scrolls it to the
-    /// "Suggested agents" section. Nil hides the button (e.g. previews).
+    /// Invoked when the user taps "Explore agents in Contacts" in the empty
+    /// state. The shell switches to the Contacts tab and scrolls it to the
+    /// "Suggested agents" section. Nil hides the link (e.g. previews).
     var onSeeSuggestedAgents: (() -> Void)?
-    @State private var viewModel: StuffOverviewViewModel
+    @State private var viewModel: ThingsOverviewViewModel
     @State private var pushedConvoVM: ConversationViewModel?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarColumnWidth: CGFloat = 0
@@ -52,7 +52,7 @@ struct StuffTabView: View {
     init(
         appIndicatorContext: AppIndicatorContext,
         conversationsViewModel: ConversationsViewModel,
-        pushedItems: Binding<[StuffOverviewItem]>,
+        pushedItems: Binding<[ThingOverviewItem]>,
         onScrollOffsetChange: ((CGFloat) -> Void)? = nil,
         onSeeSuggestedAgents: (() -> Void)? = nil
     ) {
@@ -61,7 +61,7 @@ struct StuffTabView: View {
         _pushedItems = pushedItems
         self.onScrollOffsetChange = onScrollOffsetChange
         self.onSeeSuggestedAgents = onSeeSuggestedAgents
-        _viewModel = State(initialValue: StuffOverviewViewModel(session: conversationsViewModel.session))
+        _viewModel = State(initialValue: ThingsOverviewViewModel(session: conversationsViewModel.session))
     }
 
     private var columns: [GridItem] {
@@ -72,7 +72,7 @@ struct StuffTabView: View {
     /// 2 columns in compact width. In regular width (iPad), fit as many
     /// columns of at least `minRegularCellWidth` as the measured grid
     /// width allows, capped at `maxColumnCount`. Cells stay square via
-    /// `StuffPreviewCell`'s aspect ratio regardless of column width.
+    /// `ThingPreviewCell`'s aspect ratio regardless of column width.
     private var columnCount: Int {
         guard horizontalSizeClass == .regular, gridWidth > 0 else {
             return Constant.compactColumnCount
@@ -85,8 +85,8 @@ struct StuffTabView: View {
 
     var body: some View {
         content
-            .navigationDestination(item: stuffPushedItemBinding) { item in
-                StuffDetailView(item: item)
+            .navigationDestination(item: thingsPushedItemBinding) { item in
+                ThingDetailView(item: item)
             }
             .onChange(of: pushedItems) { _, newPath in
                 syncPushedConvoVM(with: newPath)
@@ -104,7 +104,7 @@ struct StuffTabView: View {
     /// shell to track "is something pushed?") to SwiftUI's
     /// `navigationDestination(item:)`. Push by appending; pop happens
     /// when SwiftUI sets the binding back to nil (back swipe / button).
-    private var stuffPushedItemBinding: Binding<StuffOverviewItem?> {
+    private var thingsPushedItemBinding: Binding<ThingOverviewItem?> {
         Binding(
             get: { pushedItems.last },
             set: { newValue in
@@ -123,9 +123,9 @@ struct StuffTabView: View {
 
     /// Keep `pushedConvoVM` in lockstep with the navigation stack so the
     /// outer `ConversationPresenter` can show the conversation indicator
-    /// (centered) while a stuff item is pushed and the app indicator
+    /// (centered) while a things item is pushed and the app indicator
     /// (leading) when popped back.
-    private func syncPushedConvoVM(with path: [StuffOverviewItem]) {
+    private func syncPushedConvoVM(with path: [ThingOverviewItem]) {
         guard let item = path.last else {
             pushedConvoVM = nil
             return
@@ -153,7 +153,7 @@ struct StuffTabView: View {
                     Button {
                         pushedItems.append(item)
                     } label: {
-                        StuffPreviewCell(item: item)
+                        ThingPreviewCell(item: item)
                     }
                     .buttonStyle(.plain)
                 }
@@ -174,31 +174,15 @@ struct StuffTabView: View {
         }
     }
 
+    /// New-user CTA shown while no conversation has produced things yet.
+    /// Mirrors the chats-tab empty state's structure exactly (shared
+    /// [[EmptyStateCTAView]] scaffold) so switching tabs never shifts the
+    /// "Make an agent" button or the surrounding components.
     private var emptyState: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 56, weight: .regular))
-                .foregroundStyle(.colorTextSecondary)
-            Text("When agents make stuff, it will show up here.")
-                .multilineTextAlignment(.center)
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step8x)
-            if let onSeeSuggestedAgents {
-                let action = { onSeeSuggestedAgents() }
-                Button(action: action) {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text("See suggested agents")
-                        Image(systemName: "chevron.right")
-                    }
-                }
-                .convosButtonStyle(.rounded(fullWidth: false))
-                .padding(.top, DesignConstants.Spacing.step2x)
-                .accessibilityIdentifier("see-suggested-agents-button")
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.colorBackgroundSurfaceless)
+        ThingsEmptyStateView(
+            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onExploreAgents: onSeeSuggestedAgents
+        )
     }
 
     // Compose button now lives in `MainTabView.sharedTopBar`.

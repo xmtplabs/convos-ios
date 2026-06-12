@@ -10,7 +10,7 @@ coverage at all.
 
 The home is now a standard SwiftUI `TabView`:
 
-- Two tabs: **Chats** (`message.fill`) and **Stuff** (`square.grid.2x2.fill`),
+- Two tabs: **Chats** (`message.fill`) and **Things** (`square.grid.2x2.fill`),
   selected by label. The **Search** tab was removed.
 - Tab bar is at the bottom on iPhone, top on iPad.
 - Agent builder bar pins to the edge opposite the tab bar
@@ -24,7 +24,7 @@ The home is now a standard SwiftUI `TabView`:
 
 | Concern | Old (in tests) | New |
 |---|---|---|
-| Tabs | custom `ConvosTabBar`, Search tab | standard TabView: Chats + Stuff; Search removed |
+| Tabs | custom `ConvosTabBar`, Search tab | standard TabView: Chats + Things; Search removed |
 | Open settings | `app-settings-button` / `convos-settings-button` | `app-indicator-pill` -> `AppSettingsView` sheet |
 | Settings rows | `settings-view` | `my-info-row`, `devices-row`, `contacts-row`, `connections-row`, `subscription-row`, `delete-all-data-button` |
 | Dismiss settings | `close-app-settings` | swipe-down (interactive dismiss) |
@@ -39,7 +39,7 @@ All of `app-settings-button`, `convos-settings-button`, `close-app-settings`,
 - `qa/RULES.md`: added "Home Shell & Navigation" section (authoritative
   new map); fixed the toolbar auto-probe note (dropped `scan-button`).
 - `qa/tests/structured/README.md`: updated the `screen` prerequisite table
-  for the new shell (settings via pill, Chats/Stuff tabs, Search gone).
+  for the new shell (settings via pill, Chats/Things tabs, Search gone).
 - Settings navigation fixed in structured YAMLs:
   - `18-delete-all-data.yaml` (entry id + header note)
   - `25b-global-defaults.yaml` (entry id)
@@ -77,7 +77,7 @@ entry was removed and may be re-enabled later.
   conversations-list filter picker (`filter-button`) is not currently
   surfaced (removed around the Agent Builder work #830); filter logic
   remains in `ConversationsViewModel`. Filters may be re-added later -
-  re-enable then. (`stuff-filter-button` is a separate Stuff-tab control.)
+  re-enable then. (`things-filter-button` is a separate Things-tab control.)
 
 ### Still open
 
