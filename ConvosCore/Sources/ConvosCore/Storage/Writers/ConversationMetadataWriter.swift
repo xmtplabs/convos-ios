@@ -167,13 +167,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
-        // Key by the conversation id, not `conversation.imageCacheIdentifier`:
-        // until `imageURL` is persisted that identifier resolves to the other
-        // member's inbox id, which would cache the conversation image as that
-        // member's profile avatar everywhere.
         guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
-            forIdentifier: conversation.clientConversationId
+            forIdentifier: conversation.imageCacheWriteIdentifier
         ) else {
             throw ConversationMetadataWriterError.failedImageCompression
         }
@@ -255,13 +251,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
-        // Cache under the conversation id, matching the prepareForUpload key
-        // above. The `conversation` parameter still has a nil `imageURL`, so
-        // its `imageCacheIdentifier` would resolve to the other member's
-        // inbox id and record the conversation image as their avatar.
         ImageCacheContainer.shared.cacheAfterUpload(
             compressedImageData,
-            for: conversation.clientConversationId,
+            for: conversation.imageCacheWriteIdentifier,
             url: encryptedAssetUrl
         )
 

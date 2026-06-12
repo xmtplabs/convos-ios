@@ -26,9 +26,8 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     func prepareForUpload(_ image: ImageType, for object: any ImageCacheable) -> Data?
 
     /// Prepare an image for upload, caching it under an explicit identifier.
-    /// Use this when the object's `imageCacheIdentifier` depends on mutable
-    /// state and could resolve to a different entity's key (e.g. a conversation
-    /// without a persisted image resolves to the other member's inbox id).
+    /// Use this when the object's write key differs from its read identifier
+    /// (see `Conversation.imageCacheWriteIdentifier`).
     func prepareForUpload(_ image: ImageType, forIdentifier identifier: String) -> Data?
 
     /// Cache an image after upload completes, updating URL tracking

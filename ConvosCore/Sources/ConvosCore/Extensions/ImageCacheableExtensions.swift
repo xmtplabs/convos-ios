@@ -67,6 +67,15 @@ extension Conversation: ImageCacheable {
         }
     }
 
+    /// Cache key for writing the conversation's own image. Distinct from
+    /// `imageCacheIdentifier`, which resolves to the other member's inbox id
+    /// while `imageURL` is unset (the DM avatar read-sharing path) and would
+    /// record a conversation image as that member's profile avatar. All
+    /// conversation-image cache writes must use this key.
+    public var imageCacheWriteIdentifier: String {
+        clientConversationId
+    }
+
     public var imageCacheURL: URL? {
         switch avatarType {
         case .customImage:
