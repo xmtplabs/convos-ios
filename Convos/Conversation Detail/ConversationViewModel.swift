@@ -2327,7 +2327,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
 
         if isConversationImageDirty, let conversationImage = conversationImage {
-            ImageCache.shared.cacheImage(conversationImage, for: conversation.imageCacheIdentifier, imageFormat: .jpg)
+            // Key by the conversation id, not `imageCacheIdentifier`: before
+            // the image upload persists, that identifier resolves to the other
+            // member's inbox id and would cache this image as their avatar.
+            ImageCache.shared.cacheImage(conversationImage, for: conversation.clientConversationId, imageFormat: .jpg)
             isConversationImageDirty = false
 
             Task { [weak self] in
