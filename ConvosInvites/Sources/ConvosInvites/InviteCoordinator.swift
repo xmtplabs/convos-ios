@@ -391,6 +391,28 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Whether the creator's consent state on the invited group should reject
+    /// an otherwise-valid join request.
+    ///
+    /// Only `.denied` is a real denial - the creator deleted, blocked, or
+    /// exploded the conversation (all three write `.denied`). `.unknown` is
+    /// not a denial: it means this particular installation has no consent
+    /// record for the group yet. A secondary device or a fresh reinstall of
+    /// the creator's inbox arrives at `.unknown` until libxmtp device sync
+    /// delivers the record, and `resolveInvitedGroup` itself pulls the group
+    /// down via `syncConversations()` in exactly that case, guaranteeing an
+    /// `.unknown` read. Rejecting `.unknown` told joiners a perfectly valid
+    /// invite "no longer exists" whenever a non-primary installation answered
+    /// first, so it is treated as allowed here.
+    static func shouldRejectJoin(for consent: ConsentState) -> Bool {
+        switch consent {
+        case .denied:
+            return true
+        case .allowed, .unknown:
+            return false
+        }
+    }
+
     private func resolveInvitedGroup(
         conversationId: String,
         request: JoinRequest,
@@ -438,8 +460,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
             return .stop(benignFailure(request, error: .processingFailed))
         }
-        guard consent == .allowed else {
-            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
+        if Self.shouldRejectJoin(for: consent) {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state is '\(consent)'")
             await sendJoinError(
                 .consentNotAllowed,
                 reason: "creator consent state is '\(consent)'",
