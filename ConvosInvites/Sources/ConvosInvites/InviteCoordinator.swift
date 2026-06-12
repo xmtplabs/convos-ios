@@ -263,6 +263,21 @@ public final class InviteCoordinator: @unchecked Sendable {
         _ request: JoinRequest,
         client: any InviteClientProvider
     ) async -> JoinRequestDMOutcome {
+        // A join-request message admits its sender at most once. Checked
+        // before any validation so a replayed request (stream duplicate,
+        // catch-up, agent-join poll) does neither crypto work nor sends a
+        // stale error reply if the group's state has since changed.
+        // Membership alone cannot dedupe: after the creator removes the
+        // member, the already-honored request would look actionable again.
+        // Removal is not a block - a removed member rejoins by sending a
+        // fresh request (new message ID) with the same invite.
+        if await handledRequestStore.isHandled(messageId: request.messageId) {
+            return .alreadyMember(
+                dmConversationId: request.dmConversationId,
+                joinerInboxId: request.joinerInboxId
+            )
+        }
+
         let conversationId: String
         switch await validateInviteAndDecryptConversationId(request, client: client) {
         case .proceed(let value):
@@ -457,19 +472,6 @@ public final class InviteCoordinator: @unchecked Sendable {
     ) async -> JoinRequestDMOutcome {
         let signedInvite = request.signedInvite
 
-        // A join-request message admits its sender at most once. Membership
-        // alone cannot dedupe revalidation passes: after the creator removes
-        // the member, the already-honored request would look actionable
-        // again and silently re-add them. Removal is not a block - a removed
-        // member rejoins by sending a fresh request (new message ID) with
-        // the same invite.
-        if await handledRequestStore.isHandled(messageId: request.messageId) {
-            return .alreadyMember(
-                dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
-            )
-        }
-
         // The ledger is per-device; the DM marker is the cross-installation
         // signal. Another installation of this inbox (paired device, prior
         // install) may have honored this request and recorded it in the DM,
@@ -610,10 +612,13 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         // Cross-installation dedupe: markers another installation sent for
-        // already-honored requests. Fetched once per DM and compared per
-        // candidate by invite tag and send order.
+        // already-honored requests. A relevant marker is always sent after
+        // the request it covers, so anchoring the fetch at the oldest
+        // candidate's send time bounds the scan without a recency window
+        // that a chatty DM could push markers out of.
         var markers: [JoinHandledMarker] = []
-        if !candidates.isEmpty, let recent = try? await dm.messages(limit: Constant.dedupeScanLimit) {
+        if let oldestCandidateSentAt = candidates.map(\.sentAt).min(),
+           let recent = try? await dm.messages(afterNs: oldestCandidateSentAt.nanosecondsSince1970 - 1) {
             markers = Self.joinHandledMarkers(in: recent, creatorInboxId: client.inviteInboxId)
         }
 
@@ -729,7 +734,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         in dm: XMTPiOS.Conversation,
         client: any InviteClientProvider
     ) async -> Bool {
-        guard let messages = try? await dm.messages(limit: Constant.dedupeScanLimit) else {
+        guard let messages = try? await dm.messages(limit: Constant.joinErrorDedupeScanLimit) else {
             return false
         }
         let codec = InviteJoinErrorCodec()
@@ -765,8 +770,10 @@ public final class InviteCoordinator: @unchecked Sendable {
         dmConversationId: String,
         client: any InviteClientProvider
     ) async -> Bool {
+        // A covering marker is always sent after the request, so fetching
+        // from the request's send time is precise and naturally bounded.
         guard let dm = try? await client.findConversation(conversationId: dmConversationId),
-              let messages = try? await dm.messages(limit: Constant.dedupeScanLimit) else {
+              let messages = try? await dm.messages(afterNs: requestSentAt.nanosecondsSince1970 - 1) else {
             return false
         }
         return Self.joinHandledMarkers(in: messages, creatorInboxId: client.inviteInboxId)
@@ -809,10 +816,11 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     private enum Constant {
         /// How many recent DM messages to scan when checking whether an
-        /// error reply or handled marker for an invite tag was already
-        /// sent. Join-request DMs carry very little traffic, so a small
-        /// window is plenty.
-        static let dedupeScanLimit: Int = 50
+        /// error reply for an invite tag was already sent. Join-request DMs
+        /// carry very little traffic, so a small window is plenty. If a DM
+        /// somehow accumulates more than this between a request and its
+        /// revalidation, the worst case is one duplicate error reply.
+        static let joinErrorDedupeScanLimit: Int = 50
         /// Underlying error descriptions (libxmtp, keychain) can be very
         /// long; cap the diagnostic reason so error replies stay small.
         static let joinErrorReasonMaxLength: Int = 500
@@ -846,24 +854,43 @@ extension Date {
 // MARK: - Dm Extension
 
 extension XMTPiOS.Dm {
+    /// Most recent signed invite the client sent in this DM, scanning a
+    /// small window of recent messages rather than only the literal last
+    /// one. The creator appends bookkeeping to the DM (invite_join_handled
+    /// markers, error replies), so on the joiner's side the join request is
+    /// often no longer the final message - requiring that would make
+    /// `hasOutgoingJoinRequest` go false the moment a join is honored,
+    /// which breaks the consent bump for the newly arrived group.
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
-        guard let lastMessage = try? await self.lastMessage(),
-              lastMessage.senderInboxId == clientInboxId,
-              let contentType = try? lastMessage.encodedContent.type else {
+        guard let messages = try? await self.messages(limit: Constant.outgoingInviteScanLimit) else {
             return nil
         }
 
-        let slug: String
-        if contentType == ContentTypeJoinRequest,
-           let joinRequest: JoinRequestContent = try? lastMessage.content() {
-            slug = joinRequest.inviteSlug
-        } else if contentType == ContentTypeText,
-                  let text: String = try? lastMessage.content() {
-            slug = text
-        } else {
-            return nil
-        }
+        for message in messages where message.senderInboxId == clientInboxId {
+            guard let contentType = try? message.encodedContent.type else { continue }
 
-        return try? SignedInvite.fromURLSafeSlug(slug)
+            let slug: String
+            if contentType == ContentTypeJoinRequest,
+               let joinRequest: JoinRequestContent = try? message.content() {
+                slug = joinRequest.inviteSlug
+            } else if contentType == ContentTypeText,
+                      let text: String = try? message.content() {
+                slug = text
+            } else {
+                continue
+            }
+
+            if let invite = try? SignedInvite.fromURLSafeSlug(slug) {
+                return invite
+            }
+        }
+        return nil
+    }
+
+    private enum Constant {
+        /// Window for finding the client's most recent join request among
+        /// interleaved creator bookkeeping. Join DMs carry very little
+        /// traffic, so a handful of messages is plenty.
+        static let outgoingInviteScanLimit: Int = 10
     }
 }

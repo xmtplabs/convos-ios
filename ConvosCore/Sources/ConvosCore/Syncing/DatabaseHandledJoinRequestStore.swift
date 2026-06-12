@@ -28,11 +28,13 @@ final class DatabaseHandledJoinRequestStore: HandledJoinRequestStoreProtocol, Se
     }
 
     func markHandled(messageId: String) async {
+        let now = Date()
+        let retentionCutoff = now.addingTimeInterval(-Constant.retention)
         do {
             try await databaseWriter.write { db in
-                try DBHandledJoinRequest(messageId: messageId, handledAt: Date()).save(db)
+                try DBHandledJoinRequest(messageId: messageId, handledAt: now).save(db)
                 try DBHandledJoinRequest
-                    .filter(DBHandledJoinRequest.Columns.handledAt < Date().addingTimeInterval(-Constant.retention))
+                    .filter(DBHandledJoinRequest.Columns.handledAt < retentionCutoff)
                     .deleteAll(db)
             }
         } catch {

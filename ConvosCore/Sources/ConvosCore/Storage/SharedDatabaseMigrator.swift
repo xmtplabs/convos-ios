@@ -221,6 +221,11 @@ extension SharedDatabaseMigrator {
             t.column("messageId", .text).notNull().primaryKey()
             t.column("handledAt", .datetime).notNull()
         }
+        try db.create(
+            index: "handledJoinRequest_handledAt",
+            on: "handledJoinRequest",
+            columns: ["handledAt"]
+        )
     }
 
     /// Persisted "the local user was removed from this conversation" marker.

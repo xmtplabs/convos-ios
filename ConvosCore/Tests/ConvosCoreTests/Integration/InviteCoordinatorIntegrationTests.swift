@@ -328,6 +328,16 @@ struct InviteCoordinatorIntegrationTests {
         let firstOutcomes = await firstInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
         #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
 
+        // The marker is now the newest DM message on the joiner's side. The
+        // outgoing-join-request check must still see the joiner's request
+        // through it, or the newly joined group never gets its consent bump
+        // and stays hidden from the joiner's feed.
+        _ = try await joinerClient.conversations.syncAllConversations(consentStates: nil)
+        let joinerGroups = try await joinerClient.conversations.listGroups()
+        let joinerGroup = try #require(joinerGroups.first { $0.id == group.id })
+        let stillOutgoing = try await firstInstallation.hasOutgoingJoinRequest(for: joinerGroup, client: joinerClient)
+        #expect(stillOutgoing, "Creator bookkeeping in the DM must not hide the joiner's outgoing join request")
+
         try await group.removeMembers(inboxIds: [joinerClient.inboxID])
 
         // Empty ledger, same DM history: only the marker can dedupe here.
