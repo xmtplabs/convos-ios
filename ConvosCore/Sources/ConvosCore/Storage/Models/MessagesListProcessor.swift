@@ -269,11 +269,86 @@ public final class MessagesListProcessor: Sendable {
             items = dropOrphanDateSeparators(in: items)
         }
 
+        // Creator-side optimistic card: right after Make the build's message
+        // rows don't exist yet -- the bundle send is held until the agent has
+        // joined the conversation -- so the run-anchored reconstruction above
+        // has nothing to anchor on and the card would only appear once the
+        // agent joins. Render it from the summary alone (only the creator has
+        // the summary) until the summary's own rows land. Time-boxed so a
+        // summary whose build messages later expire (disappearing messages)
+        // doesn't resurrect a card at the bottom of an old chat.
+        if let summary = agentBuilderSummary,
+           Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow {
+            let summaryIds: Set<String> = summary.bundledMessageIds
+            let summaryRowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
+            if !summaryRowsLanded {
+                items.append(.agentBuilderSummary(makePendingCardContent(summary: summary)))
+            }
+        }
+
         if let agent = verifiedAgent {
             items = insertingContactCard(in: items, agent: agent)
         }
 
         return items
+    }
+
+    /// How long after Make the summary-only card may render while its build
+    /// messages haven't landed. Covers the writer's agent-join hold (150s)
+    /// with margin; past it, a row-less summary is history, not a pending
+    /// build.
+    private static let pendingCardDisplayWindow: TimeInterval = 180
+
+    /// Card content built from the summary alone, for the window between Make
+    /// and the build messages landing. Mirrors `makeCardContent` with the
+    /// summary's stored snapshots standing in for the not-yet-persisted
+    /// messages; the anchor reuses the first bundled id so the cell identity
+    /// is stable when the real run-anchored card takes over.
+    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+        let anchor: String = summary.bundledMessageIds.sorted().first ?? summary.id.uuidString
+        let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
+            switch attachment {
+            case let .photo(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "image/jpeg",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .video(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "video/mp4",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .file(id, filename, mimeType, fileSize):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: mimeType,
+                    fileSize: fileSize,
+                    filename: filename
+                )
+            case let .voiceMemo(id, duration, levels):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "audio/m4a",
+                    duration: duration,
+                    waveformLevels: levels
+                )
+            case .connection:
+                // Rendered via `connectionIdentifiers`, not as a media chip.
+                return nil
+            }
+        }
+        return AgentBuilderCardContent(
+            id: "agent-builder-card-" + anchor,
+            prompt: summary.prompt,
+            attachments: attachments,
+            creatorIsCurrentUser: true,
+            creatorDisplayName: "",
+            connectionIdentifiers: builderConnectionIdentifiers(from: summary),
+            existingConversation: summary.existingConversation,
+            transitionEligible: !summary.existingConversation
+        )
     }
 
     /// Strip date separators that no longer precede a message group. A

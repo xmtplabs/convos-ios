@@ -1674,3 +1674,86 @@ struct MessagesListProcessorContactCardPlacementTests {
         #expect(contactCardCount(in: result) == 1)
     }
 }
+
+// Coverage for the creator-side optimistic card: after Make, the bundle send
+// is held until the agent joins (OutgoingMessageWriter.waitForAgentMember), so
+// the build's message rows don't exist yet and the run-anchored reconstruction
+// has nothing to render. The processor must show the card from the summary
+// alone within the pending window, hand off to the run-anchored card once the
+// rows land, and never resurrect a card for an old row-less summary.
+struct MessagesListProcessorPendingBuilderCardTests {
+    @Test("Summary with no landed rows renders the card optimistically")
+    func pendingCardRendersBeforeRowsLand() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-att", "b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Be my assistant")
+        #expect(cards.first?.creatorIsCurrentUser == true)
+    }
+
+    @Test("Once the summary's rows land, only the run-anchored card renders")
+    func pendingCardHandsOffToRunAnchoredCard() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: now),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: now,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(messageIds(from: result).isEmpty)
+    }
+
+    @Test("An old summary whose rows are gone does not resurrect a card")
+    func expiredPendingSummaryRendersNoCard() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date().addingTimeInterval(-3600),
+            bundledMessageIds: ["b-att", "b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).isEmpty)
+    }
+
+    @Test("Pending card carries the summary's connection identifiers")
+    func pendingCardCarriesConnections() {
+        let summary = AgentBuilderSummary(
+            prompt: "Track my calendar",
+            attachments: [.connection(id: UUID(), identifier: "googleCalendar")],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.first?.connectionIdentifiers == ["googleCalendar"])
+        #expect(cards.first?.attachments.isEmpty == true)
+    }
+}
