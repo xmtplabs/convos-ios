@@ -207,7 +207,25 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
 
+        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+
         return migrator
+    }
+
+    /// Ledger of join-request message IDs that already admitted their
+    /// sender, shared with the notification service extension. Keyed by
+    /// message ID so revalidation passes cannot re-add a member the user
+    /// removed; see `DatabaseHandledJoinRequestStore`.
+    private static func createHandledJoinRequest(_ db: Database) throws {
+        try db.create(table: "handledJoinRequest") { t in
+            t.column("messageId", .text).notNull().primaryKey()
+            t.column("handledAt", .datetime).notNull()
+        }
+        try db.create(
+            index: "handledJoinRequest_handledAt",
+            on: "handledJoinRequest",
+            columns: ["handledAt"]
+        )
     }
 
     /// Persisted "the local user was removed from this conversation" marker.

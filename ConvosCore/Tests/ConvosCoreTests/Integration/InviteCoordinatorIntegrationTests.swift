@@ -29,6 +29,7 @@ struct InviteCoordinatorIntegrationTests {
                 TextCodec(),
                 JoinRequestCodec(),
                 InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
             ],
             dbEncryptionKey: dbKey,
             dbDirectory: tmpDir.path
@@ -142,6 +143,14 @@ struct InviteCoordinatorIntegrationTests {
 
         let memberInboxIds = try await group.members.map(\.inboxId)
         #expect(memberInboxIds.contains(joinerClient.inboxID), "Text-slug joiner must be added to the group")
+
+        // Cross-version guard: pre-typed builds (2.0.0 and earlier) require
+        // their join request to be the DM's literal last message for
+        // `hasOutgoingJoinRequest`, so a text-only join must not get a
+        // handled marker - creator bookkeeping would break their consent
+        // bump for the newly joined group.
+        let markerCount = try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(markerCount == 0, "Text-only joiners must not receive a handled marker")
     }
 
     /// Herald sends a typed join_request plus a plain-text slug copy. A
@@ -225,12 +234,230 @@ struct InviteCoordinatorIntegrationTests {
         #expect(errorCount == 2, "A retried join request gets its own error reply")
     }
 
+    /// Regression test for removed agents instantly rejoining: join-request
+    /// DMs are durable, and batch catch-up / the agent-join poll revalidate
+    /// them after the member list changes. Before the handled-request ledger,
+    /// the only dedupe was "is the joiner currently a member", so removing
+    /// the member made the already-honored request actionable again and the
+    /// next pass silently re-added them. The ledger keys on message ID:
+    /// the replayed request stays inert, while a fresh request with the same
+    /// invite still joins (removal is not a block).
+    @Test("Replayed join request does not re-add a removed member; a fresh request does")
+    func replayedJoinRequestStaysInertAfterRemoval() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        // One ledger shared by two coordinator instances, mirroring how
+        // production passes build a fresh coordinator per batch around the
+        // shared database-backed store.
+        let ledger = InMemoryHandledJoinRequestStore()
+        let key = creatorInviteKey
+        let firstPass = InviteCoordinator(privateKeyProvider: { _ in key }, handledRequestStore: ledger)
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstPass.revokeInvites(for: group)
+        let invite = try await firstPass.createInvite(for: group, client: creatorClient)
+
+        _ = try await firstPass.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID))
+
+        // Revalidate the full DM history, as batch catch-up and the
+        // agent-join poll do after the removal.
+        let secondPass = InviteCoordinator(privateKeyProvider: { _ in key }, handledRequestStore: ledger)
+        let replayOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "Revalidating an already-honored join request must not re-add the removed member"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(
+            !memberInboxIds.contains(joinerClient.inboxID),
+            "Removed member must stay removed after revalidation passes"
+        )
+
+        // Removal is not a block: a fresh join request with the same valid
+        // invite is a new attempt and joins again.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await secondPass.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh join request from a removed member must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID), "Fresh request re-adds the removed member")
+    }
+
+    /// The handled-request ledger is per-device; the cross-installation
+    /// guarantee comes from the `invite_join_handled` marker the creator
+    /// sends in the join DM after honoring a request. A coordinator with a
+    /// fresh, empty ledger (simulating a paired device or reinstall that
+    /// shares DM history but not the local database) must still treat the
+    /// honored request - including the text copy of Herald's typed+text
+    /// pair - as inert after the member is removed, while a fresh request
+    /// with the same invite still joins.
+    @Test("Handled marker keeps a replayed request inert for an installation with an empty ledger")
+    func handledMarkerCoversInstallationsWithoutLedger() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let firstInstallation = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstInstallation.revokeInvites(for: group)
+        let invite = try await firstInstallation.createInvite(for: group, client: creatorClient)
+
+        // Herald-style typed + text pair.
+        let dm = try await firstInstallation.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        // The typed copy in the pair marks the joiner as typed-capable, so
+        // the marker must be sent even though the newer text copy is the
+        // honored message.
+        let markerCount = try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(markerCount == 1, "A typed-capable join must produce exactly one handled marker")
+
+        // The marker is now the newest DM message on the joiner's side. The
+        // outgoing-join-request check must still see the joiner's request
+        // through it, or the newly joined group never gets its consent bump
+        // and stays hidden from the joiner's feed.
+        _ = try await joinerClient.conversations.syncAllConversations(consentStates: nil)
+        let joinerGroups = try await joinerClient.conversations.listGroups()
+        let joinerGroup = try #require(joinerGroups.first { $0.id == group.id })
+        let stillOutgoing = try await firstInstallation.hasOutgoingJoinRequest(for: joinerGroup, client: joinerClient)
+        #expect(stillOutgoing, "Creator bookkeeping in the DM must not hide the joiner's outgoing join request")
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+
+        // Empty ledger, same DM history: only the marker can dedupe here.
+        let otherInstallation = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+        let replayOutcomes = await otherInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "The handled marker must keep both copies of the honored request inert without a local ledger"
+        )
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID), "Removed member must stay removed")
+
+        // A fresh request postdates the marker and must still join.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await otherInstallation.sendJoinRequest(for: invite.signedInvite, client: joinerClient)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await otherInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh join request sent after the marker must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID))
+    }
+
+    /// Isolates the ledger layer: a text-only joiner (pre-typed build) gets
+    /// no marker because of the cross-version gate, so the per-device
+    /// ledger alone must keep the honored request inert after removal -
+    /// and a fresh text request must still rejoin.
+    @Test("Text-only joiner: ledger alone keeps a replayed request inert; a fresh request rejoins")
+    func textOnlyJoinerLedgerCoversReplay() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let coordinator = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+
+        // Text-only request, the pre-typed (2.0.0 and earlier) wire format.
+        let dm = try await joinerClient.conversations.findOrCreateDm(with: creatorClient.inboxID)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+        #expect(try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient) == 0)
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+
+        let replayOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "The ledger alone must keep a text-only joiner's honored request inert"
+        )
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID), "Removed member must stay removed")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh text-only join request must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID))
+        #expect(
+            try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient) == 0,
+            "Text-only joins must never produce a marker, including on rejoin"
+        )
+    }
+
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
+        try await messageCount(ofType: ContentTypeInviteJoinError, inDmWith: peerInboxId, client: client)
+    }
+
+    private func joinHandledMarkerCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
+        try await messageCount(ofType: ContentTypeInviteJoinHandled, inDmWith: peerInboxId, client: client)
+    }
+
+    private func messageCount(
+        ofType expectedType: ContentTypeID,
+        inDmWith peerInboxId: String,
+        client: Client
+    ) async throws -> Int {
         let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
         let messages = try await dm.messages()
         return messages.filter { message in
             guard let contentType = try? message.encodedContent.type else { return false }
-            return contentType == ContentTypeInviteJoinError
+            return contentType == expectedType
         }.count
     }
 }
