@@ -2,6 +2,12 @@ import Foundation
 
 public final class MessagesListProcessor: Sendable {
     private static let hourInSeconds: TimeInterval = 3600
+    /// Long same-sender runs split into display groups of at most this many
+    /// messages so a single collection cell never builds and measures dozens
+    /// of bubbles at once (the dominant cost when opening a conversation).
+    /// Continuation chunks render seamlessly via `continuesPreviousGroup` /
+    /// `isContinuedBelow`.
+    private static let maxMessagesPerDisplayGroup: Int = 10
 
     public static func process(
         _ messages: [AnyMessage],
@@ -69,6 +75,8 @@ public final class MessagesListProcessor: Sendable {
         rebuilt.agentContactCard = group.agentContactCard
         rebuilt.thinkingByMessageId = group.thinkingByMessageId
         rebuilt.hidesSenderLabel = group.hidesSenderLabel
+        rebuilt.continuesPreviousGroup = group.continuesPreviousGroup
+        rebuilt.isContinuedBelow = group.isContinuedBelow
         rebuilt.showsThinkingIndicator = group.showsThinkingIndicator
         rebuilt.thinkingContent = group.thinkingContent
         rebuilt.usesThoughtBubbleStyle = group.usesThoughtBubbleStyle
@@ -602,6 +610,9 @@ public final class MessagesListProcessor: Sendable {
                         }
                     let newMembers = newInboxIds.compactMap(resolveMember)
                     let members: [ConversationMember] = kept + newMembers
+                    let continuesPrevious = group.continuesPreviousGroup
+                    let continuedBelow = group.isContinuedBelow
+                    let hidesLabel = group.hidesSenderLabel
                     group = MessagesGroup(
                         id: group.id,
                         sender: group.sender,
@@ -615,6 +626,9 @@ public final class MessagesListProcessor: Sendable {
                         isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
                         voiceMemoTranscripts: group.voiceMemoTranscripts
                     )
+                    group.continuesPreviousGroup = continuesPrevious
+                    group.isContinuedBelow = continuedBelow
+                    group.hidesSenderLabel = hidesLabel
                 }
             }
 
@@ -643,51 +657,6 @@ public final class MessagesListProcessor: Sendable {
         }
 
         return items
-    }
-
-    @inline(__always)
-    // swiftlint:disable:next function_parameter_count
-    private static func flush(
-        _ items: inout [MessagesListItemType],
-        _ messages: [AnyMessage],
-        _ isLastGroup: Bool,
-        _ isLastGroupSentByCurrentUser: Bool,
-        _ lastCurrentUserIndex: inout Int?,
-        _ memberCount: Int,
-        _ lastOnlyVisibleIndex: inout Int?,
-        _ voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
-    ) {
-        guard let startMsg = messages.first else { return }
-        let sender = startMsg.sender
-
-        var groupTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
-        if !voiceMemoTranscripts.isEmpty {
-            for message in messages {
-                let messageId = message.messageId
-                if let transcript = voiceMemoTranscripts[messageId] {
-                    groupTranscripts[messageId] = transcript
-                }
-            }
-        }
-
-        var group = MessagesGroup(
-            id: "group-" + startMsg.messageId,
-            sender: sender,
-            messages: messages,
-            isLastGroup: isLastGroup,
-            isLastGroupSentByCurrentUser: isLastGroupSentByCurrentUser,
-            voiceMemoTranscripts: groupTranscripts
-        )
-
-        if sender.isCurrentUser {
-            lastCurrentUserIndex = items.count
-            if memberCount == 0 {
-                group.onlyVisibleToSender = true
-                lastOnlyVisibleIndex = items.count
-            }
-        }
-
-        items.append(.messages(group))
     }
 
     /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
@@ -811,5 +780,68 @@ private extension MessagesListProcessor {
         }
         items.insert(.messages(cardGroup), at: insertionIndex)
         return items
+    }
+
+    @inline(__always)
+    // swiftlint:disable:next function_parameter_count
+    static func flush(
+        _ items: inout [MessagesListItemType],
+        _ messages: [AnyMessage],
+        _ isLastGroup: Bool,
+        _ isLastGroupSentByCurrentUser: Bool,
+        _ lastCurrentUserIndex: inout Int?,
+        _ memberCount: Int,
+        _ lastOnlyVisibleIndex: inout Int?,
+        _ voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    ) {
+        guard !messages.isEmpty else { return }
+        let sender = messages[0].sender
+
+        var chunks: [[AnyMessage]] = []
+        var index = 0
+        while index < messages.count {
+            let end = min(index + maxMessagesPerDisplayGroup, messages.count)
+            chunks.append(Array(messages[index..<end]))
+            index = end
+        }
+
+        for (chunkIndex, chunk) in chunks.enumerated() {
+            guard let startMsg = chunk.first else { continue }
+            let isFinalChunk = chunkIndex == chunks.count - 1
+
+            var groupTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+            if !voiceMemoTranscripts.isEmpty {
+                for message in chunk {
+                    let messageId = message.messageId
+                    if let transcript = voiceMemoTranscripts[messageId] {
+                        groupTranscripts[messageId] = transcript
+                    }
+                }
+            }
+
+            var group = MessagesGroup(
+                id: "group-" + startMsg.messageId,
+                sender: sender,
+                messages: chunk,
+                isLastGroup: isFinalChunk && isLastGroup,
+                isLastGroupSentByCurrentUser: isFinalChunk && isLastGroupSentByCurrentUser,
+                voiceMemoTranscripts: groupTranscripts
+            )
+            if chunkIndex > 0 {
+                group.continuesPreviousGroup = true
+                group.hidesSenderLabel = true
+            }
+            group.isContinuedBelow = !isFinalChunk
+
+            if sender.isCurrentUser {
+                lastCurrentUserIndex = items.count
+                if memberCount == 0 {
+                    group.onlyVisibleToSender = true
+                    lastOnlyVisibleIndex = items.count
+                }
+            }
+
+            items.append(.messages(group))
+        }
     }
 }

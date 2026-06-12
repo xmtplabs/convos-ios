@@ -32,6 +32,16 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// surrounding chrome already identifies the sender (e.g. the thinking
     /// detail sheet's pill) set this to true to avoid the redundant label.
     public var hidesSenderLabel: Bool = false
+    /// True when this group is a continuation chunk of a longer same-sender
+    /// run that `MessagesListProcessor` split for layout performance (one
+    /// giant cell would otherwise build and measure dozens of bubbles at
+    /// once). The view hides the sender label and tightens the top seam so
+    /// the split is invisible.
+    public var continuesPreviousGroup: Bool = false
+    /// True when a continuation chunk follows this group in the same
+    /// same-sender run. The view suppresses the bubble tail on the last
+    /// message and tightens the bottom seam.
+    public var isContinuedBelow: Bool = false
     /// When true, the group renders a trailing pulsing-dot thinking bubble
     /// after its messages — visually the bottom-most item of the run, so
     /// `MessagesGroupView`'s avatar overlay attaches to the bubble instead
@@ -151,6 +161,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.agentContactCard == rhs.agentContactCard &&
         lhs.thinkingByMessageId == rhs.thinkingByMessageId &&
         lhs.hidesSenderLabel == rhs.hidesSenderLabel &&
+        lhs.continuesPreviousGroup == rhs.continuesPreviousGroup &&
+        lhs.isContinuedBelow == rhs.isContinuedBelow &&
         lhs.showsThinkingIndicator == rhs.showsThinkingIndicator &&
         lhs.thinkingContent == rhs.thinkingContent &&
         lhs.usesThoughtBubbleStyle == rhs.usesThoughtBubbleStyle &&
@@ -177,6 +189,8 @@ extension MessagesGroup: Hashable {
         hasher.combine(agentContactCard)
         hasher.combine(thinkingByMessageId)
         hasher.combine(hidesSenderLabel)
+        hasher.combine(continuesPreviousGroup)
+        hasher.combine(isContinuedBelow)
         hasher.combine(showsThinkingIndicator)
         hasher.combine(thinkingContent)
         hasher.combine(usesThoughtBubbleStyle)

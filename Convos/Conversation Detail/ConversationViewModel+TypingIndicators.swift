@@ -170,6 +170,8 @@ extension ConversationViewModel {
             updatedGroup.hidesSenderLabel = lastGroup.hidesSenderLabel
             updatedGroup.adjacentToFullBleedAbove = lastGroup.adjacentToFullBleedAbove
             updatedGroup.adjacentToFullBleedBelow = lastGroup.adjacentToFullBleedBelow
+            updatedGroup.continuesPreviousGroup = lastGroup.continuesPreviousGroup
+            updatedGroup.isContinuedBelow = lastGroup.isContinuedBelow
             updated[lastIndex] = .messages(updatedGroup)
             return updated
         }
