@@ -550,6 +550,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try DBCapabilityResolution.deleteAll(db)
             try DBCreditBalance.deleteAll(db)
             try DBConversationReadReceipt.deleteAll(db)
+            try DBConversationCatchUpCursor.deleteAll(db)
             try DBPendingPhotoUpload.deleteAll(db)
             try DBBuilderBundleHiddenMessage.deleteAll(db)
             try DBVoiceMemoTranscript.deleteAll(db)

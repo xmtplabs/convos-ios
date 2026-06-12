@@ -205,7 +205,23 @@ extension SharedDatabaseMigrator {
 
         Self.registerRemovedStateMigrations(on: &migrator)
 
+        Self.registerCatchUpCursorMigrations(on: &migrator)
+
         return migrator
+    }
+
+    /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
+    /// Tracks how far the backlog has actually been fetched and applied,
+    /// independently of MAX(message.dateNs), so read receipts older than
+    /// the newest pushed message are no longer skipped by catch-up.
+    private static func registerCatchUpCursorMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createConversationCatchUpCursor") { db in
+            try db.create(table: "conversation_catchup_cursors") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("caughtUpToNs", .integer).notNull()
+            }
+        }
     }
 
     /// Persisted "the local user was removed from this conversation" marker.
