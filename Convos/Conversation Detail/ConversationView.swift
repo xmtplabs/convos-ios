@@ -289,6 +289,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onAgentOutOfCredits: { viewModel.presentingPaywall = true },
             creditsDepleted: viewModel.creditsDepleted,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
+            onTapCapabilityConnect: { prompt in
+                // Read-only viewers see the pill but can't answer the request
+                // (a result message couldn't be sent on their behalf anyway).
+                guard !effectiveReadOnly else { return }
+                viewModel.onTapCapabilityConnectPrompt(prompt)
+            },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAgentJoin: { viewModel.retryAgentJoin() },
@@ -320,28 +326,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
 
+                    // Capability requests no longer auto-present a card here:
+                    // the transcript's connect pill is the single entry point
+                    // and opens the approval sheet. The slot keeps the
+                    // post-approval toast and the onboarding view.
                     Group {
                         if viewModel.showsCapabilityApprovedToast {
                             CapabilityApprovedToastView()
                                 .transition(.blurReplace)
-                        } else if let layout = viewModel.pendingCapabilityPickerLayout {
-                            CapabilityPickerCardView(
-                                layout: layout,
-                                agentName: viewModel.askerDisplayName(for: layout.request),
-                                onApprove: { providerIds, bundleSelection in
-                                    viewModel.onCapabilityApprove(
-                                        providerIds: providerIds,
-                                        bundleSelection: bundleSelection
-                                    )
-                                },
-                                onDeny: {
-                                    viewModel.onCapabilityDeny()
-                                },
-                                onConnect: { providerId in
-                                    viewModel.onCapabilityConnect(providerId: providerId)
-                                }
-                            )
-                            .transition(.blurReplace)
                         } else {
                             ConversationOnboardingView(
                                 coordinator: onboardingCoordinator,
@@ -357,7 +349,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             .transition(.blurReplace)
                         }
                     }
-                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.pendingCapabilityPickerLayout)
                     .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -464,6 +455,35 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
         AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
+    }
+
+    /// Approval sheet for the pending capability request, opened from the
+    /// transcript's connect pill. Extracted to keep `body`'s type-check time
+    /// in budget. The layout can clear while the sheet is up (another device
+    /// resolved the request) — the view model auto-dismisses in that case and
+    /// the EmptyView only covers the dismissal animation frame.
+    @ViewBuilder
+    private var capabilityApprovalSheet: some View {
+        if let layout = viewModel.pendingCapabilityPickerLayout {
+            CapabilityApprovalSheetView(
+                layout: layout,
+                agentName: viewModel.askerDisplayName(for: layout.request),
+                onApprove: { providerIds, bundleSelection in
+                    viewModel.onCapabilityApprove(
+                        providerIds: providerIds,
+                        bundleSelection: bundleSelection
+                    )
+                },
+                onDeny: {
+                    viewModel.onCapabilityDeny()
+                },
+                onConnect: { providerId in
+                    viewModel.onCapabilityConnect(providerId: providerId)
+                }
+            )
+        } else {
+            EmptyView()
+        }
     }
 
     /// Shared content for the invite- and agent-share-driven new-conversation
@@ -580,6 +600,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
             }
+        }
+        .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
+            capabilityApprovalSheet
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
             MyInfoView(

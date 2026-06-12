@@ -37,6 +37,9 @@ struct CellConfig {
     let onRetryAgentJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
+    /// Fired when a pending capability connect pill is tapped — opens the
+    /// approval sheet for the request it carries.
+    let onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void
     let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void

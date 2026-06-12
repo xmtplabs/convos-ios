@@ -83,6 +83,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
@@ -146,6 +147,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onAgentOutOfCredits: onAgentOutOfCredits,
             creditsDepleted: creditsDepleted,
             onTapUpdateMember: onTapUpdateMember,
+            onTapCapabilityConnect: onTapCapabilityConnect,
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
             onRetryAgentJoin: onRetryAgentJoin,

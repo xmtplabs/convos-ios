@@ -62,41 +62,31 @@ struct ConnectionEventCodecTests {
 
 @Suite("ConnectionMessageSummaryFormatter capability text")
 struct ConnectionMessageSummaryFormatterCapabilityTests {
-    @Test("granted device calendar varies by capability")
-    func grantedDeviceCalendarVariesByCapability() {
-        let cases: [(ConnectionCapability, String)] = [
-            (.read, "can read calendar events"),
-            (.writeCreate, "can create calendar events"),
-            (.writeUpdate, "can edit calendar events"),
-            (.writeDelete, "can delete calendar events"),
-        ]
-        for (capability, expected) in cases {
+    @Test("granted device calendar brands the service regardless of capability")
+    func grantedDeviceCalendarBrandsService() {
+        for capability in [ConnectionCapability.read, .writeCreate, .writeUpdate, .writeDelete] {
             let event = ConnectionEvent(
                 providerId: "device.calendar",
                 action: .granted,
                 capability: capability
             )
             let summary = ConnectionMessageSummaryFormatter.eventSummary(event)
-            #expect(summary.text == expected, "expected \(expected) for \(capability)")
+            #expect(summary.text == "connected Apple Calendar", "unexpected text for \(capability)")
+            #expect(summary.actor == .messageSender)
         }
     }
 
-    @Test("granted cloud googlecalendar varies by capability")
-    func grantedCloudCalendarVariesByCapability() {
-        let cases: [(ConnectionCapability, String)] = [
-            (.read, "can read calendar events"),
-            (.writeCreate, "can create calendar events"),
-            (.writeUpdate, "can edit calendar events"),
-            (.writeDelete, "can delete calendar events"),
-        ]
-        for (capability, expected) in cases {
+    @Test("granted cloud googlecalendar brands the service regardless of capability")
+    func grantedCloudCalendarBrandsService() {
+        for capability in [ConnectionCapability.read, .writeCreate, .writeUpdate, .writeDelete] {
             let event = ConnectionEvent(
                 providerId: "composio.googlecalendar",
                 action: .granted,
                 capability: capability
             )
             let summary = ConnectionMessageSummaryFormatter.eventSummary(event)
-            #expect(summary.text == expected, "expected \(expected) for \(capability)")
+            #expect(summary.text == "connected Google Calendar", "unexpected text for \(capability)")
+            #expect(summary.actor == .messageSender)
         }
     }
 
@@ -119,14 +109,14 @@ struct ConnectionMessageSummaryFormatterCapabilityTests {
         }
     }
 
-    @Test("nil capability falls back to legacy text")
-    func nilCapabilityFallsBackToLegacyText() {
+    @Test("nil capability still brands the granted service")
+    func nilCapabilityStillBrandsService() {
         let event = ConnectionEvent(
             providerId: "device.calendar",
             action: .granted,
             capability: nil
         )
         let summary = ConnectionMessageSummaryFormatter.eventSummary(event)
-        #expect(summary.text == "has access to calendar data")
+        #expect(summary.text == "connected Apple Calendar")
     }
 }

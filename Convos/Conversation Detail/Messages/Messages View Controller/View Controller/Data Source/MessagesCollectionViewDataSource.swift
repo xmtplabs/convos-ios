@@ -33,6 +33,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onAgentOutOfCredits: (() -> Void)?
     var creditsDepleted: Bool = false
     var onTapUpdateMember: ((ConversationMember) -> Void)?
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
@@ -142,6 +143,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onTapUpdateMember: { [weak self] member in
                 self?.onTapUpdateMember?(member)
+            },
+            onTapCapabilityConnect: { [weak self] prompt in
+                self?.onTapCapabilityConnect?(prompt)
             },
             onOpenFile: { [weak self] attachment, message in
                 self?.onOpenFile?(attachment, message)

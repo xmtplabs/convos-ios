@@ -29,6 +29,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
@@ -118,6 +119,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.creditsDepleted = creditsDepleted
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
+        }
+        messagesViewController.onTapCapabilityConnect = { prompt in
+            self.onTapCapabilityConnect(prompt)
         }
         messagesViewController.onRetryMessage = { message in
             self.onRetryMessage(message)

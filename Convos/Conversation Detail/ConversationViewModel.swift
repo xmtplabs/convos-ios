@@ -875,11 +875,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingProfileSettings: Bool = false
 
     /// The agent's most-recent unresolved `capability_request` for this conversation.
-    /// When non-nil, `ConversationView` renders the picker card in the same slot the
-    /// `ConversationOnboardingView` would otherwise occupy. Cleared on Approve / Deny /
-    /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
-    /// last request" rule).
-    var pendingCapabilityPickerLayout: CapabilityPickerLayout?
+    /// The transcript's connect pill is the entry point: while non-nil, tapping the
+    /// matching pending pill presents the approval sheet built from this layout.
+    /// Cleared on Approve / Deny / out-of-band resolution; replaced wholesale when a
+    /// newer request arrives (per the "only show the last request" rule).
+    var pendingCapabilityPickerLayout: CapabilityPickerLayout? {
+        didSet {
+            if pendingCapabilityPickerLayout == nil {
+                presentingCapabilityApproval = false
+            }
+        }
+    }
+    /// Drives the approval sheet presentation for `pendingCapabilityPickerLayout`.
+    /// Auto-dismissed whenever the layout clears (another device resolved the
+    /// request, the request was answered here, or observation reset).
+    var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
@@ -1514,15 +1524,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    // Best-effort: the picker renders provider-only rows when the
-                    // services catalog is unreachable; bundle rows appear once it is.
-                    let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
-                    let layout = await handler.computeLayout(
+                    let layout = await Self.computeCapabilityPickerLayout(
                         request: request,
                         registry: registry,
                         resolver: resolver,
-                        conversationId: conversationId,
-                        services: services
+                        handler: handler,
+                        servicesStore: self.messagingService.connectionServicesStore(),
+                        conversationId: conversationId
                     )
                     // Discard if a newer request arrived while we were computing —
                     // otherwise an out-of-order completion can stomp the latest UI.
@@ -1780,15 +1788,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     // MARK: - Capability picker
 
-    /// Replaces any pending capability request with `layout`. When the agent sends a new
-    /// `capability_request` and we want the picker to display, the host computes the
-    /// layout via `CapabilityRequestHandler.computeLayout` and calls this. Setting nil
-    /// hides the picker and lets the onboarding view take its slot back.
-    func presentCapabilityPicker(_ layout: CapabilityPickerLayout?) {
-        pendingCapabilityPickerLayout = layout
+    /// User tapped the transcript's capability connect pill. Pending pills open
+    /// the approval sheet for the request they carry; connected/dismissed/
+    /// superseded pills are inert. The derivation only renders `.pending` on
+    /// the request `CapabilityRequestRepository` surfaces as the layout (same
+    /// shared rule), so the layout-match guard below is just a race guard: it
+    /// covers the gap while a freshly answered or newly superseded request
+    /// hasn't re-derived yet (e.g. `locallyHandledCapabilityRequestIds`).
+    func onTapCapabilityConnectPrompt(_ prompt: CapabilityConnectPrompt) {
+        guard prompt.status == .pending else { return }
+        guard let layout = pendingCapabilityPickerLayout,
+              layout.request.requestId == prompt.requestId else { return }
+        presentingCapabilityApproval = true
     }
 
-    /// User tapped Approve in the picker card with this provider selection.
+    /// User tapped Approve in the approval sheet with this provider selection.
     /// Persists the resolution so future tool calls route to the same set, then
     /// posts a `capability_request_result(.approved)` reply for the agent.
     /// `bundleSelection` is the per-service permission-bundle toggle state
@@ -2277,10 +2291,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let handler = CapabilityRequestHandler()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let layout = await handler.computeLayout(
+            let layout = await Self.computeCapabilityPickerLayout(
                 request: request,
                 registry: registry,
                 resolver: resolver,
+                handler: handler,
+                servicesStore: self.messagingService.connectionServicesStore(),
                 conversationId: conversationId
             )
             // If a newer request arrived OR the user already approved/denied this one,
@@ -2291,6 +2307,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
             self.pendingCapabilityPickerLayout = layout
         }
+    }
+
+    /// The one place a picker layout is computed: every path MUST resolve the
+    /// services catalog or bundle rows silently disappear and a subsequent
+    /// approve escalates to full-service consent instead of the user's earlier
+    /// per-bundle selection. Best-effort fetch: when the catalog is
+    /// unreachable the sheet renders provider-only rows, and the grant writer
+    /// fails closed on its own catalog resolution.
+    static func computeCapabilityPickerLayout(
+        request: CapabilityRequest,
+        registry: any CapabilityProviderRegistry,
+        resolver: any CapabilityResolver,
+        handler: CapabilityRequestHandler,
+        servicesStore: any ConnectionServicesStoreProtocol,
+        conversationId: String
+    ) async -> CapabilityPickerLayout {
+        let services = (try? await servicesStore.catalog()) ?? []
+        return await handler.computeLayout(
+            request: request,
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId,
+            services: services
+        )
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {

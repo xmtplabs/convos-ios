@@ -19,6 +19,7 @@ struct MessagesListView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onAgentOutOfCredits: () -> Void
     let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
@@ -135,6 +136,14 @@ var body: some View {
         case let .connectionEvent(_, summary, _):
             ConnectionEventSummaryView(summary: summary)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
+        case let .capabilityConnect(_, prompt, agentName, _):
+            CapabilityConnectPromptView(
+                prompt: prompt,
+                agentName: agentName,
+                onTap: { onTapCapabilityConnect(prompt) }
+            )
+            .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .agentBuilderSummary(let content):
             AgentBuilderSummaryView(content: content)
