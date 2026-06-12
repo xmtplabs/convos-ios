@@ -174,6 +174,88 @@ struct LinkPreviewDetectionTests {
     }
 }
 
+@Suite("LinkPreview Edge Extraction")
+struct LinkPreviewEdgeExtractionTests {
+    @Test("Extracts trailing URL with remaining text")
+    func trailingURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Check out this video https://www.youtube.com/watch?v=TB2lSQZ5Mb0")
+        #expect(extraction?.leadingPreview == nil)
+        #expect(extraction?.trailingPreview?.url == "https://www.youtube.com/watch?v=TB2lSQZ5Mb0")
+        #expect(extraction?.text == "Check out this video")
+    }
+
+    @Test("Extracts leading URL with remaining text")
+    func leadingURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://example.com/article is worth a read")
+        #expect(extraction?.leadingPreview?.url == "https://example.com/article")
+        #expect(extraction?.trailingPreview == nil)
+        #expect(extraction?.text == "is worth a read")
+    }
+
+    @Test("Extracts both leading and trailing URLs")
+    func leadingAndTrailingURLs() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://apple.com versus https://google.com")
+        #expect(extraction?.leadingPreview?.url == "https://apple.com")
+        #expect(extraction?.trailingPreview?.url == "https://google.com")
+        #expect(extraction?.text == "versus")
+    }
+
+    @Test("Returns nil when the URL is the entire message")
+    func wholeMessageURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://example.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil when stripping URLs leaves no text")
+    func onlyURLs() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://apple.com https://google.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil for a URL in the middle of text")
+    func embeddedURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Check out https://example.com for details")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil for text without URLs")
+    func noURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Hello world")
+        #expect(extraction == nil)
+    }
+
+    @Test("Trims surrounding whitespace and newlines")
+    func trailingURLOnOwnLine() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Today's video:\n\nhttps://example.com/watch")
+        #expect(extraction?.trailingPreview?.url == "https://example.com/watch")
+        #expect(extraction?.text == "Today's video:")
+    }
+
+    @Test("Upgrades trailing HTTP URL to HTTPS")
+    func trailingHTTPUpgraded() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "see http://example.com")
+        #expect(extraction?.trailingPreview?.url == "https://example.com")
+    }
+
+    @Test("Ignores private-host URL at the edge")
+    func privateHostEdge() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "running at http://localhost:3000")
+        #expect(extraction == nil)
+    }
+
+    @Test("Ignores trailing email address")
+    func trailingEmail() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Reach me at hello@example.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("URL followed by punctuation is not extracted")
+    func trailingPunctuation() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Have you seen https://example.com?")
+        #expect(extraction == nil)
+    }
+}
+
 @Suite("OpenGraph Parsing")
 struct OpenGraphParsingTests {
     let service: OpenGraphService = OpenGraphService()
