@@ -550,7 +550,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try DBCapabilityResolution.deleteAll(db)
             try DBCreditBalance.deleteAll(db)
             try DBConversationReadReceipt.deleteAll(db)
-            try DBConversationCatchUpCursor.deleteAll(db)
+            // conversation_catchup_cursors rows cascade with the
+            // DBConversation deleteAll below (covered by
+            // ConversationCatchUpCursorTests.deletingConversationCascades).
             try DBPendingPhotoUpload.deleteAll(db)
             try DBBuilderBundleHiddenMessage.deleteAll(db)
             try DBVoiceMemoTranscript.deleteAll(db)
