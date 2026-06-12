@@ -91,7 +91,7 @@ extension XMTPiOS.DecodedMessage {
             // inbound traffic (e.g. LeaveRequest) is visible in exported logs.
             let version = "\(encodedContentType.versionMajor).\(encodedContentType.versionMinor)"
             Log.warning(
-                "Dropping message \(id) in conversation \(conversationId) from \(senderInboxId): "
+                "Dropping message \(id) (dateNs=\(sentAtNs)) in conversation \(conversationId) from \(senderInboxId): "
                 + "unsupported content type \(encodedContentType.authorityID)/\(encodedContentType.typeID) v\(version)"
             )
             throw DecodedMessageDBRepresentationError.unsupportedContentType
