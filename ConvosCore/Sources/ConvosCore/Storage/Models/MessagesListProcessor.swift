@@ -177,11 +177,14 @@ public final class MessagesListProcessor: Sendable {
             guard let anchor = run.first?.messageId else { continue }
             for message in run { anchorByMessageId[message.messageId] = anchor }
             let ownsSummary: Bool = !summaryIds.isEmpty && run.contains { summaryIds.contains($0.messageId) }
-            cardByAnchor[anchor] = makeCardContent(
-                run: run,
-                anchor: anchor,
-                summary: ownsSummary ? agentBuilderSummary : nil
-            )
+            // The creator's own latest build renders via the Make-anchored
+            // summary card (see applyAgentBuilderCardsAndContactCard): its
+            // position tracks when the user tapped Make, not when the held
+            // bundle eventually published. Swallow those rows without
+            // emitting a run card; every other build (recipients, older
+            // builds whose summary was replaced) keeps its run-anchored card.
+            guard !ownsSummary else { continue }
+            cardByAnchor[anchor] = makeCardContent(run: run, anchor: anchor, summary: nil)
         }
 
         var result: [MessagesListItemType] = []
@@ -269,19 +272,24 @@ public final class MessagesListProcessor: Sendable {
             items = dropOrphanDateSeparators(in: items)
         }
 
-        // Creator-side optimistic card: right after Make the build's message
-        // rows don't exist yet -- the bundle send is held until the agent has
-        // joined the conversation -- so the run-anchored reconstruction above
-        // has nothing to anchor on and the card would only appear once the
-        // agent joins. Render it from the summary alone (only the creator has
-        // the summary) until the summary's own rows land. Time-boxed so a
-        // summary whose build messages later expire (disappearing messages)
-        // doesn't resurrect a card at the bottom of an old chat.
-        if let summary = agentBuilderSummary,
-           Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow {
+        // The creator's card, anchored at the Make moment (the summary's
+        // cutoffDate) rather than at the position the held bundle eventually
+        // published -- messages sent while the send waited for the agent to
+        // join stay below the card. The run reconstruction above swallows the
+        // summary's own rows without emitting a card, so this is the sole
+        // creator-side card and it never relocates when the rows land.
+        // Before the rows land it renders from the summary alone, time-boxed
+        // so a summary whose rows later expire (disappearing messages)
+        // doesn't resurrect a card in an old chat. An empty raw snapshot of
+        // an existing conversation means history hasn't loaded yet -- skip
+        // that emission (the loaded one follows immediately) instead of
+        // flashing the card at the top of a one-item list.
+        if let summary = agentBuilderSummary {
             let summaryIds: Set<String> = summary.bundledMessageIds
-            let summaryRowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
-            if !summaryRowsLanded {
+            let rowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
+            let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
+            let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
+            if rowsLanded || (withinWindow && !awaitingHistory) {
                 items.insert(
                     .agentBuilderSummary(makePendingCardContent(summary: summary)),
                     at: pendingCardInsertionIndex(in: items, cutoffDate: summary.cutoffDate)

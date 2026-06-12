@@ -1148,10 +1148,11 @@ private func builderCards(from items: [MessagesListItemType]) -> [AgentBuilderCa
 private func builderSummary(
     bundledMessageIds: Set<String>,
     connectionIdentifiers: [String] = [],
-    existingConversation: Bool = false
+    existingConversation: Bool = false,
+    prompt: String = ""
 ) -> AgentBuilderSummary {
     AgentBuilderSummary(
-        prompt: "",
+        prompt: prompt,
         attachments: connectionIdentifiers.map { .connection(id: UUID(), identifier: $0) },
         cutoffDate: Date(),
         bundledMessageIds: bundledMessageIds,
@@ -1210,7 +1211,7 @@ struct MessagesListProcessorAgentBuilderCardTests {
         // the local summary knows the bundle ids.
         let result = MessagesListProcessor.process(
             messages,
-            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"], prompt: "Be my assistant"),
             hiddenBundleMessageIds: []
         )
         #expect(messageIds(from: result) == ["hey"])
@@ -1825,5 +1826,63 @@ extension MessagesListProcessorPendingBuilderCardTests {
             #expect(beforeIndex < cardIndex)
             #expect(cardIndex < afterIndex)
         }
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Card stays at the Make position after the held bundle publishes below later messages")
+    func cardStaysAtMakePositionAfterRowsLand() {
+        let make = Date()
+        let messages = [
+            makeMessage(id: "before", sender: otherUser, text: "Earlier chat", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "during", sender: currentUser, text: "Sent during the hold", date: make.addingTimeInterval(30)),
+            // The bundle publishes only after the agent joins, so its row is
+            // dated later than the message sent during the hold.
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: make.addingTimeInterval(60)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(messageIds(from: result) == ["before", "during"])
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let beforeIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "before" }
+        }
+        let duringIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "during" }
+        }
+        if let cardIndex, let beforeIndex, let duringIndex {
+            #expect(beforeIndex < cardIndex)
+            #expect(cardIndex < duringIndex)
+        }
+    }
+
+    @Test("Existing conversation with unloaded history defers the card instead of pinning it at the top")
+    func emptySnapshotDefersCardForExistingConversation() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"],
+            existingConversation: true
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).isEmpty)
     }
 }
