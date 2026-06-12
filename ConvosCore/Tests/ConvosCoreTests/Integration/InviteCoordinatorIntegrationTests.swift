@@ -381,6 +381,65 @@ struct InviteCoordinatorIntegrationTests {
         #expect(memberInboxIds.contains(joinerClient.inboxID))
     }
 
+    /// Isolates the ledger layer: a text-only joiner (pre-typed build) gets
+    /// no marker because of the cross-version gate, so the per-device
+    /// ledger alone must keep the honored request inert after removal -
+    /// and a fresh text request must still rejoin.
+    @Test("Text-only joiner: ledger alone keeps a replayed request inert; a fresh request rejoins")
+    func textOnlyJoinerLedgerCoversReplay() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let coordinator = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await coordinator.revokeInvites(for: group)
+        let invite = try await coordinator.createInvite(for: group, client: creatorClient)
+
+        // Text-only request, the pre-typed (2.0.0 and earlier) wire format.
+        let dm = try await joinerClient.conversations.findOrCreateDm(with: creatorClient.inboxID)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+        #expect(try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient) == 0)
+
+        try await group.removeMembers(inboxIds: [joinerClient.inboxID])
+
+        let replayOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "The ledger alone must keep a text-only joiner's honored request inert"
+        )
+        var memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(!memberInboxIds.contains(joinerClient.inboxID), "Removed member must stay removed")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let rejoinOutcomes = await coordinator.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(
+            rejoinOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id },
+            "A fresh text-only join request must be honored"
+        )
+        memberInboxIds = try await group.members.map(\.inboxId)
+        #expect(memberInboxIds.contains(joinerClient.inboxID))
+        #expect(
+            try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient) == 0,
+            "Text-only joins must never produce a marker, including on rejoin"
+        )
+    }
+
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
         try await messageCount(ofType: ContentTypeInviteJoinError, inDmWith: peerInboxId, client: client)
     }

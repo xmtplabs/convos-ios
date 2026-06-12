@@ -499,10 +499,15 @@ public final class InviteCoordinator: @unchecked Sendable {
         // worse, a spurious error DM back to a joiner that already joined.
         // Mark the request handled so it stays inert if the member is later
         // removed; this also retires requests honored before the ledger
-        // existed, and the text copy of a typed+text pair.
+        // existed, and the text copy of a typed+text pair. Send the marker
+        // too: a join honored before the marker shipped (or whose marker
+        // send failed) is otherwise invisible to other installations, and
+        // reaching this branch means no marker covers the request yet (the
+        // marker check above would have returned first).
         if let memberInboxIds = try? await group.members.map(\.inboxId),
            memberInboxIds.contains(request.joinerInboxId) {
             await handledRequestStore.markHandled(messageId: request.messageId)
+            await sendJoinHandledMarker(for: request, client: client)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId
@@ -557,31 +562,8 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
-            // Best-effort cross-installation marker; the local ledger and
-            // the membership check still dedupe if the send fails. Gated on
-            // the joiner having sent a typed request: pre-typed builds
-            // (2.0.0 and earlier) require their join request to be the DM's
-            // literal last message for `hasOutgoingJoinRequest`, and a
-            // creator-sent marker displacing it would break their consent
-            // bump for the newly joined group. Typed sends ship in the same
-            // release as the windowed check, so a typed request proves the
-            // joiner tolerates creator bookkeeping in the DM. Herald always
-            // sends a typed copy (even though its newer text copy is
-            // usually the one honored), so agent joins keep full marker
-            // protection.
-            if await Self.joinerSendsTypedRequests(in: dm, joinerInboxId: request.joinerInboxId) {
-                let handled = InviteJoinHandled(
-                    inviteTag: signedInvite.invitePayload.tag,
-                    handledMessageId: request.messageId,
-                    timestamp: Date()
-                )
-                let codec = InviteJoinHandledCodec()
-                _ = try? await dm.send(
-                    content: handled,
-                    options: .init(contentType: codec.contentType)
-                )
-            }
         }
+        await sendJoinHandledMarker(for: request, client: client)
 
         let result = JoinResult(
             conversationId: conversationId,
@@ -623,33 +605,19 @@ public final class InviteCoordinator: @unchecked Sendable {
             return true
         }
 
-        // Cross-installation dedupe: markers another installation sent for
-        // already-honored requests. A relevant marker is always sent after
-        // the request it covers, so anchoring the fetch at the oldest
-        // candidate's send time bounds the scan without a recency window
-        // that a chatty DM could push markers out of.
-        var markers: [JoinHandledMarker] = []
-        if let oldestCandidateSentAt = candidates.map(\.sentAt).min(),
-           let recent = try? await dm.messages(afterNs: oldestCandidateSentAt.nanosecondsSince1970 - 1) {
-            markers = Self.joinHandledMarkers(in: recent, creatorInboxId: client.inviteInboxId)
-        }
-
         var firstBenignFailure: JoinRequestDMOutcome?
         var handledOutcome: JoinRequestDMOutcome?
         for message in candidates {
             // An already-honored request is inert, but it must not end the
             // scan: the same DM can carry a fresh join request from a member
-            // who was removed and is rejoining with the same invite.
+            // who was removed and is rejoining with the same invite, or a
+            // pending request for a different group. The ledger pre-check is
+            // safe without verification because only verified, honored
+            // requests are ever written to it; marker-based suppression
+            // happens inside processMessageOutcome after signature
+            // verification, so tampered slugs still reach the malicious
+            // detection and DM blocking path.
             if await handledRequestStore.isHandled(messageId: message.id) {
-                handledOutcome = handledOutcome ?? .alreadyMember(
-                    dmConversationId: dm.id,
-                    joinerInboxId: message.senderInboxId
-                )
-                continue
-            }
-            if let tag = Self.inviteTag(from: message),
-               markers.contains(where: { $0.tag == tag && $0.sentAt >= message.sentAt }) {
-                await handledRequestStore.markHandled(messageId: message.id)
                 handledOutcome = handledOutcome ?? .alreadyMember(
                     dmConversationId: dm.id,
                     joinerInboxId: message.senderInboxId
@@ -664,7 +632,8 @@ public final class InviteCoordinator: @unchecked Sendable {
                 try? await dm.updateConsentState(state: .allowed)
                 return outcome
             case .alreadyMember:
-                return outcome
+                handledOutcome = handledOutcome ?? outcome
+                continue
             case .malicious:
                 return outcome
             case .benignFailure:
@@ -792,6 +761,36 @@ public final class InviteCoordinator: @unchecked Sendable {
             .contains { $0.tag == tag && $0.sentAt >= requestSentAt }
     }
 
+    /// Best-effort cross-installation marker; the local ledger and the
+    /// membership check still dedupe if the send fails. Gated on the joiner
+    /// having sent a typed request: pre-typed builds (2.0.0 and earlier)
+    /// require their join request to be the DM's literal last message for
+    /// `hasOutgoingJoinRequest`, and a creator-sent marker displacing it
+    /// would break their consent bump for the newly joined group. Typed
+    /// sends ship in the same release as the windowed check, so a typed
+    /// request proves the joiner tolerates creator bookkeeping in the DM.
+    /// Herald always sends a typed copy (even though its newer text copy is
+    /// usually the one honored), so agent joins keep full marker protection.
+    private func sendJoinHandledMarker(
+        for request: JoinRequest,
+        client: any InviteClientProvider
+    ) async {
+        guard let dm = try? await client.findConversation(conversationId: request.dmConversationId),
+              await Self.joinerSendsTypedRequests(in: dm, joinerInboxId: request.joinerInboxId) else {
+            return
+        }
+        let handled = InviteJoinHandled(
+            inviteTag: request.signedInvite.invitePayload.tag,
+            handledMessageId: request.messageId,
+            timestamp: Date()
+        )
+        let codec = InviteJoinHandledCodec()
+        _ = try? await dm.send(
+            content: handled,
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
     /// Whether the joiner has sent a typed join request in this DM. False
     /// (including on a failed fetch) suppresses the handled marker, which
     /// degrades safely: no marker means no cross-installation dedupe for
@@ -829,21 +828,6 @@ public final class InviteCoordinator: @unchecked Sendable {
             markers.append(JoinHandledMarker(tag: marker.inviteTag, sentAt: message.sentAt))
         }
         return markers
-    }
-
-    /// Invite tag of a join-request candidate, from either the typed
-    /// content or a plain-text slug. Lighter-weight parse than
-    /// `processMessageOutcome` for the marker comparison in `processDm`.
-    private static func inviteTag(from message: XMTPiOS.DecodedMessage) -> String? {
-        let slug: String
-        if let joinRequest: JoinRequestContent = try? message.content() {
-            slug = joinRequest.inviteSlug
-        } else if let text: String = try? message.content() {
-            slug = text
-        } else {
-            return nil
-        }
-        return (try? SignedInvite.fromURLSafeSlug(slug))?.invitePayload.tag
     }
 
     private enum Constant {
