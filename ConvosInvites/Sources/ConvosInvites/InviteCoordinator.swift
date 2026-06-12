@@ -558,17 +558,29 @@ public final class InviteCoordinator: @unchecked Sendable {
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
             // Best-effort cross-installation marker; the local ledger and
-            // the membership check still dedupe if the send fails.
-            let handled = InviteJoinHandled(
-                inviteTag: signedInvite.invitePayload.tag,
-                handledMessageId: request.messageId,
-                timestamp: Date()
-            )
-            let codec = InviteJoinHandledCodec()
-            _ = try? await dm.send(
-                content: handled,
-                options: .init(contentType: codec.contentType)
-            )
+            // the membership check still dedupe if the send fails. Gated on
+            // the joiner having sent a typed request: pre-typed builds
+            // (2.0.0 and earlier) require their join request to be the DM's
+            // literal last message for `hasOutgoingJoinRequest`, and a
+            // creator-sent marker displacing it would break their consent
+            // bump for the newly joined group. Typed sends ship in the same
+            // release as the windowed check, so a typed request proves the
+            // joiner tolerates creator bookkeeping in the DM. Herald always
+            // sends a typed copy (even though its newer text copy is
+            // usually the one honored), so agent joins keep full marker
+            // protection.
+            if await Self.joinerSendsTypedRequests(in: dm, joinerInboxId: request.joinerInboxId) {
+                let handled = InviteJoinHandled(
+                    inviteTag: signedInvite.invitePayload.tag,
+                    handledMessageId: request.messageId,
+                    timestamp: Date()
+                )
+                let codec = InviteJoinHandledCodec()
+                _ = try? await dm.send(
+                    content: handled,
+                    options: .init(contentType: codec.contentType)
+                )
+            }
         }
 
         let result = JoinResult(
@@ -780,6 +792,26 @@ public final class InviteCoordinator: @unchecked Sendable {
             .contains { $0.tag == tag && $0.sentAt >= requestSentAt }
     }
 
+    /// Whether the joiner has sent a typed join request in this DM. False
+    /// (including on a failed fetch) suppresses the handled marker, which
+    /// degrades safely: no marker means no cross-installation dedupe for
+    /// this join, never a broken joiner.
+    private static func joinerSendsTypedRequests(
+        in dm: XMTPiOS.Conversation,
+        joinerInboxId: String
+    ) async -> Bool {
+        guard let messages = try? await dm.messages(limit: Constant.typedCapabilityScanLimit) else {
+            return false
+        }
+        return messages.contains { message in
+            guard message.senderInboxId == joinerInboxId,
+                  let contentType = try? message.encodedContent.type else {
+                return false
+            }
+            return contentType == ContentTypeJoinRequest
+        }
+    }
+
     /// Markers are only trusted from the creator's own inbox; a joiner
     /// cannot forge one to suppress (or fake) an acceptance.
     private static func joinHandledMarkers(
@@ -821,6 +853,11 @@ public final class InviteCoordinator: @unchecked Sendable {
         /// somehow accumulates more than this between a request and its
         /// revalidation, the worst case is one duplicate error reply.
         static let joinErrorDedupeScanLimit: Int = 50
+        /// Window for spotting a typed join request from the joiner when
+        /// deciding whether to send the handled marker. The typed copy sits
+        /// next to the honored request, so a small window suffices; missing
+        /// it only skips the marker, which degrades safely.
+        static let typedCapabilityScanLimit: Int = 20
         /// Underlying error descriptions (libxmtp, keychain) can be very
         /// long; cap the diagnostic reason so error replies stay small.
         static let joinErrorReasonMaxLength: Int = 500

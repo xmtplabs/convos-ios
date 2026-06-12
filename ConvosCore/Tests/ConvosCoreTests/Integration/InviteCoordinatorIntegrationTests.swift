@@ -143,6 +143,14 @@ struct InviteCoordinatorIntegrationTests {
 
         let memberInboxIds = try await group.members.map(\.inboxId)
         #expect(memberInboxIds.contains(joinerClient.inboxID), "Text-slug joiner must be added to the group")
+
+        // Cross-version guard: pre-typed builds (2.0.0 and earlier) require
+        // their join request to be the DM's literal last message for
+        // `hasOutgoingJoinRequest`, so a text-only join must not get a
+        // handled marker - creator bookkeeping would break their consent
+        // bump for the newly joined group.
+        let markerCount = try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(markerCount == 0, "Text-only joiners must not receive a handled marker")
     }
 
     /// Herald sends a typed join_request plus a plain-text slug copy. A
@@ -328,6 +336,12 @@ struct InviteCoordinatorIntegrationTests {
         let firstOutcomes = await firstInstallation.processJoinRequestOutcomes(since: nil, client: creatorClient)
         #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
 
+        // The typed copy in the pair marks the joiner as typed-capable, so
+        // the marker must be sent even though the newer text copy is the
+        // honored message.
+        let markerCount = try await joinHandledMarkerCount(inDmWith: joinerClient.inboxID, client: creatorClient)
+        #expect(markerCount == 1, "A typed-capable join must produce exactly one handled marker")
+
         // The marker is now the newest DM message on the joiner's side. The
         // outgoing-join-request check must still see the joiner's request
         // through it, or the newly joined group never gets its consent bump
@@ -368,11 +382,23 @@ struct InviteCoordinatorIntegrationTests {
     }
 
     private func joinErrorCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
+        try await messageCount(ofType: ContentTypeInviteJoinError, inDmWith: peerInboxId, client: client)
+    }
+
+    private func joinHandledMarkerCount(inDmWith peerInboxId: String, client: Client) async throws -> Int {
+        try await messageCount(ofType: ContentTypeInviteJoinHandled, inDmWith: peerInboxId, client: client)
+    }
+
+    private func messageCount(
+        ofType expectedType: ContentTypeID,
+        inDmWith peerInboxId: String,
+        client: Client
+    ) async throws -> Int {
         let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
         let messages = try await dm.messages()
         return messages.filter { message in
             guard let contentType = try? message.encodedContent.type else { return false }
-            return contentType == ContentTypeInviteJoinError
+            return contentType == expectedType
         }.count
     }
 }
