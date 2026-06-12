@@ -1791,3 +1791,39 @@ extension MessagesListProcessorPendingBuilderCardTests {
         }
     }
 }
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Messages sent while the bundle is held render below the pending card")
+    func pendingCardStaysChronological() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "before", sender: otherUser, text: "Earlier chat", date: now.addingTimeInterval(-60)),
+            makeMessage(id: "after", sender: currentUser, text: "Sent during the hold", date: now.addingTimeInterval(30)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: now,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let beforeIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "before" }
+        }
+        let afterIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "after" }
+        }
+        #expect(cardIndex != nil && beforeIndex != nil && afterIndex != nil)
+        if let cardIndex, let beforeIndex, let afterIndex {
+            #expect(beforeIndex < cardIndex)
+            #expect(cardIndex < afterIndex)
+        }
+    }
+}

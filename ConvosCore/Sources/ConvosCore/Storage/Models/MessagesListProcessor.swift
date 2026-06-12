@@ -282,7 +282,10 @@ public final class MessagesListProcessor: Sendable {
             let summaryIds: Set<String> = summary.bundledMessageIds
             let summaryRowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
             if !summaryRowsLanded {
-                items.append(.agentBuilderSummary(makePendingCardContent(summary: summary)))
+                items.insert(
+                    .agentBuilderSummary(makePendingCardContent(summary: summary)),
+                    at: pendingCardInsertionIndex(in: items, cutoffDate: summary.cutoffDate)
+                )
             }
         }
 
@@ -291,64 +294,6 @@ public final class MessagesListProcessor: Sendable {
         }
 
         return items
-    }
-
-    /// How long after Make the summary-only card may render while its build
-    /// messages haven't landed. Covers the writer's agent-join hold (150s)
-    /// with margin; past it, a row-less summary is history, not a pending
-    /// build.
-    private static let pendingCardDisplayWindow: TimeInterval = 180
-
-    /// Card content built from the summary alone, for the window between Make
-    /// and the build messages landing. Mirrors `makeCardContent` with the
-    /// summary's stored snapshots standing in for the not-yet-persisted
-    /// messages; the anchor reuses the first bundled id so the cell identity
-    /// is stable when the real run-anchored card takes over.
-    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
-        let anchor: String = summary.bundledMessageIds.sorted().first ?? summary.id.uuidString
-        let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
-            switch attachment {
-            case let .photo(id, thumbnailData):
-                return HydratedAttachment(
-                    key: id.uuidString,
-                    mimeType: "image/jpeg",
-                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
-                )
-            case let .video(id, thumbnailData):
-                return HydratedAttachment(
-                    key: id.uuidString,
-                    mimeType: "video/mp4",
-                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
-                )
-            case let .file(id, filename, mimeType, fileSize):
-                return HydratedAttachment(
-                    key: id.uuidString,
-                    mimeType: mimeType,
-                    fileSize: fileSize,
-                    filename: filename
-                )
-            case let .voiceMemo(id, duration, levels):
-                return HydratedAttachment(
-                    key: id.uuidString,
-                    mimeType: "audio/m4a",
-                    duration: duration,
-                    waveformLevels: levels
-                )
-            case .connection:
-                // Rendered via `connectionIdentifiers`, not as a media chip.
-                return nil
-            }
-        }
-        return AgentBuilderCardContent(
-            id: "agent-builder-card-" + anchor,
-            prompt: summary.prompt,
-            attachments: attachments,
-            creatorIsCurrentUser: true,
-            creatorDisplayName: "",
-            connectionIdentifiers: builderConnectionIdentifiers(from: summary),
-            existingConversation: summary.existingConversation,
-            transitionEligible: !summary.existingConversation
-        )
     }
 
     /// Strip date separators that no longer precede a message group. A
@@ -918,5 +863,80 @@ private extension MessagesListProcessor {
 
             items.append(.messages(group))
         }
+    }
+
+    /// How long after Make the summary-only card may render while its build
+    /// messages haven't landed. Covers the writer's agent-join hold (150s)
+    /// with margin; past it, a row-less summary is history, not a pending
+    /// build.
+    private static let pendingCardDisplayWindow: TimeInterval = 180
+
+    /// Chronological slot for the pending card: right after the bottom-most
+    /// message group whose newest message predates Make (`cutoffDate`), so
+    /// messages sent while the bundle is held render below the card in true
+    /// order -- the same spot the run-anchored card takes once the build's
+    /// rows land. Falls back to the top of the newer groups (none older) or
+    /// the end of the list (no message groups at all).
+    private static func pendingCardInsertionIndex(in items: [MessagesListItemType], cutoffDate: Date) -> Int {
+        var firstNewerGroupIndex: Int = items.count
+        for (index, item) in items.enumerated().reversed() {
+            guard case .messages(let group) = item,
+                  let lastDate = group.messages.last?.date else { continue }
+            if lastDate <= cutoffDate { return index + 1 }
+            firstNewerGroupIndex = index
+        }
+        return firstNewerGroupIndex
+    }
+
+    /// Card content built from the summary alone, for the window between Make
+    /// and the build messages landing. Mirrors `makeCardContent` with the
+    /// summary's stored snapshots standing in for the not-yet-persisted
+    /// messages; the anchor reuses the first bundled id so the cell identity
+    /// is stable when the real run-anchored card takes over.
+    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+        let anchor: String = summary.bundledMessageIds.min() ?? summary.id.uuidString
+        let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
+            switch attachment {
+            case let .photo(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "image/jpeg",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .video(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "video/mp4",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .file(id, filename, mimeType, fileSize):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: mimeType,
+                    fileSize: fileSize,
+                    filename: filename
+                )
+            case let .voiceMemo(id, duration, levels):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "audio/m4a",
+                    duration: duration,
+                    waveformLevels: levels
+                )
+            case .connection:
+                // Rendered via `connectionIdentifiers`, not as a media chip.
+                return nil
+            }
+        }
+        return AgentBuilderCardContent(
+            id: "agent-builder-card-" + anchor,
+            prompt: summary.prompt,
+            attachments: attachments,
+            creatorIsCurrentUser: true,
+            creatorDisplayName: "",
+            connectionIdentifiers: builderConnectionIdentifiers(from: summary),
+            existingConversation: summary.existingConversation,
+            transitionEligible: !summary.existingConversation
+        )
     }
 }
