@@ -254,6 +254,19 @@ struct LinkPreviewEdgeExtractionTests {
         let extraction = LinkPreview.extractingEdgeLinks(from: "Have you seen https://example.com?")
         #expect(extraction == nil)
     }
+
+    @Test("Leading URL followed by sentence punctuation stays inline")
+    func leadingURLFollowedByPunctuation() {
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com. That was wild") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com, check it out") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com! amazing") == nil)
+    }
+
+    @Test("Smart punctuation folded into the match is rejected")
+    func smartPunctuationInMatch() {
+        #expect(LinkPreview.extractingEdgeLinks(from: "see https://example.com\u{2019}") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com\u{2019}s new design is live") == nil)
+    }
 }
 
 @Suite("OpenGraph Parsing")

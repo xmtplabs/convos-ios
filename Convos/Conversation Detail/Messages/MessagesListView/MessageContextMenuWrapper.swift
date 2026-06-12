@@ -20,6 +20,7 @@ extension EnvironmentValues {
 struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
+    var segment: MessageBubbleSegment = .whole
     let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
@@ -35,7 +36,9 @@ struct MessageGestureModifier: ViewModifier {
     @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
     private var isSourceBubble: Bool {
-        !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
+        !contextMenuState.isReplyParent
+            && contextMenuState.presentedMessage?.messageId == message.messageId
+            && contextMenuState.presentedSegment == segment
     }
 
     private var doubleTapEmoji: String {
@@ -138,7 +141,8 @@ struct MessageGestureModifier: ViewModifier {
         contextMenuState.present(
             message: message,
             bubbleFrame: frame,
-            bubbleStyle: bubbleStyle
+            bubbleStyle: bubbleStyle,
+            segment: segment
         )
     }
 
@@ -202,6 +206,7 @@ extension View {
     func messageGesture(
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
+        segment: MessageBubbleSegment = .whole,
         onSingleTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
@@ -211,6 +216,7 @@ extension View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
+            segment: segment,
             onSingleTap: onSingleTap,
             onDoubleTap: onDoubleTap,
             onReply: onReply,

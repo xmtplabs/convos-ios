@@ -176,7 +176,7 @@ struct MessagesGroupItemView: View {
         let textStyle: MessageBubbleType = extraction.trailingPreview == nil ? bubbleType : .normal
         VStack(alignment: alignment, spacing: DesignConstants.Spacing.stepX) {
             if let preview = extraction.leadingPreview {
-                extractedLinkPreviewBubble(preview: preview, style: .normal, edge: "leading")
+                extractedLinkPreviewBubble(preview: preview, style: .normal, edge: .leading)
             }
             MessageBubble(
                 style: textStyle,
@@ -187,12 +187,13 @@ struct MessagesGroupItemView: View {
             .messageGesture(
                 message: message,
                 bubbleStyle: textStyle,
+                segment: .splitText(extraction.text),
                 onReply: onReply,
                 onToggleReaction: onToggleReaction
             )
             .id("bubble-\(message.messageId)")
             if let preview = extraction.trailingPreview {
-                extractedLinkPreviewBubble(preview: preview, style: bubbleType, edge: "trailing")
+                extractedLinkPreviewBubble(preview: preview, style: bubbleType, edge: .trailing)
             }
         }
         .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
@@ -200,14 +201,14 @@ struct MessagesGroupItemView: View {
     }
 
     @ViewBuilder
-    private func extractedLinkPreviewBubble(preview: LinkPreview, style: MessageBubbleType, edge: String) -> some View {
+    private func extractedLinkPreviewBubble(preview: LinkPreview, style: MessageBubbleType, edge: MessageBubbleSegment.Edge) -> some View {
         let openAction: () -> Void = {
             if let url = preview.resolvedURL {
                 InAppBrowser.open(url)
             }
         }
         LinkPreviewBubbleView(
-            preview: preview,
+            preview: TransientLinkPreviewCache.enriched(preview),
             style: style,
             isOutgoing: message.source == .outgoing,
             profile: message.sender.profile
@@ -215,11 +216,12 @@ struct MessagesGroupItemView: View {
         .messageGesture(
             message: message,
             bubbleStyle: style,
+            segment: .splitLink(preview, edge),
             onSingleTap: openAction,
             onReply: onReply,
             onToggleReaction: onToggleReaction
         )
-        .id("link-preview-\(message.messageId)-\(edge)")
+        .id("link-preview-\(message.messageId)-\(edge.rawValue)")
     }
 
     @ViewBuilder
@@ -447,8 +449,9 @@ struct MessagesGroupItemView: View {
 
 /// Caches edge-link extraction per message text so scrolling does not rerun
 /// `NSDataDetector` on every render, mirroring `TextLinkPresence`. Negative
-/// results are cached too.
-private enum EdgeLinkExtractionCache {
+/// results are cached too. Internal so the layout delegate's height
+/// estimation can consult the same cache.
+enum EdgeLinkExtractionCache {
     private final class Entry: NSObject {
         let extraction: EdgeLinkExtraction?
 

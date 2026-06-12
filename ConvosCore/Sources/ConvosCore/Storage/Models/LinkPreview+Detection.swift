@@ -48,18 +48,32 @@ extension LinkPreview {
         var leadingPreview: LinkPreview?
         var remainingStart = 0
         if firstMatch.range.location == 0,
-           !endsInSentencePunctuation(nsText.substring(with: firstMatch.range)),
+           isCleanEdgeMatch(nsText.substring(with: firstMatch.range)),
            let url = firstMatch.url,
            let resolved = validatedPreviewURL(url) {
             leadingPreview = LinkPreview(url: resolved.absoluteString)
             remainingStart = NSMaxRange(firstMatch.range)
         }
 
+        // The detector excludes most dangling punctuation from the match
+        // itself ("https://example.com. Wild" matches only the URL), so a
+        // leading split can strand that punctuation at the start of the
+        // remaining text. That means the URL was part of a sentence; keep
+        // it inline.
+        if leadingPreview != nil {
+            let afterLeading = nsText.substring(from: remainingStart)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let first = afterLeading.first, sentencePunctuation.contains(first) {
+                leadingPreview = nil
+                remainingStart = 0
+            }
+        }
+
         var trailingPreview: LinkPreview?
         var remainingEnd = nsText.length
         if NSMaxRange(lastMatch.range) == nsText.length,
            lastMatch.range.location >= remainingStart,
-           !endsInSentencePunctuation(nsText.substring(with: lastMatch.range)),
+           isCleanEdgeMatch(nsText.substring(with: lastMatch.range)),
            let url = lastMatch.url,
            let resolved = validatedPreviewURL(url) {
             trailingPreview = LinkPreview(url: resolved.absoluteString)
@@ -100,16 +114,25 @@ extension LinkPreview {
         return validatedPreviewURL(url)
     }
 
-    /// The detector folds dangling sentence punctuation into a match (e.g.
-    /// the "?" in "seen https://example.com?"). A matched link ending that
-    /// way is prose around a link, not a link sent on its own, so it stays
-    /// inline in the text bubble.
-    private static func endsInSentencePunctuation(_ matchedText: String) -> Bool {
-        guard let last = matchedText.last else { return true }
-        return Self.sentencePunctuation.contains(last)
+    /// The detector folds some dangling sentence punctuation into a match
+    /// (e.g. the "?" in "seen https://example.com?") - that is prose around
+    /// a link, not a link sent on its own, so it stays inline. It also folds
+    /// smart punctuation like the apostrophe in "https://example.com's" into
+    /// the match and punycode-encodes the host into a bogus domain, so any
+    /// match containing smart punctuation is rejected outright.
+    private static func isCleanEdgeMatch(_ matchedText: String) -> Bool {
+        guard let last = matchedText.last, !sentencePunctuation.contains(last) else { return false }
+        return !matchedText.contains { smartPunctuation.contains($0) }
     }
 
-    private static let sentencePunctuation: Set<Character> = [".", ",", "!", "?", ";", ":", ")", "]", "'", "\""]
+    private static let sentencePunctuation: Set<Character> = [
+        ".", ",", "!", "?", ";", ":", ")", "]", "'", "\"", "\u{2026}",
+        "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}",
+    ]
+
+    private static let smartPunctuation: Set<Character> = [
+        "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2026}",
+    ]
 
     private static func validatedPreviewURL(_ url: URL) -> URL? {
         let scheme = url.scheme?.lowercased()
