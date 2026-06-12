@@ -81,6 +81,7 @@ public final class HTMLThumbnailRenderer {
     private var _offscreenWindow: UIWindow?
 
     private static func makeOffscreenWindow() -> UIWindow? {
+        guard !ComposerHostContext.isAppExtension else { return nil }
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState != .unattached }

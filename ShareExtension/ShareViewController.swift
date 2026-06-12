@@ -17,6 +17,7 @@ final class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        ComposerHostContext.isAppExtension = true
         view.backgroundColor = .systemBackground
 
         let composeView = ShareComposeView(

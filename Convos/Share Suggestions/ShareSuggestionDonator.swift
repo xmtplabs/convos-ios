@@ -18,6 +18,14 @@ enum ShareSuggestionDonator {
     private static let maxSuggestions: Int = 12
     private static let avatarSize: CGFloat = 120
 
+    /// Fingerprints of the last donated set, keyed by conversation id. The
+    /// donate call sits on the hot conversations publisher (fires on every
+    /// incoming message), so avatar rendering and Intents writes only happen
+    /// when a suggestion actually changed; donations for conversations that
+    /// left the set (exploded, deleted, removed) are deleted from the system
+    /// suggestion store.
+    @MainActor private static var lastDonated: [String: String] = [:]
+
     static func donate(_ conversations: [Conversation]) {
         // Only conversations with at least one other member are real share
         // targets; skip self-only / empty conversations.
@@ -25,12 +33,33 @@ enum ShareSuggestionDonator {
             conversation.members.contains { !$0.isCurrentUser }
         }
         Task { @MainActor in
-            for conversation in targetable.prefix(maxSuggestions) {
+            let current: [(conversation: Conversation, fingerprint: String)] = targetable.prefix(maxSuggestions).map {
+                ($0, fingerprint(for: $0))
+            }
+            let currentIds: Set<String> = Set(current.map(\.conversation.id))
+
+            let removedIds: [String] = lastDonated.keys.filter { !currentIds.contains($0) }
+            if !removedIds.isEmpty {
+                INInteraction.delete(with: removedIds) { error in
+                    if let error {
+                        Log.error("[ShareSuggestions] delete failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+
+            for (conversation, fingerprint) in current where lastDonated[conversation.id] != fingerprint {
                 let photo: UIImage? = await ImageCache.shared.imageAsync(for: conversation)
                 let avatar: INImage? = renderAvatar(for: conversation, photo: photo)
                 submit(conversation: conversation, avatar: avatar)
             }
+            lastDonated = Dictionary(uniqueKeysWithValues: current.map { ($0.conversation.id, $0.fingerprint) })
         }
+    }
+
+    @MainActor
+    private static func fingerprint(for conversation: Conversation) -> String {
+        let imageURL: String = conversation.imageURL?.absoluteString ?? ""
+        return "\(conversation.title)|\(conversation.members.count)|\(imageURL)"
     }
 
     @MainActor
@@ -76,6 +105,7 @@ enum ShareSuggestionDonator {
         }
         let interaction: INInteraction = INInteraction(intent: intent, response: nil)
         interaction.direction = .outgoing
+        interaction.identifier = conversation.id
         interaction.groupIdentifier = conversation.id
         interaction.donate { error in
             if let error {

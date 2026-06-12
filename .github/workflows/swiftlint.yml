@@ -38,3 +38,8 @@ jobs:
         # on the same PR (e.g. after a force-push that touches a few files)
         # only re-analyze what changed.
         run: swiftlint lint --strict --cache-path .swiftlint-cache
+
+      - name: Check asset catalog sync
+        # ConvosComposer duplicates the design-system assets; fail fast if a
+        # shared colorset/imageset drifted from the app catalog.
+        run: ./Scripts/check-asset-catalog-sync.sh

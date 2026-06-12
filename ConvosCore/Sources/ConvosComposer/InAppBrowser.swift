@@ -6,21 +6,28 @@ import UIKit
 public enum InAppBrowser {
     public static func open(_ url: URL) {
         let scheme = url.scheme?.lowercased() ?? ""
-        guard ["http", "https"].contains(scheme) else {
-            Task { @MainActor in
-                UIApplication.shared.open(url)
-            }
-            return
-        }
         Task { @MainActor in
-            guard let presenter = topPresentedViewController() else {
-                Log.warning("InAppBrowser: no presenter found, falling back to system browser for \(url.host ?? "")")
-                UIApplication.shared.open(url)
+            if ComposerHostContext.isAppExtension {
+                Log.info("InAppBrowser: suppressed in app extension for \(url.host ?? "")")
                 return
             }
-            let safari = SFSafariViewController(url: url)
-            presenter.present(safari, animated: true)
+            openInHost(url, scheme: scheme)
         }
+    }
+
+    @MainActor
+    private static func openInHost(_ url: URL, scheme: String) {
+        guard ["http", "https"].contains(scheme) else {
+            UIApplication.shared.open(url)
+            return
+        }
+        guard let presenter = topPresentedViewController() else {
+            Log.warning("InAppBrowser: no presenter found, falling back to system browser for \(url.host ?? "")")
+            UIApplication.shared.open(url)
+            return
+        }
+        let safari = SFSafariViewController(url: url)
+        presenter.present(safari, animated: true)
     }
 
     @MainActor

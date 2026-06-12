@@ -53,9 +53,14 @@ public final class FileThumbnailRenderer {
     }
 
     private func renderThumbnail(attachmentKey: String, fileURL: URL) async -> Result? {
-        let scale = (UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.screen.scale) ?? 2.0
+        let scale: CGFloat
+        if await ComposerHostContext.isAppExtension {
+            scale = await UITraitCollection.current.displayScale
+        } else {
+            scale = await (UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first?.screen.scale) ?? 2.0
+        }
         let request = QLThumbnailGenerator.Request(
             fileAt: fileURL,
             size: Self.renderSize,

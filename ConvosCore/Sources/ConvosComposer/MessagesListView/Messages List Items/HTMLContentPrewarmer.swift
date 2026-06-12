@@ -113,6 +113,9 @@ public final class HTMLContentPrewarmer {
     /// queue processes one entry at a time; repeat calls for an already-
     /// cached or already-queued attachment are no-ops.
     public func prewarm(attachmentKey: String, fileURL: URL) {
+        // Extensions skip prewarming entirely: WKWebView pools blow the appex
+        // memory budget and the scene lookup below uses app-only API.
+        guard !ComposerHostContext.isAppExtension else { return }
         if cache.contains(where: { $0.key == attachmentKey }) {
             promote(attachmentKey: attachmentKey)
             return
