@@ -1148,10 +1148,11 @@ private func builderCards(from items: [MessagesListItemType]) -> [AgentBuilderCa
 private func builderSummary(
     bundledMessageIds: Set<String>,
     connectionIdentifiers: [String] = [],
-    existingConversation: Bool = false
+    existingConversation: Bool = false,
+    prompt: String = ""
 ) -> AgentBuilderSummary {
     AgentBuilderSummary(
-        prompt: "",
+        prompt: prompt,
         attachments: connectionIdentifiers.map { .connection(id: UUID(), identifier: $0) },
         cutoffDate: Date(),
         bundledMessageIds: bundledMessageIds,
@@ -1210,7 +1211,7 @@ struct MessagesListProcessorAgentBuilderCardTests {
         // the local summary knows the bundle ids.
         let result = MessagesListProcessor.process(
             messages,
-            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"]),
+            agentBuilderSummary: builderSummary(bundledMessageIds: ["b-text"], prompt: "Be my assistant"),
             hiddenBundleMessageIds: []
         )
         #expect(messageIds(from: result) == ["hey"])
@@ -1672,5 +1673,257 @@ struct MessagesListProcessorContactCardPlacementTests {
         }
         #expect(contactCardGroup(in: result)?.contactCardPrecedesAgentMessages == false)
         #expect(contactCardCount(in: result) == 1)
+    }
+}
+
+// Coverage for the creator-side optimistic card: after Make, the bundle send
+// is held until the agent joins (OutgoingMessageWriter.waitForAgentMember), so
+// the build's message rows don't exist yet and the run-anchored reconstruction
+// has nothing to render. The processor must show the card from the summary
+// alone within the pending window, hand off to the run-anchored card once the
+// rows land, and never resurrect a card for an old row-less summary.
+struct MessagesListProcessorPendingBuilderCardTests {
+    @Test("Summary with no landed rows renders the card optimistically")
+    func pendingCardRendersBeforeRowsLand() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-att", "b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Be my assistant")
+        #expect(cards.first?.creatorIsCurrentUser == true)
+    }
+
+    @Test("Once the summary's rows land, only the run-anchored card renders")
+    func pendingCardHandsOffToRunAnchoredCard() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: now),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: now,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(messageIds(from: result).isEmpty)
+    }
+
+    @Test("An old summary whose rows are gone does not resurrect a card")
+    func expiredPendingSummaryRendersNoCard() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date().addingTimeInterval(-3600),
+            bundledMessageIds: ["b-att", "b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).isEmpty)
+    }
+
+    @Test("Pending card carries the summary's connection identifiers")
+    func pendingCardCarriesConnections() {
+        let summary = AgentBuilderSummary(
+            prompt: "Track my calendar",
+            attachments: [.connection(id: UUID(), identifier: "googleCalendar")],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.first?.connectionIdentifiers == ["googleCalendar"])
+        #expect(cards.first?.attachments.isEmpty == true)
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Verified agent's contact card anchors under the pending summary card")
+    func contactCardAnchorsUnderPendingCard() {
+        let agent = verifiedAgentMember
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"]
+        )
+        // The agent has joined (verified) but the build's rows haven't landed
+        // yet -- the window right after the join gate opens. The pending card
+        // must render and the contact card must anchor directly beneath it.
+        let result = MessagesListProcessor.process(
+            [],
+            verifiedAgent: agent,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        let summaryIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let contactIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.agentContactCard != nil
+        }
+        #expect(summaryIndex != nil)
+        #expect(contactIndex != nil)
+        if let summaryIndex, let contactIndex {
+            #expect(contactIndex == summaryIndex + 1)
+        }
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Messages sent while the bundle is held render below the pending card")
+    func pendingCardStaysChronological() {
+        let now = Date()
+        let messages = [
+            makeMessage(id: "before", sender: otherUser, text: "Earlier chat", date: now.addingTimeInterval(-60)),
+            makeMessage(id: "after", sender: currentUser, text: "Sent during the hold", date: now.addingTimeInterval(30)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: now,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let beforeIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "before" }
+        }
+        let afterIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "after" }
+        }
+        #expect(cardIndex != nil && beforeIndex != nil && afterIndex != nil)
+        if let cardIndex, let beforeIndex, let afterIndex {
+            #expect(beforeIndex < cardIndex)
+            #expect(cardIndex < afterIndex)
+        }
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Card stays at the Make position after the held bundle publishes below later messages")
+    func cardStaysAtMakePositionAfterRowsLand() {
+        let make = Date()
+        let messages = [
+            makeMessage(id: "before", sender: otherUser, text: "Earlier chat", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "during", sender: currentUser, text: "Sent during the hold", date: make.addingTimeInterval(30)),
+            // The bundle publishes only after the agent joins, so its row is
+            // dated later than the message sent during the hold.
+            makeMessage(id: "b-text", sender: currentUser, text: "Be my assistant", date: make.addingTimeInterval(60)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(messageIds(from: result) == ["before", "during"])
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        let beforeIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "before" }
+        }
+        let duringIndex = result.firstIndex { item in
+            guard case .messages(let group) = item else { return false }
+            return group.messages.contains { $0.messageId == "during" }
+        }
+        if let cardIndex, let beforeIndex, let duringIndex {
+            #expect(beforeIndex < cardIndex)
+            #expect(cardIndex < duringIndex)
+        }
+    }
+
+    @Test("Existing conversation with unloaded history defers the card instead of pinning it at the top")
+    func emptySnapshotDefersCardForExistingConversation() {
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: Date(),
+            bundledMessageIds: ["b-text"],
+            existingConversation: true
+        )
+        let result = MessagesListProcessor.process(
+            [],
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).isEmpty)
+    }
+}
+
+extension MessagesListProcessorPendingBuilderCardTests {
+    @Test("Same-sender messages spanning Make split around the card instead of dragging it to the top")
+    func cardSplitsMergedGroupAtMakeBoundary() {
+        let make = Date()
+        // All from the current user, consecutive -- the processor merges them
+        // into one group spanning the Make boundary.
+        let messages = [
+            makeMessage(id: "pre-1", sender: currentUser, text: "Hi", date: make.addingTimeInterval(-120)),
+            makeMessage(id: "pre-2", sender: currentUser, text: "Setting up", date: make.addingTimeInterval(-60)),
+            makeMessage(id: "post-1", sender: currentUser, text: "Sent right after Make", date: make.addingTimeInterval(20)),
+            makeMessage(id: "post-2", sender: currentUser, text: "And another", date: make.addingTimeInterval(40)),
+        ]
+        let summary = AgentBuilderSummary(
+            prompt: "Be my assistant",
+            attachments: [],
+            cutoffDate: make,
+            bundledMessageIds: ["b-text"]
+        )
+        let result = MessagesListProcessor.process(
+            messages,
+            agentBuilderSummary: summary,
+            hiddenBundleMessageIds: []
+        )
+        #expect(builderCards(from: result).count == 1)
+        let cardIndex = result.firstIndex { if case .agentBuilderSummary = $0 { return true } else { return false } }
+        func groupIndex(containing id: String) -> Int? {
+            result.firstIndex { item in
+                guard case .messages(let group) = item else { return false }
+                return group.messages.contains { $0.messageId == id }
+            }
+        }
+        #expect(cardIndex != nil)
+        if let cardIndex {
+            #expect(groupIndex(containing: "pre-2")! < cardIndex)
+            #expect(cardIndex < groupIndex(containing: "post-1")!)
+        }
+        // No message is lost in the split.
+        #expect(Set(messageIds(from: result)) == ["pre-1", "pre-2", "post-1", "post-2"])
     }
 }

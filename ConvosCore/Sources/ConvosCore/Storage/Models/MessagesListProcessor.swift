@@ -177,11 +177,14 @@ public final class MessagesListProcessor: Sendable {
             guard let anchor = run.first?.messageId else { continue }
             for message in run { anchorByMessageId[message.messageId] = anchor }
             let ownsSummary: Bool = !summaryIds.isEmpty && run.contains { summaryIds.contains($0.messageId) }
-            cardByAnchor[anchor] = makeCardContent(
-                run: run,
-                anchor: anchor,
-                summary: ownsSummary ? agentBuilderSummary : nil
-            )
+            // The creator's own latest build renders via the Make-anchored
+            // summary card (see applyAgentBuilderCardsAndContactCard): its
+            // position tracks when the user tapped Make, not when the held
+            // bundle eventually published. Swallow those rows without
+            // emitting a run card; every other build (recipients, older
+            // builds whose summary was replaced) keeps its run-anchored card.
+            guard !ownsSummary else { continue }
+            cardByAnchor[anchor] = makeCardContent(run: run, anchor: anchor, summary: nil)
         }
 
         var result: [MessagesListItemType] = []
@@ -267,6 +270,32 @@ public final class MessagesListProcessor: Sendable {
             // (the card counts as an anchor) to keep a valid separator and drop a
             // truly empty one.
             items = dropOrphanDateSeparators(in: items)
+        }
+
+        // The creator's card, anchored at the Make moment (the summary's
+        // cutoffDate) rather than at the position the held bundle eventually
+        // published -- messages sent while the send waited for the agent to
+        // join stay below the card. The run reconstruction above swallows the
+        // summary's own rows without emitting a card, so this is the sole
+        // creator-side card and it never relocates when the rows land.
+        // Before the rows land it renders from the summary alone, time-boxed
+        // so a summary whose rows later expire (disappearing messages)
+        // doesn't resurrect a card in an old chat. An empty raw snapshot of
+        // an existing conversation means history hasn't loaded yet -- skip
+        // that emission (the loaded one follows immediately) instead of
+        // flashing the card at the top of a one-item list.
+        if let summary = agentBuilderSummary {
+            let summaryIds: Set<String> = summary.bundledMessageIds
+            let rowsLanded: Bool = rawMessages.contains { summaryIds.contains($0.messageId) }
+            let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
+            let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
+            if rowsLanded || (withinWindow && !awaitingHistory) {
+                insertSummaryCard(
+                    .agentBuilderSummary(makePendingCardContent(summary: summary)),
+                    into: &items,
+                    cutoffDate: summary.cutoffDate
+                )
+            }
         }
 
         if let agent = verifiedAgent {
@@ -843,5 +872,101 @@ private extension MessagesListProcessor {
 
             items.append(.messages(group))
         }
+    }
+
+    /// How long after Make the summary-only card may render while its build
+    /// messages haven't landed. Covers the writer's agent-join hold (150s)
+    /// with margin; past it, a row-less summary is history, not a pending
+    /// build.
+    private static let pendingCardDisplayWindow: TimeInterval = 180
+
+    /// Insert the summary card at its chronological Make slot: right after
+    /// the bottom-most message older than `cutoffDate`. Consecutive
+    /// same-sender messages merge into one group, so messages sent around
+    /// Make routinely share a group whose span straddles the boundary --
+    /// comparing whole groups would shove the card above the entire merged
+    /// group (the top of the list in a fresh chat). When the boundary falls
+    /// inside a group, split it at the boundary and seat the card between
+    /// the halves, the same way `reconstructBuilderCards` splices run cards
+    /// into groups. Falls back to the top of the newer groups (nothing
+    /// older) or the end of the list (no message groups at all).
+    private static func insertSummaryCard(
+        _ card: MessagesListItemType,
+        into items: inout [MessagesListItemType],
+        cutoffDate: Date
+    ) {
+        var firstNewerGroupIndex: Int = items.count
+        for (index, item) in items.enumerated().reversed() {
+            guard case .messages(let group) = item,
+                  let firstDate = group.messages.first?.date,
+                  let lastDate = group.messages.last?.date else { continue }
+            if lastDate <= cutoffDate {
+                items.insert(card, at: index + 1)
+                return
+            }
+            if firstDate <= cutoffDate {
+                let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
+                let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
+                guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
+                let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
+                let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
+                items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
+                return
+            }
+            firstNewerGroupIndex = index
+        }
+        items.insert(card, at: firstNewerGroupIndex)
+    }
+
+    /// Card content built from the summary alone, for the window between Make
+    /// and the build messages landing. Mirrors `makeCardContent` with the
+    /// summary's stored snapshots standing in for the not-yet-persisted
+    /// messages; the anchor reuses the first bundled id so the cell identity
+    /// is stable when the real run-anchored card takes over.
+    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+        let anchor: String = summary.bundledMessageIds.min() ?? summary.id.uuidString
+        let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
+            switch attachment {
+            case let .photo(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "image/jpeg",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .video(id, thumbnailData):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "video/mp4",
+                    thumbnailDataBase64: thumbnailData?.base64EncodedString()
+                )
+            case let .file(id, filename, mimeType, fileSize):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: mimeType,
+                    fileSize: fileSize,
+                    filename: filename
+                )
+            case let .voiceMemo(id, duration, levels):
+                return HydratedAttachment(
+                    key: id.uuidString,
+                    mimeType: "audio/m4a",
+                    duration: duration,
+                    waveformLevels: levels
+                )
+            case .connection:
+                // Rendered via `connectionIdentifiers`, not as a media chip.
+                return nil
+            }
+        }
+        return AgentBuilderCardContent(
+            id: "agent-builder-card-" + anchor,
+            prompt: summary.prompt,
+            attachments: attachments,
+            creatorIsCurrentUser: true,
+            creatorDisplayName: "",
+            connectionIdentifiers: builderConnectionIdentifiers(from: summary),
+            existingConversation: summary.existingConversation,
+            transitionEligible: !summary.existingConversation
+        )
     }
 }
