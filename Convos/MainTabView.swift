@@ -571,6 +571,10 @@ struct MainTabView: View {
             : DesignConstants.Spacing.step3x
     }
 
+    /// Shared with `AttachmentPreviewSheet`'s sender pill so the Things
+    /// detail indicator subtitle uses the same sent-date wording.
+    private static let sentDateFormatter: SentDateFormatter = SentDateFormatter()
+
     @ViewBuilder
     private func centeredConversationIndicator(for convoVM: ConversationViewModel) -> some View {
         let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
@@ -583,11 +587,17 @@ struct MainTabView: View {
         // instead of the conversation quick editor / info sheet.
         let isThingsIndicator: Bool = conversationsViewModel.selectedConversationViewModel == nil
         let thingsAgentTapOverride: (() -> Void)? = isThingsIndicator ? { presentThingsAgentContact() } : nil
+        // On a Things push the indicator subtitle shows when the thing was
+        // sent (same label as the in-conversation preview sheet's sender
+        // pill) instead of the member count.
+        let thingsSentDateSubtitle: String? = isThingsIndicator
+            ? thingsPushedItems.last.map { Self.sentDateFormatter.string(for: $0.date) }
+            : nil
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
                 placeholderOverride: nil,
-                subtitleOverride: nil,
+                subtitleOverride: thingsSentDateSubtitle,
                 allowsEditing: !isReadOnly,
                 focusState: $liftedIndicatorFocus,
                 focusCoordinator: liftedIndicatorFocusCoordinator,

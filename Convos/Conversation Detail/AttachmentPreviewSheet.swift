@@ -178,7 +178,11 @@ private struct AttachmentSenderIndicator: View {
     }
 }
 
-private struct SentDateFormatter {
+/// Formats the "sent" date shown for a thing: "Today", "Yesterday", the
+/// weekday name within the last week, else a medium date. Shared by the
+/// sheet's sender pill and the Things detail push's conversation
+/// indicator subtitle (see MainTabView).
+struct SentDateFormatter {
     private let calendar: Calendar = .current
     private let weekdayFormatter: DateFormatter = {
         let formatter = DateFormatter()
