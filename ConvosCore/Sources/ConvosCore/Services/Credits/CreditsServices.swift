@@ -77,6 +77,13 @@ public enum CreditsServices {
     }
 
     enum Constant {
-        static let useRealBackendKey: String = "creditsServices.useRealBackend"
+        /// Versioned key (v2): the original `creditsServices.useRealBackend`
+        /// key accumulated stale writes during the eras when the setter
+        /// persisted but the gate ignored the stored value (see the doc
+        /// comment on `resolveUseRealBackend`). Those stale off values would
+        /// have silently flipped TestFlight testers to mock credits once the
+        /// gate started honoring them. The old key is intentionally never
+        /// read - only deliberate toggles made after the fix persist under v2.
+        static let useRealBackendKey: String = "creditsServices.useRealBackend.v2"
     }
 }
