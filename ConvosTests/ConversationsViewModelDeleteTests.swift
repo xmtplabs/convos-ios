@@ -225,6 +225,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.deleteAllInboxes()
     }
 
+    func registerClaimedConversation(id conversationId: String) async {
+        await base.registerClaimedConversation(id: conversationId)
+    }
+
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error> {
         base.deleteAllInboxesWithProgress()
     }
