@@ -378,6 +378,46 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
 
+    func sendThinkingControl(
+        action: ThinkingControlAction,
+        targetMessageId: String,
+        agentInboxId: String,
+        for conversationId: String
+    ) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else {
+            return
+        }
+        // The UI keys messages by `clientMessageId` (thinking moments store
+        // the resolved client id, see `ThinkingSessionWriter`), but the wire
+        // payload must carry the server-assigned id the agent knows the
+        // target by. Fall back to the passed id when no row matches.
+        let wireTargetId: String = try await databaseReader.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == targetMessageId)
+                .fetchOne(db)
+                .map(\.id)
+                ?? targetMessageId
+        }
+        let content = ThinkingControlContent(
+            action: action,
+            targetMessageId: wireTargetId,
+            agentInboxId: agentInboxId
+        )
+        let messageId = try await sender.sendThinkingControl(content)
+        // Optimistic local row so the button flips without waiting for the
+        // stream echo; the echo replays the same message id and the writer
+        // upserts, so re-delivery is harmless.
+        let controlWriter = ThinkingControlWriter(databaseWriter: databaseWriter)
+        await controlWriter.apply(
+            event: content,
+            messageId: messageId,
+            conversationId: conversationId,
+            senderInboxId: result.client.inboxId,
+            sentAtNs: Date().nanosecondsSince1970
+        )
+    }
+
     func initiatorPairingService() async throws -> any PairingServiceProtocol {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         let inboxId = result.client.inboxId

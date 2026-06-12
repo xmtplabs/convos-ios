@@ -209,6 +209,8 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
 
+        migrator.registerMigration("createThinkingControl", migrate: Self.createThinkingControl)
+
         return migrator
     }
 
@@ -225,6 +227,29 @@ extension SharedDatabaseMigrator {
             index: "handledJoinRequest_handledAt",
             on: "handledJoinRequest",
             columns: ["handledAt"]
+        )
+    }
+
+    /// One row per `convos.org/thinking-control:1.0` event (a user's stop or
+    /// resume request for an agent's thinking session). The latest row per
+    /// `(conversationId, agentInboxId, targetMessageId)` drives the detail
+    /// sheet's stop/resume button state. `id` is the XMTP message id so
+    /// re-applying the same event is a PK no-op.
+    private static func createThinkingControl(_ db: Database) throws {
+        try db.create(table: "thinkingControl") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("agentInboxId", .text).notNull()
+            t.column("targetMessageId", .text).notNull()
+            t.column("action", .text).notNull()
+            t.column("sentAtNs", .integer).notNull()
+        }
+        try db.create(
+            index: "thinkingControl_sessionKey",
+            on: "thinkingControl",
+            columns: ["conversationId", "agentInboxId", "targetMessageId", "sentAtNs"]
         )
     }
 

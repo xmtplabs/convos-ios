@@ -680,6 +680,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 descriptor: descriptor,
                 conversation: viewModel.conversation,
                 viewModel: viewModel,
+                onThinkingControl: { action in
+                    viewModel.sendThinkingControl(action, for: descriptor)
+                },
                 profileSheetForMember: profileSheetForMember
             )
         }

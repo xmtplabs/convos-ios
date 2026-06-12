@@ -55,7 +55,8 @@ extension ConversationViewModel {
                 targetMessageId: session.targetMessageId,
                 moments: session.moments,
                 resultMessageId: session.resultMessageId,
-                isActive: session.isActive
+                isActive: session.isActive,
+                lastControlAction: session.lastControlAction
             )
 
             let targetVisible: Bool = visibleMessageIds.contains(session.targetMessageId)
@@ -123,6 +124,27 @@ extension ConversationViewModel {
             }
 
             return .messages(updated)
+        }
+    }
+
+    /// Sends a stop/resume request for the session the detail sheet is
+    /// showing. Fire-and-forget: the optimistic control row written by the
+    /// messaging service flips the button via the live `thinkingSessions`
+    /// feed, so the view has nothing to await.
+    func sendThinkingControl(_ action: ThinkingControlAction, for descriptor: ThinkingSessionDescriptor) {
+        let conversationId = conversation.id
+        let messagingService = messagingService
+        Task {
+            do {
+                try await messagingService.sendThinkingControl(
+                    action: action,
+                    targetMessageId: descriptor.targetMessageId,
+                    agentInboxId: descriptor.sender.profile.inboxId,
+                    for: conversationId
+                )
+            } catch {
+                Log.error("Failed to send thinking control \(action.rawValue): \(error.localizedDescription)")
+            }
         }
     }
 }

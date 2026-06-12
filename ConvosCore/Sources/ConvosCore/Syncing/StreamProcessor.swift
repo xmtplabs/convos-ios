@@ -81,6 +81,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let pushTopicSubscriptionManager: any PushTopicSubscriptionManaging
     private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
+    private let thinkingControlWriter: any ThinkingControlWriterProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
@@ -135,6 +136,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             databaseWriter: databaseWriter
         )
         self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
+        self.thinkingControlWriter = ThinkingControlWriter(databaseWriter: databaseWriter)
         self.inboundFilter = InboundConversationFilter()
     }
 
@@ -303,7 +305,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if await processThinking(message, conversationId: conversation.id, params: params) {
+                    if await processThinkingEvents(message, conversationId: conversation.id, params: params) {
                         return
                     }
 
@@ -872,6 +874,56 @@ actor StreamProcessor: StreamProcessorProtocol {
                 context: context
             )
         }
+    }
+}
+
+// MARK: - Thinking Events
+
+extension StreamProcessor {
+    /// Routes the two thinking-family content types (`convos.org/thinking`
+    /// moments from agents, `convos.org/thinking-control` stop/resume
+    /// requests from users). Returns `true` when the message was one of the
+    /// two (handled), so the caller stops further routing.
+    func processThinkingEvents(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        if await processThinking(message, conversationId: conversationId, params: params) {
+            return true
+        }
+        return await processThinkingControl(message, conversationId: conversationId)
+    }
+
+    /// Unlike thinking moments there is no self-sender skip: the local
+    /// user's own stop/resume (echoed by the stream, or sent from another
+    /// device) drives the detail sheet's button state, and the writer is
+    /// idempotent on the message id so the optimistic row written at send
+    /// time absorbs the replay.
+    private func processThinkingControl(
+        _ message: DecodedMessage,
+        conversationId: String
+    ) async -> Bool {
+        guard message.isThinkingControl else {
+            return false
+        }
+
+        guard let content = try? ThinkingControlCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode ThinkingControl from message \(message.id)")
+            return true
+        }
+
+        let logDetails = "action=\(content.action.rawValue) target=\(content.targetMessageId) agent=\(content.agentInboxId)"
+        Log.info("[ThinkingControl] received \(logDetails) sender=\(message.senderInboxId) conversation=\(conversationId)")
+
+        await thinkingControlWriter.apply(
+            event: content,
+            messageId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
+        return true
     }
 }
 

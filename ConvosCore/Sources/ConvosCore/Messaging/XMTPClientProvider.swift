@@ -5,6 +5,11 @@ import Foundation
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func sendTypingIndicator(isTyping: Bool) async throws
+    /// Returns the XMTP message id of the published control message so the
+    /// caller can persist an optimistic local row keyed by the same id the
+    /// stream echo will carry.
+    @discardableResult
+    func sendThinkingControl(_ content: ThinkingControlContent) async throws -> String
     func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
     func prepare(joinRequest: JoinRequestContent) async throws -> String
@@ -286,6 +291,15 @@ extension XMTPiOS.Conversation: MessageSender {
         let codec = TypingIndicatorCodec()
         try await send(
             content: TypingIndicatorContent(isTyping: isTyping),
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
+    @discardableResult
+    public func sendThinkingControl(_ content: ThinkingControlContent) async throws -> String {
+        let codec = ThinkingControlCodec()
+        return try await send(
+            content: content,
             options: .init(contentType: codec.contentType)
         )
     }

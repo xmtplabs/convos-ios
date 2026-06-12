@@ -361,7 +361,7 @@ struct BatchCatchUp {
         // never the batched regular-message transaction. Thinking backs the
         // thinking-detail view and the manifest is a hide-control record --
         // neither is persisted as a chat row.
-        case .readReceipt, .thinking, .builderBundleManifest, .reaction:
+        case .readReceipt, .thinking, .thinkingControl, .builderBundleManifest, .reaction:
             return .supplemental
         case .regular:
             return .regular
