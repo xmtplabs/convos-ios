@@ -28,19 +28,25 @@ Build and launch the Convos iOS app on the worktree's dedicated simulator.
 
 Run xcodebuild directly via bash (**never** use MCP `build_sim` — it has a known bug with app extension SPM dependencies):
 
+Pass an explicit `-configuration` matching the scheme (`Convos (Dev)` -> `Dev`, `Convos (Local)` -> `Local`, `Convos (Prod)` -> `Prod`). Without it the scheme builds targets under mismatched configurations: the SPM packages land in one config dir while the NotificationService extension looks in another (`unable to resolve module dependency: ConvosCore`), and the app's entitlements/identifiers stop matching `config.json`, surfacing at runtime as a nil app-group container crash (`Failed getting container URL`) or `-34018` (`errSecMissingEntitlement`) on first identity read. Those are one configuration signature, not simulator limitations (issue #843, #1019); `rm -rf .derivedData` does not fix them, an explicit `-configuration` does.
+
 ```bash
+set -o pipefail
 xcodebuild build \
   -project Convos.xcodeproj \
-  -scheme "Convos (Dev)" \
+  -scheme "Convos (Dev)" -configuration Dev \
   -destination "platform=iOS Simulator,name=<SIMULATOR_NAME>" \
   -derivedDataPath .derivedData 2>&1 | tail -100
 ```
 
+`set -o pipefail` is load-bearing: without it `| tail` makes a failed build exit 0, so check for `** BUILD FAILED **` in the tail rather than trusting the exit code alone.
+
 Use a timeout of 300 seconds for the build.
 
 If the build fails:
-- Show the compilation errors
-- Try `rm -rf .derivedData` and rebuild if module-not-found errors appear
+- Show the compilation errors.
+- `unable to resolve module dependency` in the NotificationService extension means `-configuration` was omitted (config split, see above) — set it; `rm -rf .derivedData` does not fix this one. For other `module not found` errors, `rm -rf .derivedData` and rebuild once.
+- A `took NNNms to type-check` failure on a *trivial* expression that *moves between files* across builds is CPU contention, not a code problem — rebuild with `-jobs 2` (and close heavy apps); do not edit the flagged code or raise the threshold.
 
 ### Step 3: Install and Launch
 

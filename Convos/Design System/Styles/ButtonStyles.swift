@@ -2,6 +2,7 @@ import SwiftUI
 
 enum ConvosButtonStyleType {
     case outline(fullWidth: Bool)
+    case outlineCapsule(fullWidth: Bool)
     case text
     case rounded(fullWidth: Bool, backgroundColor: Color = .colorFillPrimary)
     case action(iconColor: Color = .primary, isDestructive: Bool = false)
@@ -12,6 +13,8 @@ extension Button {
         switch styleType {
         case let .outline(fullWidth):
             return AnyView(self.buttonStyle(OutlineButtonStyle(fullWidth: fullWidth)))
+        case let .outlineCapsule(fullWidth):
+            return AnyView(self.buttonStyle(OutlineCapsuleButtonStyle(fullWidth: fullWidth)))
         case .text:
             return AnyView(self.buttonStyle(TextButtonStyle()))
         case let .rounded(fullWidth, backgroundColor):
@@ -108,6 +111,29 @@ struct OutlineButtonStyle: ButtonStyle {
             .background(Color.clear)
             .overlay(
                 RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+                    .stroke(.colorBorderSubtle2, lineWidth: 1.0)
+            )
+            .foregroundColor(isEnabled ? .colorTextPrimary : .colorTextTertiary)
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+    }
+}
+
+struct OutlineCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled: Bool
+
+    let fullWidth: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .font(.subheadline)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .background(Color.clear)
+            .overlay(
+                Capsule()
                     .stroke(.colorBorderSubtle2, lineWidth: 1.0)
             )
             .foregroundColor(isEnabled ? .colorTextPrimary : .colorTextTertiary)

@@ -1,7 +1,18 @@
+import ConvosMetrics
 import SwiftUI
 
 struct CustomizeSettingsView: View {
     @Bindable private var defaults: GlobalConvoDefaults = .shared
+    @State private var navState: CustomizeSettingsNavigatorImpl = .init()
+    @State private var navigator: CustomizeSettingsCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = CustomizeSettingsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     private var blurIncomingPhotosBinding: Binding<Bool> {
         Binding(
@@ -71,6 +82,13 @@ struct CustomizeSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     @ViewBuilder

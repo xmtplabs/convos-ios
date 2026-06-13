@@ -8,6 +8,7 @@ public struct SharedAppConfiguration: Codable {
     public let apiBaseURL: String
     public let appGroupIdentifier: String
     public let relyingPartyIdentifier: String
+    public let siweConfiguration: SIWEConfiguration
     public let xmtpEndpoint: String?
     public let xmtpNetwork: String?
     public let gatewayUrl: String?
@@ -17,6 +18,7 @@ public struct SharedAppConfiguration: Codable {
         self.apiBaseURL = environment.apiBaseURL
         self.appGroupIdentifier = environment.appGroupIdentifier
         self.relyingPartyIdentifier = environment.relyingPartyIdentifier
+        self.siweConfiguration = environment.siweConfiguration
         self.xmtpEndpoint = environment.xmtpEndpoint
         self.xmtpNetwork = environment.xmtpNetwork
         self.gatewayUrl = environment.gatewayUrl
@@ -27,6 +29,7 @@ public struct SharedAppConfiguration: Codable {
             apiBaseURL: apiBaseURL,
             appGroupIdentifier: appGroupIdentifier,
             relyingPartyIdentifier: relyingPartyIdentifier,
+            siweConfiguration: siweConfiguration,
             xmtpEndpoint: xmtpEndpoint,
             xmtpNetwork: xmtpNetwork,
             gatewayUrl: gatewayUrl

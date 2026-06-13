@@ -1,3 +1,4 @@
+import ConvosMetrics
 import SwiftUI
 
 struct LockedConvoInfoView: View {
@@ -5,6 +6,17 @@ struct LockedConvoInfoView: View {
     let isLocked: Bool
     let onLock: () -> Void
     let onDismiss: () -> Void
+
+    @State private var navState: LockedConvoInfoNavigatorImpl = .init()
+    @State private var navigator: LockedConvoInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = LockedConvoInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     private var title: String {
         if isCurrentUserSuperAdmin && !isLocked {
@@ -71,6 +83,13 @@ struct LockedConvoInfoView: View {
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : 0)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?

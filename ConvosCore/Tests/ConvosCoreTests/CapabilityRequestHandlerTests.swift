@@ -1,0 +1,664 @@
+import ConvosConnections
+@testable import ConvosCore
+import Foundation
+import Testing
+
+private struct StubProvider: CapabilityProvider {
+    let id: ProviderID
+    let subject: CapabilitySubject
+    let displayName: String
+    let iconName: String = ""
+    let capabilities: Set<ConnectionCapability>
+    let linkedByUserValue: Bool
+
+    var linkedByUser: Bool { get async { linkedByUserValue } }
+    var available: Bool { get async { true } }
+}
+
+@Suite("CapabilityRequestHandler.computeLayout — variant selection")
+struct ComputeLayoutVariantTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let conversationId: String = "conv-1"
+
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
+    private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
+    private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
+
+    private func makeRegistry(_ providers: [StubProvider]) async -> any CapabilityProviderRegistry {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for provider in providers { await registry.register(provider) }
+        return registry
+    }
+
+    private func makeRequest(
+        subject: CapabilitySubject = .calendar,
+        capability: ConnectionCapability = .read,
+        preferredProviders: [ProviderID]? = nil,
+        askerInboxId: String = "agent-1"
+    ) -> CapabilityRequest {
+        CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: askerInboxId,
+            subject: subject,
+            capability: capability,
+            rationale: "test",
+            preferredProviders: preferredProviders
+        )
+    }
+
+    @Test("zero linked providers → connectAndApprove")
+    func variant3() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: appleCalendar,
+                subject: .calendar,
+                displayName: "Apple Calendar",
+                capabilities: [.read],
+                linkedByUserValue: false
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .connectAndApprove)
+        #expect(layout.defaultSelection.isEmpty)
+    }
+
+    @Test("exactly one linked provider → confirm with that provider preselected")
+    func variant1() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: appleCalendar,
+                subject: .calendar,
+                displayName: "Apple Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .confirm)
+        #expect(layout.defaultSelection == [appleCalendar])
+    }
+
+    @Test("multiple linked providers on non-federating subject → singleSelect")
+    func variant2aNonFederating() async {
+        let registry = await makeRegistry([
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read], linkedByUserValue: true),
+            StubProvider(id: googleCalendar, subject: .calendar, displayName: "Google Calendar", capabilities: [.read], linkedByUserValue: true),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(subject: .calendar, capability: .read),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .singleSelect)
+        #expect(layout.defaultSelection.isEmpty)
+    }
+
+    @Test("multiple linked providers on federating subject + read → multiSelect")
+    func variant2bFederatingRead() async {
+        let registry = await makeRegistry([
+            StubProvider(id: strava, subject: .fitness, displayName: "Strava", capabilities: [.read], linkedByUserValue: true),
+            StubProvider(id: fitbit, subject: .fitness, displayName: "Fitbit", capabilities: [.read], linkedByUserValue: true),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(subject: .fitness, capability: .read),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .multiSelect)
+    }
+
+    @Test("multiple linked providers on federating subject + write → singleSelect")
+    func variant2aFederatingWrite() async {
+        let registry = await makeRegistry([
+            StubProvider(id: strava, subject: .fitness, displayName: "Strava", capabilities: [.read, .writeCreate], linkedByUserValue: true),
+            StubProvider(id: fitbit, subject: .fitness, displayName: "Fitbit", capabilities: [.read, .writeCreate], linkedByUserValue: true),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(subject: .fitness, capability: .writeCreate),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .singleSelect, "writes never federate, even on .fitness")
+    }
+}
+
+@Suite("CapabilityRequestHandler.computeLayout — preferredProviders hint")
+struct ComputeLayoutPreferredProvidersTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let conversationId: String = "conv-1"
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
+    private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
+    private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
+
+    @Test("singleSelect picker honors first satisfiable preferredProvider")
+    func singleSelectHonorsHint() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for stub in [
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read], linkedByUserValue: true),
+            StubProvider(id: googleCalendar, subject: .calendar, displayName: "Google Calendar", capabilities: [.read], linkedByUserValue: true),
+        ] {
+            await registry.register(stub)
+        }
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .calendar,
+                capability: .read,
+                rationale: "test",
+                preferredProviders: [googleCalendar]
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .singleSelect)
+        #expect(layout.defaultSelection == [googleCalendar])
+    }
+
+    @Test("multiSelect picker honors all satisfiable preferredProviders")
+    func multiSelectHonorsHint() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for stub in [
+            StubProvider(id: strava, subject: .fitness, displayName: "Strava", capabilities: [.read], linkedByUserValue: true),
+            StubProvider(id: fitbit, subject: .fitness, displayName: "Fitbit", capabilities: [.read], linkedByUserValue: true),
+        ] {
+            await registry.register(stub)
+        }
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .fitness,
+                capability: .read,
+                rationale: "test",
+                preferredProviders: [strava, fitbit]
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .multiSelect)
+        #expect(layout.defaultSelection == [strava, fitbit])
+    }
+
+    @Test("hint that points at unlinked providers is dropped")
+    func hintFallsBackOnUnlinked() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for stub in [
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read], linkedByUserValue: true),
+            StubProvider(id: googleCalendar, subject: .calendar, displayName: "Google Calendar", capabilities: [.read], linkedByUserValue: false),
+        ] {
+            await registry.register(stub)
+        }
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .calendar,
+                capability: .read,
+                rationale: "test",
+                preferredProviders: [googleCalendar]
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        // Only one linked provider → variant 1 (confirm), default selection is the
+        // single linked option, not the unlinked Google Calendar that the agent asked for.
+        #expect(layout.variant == .confirm)
+        #expect(layout.defaultSelection == [appleCalendar])
+    }
+}
+
+@Suite("CapabilityRequestHandler.computeLayout — verb-consent shortcut")
+struct ComputeLayoutVerbConsentTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let conversationId: String = "conv-1"
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+    private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
+    private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
+
+    @Test("existing read resolution defaults a writeCreate request to verbConsent")
+    func writeAfterReadShortsToVerbConsent() async throws {
+        let registry = InMemoryCapabilityProviderRegistry()
+        await registry.register(
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read, .writeCreate], linkedByUserValue: true)
+        )
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
+        )
+
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .calendar,
+                capability: .writeCreate,
+                rationale: "Add an event"
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .verbConsent)
+        #expect(layout.defaultSelection == [appleCalendar])
+    }
+
+    @Test("federated read on .fitness → write request defaults to single provider")
+    func federatedReadToWrite() async throws {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for stub in [
+            StubProvider(id: strava, subject: .fitness, displayName: "Strava", capabilities: [.read, .writeCreate], linkedByUserValue: true),
+            StubProvider(id: fitbit, subject: .fitness, displayName: "Fitbit", capabilities: [.read, .writeCreate], linkedByUserValue: true),
+        ] {
+            await registry.register(stub)
+        }
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        try await resolver.setResolution(
+            [strava, fitbit],
+            subject: .fitness,
+            capability: .read,
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
+        )
+
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .fitness,
+                capability: .writeCreate,
+                rationale: "Log a workout"
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .verbConsent)
+        // Writes never federate; default to the single deterministic pick.
+        #expect(layout.defaultSelection.count == 1)
+        #expect(layout.defaultSelection.contains(fitbit) || layout.defaultSelection.contains(strava))
+    }
+
+    @Test("no shortcut when the requested verb already has a resolution")
+    func sameVerbResolvedFallsThrough() async throws {
+        let registry = InMemoryCapabilityProviderRegistry()
+        await registry.register(
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read], linkedByUserValue: true)
+        )
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
+        )
+
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .calendar,
+                capability: .read,
+                rationale: "test"
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        // Same-verb resolution → not the verb-consent path; falls through to confirm.
+        #expect(layout.variant == .confirm)
+    }
+
+    @Test("no shortcut when no other verb has a resolution")
+    func noOtherVerbResolved() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        await registry.register(
+            StubProvider(id: appleCalendar, subject: .calendar, displayName: "Apple Calendar", capabilities: [.read], linkedByUserValue: true)
+        )
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: CapabilityRequest(
+                requestId: "req-1",
+                askerInboxId: "agent-1",
+                subject: .calendar,
+                capability: .read,
+                rationale: "test"
+            ),
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId
+        )
+        #expect(layout.variant == .confirm)
+    }
+}
+
+@Suite("CapabilityRequestHandler.commit / deny / cancel")
+struct CommitDenyCancelTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+
+    @Test("commit persists resolution and returns approved result")
+    func commitPersists() async throws {
+        let registry = InMemoryCapabilityProviderRegistry()
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let request = CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+        let result = try await handler.commit(
+            request: request,
+            approvedProviderIds: [appleCalendar],
+            resolver: resolver,
+            conversationId: "conv-1"
+        )
+        #expect(result.status == .approved)
+        #expect(result.providers == [appleCalendar])
+
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
+        #expect(stored == [appleCalendar])
+    }
+
+    @Test("commit rejects an inconsistent set without persisting")
+    func commitValidates() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let request = CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+        await #expect(throws: CapabilityResolutionError.self) {
+            try await handler.commit(
+                request: request,
+                approvedProviderIds: [appleCalendar, ProviderID(rawValue: "composio.googlecalendar")],
+                resolver: resolver,
+                conversationId: "conv-1"
+            )
+        }
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
+        #expect(stored.isEmpty, "rejected commit must not persist anything")
+    }
+
+    @Test("deny returns denied result with no providers and no resolver mutation")
+    func denyDoesNothing() async {
+        let registry = InMemoryCapabilityProviderRegistry()
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let request = CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+        let result = handler.deny(request: request)
+        #expect(result.status == .denied)
+        #expect(result.providers.isEmpty)
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
+        #expect(stored.isEmpty)
+    }
+
+    @Test("cancel returns cancelled result with no providers")
+    func cancelMatchesShape() {
+        let request = CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+        let result = CapabilityRequestHandler().cancel(request: request)
+        #expect(result.status == .cancelled)
+        #expect(result.providers.isEmpty)
+    }
+}
+
+@Suite("CapabilityRequestHandler.computeLayout — service bundles")
+struct ComputeLayoutServiceBundlesTests {
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
+    private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+
+    private func makeRequest() -> CapabilityRequest {
+        CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "agent-1",
+            subject: .calendar,
+            capability: .read,
+            rationale: "test"
+        )
+    }
+
+    private func makeRegistry(_ providers: [StubProvider]) async -> any CapabilityProviderRegistry {
+        let registry = InMemoryCapabilityProviderRegistry()
+        for provider in providers { await registry.register(provider) }
+        return registry
+    }
+
+    private func calendarService(version: Int = 2) -> CloudConnectionsAPI.ServiceConfig {
+        CloudConnectionsAPI.ServiceConfig(
+            id: "googlecalendar",
+            composioSlug: "googlecalendar",
+            version: version,
+            displayName: .init(values: ["en": "Google Calendar"]),
+            bundles: [
+                .init(
+                    id: "calendar.events",
+                    title: .init(values: ["en": "Events"]),
+                    description: .init(values: ["en": "View and edit events on all calendars"]),
+                    defaultEnabled: false
+                ),
+                .init(
+                    id: "calendar.events.read",
+                    title: .init(values: ["en": "View events"]),
+                    description: .init(values: ["en": "View events on all calendars"]),
+                    defaultEnabled: true
+                ),
+            ]
+        )
+    }
+
+    @Test("cloud providers with a catalog entry get bundle rows; device providers don't")
+    func bundlesAttachToCloudProviders() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+            StubProvider(
+                id: appleCalendar,
+                subject: .calendar,
+                displayName: "Apple Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()]
+        )
+        #expect(layout.serviceBundles.count == 1)
+        let group = layout.serviceBundles.first
+        #expect(group?.providerId == googleCalendar)
+        #expect(group?.serviceId == "googlecalendar")
+        #expect(group?.serviceVersion == 2)
+        #expect(group?.rows.map(\.id) == ["calendar.events", "calendar.events.read"])
+        #expect(group?.rows.first?.title == "Events")
+        #expect(group?.rows.first?.description == "View and edit events on all calendars")
+    }
+
+    @Test("bundle rows carry the catalog's defaultEnabled flags")
+    func rowsCarryDefaultEnabledFlags() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()]
+        )
+        let rows = layout.serviceBundles.first?.rows ?? []
+        #expect(rows.map(\.id) == ["calendar.events", "calendar.events.read"])
+        #expect(rows.map(\.defaultEnabled) == [false, true])
+    }
+
+    @Test("an empty catalog leaves the layout bundle-free")
+    func emptyCatalogMeansNoBundles() async {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        let layout = await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1"
+        )
+        #expect(layout.serviceBundles.isEmpty)
+    }
+
+    // MARK: - Existing-grant stamping (Done-as-revoke seeding)
+
+    private func makeGrant(
+        conversationId: String = "conv-1",
+        grantedToInboxId: String = "agent-1",
+        bundleIds: [String]?
+    ) -> CloudConnectionGrant {
+        CloudConnectionGrant(
+            connectionId: "conn-1",
+            conversationId: conversationId,
+            serviceId: "googlecalendar",
+            grantedToInboxId: grantedToInboxId,
+            grantedAt: Date(timeIntervalSince1970: 0),
+            bundleIds: bundleIds
+        )
+    }
+
+    private func computeLayout(existingGrants: [CloudConnectionGrant]) async -> CapabilityPickerLayout {
+        let registry = await makeRegistry([
+            StubProvider(
+                id: googleCalendar,
+                subject: .calendar,
+                displayName: "Google Calendar",
+                capabilities: [.read],
+                linkedByUserValue: true
+            ),
+        ])
+        let resolver = InMemoryCapabilityResolver(registry: registry)
+        return await handler.computeLayout(
+            request: makeRequest(),
+            registry: registry,
+            resolver: resolver,
+            conversationId: "conv-1",
+            services: [calendarService()],
+            existingGrants: existingGrants
+        )
+    }
+
+    @Test("the asking agent's grant stamps its bundle ids onto the group")
+    func existingGrantStampsBundleIds() async {
+        let layout = await computeLayout(existingGrants: [makeGrant(bundleIds: ["calendar.events"])])
+        #expect(layout.serviceBundles.first?.grantedBundleIds == ["calendar.events"])
+    }
+
+    @Test("a whole-toolkit grant (nil bundleIds) materializes as every catalog row")
+    func wholeToolkitGrantCoversEveryRow() async {
+        let layout = await computeLayout(existingGrants: [makeGrant(bundleIds: nil)])
+        #expect(layout.serviceBundles.first?.grantedBundleIds == ["calendar.events", "calendar.events.read"])
+    }
+
+    @Test("no grant leaves grantedBundleIds nil")
+    func noGrantLeavesNil() async {
+        let layout = await computeLayout(existingGrants: [])
+        #expect(layout.serviceBundles.count == 1)
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
+    }
+
+    @Test("another agent's grant must not seed this agent's sheet")
+    func otherAgentsGrantIsIgnored() async {
+        let layout = await computeLayout(
+            existingGrants: [makeGrant(grantedToInboxId: "agent-2", bundleIds: ["calendar.events"])]
+        )
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
+    }
+
+    @Test("another conversation's grant must not seed this sheet")
+    func otherConversationsGrantIsIgnored() async {
+        let layout = await computeLayout(
+            existingGrants: [makeGrant(conversationId: "conv-2", bundleIds: ["calendar.events"])]
+        )
+        #expect(layout.serviceBundles.first?.grantedBundleIds == nil)
+    }
+}

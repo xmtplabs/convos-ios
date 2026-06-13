@@ -445,7 +445,7 @@ private extension AssetRenewalManagerTests {
             conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
         )
     }
 }
@@ -464,11 +464,17 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String { "siwe-token" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
     func uploadAttachmentAndExecute(data: Data, filename: String, afterUpload: @escaping (String) async throws -> Void) async throws -> String { "" }
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
@@ -477,27 +483,19 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

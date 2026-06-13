@@ -25,17 +25,24 @@ final class PinnedConversationCell: UICollectionViewCell {
         layoutAttributes
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-        hostingWrapper = nil
-    }
+    // Deliberately no `prepareForReuse` override clearing the hosting wrapper:
+    // `configure(with:)` reuses it via the in-place `wrapper.update(...)` path on
+    // recycle instead of rebuilding the `UIHostingConfiguration`. See the
+    // matching note in `ConversationListItemCell`.
 
-    func configure(with conversation: Conversation, isSelected: Bool) {
+    func configure(
+        with conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact? = { _ in nil }
+    ) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation, isSelected: isSelected)
+            wrapper.update(conversation: conversation, isSelected: isSelected, memberContactOverride: memberContactOverride)
         } else {
-            let wrapper = PinnedConversationWrapper(conversation: conversation, isSelected: isSelected)
+            let wrapper = PinnedConversationWrapper(
+                conversation: conversation,
+                isSelected: isSelected,
+                memberContactOverride: memberContactOverride
+            )
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 PinnedConversationWrapperView(wrapper: wrapper)
@@ -47,7 +54,8 @@ final class PinnedConversationCell: UICollectionViewCell {
         updateSelectionBackground(isSelected: isSelected)
 
         accessibilityIdentifier = "pinned-conversation-\(conversation.id)"
-        accessibilityLabel = "\(conversation.displayName), pinned"
+        let resolvedName = conversation.computedDisplayName(memberNameOverride: { memberContactOverride($0)?.displayName })
+        accessibilityLabel = "\(resolvedName), pinned"
         isAccessibilityElement = true
     }
 
@@ -70,15 +78,28 @@ final class PinnedConversationCell: UICollectionViewCell {
 final class PinnedConversationWrapper {
     var conversation: Conversation
     var isSelected: Bool
+    // Held on the wrapper so reuse applies the latest resolver - see the note
+    // in `ConversationListItemWrapper`.
+    var memberContactOverride: @Sendable (String) -> Contact?
 
-    init(conversation: Conversation, isSelected: Bool) {
+    init(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 
-    func update(conversation: Conversation, isSelected: Bool) {
+    func update(
+        conversation: Conversation,
+        isSelected: Bool,
+        memberContactOverride: @escaping @Sendable (String) -> Contact?
+    ) {
         self.conversation = conversation
         self.isSelected = isSelected
+        self.memberContactOverride = memberContactOverride
     }
 }
 
@@ -92,5 +113,6 @@ struct PinnedConversationWrapperView: View {
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation, avatarSize: avatarSize)
             .padding(.vertical, UIDevice.current.userInterfaceIdiom == .phone ? 0 : DesignConstants.Spacing.step2x)
+            .memberContactOverride(wrapper.memberContactOverride)
     }
 }

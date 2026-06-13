@@ -104,7 +104,8 @@ struct AgentVerificationDowngradeTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
         let params = SyncClientParams(client: clientB, apiClient: MockAPIClient())
 
@@ -182,7 +183,8 @@ struct AgentVerificationDowngradeTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
         let params = SyncClientParams(client: clientB, apiClient: MockAPIClient())
 

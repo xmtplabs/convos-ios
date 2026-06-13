@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pushup tracker</title>
+<style>
+  /* From the Figma component (node 3940:4240), authored at its 176px
+     frame and scaled by 10/11 to the renderer's 160px tile. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #000000; }
+  .tile {
+    box-sizing: border-box;
+    width: 160px;
+    height: 160px;
+    padding: 14.545px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    background: #000000;
+    color: #FFFFFF;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .month {
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 11.8px;
+    text-align: center;
+  }
+  .grid {
+    display: flex;
+    flex-direction: column;
+    gap: 7.273px;
+  }
+  .row {
+    display: flex;
+    gap: 7.273px;
+  }
+  .d {
+    box-sizing: border-box;
+    width: 10.909px;
+    height: 10.909px;
+    border-radius: 7.273px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+  .on { background: #68D236; }
+  .today {
+    background: rgba(255, 255, 255, 0.3);
+    border: 1px solid #FFFFFF;
+  }
+  .off { background: rgba(255, 255, 255, 0); }
+  .streaks {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 11.8px;
+    color: #68D236;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+  <div class="tile">
+    <p class="month">MAY</p>
+    <div class="grid">
+      <div class="row"><span class="d off"></span><span class="d off"></span><span class="d off"></span><span class="d on"></span><span class="d on"></span><span class="d"></span><span class="d"></span></div>
+      <div class="row"><span class="d on"></span><span class="d on"></span><span class="d"></span><span class="d on"></span><span class="d"></span><span class="d on"></span><span class="d on"></span></div>
+      <div class="row"><span class="d"></span><span class="d on"></span><span class="d on"></span><span class="d on"></span><span class="d on"></span><span class="d on"></span><span class="d today"></span></div>
+      <div class="row"><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span></div>
+      <div class="row"><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d off"></span><span class="d off"></span></div>
+    </div>
+    <div class="streaks">
+      <span>5d streak</span>
+      <span>11w streak</span>
+    </div>
+  </div>
+</body>
+</html>

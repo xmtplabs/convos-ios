@@ -174,6 +174,14 @@ extension MessagingService {
             do {
                 let dbConversation = try await storeConversation(newGroup.group, inboxId: client.inboxId)
 
+                // The user deleted this conversation while the invite was
+                // still verifying -- it arrived denied and is filtered out
+                // of the list, so don't announce it.
+                guard dbConversation.consent != .denied else {
+                    Log.info("Suppressing welcome notification for denied conversation \(dbConversation.id)")
+                    return .droppedMessage
+                }
+
                 let displayName = (try? await getComputedDisplayName(
                     conversationId: dbConversation.id,
                     currentInboxId: client.inboxId
@@ -187,6 +195,9 @@ extension MessagingService {
                 )
             } catch {
                 Log.error("Failed to store conversation in NSE: \(error.localizedDescription)")
+                if await isLocallyDeniedInvite(group: newGroup.group) {
+                    return .droppedMessage
+                }
                 return .init(
                     title: newGroup.conversationName.orUntitled,
                     body: "Your invite was verified",
@@ -404,7 +415,7 @@ extension MessagingService {
         }
 
         if let contentType = try? decodedMessage.encodedContent.type,
-           contentType == ContentTypeAssistantJoinRequest {
+           contentType == ContentTypeAgentJoinRequest {
             return .droppedMessage
         }
 
@@ -430,8 +441,8 @@ extension MessagingService {
             currentInboxId: currentInboxId
         )) ?? (try? group.name()).orUntitled
 
-        let senderName = try await getSenderDisplayName(
-            senderInboxId: decodedMessage.senderInboxId,
+        let senderName = try await getMemberDisplayName(
+            inboxId: decodedMessage.senderInboxId,
             conversationId: conversationId
         )
 
@@ -439,14 +450,12 @@ extension MessagingService {
             conversationId: conversationId,
             currentInboxId: currentInboxId
         )
-        let shouldShowSenderName = otherMemberCount > 1
-
         let body = try await buildNotificationBody(
             encodedContentType: encodedContentType,
             decodedMessage: decodedMessage,
             conversationId: conversationId,
             senderName: senderName,
-            shouldShowSenderName: shouldShowSenderName
+            otherMemberCount: otherMemberCount
         )
 
         guard let body else {
@@ -461,16 +470,6 @@ extension MessagingService {
             isReaction: isReaction,
             userInfo: userInfo
         )
-    }
-
-    private func getSenderDisplayName(
-        senderInboxId: String,
-        conversationId: String
-    ) async throws -> String {
-        try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
-            return profile?.name ?? "Somebody"
-        }
     }
 
     private func getOtherMemberCount(
@@ -490,8 +489,9 @@ extension MessagingService {
         decodedMessage: DecodedMessage,
         conversationId: String,
         senderName: String,
-        shouldShowSenderName: Bool
+        otherMemberCount: Int
     ) async throws -> String? {
+        let shouldShowSenderName = otherMemberCount > 1
         switch encodedContentType {
         case ContentTypeText:
             let content = try decodedMessage.content() as Any
@@ -524,11 +524,67 @@ extension MessagingService {
             return nil
 
         case ContentTypeRemoteAttachment, ContentTypeMultiRemoteAttachment:
+            if let agentBody = try await agentMadeThingNotificationBody(
+                decodedMessage: decodedMessage,
+                conversationId: conversationId,
+                senderName: senderName,
+                otherMemberCount: otherMemberCount
+            ) {
+                return agentBody
+            }
             let attachmentText = try attachmentNotificationText(for: decodedMessage)
             return shouldShowSenderName ? "\(senderName) sent \(attachmentText)" : "sent \(attachmentText)"
 
         default:
             return nil
+        }
+    }
+
+    /// Returns the bespoke notification body for an agent sending a single
+    /// html file ("made you a thing" / "made a thing for the group"), or nil
+    /// when the message should use the generic attachment copy.
+    private func agentMadeThingNotificationBody(
+        decodedMessage: DecodedMessage,
+        conversationId: String,
+        senderName: String,
+        otherMemberCount: Int
+    ) async throws -> String? {
+        guard isHtmlFilename(try singleAttachmentFilename(for: decodedMessage)) else {
+            return nil
+        }
+        guard try await isMemberAgent(
+            inboxId: decodedMessage.senderInboxId,
+            conversationId: conversationId
+        ) else {
+            return nil
+        }
+        return otherMemberCount > 1
+            ? "\(senderName) made a thing for the group"
+            : "\(senderName) made you a thing"
+    }
+
+    private func singleAttachmentFilename(for decodedMessage: DecodedMessage) throws -> String? {
+        let content = try decodedMessage.content() as Any
+        if let attachment = content as? RemoteAttachment {
+            return attachment.filename
+        }
+        if let attachments = content as? [RemoteAttachment], attachments.count == 1 {
+            return attachments.first?.filename
+        }
+        return nil
+    }
+
+    private func isHtmlFilename(_ filename: String?) -> Bool {
+        guard let filename else { return false }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return false }
+        return utType.conforms(to: .html)
+    }
+
+    private func isMemberAgent(inboxId: String, conversationId: String) async throws -> Bool {
+        try await databaseReader.read { db in
+            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+            return profile?.isAgent ?? false
         }
     }
 
@@ -638,8 +694,8 @@ extension MessagingService {
         case .scheduled(let expiresAt):
             _ = try await storeConversation(group, inboxId: currentInboxId)
             let conversationName = (try? group.name()).orUntitled
-            let senderName = try await getSenderDisplayName(
-                senderInboxId: decodedMessage.senderInboxId,
+            let senderName = try await getMemberDisplayName(
+                inboxId: decodedMessage.senderInboxId,
                 conversationId: conversationId
             )
             let timeUntilExplosion = formatTimeUntilExplosion(expiresAt)
@@ -748,6 +804,7 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
+        let receivedAt = message.sentAt
         let senderInboxId = message.senderInboxId
         guard !senderInboxId.isEmpty else { return }
 
@@ -800,8 +857,8 @@ extension MessagingService {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try profile.save(db)
-                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -815,6 +872,9 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
+        // Use the message's authored timestamp, not wall-clock `Date()`.
+        // Mirrors the foreground `processProfileSnapshot` and the NSE update path.
+        let receivedAt = message.sentAt
 
         do {
             try await databaseWriter.write { db in
@@ -870,8 +930,8 @@ extension MessagingService {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try profile.save(db)
-                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
@@ -880,15 +940,15 @@ extension MessagingService {
         }
     }
 
-    private static func markConversationHasVerifiedAssistantIfNeeded(
+    private static func markConversationHasVerifiedAgentIfNeeded(
         profile: DBMemberProfile,
         conversationId: String,
         db: Database
     ) throws {
-        guard profile.agentVerification.isConvosAssistant,
+        guard profile.agentVerification.isConvosAgent,
               let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAssistant else { return }
-        try conversation.with(hasHadVerifiedAssistant: true).save(db)
+              !conversation.hasHadVerifiedAgent else { return }
+        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     // MARK: - Conversation Storage
@@ -903,9 +963,37 @@ extension MessagingService {
         let conversationWriter = ConversationWriter(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            messageWriter: messageWriter
+            messageWriter: messageWriter,
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            ),
+            coreActions: coreActions
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
+    }
+
+    /// True when the local DB carries a denial for this group -- either its
+    /// own row or a deleted pending-invite draft sharing its invite tag
+    /// (the draft survives when storing the arriving group fails). Used to
+    /// suppress notifications for conversations the user deleted.
+    private func isLocallyDeniedInvite(group: XMTPiOS.Group) async -> Bool {
+        let groupId = group.id
+        let inviteTag = (try? group.inviteTag) ?? ""
+        let denied = try? await databaseReader.read { db in
+            var request = DBConversation
+                .filter(DBConversation.Columns.consent == Consent.denied)
+            if inviteTag.isEmpty {
+                request = request.filter(DBConversation.Columns.id == groupId)
+            } else {
+                request = request.filter(
+                    DBConversation.Columns.id == groupId
+                        || DBConversation.Columns.inviteTag == inviteTag
+                )
+            }
+            return try request.fetchOne(db) != nil
+        }
+        return denied ?? false
     }
 
     // MARK: - Computed Display Name
@@ -932,14 +1020,35 @@ extension MessagingService {
                 return "New Convo"
             }
 
-            let namedProfiles = memberProfiles.compactMap { $0.name }.filter { !$0.isEmpty }.sorted()
-            let anonymousCount = memberProfiles.count - namedProfiles.count
+            // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
+            // the contact's display name (the user's global profile snapshot
+            // for this inbox) wins over the per-conversation profile name.
+            // Unnamed members are bucketed by agent vs. human so the rendered
+            // title matches: anonymous agents read as "Agent" / "Agents",
+            // anonymous humans as "Somebody" / "Somebodies".
+            let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
+                if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
+                    return (contactName, profile.isAgent)
+                }
+                if let name = profile.name, !name.isEmpty {
+                    return (name, profile.isAgent)
+                }
+                return (nil, profile.isAgent)
+            }
+            let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+            let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+            let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
 
             var allNames = namedProfiles
-            if anonymousCount > 1 {
-                allNames.append("Somebodies")
-            } else if anonymousCount == 1 {
+            if anonymousAgentCount == 1 {
+                allNames.append("Agent")
+            } else if anonymousAgentCount > 1 {
+                allNames.append("Agents")
+            }
+            if anonymousHumanCount == 1 {
                 allNames.append("Somebody")
+            } else if anonymousHumanCount > 1 {
+                allNames.append("Somebodies")
             }
 
             if allNames.isEmpty {
@@ -955,9 +1064,28 @@ extension MessagingService {
         conversationId: String
     ) async throws -> String {
         try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-            return profile?.name ?? "Somebody"
+            try Self.notificationMemberDisplayName(db: db, inboxId: inboxId, conversationId: conversationId)
         }
+    }
+
+    /// Resolves the name shown for a member in notification text, mirroring
+    /// `Profile.formattedNamesString(memberNameOverride:)`: the contact's
+    /// display name (the user's global profile snapshot for this inbox) wins
+    /// over the per-conversation profile name, and nameless members fall back
+    /// to "Agent" / "Somebody" keyed on the profile's agent flag.
+    static func notificationMemberDisplayName(
+        db: Database,
+        inboxId: String,
+        conversationId: String
+    ) throws -> String {
+        if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
+            return contactName
+        }
+        let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        if let name = profile?.name, !name.isEmpty { return name }
+        // Mirror `Profile.displayName`: known agents read as "Agent",
+        // unknown / human profiles read as "Somebody".
+        return profile?.isAgent == true ? "Agent" : "Somebody"
     }
 
     // MARK: - Welcome Message Tracking

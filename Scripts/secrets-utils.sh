@@ -37,6 +37,100 @@ ensure_secrets_directories() {
     mkdir -p "ConvosAppClip/Config"
 }
 
+# 1Password secret reference for the shared Firebase App Check debug token.
+# One token lives in the team "Convos" vault and is registered in the Firebase
+# Console for both the Dev (org.convos.ios-preview) and Local (org.convos.ios-local)
+# apps. This is the source of truth; each checkout's .env is only a cache.
+FIREBASE_DEBUG_TOKEN_OP_REF="op://Convos/Firebase App Check Debug Token/credential"
+
+# Reads FIREBASE_APP_CHECK_DEBUG_TOKEN from an env file (follows symlinks) and
+# prints it, stripping any surrounding double quotes. Prints empty when missing.
+# pipefail-safe: never returns non-zero on a missing key.
+read_env_firebase_token() {
+    local env_file="$1"
+    [ -f "$env_file" ] || { printf '%s' ""; return 0; }
+    local line
+    line="$(grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' "$env_file" 2>/dev/null | tail -1 || true)"
+    line="${line#FIREBASE_APP_CHECK_DEBUG_TOKEN=}"
+    line="${line%\"}"
+    line="${line#\"}"
+    printf '%s' "$line"
+    return 0
+}
+
+# Upserts FIREBASE_APP_CHECK_DEBUG_TOKEN into an env file, writing *through*
+# symlinks so a worktree's ".env -> shared convos-ios.env" link is preserved
+# (BSD `sed -i` would replace the symlink with a regular file). No-op for an
+# empty token or an unchanged value. Creates the file if it does not exist.
+cache_firebase_token_to_env() {
+    local env_file="$1"
+    local token="$2"
+    [ -n "$token" ] || return 0
+    if [ -f "$env_file" ] && grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' "$env_file" 2>/dev/null; then
+        [ "$(read_env_firebase_token "$env_file")" = "$token" ] && return 0
+        local tmp
+        tmp="$(mktemp)"
+        # Rewrite by dropping the old line and appending the new value rather than
+        # a sed substitution, so a token with sed-special characters (& | \) can't
+        # corrupt the line or abort the build under set -e.
+        { grep -v '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' "$env_file" 2>/dev/null || true; printf 'FIREBASE_APP_CHECK_DEBUG_TOKEN=%s\n' "$token"; } > "$tmp"
+        cat "$tmp" > "$env_file"
+        rm -f "$tmp"
+    else
+        printf 'FIREBASE_APP_CHECK_DEBUG_TOKEN=%s\n' "$token" >> "$env_file"
+    fi
+    return 0
+}
+
+# Resolves the Firebase App Check debug token for a build and prints it.
+#
+# Cache-first: a token already cached in the given env file is used as-is, so a
+# normal build makes no network call and triggers no 1Password prompt. `op read`
+# is only consulted when the cache is empty (e.g. a fresh worktree), and a
+# successful fetch is written back so later builds stay offline-friendly. Set
+# FIREBASE_TOKEN_REFRESH=1 to force a fresh fetch (e.g. after a rotation).
+#
+# Routine refresh and rotation otherwise happen in shell context via /setup and
+# /firebase-token, where a 1Password auth tap is expected and deliberate rather
+# than mid-compile.
+#
+# Never reads the token in CI: CI builds must not carry a debug token (they
+# attest with App Attest), so this prints empty under CI / CI runners.
+#
+# Note: a cache-miss `op read` only succeeds when 1Password desktop-app CLI
+# integration is enabled (the session is process-global). With plain `op signin`
+# shell sessions it falls back to the (possibly empty) cache; populate it via
+# /setup or /firebase-token first.
+resolve_firebase_debug_token() {
+    local env_file="$1"
+    local cached
+    cached="$(read_env_firebase_token "$env_file")"
+
+    if [ "${CI:-}" = "true" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${BITRISE_IO:-}" ]; then
+        printf '%s' ""
+        return 0
+    fi
+
+    # Cache hit: use it, no op call (unless an explicit refresh is requested).
+    if [ -n "$cached" ] && [ "${FIREBASE_TOKEN_REFRESH:-}" != "1" ]; then
+        printf '%s' "$cached"
+        return 0
+    fi
+
+    if command -v op >/dev/null 2>&1; then
+        local fetched
+        fetched="$(op read "$FIREBASE_DEBUG_TOKEN_OP_REF" --no-newline 2>/dev/null || true)"
+        if [ -n "$fetched" ]; then
+            cache_firebase_token_to_env "$env_file" "$fetched"
+            printf '%s' "$fetched"
+            return 0
+        fi
+    fi
+
+    printf '%s' "$cached"
+    return 0
+}
+
 # Detect git commit SHA.
 # Optional first argument: repo directory to cd into (use for Xcode build phases
 # where the working directory is not the repo root). Omit for standalone scripts

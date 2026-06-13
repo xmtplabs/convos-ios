@@ -29,7 +29,13 @@ struct ConvosAppClipApp: App {
         // unused-conversation prewarm — all wasted (or actively wrong) in
         // the clip's ephemeral runtime.
         clipSession = MainActor.assumeIsolated {
-            ClipIdentityBootstrap.bootstrap(environment: environment, platformProviders: .iOS)
+            // App Clip has no PostHog SDK or user session — explicit no-op
+            // sink rather than threading a real CoreActions across processes.
+            ClipIdentityBootstrap.bootstrap(
+                environment: environment,
+                platformProviders: .iOS,
+                coreActions: NoOpCoreActions()
+            )
         }
     }
 

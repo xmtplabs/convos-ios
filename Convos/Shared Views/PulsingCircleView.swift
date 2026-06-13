@@ -52,6 +52,21 @@ public struct PulsingCircleView: View {
             )
         }
 
+        /// Default configuration for the thinking indicator's single steady
+        /// pulsing dot. Slower and more opacity-driven than the typing
+        /// indicator's three-dot dance — the goal is "agent is working on
+        /// this" rather than "imminent reply".
+        public static var thinkingIndicator: Configuration {
+            Configuration(
+                count: 1,
+                size: 10,
+                color: .gray,
+                animationDuration: 1.2,
+                scaleRange: 0.9...1.0,
+                opacityRange: 0.4...1.0
+            )
+        }
+
         /// Default configuration for a single loading indicator
         public static var loadingIndicator: Configuration {
             Configuration(
@@ -167,6 +182,11 @@ public extension PulsingCircleView {
     /// Create a typing indicator with default settings
     static var typingIndicator: PulsingCircleView {
         PulsingCircleView(.typingIndicator)
+    }
+
+    /// Create a thinking indicator (single steady pulsing dot) with default settings
+    static var thinkingIndicator: PulsingCircleView {
+        PulsingCircleView(.thinkingIndicator)
     }
 
     /// Create a loading indicator with default settings

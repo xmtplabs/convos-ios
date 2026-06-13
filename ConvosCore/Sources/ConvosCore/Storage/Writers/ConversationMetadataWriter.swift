@@ -59,13 +59,16 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
+    private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
     init(sessionStateManager: any SessionStateManagerProtocol,
          inviteWriter: any InviteWriterProtocol,
-         databaseWriter: any DatabaseWriter) {
+         databaseWriter: any DatabaseWriter,
+         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil) {
         self.sessionStateManager = sessionStateManager
         self.inviteWriter = inviteWriter
         self.databaseWriter = databaseWriter
+        self.contactSyncCoordinator = contactSyncCoordinator
     }
 
     // MARK: - Invite Preview Sync
@@ -164,9 +167,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
+        // Key by the conversation id, not `conversation.imageCacheIdentifier`:
+        // until `imageURL` is persisted that identifier resolves to the other
+        // member's inbox id, which would cache the conversation image as that
+        // member's profile avatar everywhere.
         guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
-            for: conversation
+            forIdentifier: conversation.clientConversationId
         ) else {
             throw ConversationMetadataWriterError.failedImageCompression
         }
@@ -248,11 +255,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
-        // Cache the uploaded image using the new URL-tracking API
-        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
-        if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
-        }
+        // Cache under the conversation id, matching the prepareForUpload key
+        // above. The `conversation` parameter still has a nil `imageURL`, so
+        // its `imageCacheIdentifier` would resolve to the other member's
+        // inbox id and record the conversation image as their avatar.
+        ImageCacheContainer.shared.cacheAfterUpload(
+            compressedImageData,
+            for: conversation.clientConversationId,
+            url: encryptedAssetUrl
+        )
 
         try await syncInvitePreview(for: updatedConversation)
 
@@ -433,6 +444,20 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
         QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
+
+        if let coordinator = contactSyncCoordinator {
+            // Force-rerun to pick up the newly added members. The coordinator
+            // short-circuits when the conversation has not yet been synced
+            // (i.e. the local user has not acted there), preserving the
+            // action-gated semantic.
+            Task.detached {
+                do {
+                    try await coordinator.syncContactsAfterMembershipChange(for: conversationId)
+                } catch {
+                    Log.error("Contact sync after addMembers failed for \(conversationId): \(error)")
+                }
+            }
+        }
 
         let allMemberInboxIds = try await group.members.map(\.inboxId)
         do {

@@ -78,6 +78,11 @@ public struct JoinRequest: Sendable {
     /// The message containing the join request
     public let messageId: String
 
+    /// When the join-request message was sent. Used to scope error-reply
+    /// deduplication to this attempt: only an error sent after this moment
+    /// counts as already answering it.
+    public let sentAt: Date?
+
     /// The joiner's profile (name, image) if provided
     public let profile: JoinRequestProfile?
 
@@ -89,6 +94,7 @@ public struct JoinRequest: Sendable {
         dmConversationId: String,
         signedInvite: SignedInvite,
         messageId: String,
+        sentAt: Date? = nil,
         profile: JoinRequestProfile? = nil,
         metadata: [String: String]? = nil
     ) {
@@ -96,6 +102,7 @@ public struct JoinRequest: Sendable {
         self.dmConversationId = dmConversationId
         self.signedInvite = signedInvite
         self.messageId = messageId
+        self.sentAt = sentAt
         self.profile = profile
         self.metadata = metadata
     }
@@ -149,11 +156,18 @@ public struct JoinResult: Sendable {
 /// - `malicious`: Signature verification failed in a way that indicates
 ///   tampering. The DM is denied and the device unsubscribes from its
 ///   topic so it can no longer wake the inbox.
+/// - `alreadyMember`: The request needs no action - either the joiner is
+///   already in the group, or this exact message already admitted them
+///   once (handled-request ledger) and they may have since been removed.
+///   Another processing path (stream vs batch vs poll) handled this
+///   request first. No re-add, no snapshot, no error DM; the DM stays
+///   subscribed like `accepted`.
 /// - `noJoinRequest`: The message was not a join-request candidate.
 public enum JoinRequestDMOutcome: Sendable {
     case accepted(JoinResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String)
     case noJoinRequest
 
     public var joinResult: JoinResult? {
@@ -169,6 +183,8 @@ public enum JoinRequestDMOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
+        case .alreadyMember(let dmConversationId, _):
+            return dmConversationId
         case .noJoinRequest:
             return nil
         }
@@ -176,7 +192,7 @@ public enum JoinRequestDMOutcome: Sendable {
 
     public var shouldKeepDMSubscribed: Bool {
         switch self {
-        case .accepted, .benignFailure:
+        case .accepted, .benignFailure, .alreadyMember:
             return true
         case .malicious, .noJoinRequest:
             return false
@@ -283,16 +299,53 @@ extension InviteJoinErrorType: Codable {
     }
 }
 
+/// Marker the creator sends in the join DM after honoring a join request.
+///
+/// The local handled-request ledger only covers one device. Other
+/// installations of the creator's inbox (paired devices, reinstalls)
+/// revalidate the same DM history, and without a shared signal an
+/// already-honored request would look actionable to them again once the
+/// member is removed. The DM syncs to every installation, so the marker
+/// is checked the same way error replies are deduped: a request is
+/// handled when a creator-sent marker for the same invite tag exists at
+/// or after the request's send time. That retires the text copy of a
+/// typed+text pair too, while a fresh request after a removal (newer
+/// than any marker) stays actionable - removal is not a block.
+public struct InviteJoinHandled: Codable, Equatable, Sendable {
+    public let inviteTag: String
+
+    /// Message ID of the join request that was honored. Informational:
+    /// suppression compares invite tag and send order, not message IDs,
+    /// so duplicate copies of the same attempt are covered.
+    public let handledMessageId: String
+
+    public let timestamp: Date
+
+    public init(inviteTag: String, handledMessageId: String, timestamp: Date) {
+        self.inviteTag = inviteTag
+        self.handledMessageId = handledMessageId
+        self.timestamp = timestamp
+    }
+}
+
 /// Error feedback sent to a joiner when their request fails
 public struct InviteJoinError: Codable, Equatable, Sendable {
     public let errorType: InviteJoinErrorType
     public let inviteTag: String
     public let timestamp: Date
 
-    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date) {
+    /// Diagnostic detail about what actually failed (e.g. the underlying
+    /// error description, or which validation step rejected the request).
+    /// Not shown to users - joiner-side telemetry records it so failures
+    /// can be tracked down without access to the creator's device. Optional
+    /// on the wire: payloads from older clients decode with nil.
+    public let reason: String?
+
+    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date, reason: String? = nil) {
         self.errorType = errorType
         self.inviteTag = inviteTag
         self.timestamp = timestamp
+        self.reason = reason
     }
 
     public var userFacingMessage: String {

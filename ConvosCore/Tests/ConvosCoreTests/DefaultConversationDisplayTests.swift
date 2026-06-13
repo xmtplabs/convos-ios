@@ -47,7 +47,7 @@ struct DefaultConversationDisplayTests {
     @Test("Empty array returns empty string")
     func emptyArrayReturnsEmptyString() {
         let profiles: [Profile] = []
-        #expect(profiles.formattedNamesString == "")
+        #expect(profiles.formattedNamesString.isEmpty)
     }
 
     @Test("Single named profile returns name")
@@ -128,6 +128,97 @@ struct DefaultConversationDisplayTests {
             Profile.empty(inboxId: "anon")
         ]
         #expect(profiles.formattedNamesString == "Alice & Somebody")
+    }
+
+    // MARK: - Agent fallback labels
+
+    @Test("Single anonymous agent returns Agent")
+    func singleAnonymousAgent() {
+        let profiles = [Self.anonymousAgent(inboxId: "agent-1")]
+        #expect(profiles.formattedNamesString == "Agent")
+    }
+
+    @Test("Two anonymous agents return Agents")
+    func twoAnonymousAgents() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Self.anonymousAgent(inboxId: "agent-2")
+        ]
+        #expect(profiles.formattedNamesString == "Agents")
+    }
+
+    @Test("Anonymous agent and anonymous human read as \"Agent & Somebody\"")
+    func anonymousAgentAndAnonymousHuman() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Profile.empty(inboxId: "human-1")
+        ]
+        #expect(profiles.formattedNamesString == "Agent & Somebody")
+    }
+
+    @Test("Plural agent + plural human read as \"Agents & Somebodies\"")
+    func pluralAgentsAndPluralHumans() {
+        let profiles = [
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Self.anonymousAgent(inboxId: "agent-2"),
+            Profile.empty(inboxId: "human-1"),
+            Profile.empty(inboxId: "human-2")
+        ]
+        // Three buckets total (named, agents, humans), but only two
+        // anonymous labels: rendered as "Agents & Somebodies".
+        #expect(profiles.formattedNamesString == "Agents & Somebodies")
+    }
+
+    @Test("Named + anonymous agent within limit reads as \"Alice & Agent\"")
+    func namedAndAnonymousAgentWithinLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Self.anonymousAgent(inboxId: "agent-1")
+        ]
+        #expect(profiles.formattedNamesString == "Alice & Agent")
+    }
+
+    @Test("Named + agent + human within limit reads as \"Alice, Agent, Somebody\"")
+    func namedPlusAgentPlusHumanWithinLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Self.anonymousAgent(inboxId: "agent-1"),
+            Profile.empty(inboxId: "human-1")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Agent, Somebody")
+    }
+
+    /// Builds an anonymous agent profile -- name unset, `isAgent` flipped on.
+    /// Mirrors `Profile.empty` but with the agent flag, so test sites stay
+    /// readable.
+    private static func anonymousAgent(inboxId: String) -> Profile {
+        Profile(
+            inboxId: inboxId,
+            conversationId: "mock-conversation",
+            name: nil,
+            avatar: nil,
+            isAgent: true
+        )
+    }
+
+    // MARK: - Profile.displayName
+
+    @Test("Profile.displayName uses the name when set")
+    func profileDisplayNameUsesName() {
+        let p = Profile.mock(name: "Alice")
+        #expect(p.displayName == "Alice")
+    }
+
+    @Test("Profile.displayName falls back to Somebody for unnamed humans")
+    func profileDisplayNameFallsBackToSomebody() {
+        let p = Profile.empty(inboxId: "human-1")
+        #expect(p.displayName == "Somebody")
+    }
+
+    @Test("Profile.displayName falls back to Agent for unnamed agents")
+    func profileDisplayNameFallsBackToAgent() {
+        let agent = Self.anonymousAgent(inboxId: "agent-1")
+        #expect(agent.displayName == "Agent")
     }
 
     // MARK: - Profile Array Helper Tests
@@ -275,6 +366,8 @@ struct DefaultConversationDisplayTests {
             isUnread: false,
             isMuted: false,
             pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: nil,
             imageURL: URL(string: "https://example.com/image.jpg"),
             imageSalt: nil,
@@ -287,8 +380,9 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
         #expect(conversation.avatarType == .customImage)
     }
@@ -316,6 +410,8 @@ struct DefaultConversationDisplayTests {
             isUnread: false,
             isMuted: false,
             pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false,
             lastMessage: nil,
             imageURL: nil,
             imageSalt: nil,
@@ -328,8 +424,9 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
 
         if case .profile(let profile, _) = conversation.avatarType {
@@ -529,5 +626,112 @@ struct DefaultConversationDisplayTests {
             Profile.empty(inboxId: "anon2")
         ]
         #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
+    }
+
+    // MARK: - Pending Agent Builder Draft Tests
+
+    @Test("Builder draft with no agent yet shows New Agent")
+    func builderDraftShowsNewAgent() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(
+            name: nil,
+            members: members,
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.isPendingAgentBuilderDraft == true)
+        #expect(conversation.computedDisplayName == "New Agent")
+    }
+
+    @Test("Builder draft with no agent yet uses pendingAgent avatar")
+    func builderDraftUsesPendingAgentAvatar() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(
+            name: nil,
+            members: members,
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.avatarType == .pendingAgent)
+    }
+
+    @Test("Builder draft with explicit name keeps the name")
+    func builderDraftWithNameKeepsName() {
+        let conversation = Conversation.mock(
+            name: "Tifoso",
+            members: [ConversationMember.mock(isCurrentUser: true, name: "You")],
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.computedDisplayName == "Tifoso")
+    }
+
+    @Test("Non-builder empty conversation still shows New Convo")
+    func nonBuilderEmptyShowsNewConvo() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.isPendingAgentBuilderDraft == false)
+        #expect(conversation.computedDisplayName == "New Convo")
+    }
+
+    @Test("Builder conversation that has had a verified agent is no longer pending")
+    func builderWithVerifiedAgentNotPending() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Tifoso")
+        ]
+        let conversation = Conversation.makePendingAgentTestConversation(
+            members: members,
+            wasCreatedFromAgentBuilder: true,
+            hasHadVerifiedAgent: true
+        )
+        #expect(conversation.isPendingAgentBuilderDraft == false)
+        // Falls through to the normal member-driven name.
+        #expect(conversation.computedDisplayName == "Tifoso")
+    }
+}
+
+private extension Conversation {
+    /// Builds a group conversation with explicit control over the two
+    /// flags the pending-agent-builder logic depends on. `Conversation.mock`
+    /// derives `hasHadVerifiedAgent` from member verification, so this
+    /// helper is needed to exercise the "had an agent, it left" case
+    /// independently of the member list.
+    static func makePendingAgentTestConversation(
+        members: [ConversationMember],
+        wasCreatedFromAgentBuilder: Bool,
+        hasHadVerifiedAgent: Bool
+    ) -> Conversation {
+        Conversation(
+            id: "test",
+            clientConversationId: "client-test",
+            creator: members.first ?? .mock(isCurrentUser: true),
+            createdAt: Date(),
+            consent: .allowed,
+            kind: .group,
+            name: nil,
+            description: nil,
+            members: members,
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            includeInfoInPublicPreview: false,
+            isDraft: false,
+            invite: nil,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
     }
 }

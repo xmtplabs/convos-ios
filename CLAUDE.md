@@ -129,6 +129,42 @@ Use `@Previewable` for preview state variables:
 @Previewable @State var text: String = "Preview"
 ```
 
+### View Modes for Multi-Entry-Point Surfaces
+
+When the same screen is shown from multiple entry points with subtly
+different behavior (e.g., a card with extra actions in some contexts), prefer
+parameterizing the view with a mode enum over duplicating the view per
+surface:
+
+```swift
+enum ContactCardMode {
+    case standalone
+    case scopedToConversation(...)
+}
+
+ContactCardView(mode: .standalone)
+ContactCardView(mode: .scopedToConversation(...))
+```
+
+Conventions:
+
+- Define the mode enum in its own file alongside the view (e.g.
+  `ContactCardMode.swift` next to `ContactCardView.swift`).
+- Add a module-overview comment block at the top of the view file
+  enumerating every entry point and the mode it uses. New engineers grep
+  for the view, find the file, and the first thing they see is the entry-
+  point map.
+- Cross-reference sibling mode enums in their doc comments (e.g.
+  `ContactCardMode` notes that it mirrors `ContactsPickerMode`'s pattern).
+- Keep view structure shared — only branch behavior on the mode where
+  necessary. If the structural difference is large enough to feel like two
+  views, that's a signal you may want a wrapper composition instead.
+
+Existing examples in the codebase:
+
+- `ContactCardMode` — `Convos/Contacts/ContactCardMode.swift`
+- `ContactsPickerMode` — `Convos/Contacts/ContactsPickerViewModel.swift`
+
 ## Code Style & Formatting
 
 ### SwiftFormat Configuration
@@ -222,6 +258,8 @@ return nil
 - **Only add comments when necessary** to explain something confusing or not apparent from the code
 - **Never use step counts** in comments (e.g., "Step 1:", "Step 2:") - they get out of date when code changes
 - **Never use all caps for emphasis** in comments (e.g., "BEFORE", "IMPORTANT") - use normal sentence case
+- **Never reference temporary planning artifacts in comments** - phase numbers (e.g., "Phase 2.5", "Phase 2.10"), ticket IDs, or PR numbers go stale once shipped. Comments should describe current behavior only. If historical context matters, put it in commit history or an ADR.
+- **Use ASCII characters in comments.** Avoid the section sign (`§`), em dashes (`—`), arrows (`→`), smart quotes, and other non-ASCII punctuation - they are inconsistent with the rest of the codebase and harder to grep. Use plain text equivalents (`-` for dashes, `->` for arrows, `"..."` for quotes, plain references like "see contacts PRD" instead of `§`).
 - Prefer self-documenting code with clear variable and function names over comments
 - If you find yourself writing many comments, consider refactoring the code to be clearer
 
@@ -352,6 +390,31 @@ Fix the expression. Do not bump the threshold and do not `// swiftlint:disable` 
 4. Extract subviews or `@ViewBuilder` helpers from oversized SwiftUI bodies.
 5. Rebuild.
 
+### If type-check timeouts are firing everywhere (including unchanged files)
+
+If `took N ms to type-check` warnings start hitting code you haven't touched — or even *trivially simple* functions like a six-line `togglePlayback()` — the file is probably not the culprit. The most common cause is an `lldb-rpc-server` memory leak.
+
+`lldb-rpc-server` is the out-of-process debugger backend Xcode spawns. Swift debugger support has long-standing leaks: every `po`, expression evaluation, and breakpoint inspection loads Swift type metadata for the debug target's modules and never frees it. The process grows monotonically across a debug session and frequently survives Xcode quit. Reports of it reaching 15–20 GB are common. When that much memory is in use, the system swaps continuously, the Swift module cache thrashes off disk for every type lookup, and even cheap type-checks blow the 100 ms budget.
+
+**Diagnose:** Activity Monitor → search `lldb-rpc-server`. If the memory column shows anything north of ~2 GB, that's your problem.
+
+**Fix:**
+
+```bash
+killall lldb-rpc-server
+```
+
+Or Force Quit it from Activity Monitor. The Memory Pressure bar should return to green within seconds. Re-time the offending file's type-check; trivial code that was tripping the budget should drop back below 50 ms.
+
+**Mitigate going forward:**
+
+- Quit Xcode periodically during heavy sessions; run `ps aux | grep lldb-rpc-server` after to confirm no orphan process survives, and `killall` any that did.
+- Stop debug sessions when not actively debugging — the leak grows with debugger use, not with mere attach time.
+- Watch `lldb-rpc-server`'s memory column during long sessions; once it crosses ~5 GB, `killall` it before it gets worse.
+- Heavy `po` / `expression` use during marathon sessions is leak fuel; each evaluation loads more Swift type metadata that's never released until the process exits.
+
+The leak has no permanent fix on Apple's end — `killall` is the workaround. If you find yourself doing it every couple of hours, alias it: `alias xclean='killall lldb-rpc-server'`.
+
 ## Build & Release
 
 ### Build Commands
@@ -396,7 +459,7 @@ When migrating from `ObservableObject`:
 - **Prefer editing existing files** over creating new ones
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
-- **Run `/lint` before committing** - SwiftLint runs via `/lint` command and pre-commit hooks, not during builds (for faster compilation)
+- **Pre-commit and pre-push hooks run SwiftLint automatically** - blocks the commit on violations. Run `/lint` manually for a full-tree sweep. SwiftLint does not run during Xcode builds (for faster compilation).
 - **Run the full test suite before pushing** - Start Docker with `./dev/up` if needed, run `swift test --package-path ConvosCore`, and verify all tests pass. Never push without a passing test run against your final code.
 
 ---
@@ -415,9 +478,9 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/test` | Run tests (ConvosCore by default) |
 | `/lint` | Check code with SwiftLint (run before committing) |
 | `/format` | Format code with SwiftFormat |
-| `/firebase-token` | Get Firebase App Check debug token from simulator logs |
+| `/firebase-token` | Sync/rotate the shared Firebase App Check debug token (1Password source of truth, .env cache) |
 
-**Pre-commit workflow:** SwiftLint runs via `/lint` and pre-commit hooks, not during Xcode builds (for faster compilation). The pre-commit hook auto-fixes issues; run `/lint` manually to check before staging.
+**Pre-commit workflow:** SwiftFormat auto-formats and SwiftLint blocks the commit on violations (both via `Scripts/hooks/pre-commit`). Pre-push lints the diff against `dev` again as a final gate before the push hits GitHub. SwiftLint does not run during Xcode builds (for faster compilation). A full-tree `/lint` runs in ~1-2 seconds with the current config.
 
 ### Subagents
 
@@ -486,19 +549,18 @@ cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
 
 ```bash
-# Full test suite (starts Docker automatically)
+# Full test suite (starts Docker automatically, leaves the stack running)
 ./dev/test
 
-# Start Docker manually, run tests, then stop
+# Start Docker manually if needed, then run tests
 ./dev/up
 swift test --package-path ConvosCore
-./dev/down
 
 # Run a single test
-./dev/up  # Start Docker first
 swift test --filter "TestClassName" --package-path ConvosCore
-./dev/down  # Stop when done
 ```
+
+**The Docker stack is shared.** Every checkout, worktree, and agent session on the machine uses the same compose project, so do not run `./dev/down` (or `./dev/test --down`) as routine cleanup — tearing the stack down kills any other session's in-flight integration tests, which then fail with `Connection refused 127.0.0.1:5556` or hang. Leave the stack running; only stop it when you know nothing else is using it.
 
 **Docker is required.** If Docker is not running, start it with `./dev/up` before running tests. If Docker fails to start (not installed, daemon not running, port conflicts), **do not skip the tests** — stop and notify the user that Docker cannot start and tests cannot run. Never push untested code.
 
@@ -566,12 +628,14 @@ main
 
 ### Pre-commit Hooks
 
-A pre-commit hook at `Scripts/hooks/pre-commit` is automatically installed by `Scripts/setup.sh`. It:
-- Runs SwiftFormat on staged Swift files
-- Runs SwiftLint with auto-fix
-- Blocks commits with unfixable lint errors
+`Scripts/setup.sh` configures `git config core.hooksPath Scripts/hooks` so the tracked hook scripts run for every commit and push:
 
-If the hook isn't installed, run `Scripts/setup.sh` to set it up.
+- **`pre-commit`** auto-runs SwiftFormat on staged Swift files (writes back into the staged copy via `git add`), then SwiftLint `--strict --quiet` in a single batched invocation on the staged paths. Violations block the commit. Pass paths positionally (not `--use-stdin`) so file-path-dependent rules like `sorted_imports` actually fire.
+- **`pre-push`** re-lints every Swift file changed since the merge-base with `origin/dev`. Same batched-invocation shape. Last line of defense before the push reaches GitHub.
+
+A full-tree lint runs in ~1-2 seconds; the per-staged-file pre-commit lint is sub-second.
+
+If the hooks aren't installed (no `core.hooksPath` set), run `Scripts/setup.sh`.
 
 ### Parallel Task Management
 

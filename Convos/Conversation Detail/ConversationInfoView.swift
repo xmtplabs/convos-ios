@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct FeatureRowItem<AccessoryView: View>: View {
@@ -76,15 +77,44 @@ struct ConversationInfoView: View {
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var showingExplodeSheet: Bool = false
+    @State private var presentingMailCompose: Bool = false
+    @State private var preparingReportIssueEmail: Bool = false
+    @State private var reportIssueAttachment: MailComposeView.Attachment?
+    @State private var exportLogsTask: Task<URL?, Never>?
     @State private var presentingEditView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
+    @State private var presentingAddFromContactsPicker: Bool = false
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
+    /// "New Agent" builder, presented from here so it stacks on top of the
+    /// Info sheet rather than racing the chat view's own builder sheet.
+    @State private var presentingAgentBuilder: AgentBuilderViewModel?
+    /// First-run agents explainer shown before the builder; its "Make an agent"
+    /// button sets `pendingAgentBuilderAfterIntro` and the sheet's onDismiss
+    /// then opens the builder.
+    @State private var presentingAgentsIntro: Bool = false
+    @State private var pendingAgentBuilderAfterIntro: Bool = false
+    @State private var navState: ConversationInfoNavigatorImpl = .init()
+    @State private var navigator: ConversationInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ConversationInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handleEditViewChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.navigateTo(edit: ConversationInfoEditNavigatorArgs(conversationId: viewModel.conversation.id))
+    }
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -96,8 +126,8 @@ struct ConversationInfoView: View {
     }
 
     @ViewBuilder
-    private var assistantSection: some View {
-        if viewModel.conversation.hasEverHadVerifiedAssistant {
+    private var agentSection: some View {
+        if viewModel.conversation.hasEverHadVerifiedConvosAgent {
             Section {
                 filesAndLinksRow
             }
@@ -115,15 +145,20 @@ struct ConversationInfoView: View {
     @ViewBuilder
     private var filesAndLinksRow: some View {
         NavigationLink {
-            AssistantFilesLinksView(
-                repository: viewModel.makeAssistantFilesLinksRepository()
+            AgentFilesLinksView(
+                conversationId: viewModel.conversation.id,
+                repository: viewModel.makeAgentFilesLinksRepository(),
+                members: viewModel.conversation.members,
+                profileSheetContent: { member in
+                    AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: .shared))
+                }
             )
         } label: {
             FeatureRowItem(
                 imageName: nil,
                 symbolName: "folder",
                 title: "Files & Links",
-                subtitle: "Managed by Assistants",
+                subtitle: "Managed by Agents",
                 iconBackgroundColor: .colorFillMinimal,
                 iconForegroundColor: .colorTextPrimary
             ) {
@@ -237,7 +272,7 @@ struct ConversationInfoView: View {
                     .frame(width: 160.0, height: 160.0)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text(viewModel.conversation.computedDisplayName)
+                        Text(viewModel.untitledConversationPlaceholder)
                             .font(.largeTitle.weight(.semibold))
                             .foregroundStyle(.colorTextPrimary)
                             .multilineTextAlignment(.center)
@@ -395,6 +430,20 @@ struct ConversationInfoView: View {
 
     var body: some View {
         infoContent
+            .addFromContactsPicker(
+                viewModel: viewModel,
+                isPresented: $presentingAddFromContactsPicker
+            )
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: presentingEditView) { oldValue, newValue in
+                handleEditViewChanged(from: oldValue, to: newValue)
+            }
     }
 
     private var vanishSection: some View {
@@ -437,13 +486,7 @@ struct ConversationInfoView: View {
 
             membersSection
 
-            assistantSection
-
-            if FeatureFlags.shared.isCloudConnectionsEnabled,
-               let connectionsViewModel,
-               connectionsViewModel.hasConnections {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
-            }
+            agentSection
 
             convoCodeSection
 
@@ -459,6 +502,11 @@ struct ConversationInfoView: View {
 
             preferencesSection
 
+            if viewModel.conversation.hasAgent,
+               let connectionsViewModel {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
+
             convoRulesSection
 
             vanishSection
@@ -466,100 +514,6 @@ struct ConversationInfoView: View {
             permissionsSection
 
             debugInfoSection
-        }
-    }
-
-    @ViewBuilder
-    private var debugInfoSection: some View {
-        if !ConfigManager.shared.currentEnvironment.isProduction {
-            Section {
-                HStack {
-                    Text("Fork status")
-                    Spacer()
-                    Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Text("Epoch")
-                    Spacer()
-                    Text("\(viewModel.conversation.debugInfo.epoch)")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
-                } label: {
-                    Text("Fork details")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
-                } label: {
-                    Text("Local commit log")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
-                } label: {
-                    Text("Remote commit log")
-                }
-                NavigationLink {
-                    DebugLogsTextView(logs: metadataDebugText)
-                        .task {
-                            metadataDebugText = await viewModel.conversationMetadataDebugText()
-                        }
-                } label: {
-                    Text("Metadata")
-                }
-                NavigationLink {
-                    HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
-                } label: {
-                    Text("Hidden messages")
-                }
-                if let instanceId = viewModel.assistantInstanceId {
-                    HStack {
-                        Text("Assistant instance ID")
-                        Spacer()
-                        Text(instanceId)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.colorTextSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        ShareLink(item: instanceId) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                }
-                Button {
-                    showingRestoreInviteTagAlert = true
-                } label: {
-                    Text("Restore invite tag")
-                }
-                if let url = exportedLogsURL {
-                    ShareLink(item: url) {
-                        HStack {
-                            Text("Share logs")
-                            Spacer()
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("Preparing logs…")
-                        Spacer()
-                        ProgressView()
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-            } header: {
-                Text("Debug info")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.colorTextSecondary)
-            }
-            .task {
-                do {
-                    exportedLogsURL = try await viewModel.exportDebugLogs()
-                } catch {
-                    Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-                }
-            }
         }
     }
 
@@ -583,7 +537,6 @@ struct ConversationInfoView: View {
                 } else {
                     AddToConversationMenu(
                         isFull: viewModel.isFull,
-                        hasAssistant: viewModel.conversation.hasAgent,
                         isEnabled: true,
                         onConvoCode: {
                             if viewModel.isFull {
@@ -595,8 +548,15 @@ struct ConversationInfoView: View {
                         onCopyLink: {
                             viewModel.copyInviteLink()
                         },
-                        onInviteAssistant: {
-                            viewModel.requestAssistantJoin()
+                        onInviteAgent: {
+                            if viewModel.consumeAgentsIntroGate() {
+                                presentingAgentsIntro = true
+                            } else {
+                                presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                            }
+                        },
+                        onAddFromContacts: {
+                            presentingAddFromContactsPicker = true
                         }
                     )
                     .accessibilityIdentifier("info-add-button")
@@ -609,7 +569,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
+                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
                     }
                 }
@@ -656,13 +616,28 @@ struct ConversationInfoView: View {
                         showingFullInfo = false
                     })
                 }
+                .sheet(item: $presentingAgentBuilder) { builderViewModel in
+                    AgentBuilderView(
+                        viewModel: builderViewModel,
+                        profileSettingsViewModel: .shared
+                    )
+                }
+                .selfSizingSheet(isPresented: $presentingAgentsIntro, onDismiss: {
+                    guard pendingAgentBuilderAfterIntro else { return }
+                    pendingAgentBuilderAfterIntro = false
+                    presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                }, content: {
+                    AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
+                        .padding(.top, 20)
+                })
                 .overlay {
                     if presentingShareView {
                         ConversationShareOverlay(
                             conversation: viewModel.conversation,
                             invite: viewModel.invite,
                             isPresented: $presentingShareView,
-                            topSafeAreaInset: 0
+                            topSafeAreaInset: 0,
+                            coreActions: viewModel.coreActions
                         )
                     }
                 }
@@ -692,6 +667,185 @@ struct ConversationInfoView: View {
     }
 }
 
+// MARK: - Support and debug section
+
+extension ConversationInfoView {
+    // The support rows ship in every environment so production users can
+    // send on-device diagnostics to support; the remaining rows are internal
+    // debugging tools and stay out of production builds.
+    @ViewBuilder
+    private var debugInfoSection: some View {
+        let isProduction = ConfigManager.shared.currentEnvironment.isProduction
+        Section {
+            if !isProduction {
+                internalDebugRows
+            }
+            reportIssueRow
+            shareLogsRow
+        } header: {
+            Text("Support")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .task {
+            await prepareExportedLogs()
+        }
+    }
+
+    @ViewBuilder
+    private var internalDebugRows: some View {
+        HStack {
+            Text("Fork status")
+            Spacer()
+            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        HStack {
+            Text("Epoch")
+            Spacer()
+            Text("\(viewModel.conversation.debugInfo.epoch)")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
+        } label: {
+            Text("Fork details")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
+        } label: {
+            Text("Local commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
+        } label: {
+            Text("Remote commit log")
+        }
+        NavigationLink {
+            DebugLogsTextView(logs: metadataDebugText)
+                .task {
+                    metadataDebugText = await viewModel.conversationMetadataDebugText()
+                }
+        } label: {
+            Text("Metadata")
+        }
+        NavigationLink {
+            HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
+        } label: {
+            Text("Hidden messages")
+        }
+        Button {
+            showingRestoreInviteTagAlert = true
+        } label: {
+            Text("Restore invite tag")
+        }
+    }
+
+    @ViewBuilder
+    private var reportIssueRow: some View {
+        Button {
+            reportIssue()
+        } label: {
+            HStack {
+                Text("Report an issue")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if preparingReportIssueEmail {
+                    ProgressView()
+                } else {
+                    Image(systemName: "envelope")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+        }
+        .accessibilityIdentifier("report-issue-button")
+        .sheet(isPresented: $presentingMailCompose) {
+            MailComposeView(
+                recipients: [Constant.supportEmail],
+                subject: Constant.supportEmailSubject,
+                attachment: reportIssueAttachment
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private var shareLogsRow: some View {
+        if let url = exportedLogsURL {
+            ShareLink(item: url) {
+                HStack {
+                    Text("Share logs")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack {
+                Text("Preparing logs…")
+                Spacer()
+                ProgressView()
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    private func reportIssue() {
+        guard !preparingReportIssueEmail else { return }
+        guard MailComposeView.canSendMail else {
+            // No mail account configured for the system compose sheet: fall
+            // back to a mailto: draft, which cannot carry the logs attachment.
+            let subject = Constant.supportEmailSubject
+            let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+            guard let url = URL(string: "mailto:\(Constant.supportEmail)?subject=\(encodedSubject)") else { return }
+            openURL(url)
+            return
+        }
+        preparingReportIssueEmail = true
+        Task {
+            reportIssueAttachment = await loadReportIssueAttachment()
+            preparingReportIssueEmail = false
+            presentingMailCompose = true
+        }
+    }
+
+    /// Waits for the log export if it is still running, then reads the
+    /// bundle into memory off the main thread so presenting the compose
+    /// sheet doesn't stall on a large file read.
+    private func loadReportIssueAttachment() async -> MailComposeView.Attachment? {
+        guard let url = await exportedLogsURLAwaitingExport() else { return nil }
+        let task = Task.detached { MailComposeView.Attachment(contentsOf: url) }
+        return await task.value
+    }
+
+    private func exportedLogsURLAwaitingExport() async -> URL? {
+        if let exportedLogsURL { return exportedLogsURL }
+        if let exportLogsTask { return await exportLogsTask.value }
+        // The section's export task hasn't started yet; run it directly.
+        return try? await viewModel.exportDebugLogs()
+    }
+
+    private func prepareExportedLogs() async {
+        let task = Task { () -> URL? in
+            do {
+                return try await viewModel.exportDebugLogs()
+            } catch {
+                Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        exportLogsTask = task
+        exportedLogsURL = await task.value
+    }
+
+    private enum Constant {
+        static let supportEmail: String = "hi@convos.org"
+        static let supportEmailSubject: String = "I'm reporting an issue"
+    }
+}
+
 struct DebugLogsTextView: View {
     let logs: String
     var body: some View {
@@ -716,8 +870,12 @@ struct DebugLogsTextView: View {
     }
 }
 
+@MainActor
+private func makeConversationInfoPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+    ConversationInfoView(viewModel: makeConversationInfoPreviewViewModel(), focusCoordinator: focusCoordinator)
 }

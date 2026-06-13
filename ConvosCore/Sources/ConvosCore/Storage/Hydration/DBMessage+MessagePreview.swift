@@ -2,6 +2,15 @@ import Foundation
 import UniformTypeIdentifiers
 
 extension DBLastMessageWithSource {
+    private var connectionEventSummaryText: String {
+        guard let text,
+              let data = text.data(using: .utf8),
+              let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) else {
+            return text ?? ""
+        }
+        return summary.text
+    }
+
     func hydrateMessagePreview(
         conversationKind: ConversationKind,
         currentInboxId: String,
@@ -10,7 +19,13 @@ extension DBLastMessageWithSource {
         let text: String
         let isCurrentUser = senderId == currentInboxId
         let senderProfile = members.first { $0.memberProfile.inboxId == senderId }
-        let senderName = isCurrentUser ? "You" : (senderProfile?.memberProfile.name ?? "Somebody")
+        // Hoisted to a static helper so its branches don't count against
+        // this function's cyclomatic complexity score, mirroring the same
+        // pattern `resolvedMemberDisplayName` uses in ModelMocks.swift.
+        let senderName = Self.resolveSenderName(
+            isCurrentUser: isCurrentUser,
+            profile: senderProfile?.memberProfile
+        )
         let attachmentsCount = attachmentUrls.count
         let attachmentsString = Self.attachmentsPreviewString(attachmentUrls: attachmentUrls, count: attachmentsCount)
 
@@ -21,11 +36,14 @@ extension DBLastMessageWithSource {
         case .original:
             switch contentType {
             case .attachments:
-                if shouldShowSenderName {
-                    text = "\(senderName) sent \(attachmentsString)"
-                } else {
-                    text = "sent \(attachmentsString)"
-                }
+                text = Self.attachmentsPreviewText(
+                    senderName: senderName,
+                    senderIsAgent: !isCurrentUser && senderProfile?.memberProfile.isAgent == true,
+                    attachmentUrls: attachmentUrls,
+                    attachmentsString: attachmentsString,
+                    otherMemberCount: otherMemberCount,
+                    shouldShowSenderName: shouldShowSenderName
+                )
             case .text:
                 if shouldShowSenderName {
                     text = "\(senderName): \(self.text ?? "")"
@@ -50,15 +68,28 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent an invite"
                 }
+            case .agentShare:
+                if shouldShowSenderName {
+                    text = "\(senderName) shared an agent"
+                } else {
+                    text = "shared an agent"
+                }
             case .linkPreview:
                 if shouldShowSenderName {
                     text = "\(senderName) sent a link"
                 } else {
                     text = "sent a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest,
-                 .focusModeControl, .streamingText, .streamingClear:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult,
+                 .focusModeControl,
+                 .streamingText,
+                 .streamingClear:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
+                text = connectionEventSummaryText
             }
 
         case .reply:
@@ -84,15 +115,28 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "replied with an invite"
                 }
+            case .agentShare:
+                if shouldShowSenderName {
+                    text = "\(senderName) replied with an agent"
+                } else {
+                    text = "replied with an agent"
+                }
             case .linkPreview:
                 if shouldShowSenderName {
                     text = "\(senderName) replied with a link"
                 } else {
                     text = "replied with a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest,
-                 .focusModeControl, .streamingText, .streamingClear:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult,
+                 .focusModeControl,
+                 .streamingText,
+                 .streamingClear:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
+                text = connectionEventSummaryText
             }
 
         case .reaction:
@@ -105,6 +149,48 @@ extension DBLastMessageWithSource {
             }
         }
         return .init(text: text, createdAt: date)
+    }
+
+    /// Resolves the sender's rendered name for a message preview row.
+    /// Precedence: "You" for the local user, the per-conversation profile
+    /// name when set, then "Agent" / "Somebody" keyed on the profile's
+    /// `isAgent` (mirrors `Profile.displayName`). Hoisted out of
+    /// `hydrateMessagePreview` so the agent-aware branch doesn't push that
+    /// function past the cyclomatic complexity threshold.
+    private static func resolveSenderName(
+        isCurrentUser: Bool,
+        profile: DBMemberProfile?
+    ) -> String {
+        if isCurrentUser { return "You" }
+        if let name = profile?.name, !name.isEmpty { return name }
+        return profile?.isAgent == true ? "Agent" : "Somebody"
+    }
+
+    /// Builds the preview line for an attachment message. An agent sending a
+    /// single html file gets bespoke copy ("made you a thing" / "made a thing
+    /// for the group") instead of the generic "sent <filename>" line.
+    static func attachmentsPreviewText(
+        senderName: String,
+        senderIsAgent: Bool,
+        attachmentUrls: [String],
+        attachmentsString: String,
+        otherMemberCount: Int,
+        shouldShowSenderName: Bool
+    ) -> String {
+        if senderIsAgent, isSingleHtmlAttachment(attachmentUrls) {
+            return otherMemberCount > 1
+                ? "\(senderName) made a thing for the group"
+                : "\(senderName) made you a thing"
+        }
+        return shouldShowSenderName ? "\(senderName) sent \(attachmentsString)" : "sent \(attachmentsString)"
+    }
+
+    private static func isSingleHtmlAttachment(_ attachmentUrls: [String]) -> Bool {
+        guard attachmentUrls.count == 1, let url = attachmentUrls.first else { return false }
+        guard let filename = classifyAttachment(url).filename else { return false }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return false }
+        return utType.conforms(to: .html)
     }
 
     static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {

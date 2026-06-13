@@ -32,6 +32,21 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return "mock-jwt-token"
     }
 
+    func authenticateWithSIWE(
+        appCheckToken: String,
+        signing: BackendAuthSigningContext
+    ) async throws -> String {
+        "mock-siwe-jwt-token"
+    }
+
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {
+        // no-op
+    }
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
+    }
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -80,25 +95,44 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+    func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+        .init(
+            id: UUID().uuidString,
+            status: "published",
+            publishedUrl: "https://agents.example.com/a/\(idOrUrlSlug)",
+            slug: idOrUrlSlug,
+            agentName: "Mock Agent",
+            description: "A mock agent template for previews and tests.",
+            emoji: "🤖",
+            avatarUrl: nil
+        )
     }
 
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
+    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
+        let templates: [ConvosAPI.AgentTemplate] = [
+            .init(id: "tmpl-trip", status: "published", publishedUrl: nil, slug: "trip", agentName: "Trip", description: "Travel agent", emoji: "🧳", avatarUrl: nil),
+            .init(id: "tmpl-champ", status: "published", publishedUrl: nil, slug: "champ", agentName: "Champ", description: "Team manager", emoji: "🏆", avatarUrl: nil),
+            .init(id: "tmpl-chef", status: "published", publishedUrl: nil, slug: "chef", agentName: "Chef", description: "Meal and nutrition partner", emoji: "🍽️", avatarUrl: nil),
+        ]
+        return .init(data: templates, hasMore: false, nextCursor: nil)
     }
 
     // MARK: - Connections
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "mock-request-\(UUID().uuidString)", redirectUrl: "https://accounts.google.com/o/oauth2/auth?mock=true")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(
             connectionId: "mock-conn-\(UUID().uuidString)",
             serviceId: "googlecalendar",
@@ -109,9 +143,73 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] {
         []
     }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
+
+    func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
+        .init(services: [
+            .init(
+                id: "googlecalendar",
+                composioSlug: "googlecalendar",
+                version: 1,
+                displayName: .init(values: ["en": "Google Calendar"]),
+                bundles: [
+                    .init(
+                        id: "calendar.events",
+                        title: .init(values: ["en": "Events"]),
+                        description: .init(values: ["en": "View and edit events on all calendars"]),
+                        defaultEnabled: false
+                    ),
+                    .init(
+                        id: "calendar.events.read",
+                        title: .init(values: ["en": "View events"]),
+                        description: .init(values: ["en": "View events on all calendars"]),
+                        defaultEnabled: false
+                    ),
+                ]
+            ),
+        ])
+    }
+
+    func createConnectionGrant(
+        ownerInboxId: String,
+        granteeInboxId: String,
+        conversationId: String,
+        toolkit: String,
+        bundleIds: [String]?,
+        serviceVersion: Int?
+    ) async throws -> CloudConnectionsAPI.CreateGrantResponse {
+        .init(id: "mock-grant-\(UUID().uuidString)")
+    }
+
+    func revokeConnectionGrant(id: String) async throws {}
+
+    func revokeConnectionGrantByNaturalKey(
+        toolkit: String,
+        conversationId: String?,
+        granteeInboxId: String?
+    ) async throws -> Int {
+        0
+    }
+
+    func getCreditBalance() async throws -> CreditBalance {
+        CreditBalance(
+            balance: 0,
+            monthlyGrant: 0,
+            monthlyGrantUsed: 0,
+            nextRefreshAt: Date(),
+            periodLabel: ""
+        )
+    }
+
+    func getSubscription() async throws -> UserSubscription? {
+        nil
+    }
+
+    func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
+        throw MockAPIError.invalidURL
+    }
 }

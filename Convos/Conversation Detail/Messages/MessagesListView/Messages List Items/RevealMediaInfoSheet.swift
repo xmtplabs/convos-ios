@@ -1,7 +1,19 @@
+import ConvosMetrics
 import SwiftUI
 
 struct RevealMediaInfoSheet: View {
     @Environment(\.dismiss) var dismiss: DismissAction
+
+    @State private var navState: RevealMediaInfoNavigatorImpl = .init()
+    @State private var navigator: RevealMediaInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = RevealMediaInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         FeatureInfoSheet(
@@ -14,6 +26,13 @@ struct RevealMediaInfoSheet: View {
             primaryButtonAction: { dismiss() },
             learnMoreURL: URL(string: "https://learn.convos.org/reveal")
         )
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

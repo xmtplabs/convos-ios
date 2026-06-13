@@ -1,5 +1,16 @@
 # Test: Voice Memo Transcription
 
+> **Doc vs. shipped app:** this doc describes an inline expand/collapse
+> transcript row (chevron), persistence of the expanded state across
+> relaunch, and an inline "Try again" retry button. The shipped build does
+> not implement those: the transcript renders inline in the voice-memo
+> bubble, tapping a truncated transcript opens `VoiceMemoTranscriptSheet`
+> (no inline chevron expand), there is no expansion-persistence store, and
+> the failed state renders nothing (no retry capsule). The structured test
+> `qa/tests/structured/32-voice-memo-transcription.yaml` was authored
+> against actual behavior - treat the YAML as authoritative and this doc's
+> expand/persistence/retry details as aspirational until the feature lands.
+
 Verify that received voice memos are transcribed locally on-device, that the transcript row appears under the voice memo bubble, that it can be expanded and collapsed, that the expand/collapse state survives an app relaunch, and that failed transcriptions show a retry affordance.
 
 ## Prerequisites

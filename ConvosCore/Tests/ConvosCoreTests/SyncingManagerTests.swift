@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosInvites
 import Foundation
 import GRDB
 import os.lock
@@ -57,10 +58,12 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
         TestableMockGroupConversationSender()
     }
 
-    func newConversation(with memberInboxIds: [String],
-                        name: String,
-                        description: String,
-                        imageUrl: String) async throws -> String {
+    func newConversation(
+        with memberInboxIds: [String],
+        name: String,
+        description: String,
+        imageUrl: String
+    ) async throws -> String {
         UUID().uuidString
     }
 
@@ -82,6 +85,10 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
+    }
+
     func deleteLocalDatabase() throws {
     }
 
@@ -96,9 +103,9 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
     let syncBehavior: TestableMockClient.SyncBehavior
     let streamBehavior: TestableMockClient.StreamBehavior
 
-    private var _syncCallCount = 0
-    private var _streamCallCount = 0
-    private let lock = OSAllocatedUnfairLock()
+    private var _syncCallCount: Int = 0
+    private var _streamCallCount: Int = 0
+    private let lock: OSAllocatedUnfairLock<Void> = OSAllocatedUnfairLock()
 
     var syncCallCount: Int {
         lock.withLock { _syncCallCount }
@@ -113,38 +120,49 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         self.streamBehavior = streamBehavior
     }
 
-    func list(createdAfterNs: Int64?,
-             createdBeforeNs: Int64?,
-             lastActivityBeforeNs: Int64?,
-             lastActivityAfterNs: Int64?,
-             limit: Int?,
-             consentStates: [XMTPiOS.ConsentState]?,
-             orderBy: XMTPiOS.ConversationsOrderBy) async throws -> [XMTPiOS.Conversation] {
+    // swiftlint:disable:next function_parameter_count
+    func list(
+        createdAfterNs: Int64?,
+        createdBeforeNs: Int64?,
+        lastActivityBeforeNs: Int64?,
+        lastActivityAfterNs: Int64?,
+        limit: Int?,
+        consentStates: [XMTPiOS.ConsentState]?,
+        orderBy: XMTPiOS.ConversationsOrderBy
+    ) async throws -> [XMTPiOS.Conversation] {
         []
     }
 
-    func listGroups(createdAfterNs: Int64?,
-                   createdBeforeNs: Int64?,
-                   lastActivityAfterNs: Int64?,
-                   lastActivityBeforeNs: Int64?,
-                   limit: Int?,
-                   consentStates: [ConsentState]?,
-                   orderBy: ConversationsOrderBy) throws -> [Group] {
+    // swiftlint:disable:next function_parameter_count
+    func listGroups(
+        createdAfterNs: Int64?,
+        createdBeforeNs: Int64?,
+        lastActivityAfterNs: Int64?,
+        lastActivityBeforeNs: Int64?,
+        limit: Int?,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [Group] {
         []
     }
 
-    func listDms(createdAfterNs: Int64?,
-                createdBeforeNs: Int64?,
-                lastActivityBeforeNs: Int64?,
-                lastActivityAfterNs: Int64?,
-                limit: Int?,
-                consentStates: [ConsentState]?,
-                orderBy: ConversationsOrderBy) throws -> [Dm] {
+    // swiftlint:disable:next function_parameter_count
+    func listDms(
+        createdAfterNs: Int64?,
+        createdBeforeNs: Int64?,
+        lastActivityBeforeNs: Int64?,
+        lastActivityAfterNs: Int64?,
+        limit: Int?,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [Dm] {
         []
     }
 
-    func stream(type: XMTPiOS.ConversationFilterType,
-               onClose: (() -> Void)?) -> AsyncThrowingStream<XMTPiOS.Conversation, any Error> {
+    func stream(
+        type: XMTPiOS.ConversationFilterType,
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<XMTPiOS.Conversation, any Error> {
         lock.withLock { _streamCallCount += 1 }
         let behavior = streamBehavior
         return AsyncThrowingStream { continuation in
@@ -206,9 +224,18 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         fatalError("not implemented in test mock")
     }
 
-    func streamAllMessages(type: ConversationFilterType,
-                          consentStates: [ConsentState]?,
-                          onClose: (() -> Void)?) -> AsyncThrowingStream<DecodedMessage, any Error> {
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in test mock")
+    }
+
+    func streamAllMessages(
+        type: ConversationFilterType,
+        consentStates: [ConsentState]?,
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<DecodedMessage, any Error> {
         lock.withLock { _streamCallCount += 1 }
         let behavior = streamBehavior
         return AsyncThrowingStream { continuation in
@@ -302,11 +329,35 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(joinRequest: JoinRequestContent) async throws -> String {
+        ""
+    }
+
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
         ""
     }
 
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        ""
+    }
+
     func prepare(reply: Reply) async throws -> String {
+        ""
+    }
+
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        ""
+    }
+
+    func prepareForManualPublish(text: String) async throws -> String {
+        ""
+    }
+
+    func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        ""
+    }
+
+    func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
         ""
     }
 
@@ -323,7 +374,7 @@ class TestableMockMessageSender: MessageSender {
 
 /// Testable mock API client
 final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
-    private(set) var callCount = 0
+    private(set) var callCount: Int = 0
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
         callCount += 1
@@ -338,6 +389,16 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String {
         "mock-jwt-token"
+    }
+
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String {
+        "mock-siwe-jwt-token"
+    }
+
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
     }
 
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String {
@@ -367,35 +428,26 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }
 
 /// Comprehensive tests for SyncingManager state machine
 @Suite("SyncingManager Tests", .serialized, .timeLimit(.minutes(2)))
 struct SyncingManagerTests {
-
     private enum TestError: Error {
         case timeout(String)
     }
@@ -430,7 +482,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -438,6 +491,7 @@ struct SyncingManagerTests {
 
         // Wait for async operations to complete using polling
         // Use longer timeout for CI reliability
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         try await waitUntil(timeout: .seconds(15)) {
             conversations.streamCallCount > 0 && conversations.syncCallCount > 0
@@ -466,11 +520,13 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
 
         try await waitUntil(timeout: .seconds(5)) {
@@ -501,7 +557,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing (streams start first, then syncAllConversations is called)
@@ -509,6 +566,7 @@ struct SyncingManagerTests {
 
         // Wait for async operations to complete using polling
         // Use longer timeout for CI reliability
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         try await waitUntil(timeout: .seconds(15)) {
             conversations.streamCallCount > 0 && conversations.syncCallCount > 0
@@ -539,7 +597,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -577,11 +636,13 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
 
         try await waitUntil(timeout: .seconds(5)) {
@@ -622,7 +683,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -656,7 +718,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -666,6 +729,7 @@ struct SyncingManagerTests {
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
         // Wait for sync to be called at least once (uses polling for CI reliability)
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         try await waitUntil(timeout: .seconds(5)) {
             conversations.syncCallCount >= 1
@@ -690,7 +754,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -699,6 +764,7 @@ struct SyncingManagerTests {
         // Wait for ready state
         try await Task.sleep(for: .milliseconds(200))
 
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         let initialSyncCount = conversations.syncCallCount
 
@@ -730,16 +796,19 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient1, apiClient: mockAPIClient)
 
+        // swiftlint:disable:next force_cast
         let conversations1 = mockClient1.conversationsProvider as! TestableMockConversations
         try await waitUntil(timeout: .seconds(5)) {
             conversations1.syncCallCount > 0
         }
 
+        // swiftlint:disable:next force_cast
         let conversations2 = mockClient2.conversationsProvider as! TestableMockConversations
         #expect(conversations2.syncCallCount == 0, "Second client should not have been used yet")
 
@@ -769,7 +838,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -806,7 +876,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing - this will be in starting state
@@ -846,7 +917,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing - this will be in starting state
@@ -886,7 +958,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -917,7 +990,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -948,7 +1022,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -984,7 +1059,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -1013,7 +1089,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing
@@ -1056,7 +1133,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Before starting, should not be ready
@@ -1096,9 +1174,11 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
+        // swiftlint:disable:next force_cast
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
 
         // Start syncing
@@ -1143,7 +1223,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start and wait for ready
@@ -1189,7 +1270,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Start syncing - streams will fail but readiness signals are still sent
@@ -1221,7 +1303,8 @@ struct SyncingManagerTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: nil,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         // Cycle 1

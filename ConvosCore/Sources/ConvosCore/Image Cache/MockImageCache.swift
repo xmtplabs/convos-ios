@@ -23,6 +23,8 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func prepareForUpload(_ image: ImageType, for object: any ImageCacheable) -> Data? { nil }
 
+    public func prepareForUpload(_ image: ImageType, forIdentifier identifier: String) -> Data? { nil }
+
     public func cacheAfterUpload(_ image: ImageType, for object: any ImageCacheable, url: String) {}
 
     public func cacheAfterUpload(_ image: ImageType, for identifier: String, url: String) {}

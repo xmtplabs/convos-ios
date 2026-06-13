@@ -5,6 +5,8 @@ import SwiftUI
 enum DeepLinkDestination {
     case joinConversation(inviteCode: String)
     case connectionGrant(serviceId: String, conversationId: String)
+    case pairDevice(pairingId: String, expiresAt: Date?, initiatorName: String?)
+    case agentTemplate(templateId: String)
 }
 
 final class DeepLinkHandler {
@@ -19,8 +21,20 @@ final class DeepLinkHandler {
             return nil
         }
 
+        if let pairingId = url.convosPairingId {
+            return .pairDevice(
+                pairingId: pairingId,
+                expiresAt: url.convosPairingExpiresAt,
+                initiatorName: url.convosPairingDeviceName
+            )
+        }
+
         if let connectionGrantDestination = parseConnectionGrant(from: url) {
             return connectionGrantDestination
+        }
+
+        if let agentTemplateDestination = parseAgentTemplate(from: url) {
+            return agentTemplateDestination
         }
 
         guard let inviteCode = url.convosInviteCode else {
@@ -31,16 +45,12 @@ final class DeepLinkHandler {
         return .joinConversation(inviteCode: inviteCode)
     }
 
+    static func isPairingURL(_ url: URL) -> Bool {
+        url.convosPairingId != nil
+    }
+
     @MainActor
     private static func parseConnectionGrant(from url: URL) -> DeepLinkDestination? {
-        // Cloud Connections feature flag — with the flag off, treat connection
-        // grant URLs as unrecognized so they fall through to invite parsing
-        // (and ultimately get rejected). Prevents soft-launch leak via universal
-        // links the user never explicitly opted into.
-        guard FeatureFlags.shared.isCloudConnectionsEnabled else {
-            return nil
-        }
-
         guard isConnectionGrantURL(url) else {
             return nil
         }
@@ -49,7 +59,7 @@ final class DeepLinkHandler {
             return nil
         }
 
-        guard ConnectionServiceCatalog.info(for: service) != nil else {
+        guard CloudConnectionServiceCatalog.info(for: service) != nil else {
             Log.warning("Connection grant deep link references unknown service; dropping")
             return nil
         }
@@ -91,6 +101,64 @@ final class DeepLinkHandler {
         return (service, conversationId)
     }
 
+    // MARK: - Agent template deep links
+
+    /// Narrow agent-template check for callers (e.g. the QR scanner) that
+    /// already have a candidate URL and want only the template id.
+    /// Unlike `destination(for:)`, this does not fall through to invite
+    /// parsing and logs nothing when `url` is not a template link, so a
+    /// scanned conversation invite does not produce spurious warnings.
+    @MainActor
+    static func agentTemplateId(from url: URL) -> String? {
+        guard case .agentTemplate(let templateId)? = parseAgentTemplate(from: url) else {
+            return nil
+        }
+        return templateId
+    }
+
+    /// Parses agent-template deep links of the form
+    /// `convos[-{env}]://template/<templateId>`, where `<templateId>` is
+    /// the backend's `AgentTemplate.id` (a UUID).
+    ///
+    /// V1 handles the custom URL scheme only. A Universal Link form
+    /// (`https://.../<templateId>`) is a planned follow-up.
+    ///
+    /// See `docs/plans/agent-templates-phase-1-prd.md`.
+    @MainActor
+    private static func parseAgentTemplate(from url: URL) -> DeepLinkDestination? {
+        guard url.scheme == ConfigManager.shared.appUrlScheme,
+              let templateId = customSchemeAgentTemplateId(from: url),
+              isValidTemplateId(templateId) else {
+            return nil
+        }
+        return .agentTemplate(templateId: templateId)
+    }
+
+    /// `convos[-{env}]://template/<id>` — host is `template`, single
+    /// path component is the id.
+    private static func customSchemeAgentTemplateId(from url: URL) -> String? {
+        guard url.host == "template" else { return nil }
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard components.count == 1 else { return nil }
+        return components[0]
+    }
+
+    private static let uuidPattern: NSRegularExpression? = {
+        // RFC 4122 v4 UUID, hex digits, case-insensitive — matches the
+        // template id format the backend's resolver uses
+        // (convos-backend/src/api/v2/agent-templates/lib/resolve-id-or-hashed-slug.ts).
+        try? NSRegularExpression(
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            options: [.caseInsensitive]
+        )
+    }()
+
+    private static func isValidTemplateId(_ value: String) -> Bool {
+        guard let pattern = uuidPattern else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return pattern.firstMatch(in: value, options: [], range: range) != nil
+    }
+
     private static let maxConversationIdLength: Int = 256
 
     private static func isSafeConversationIdentifier(_ value: String) -> Bool {
@@ -112,5 +180,37 @@ final class DeepLinkHandler {
 
         // Check against all configured associated domains
         return ConfigManager.shared.associatedDomains.contains(host)
+    }
+}
+
+extension URL {
+    var convosPairingId: String? {
+        let pathComponents = pathComponents.filter { $0 != "/" }
+
+        if scheme?.hasPrefix("convos") == true, host == "pair", pathComponents.count >= 1 {
+            return pathComponents[0]
+        }
+
+        if pathComponents.first == "pair", pathComponents.count >= 2 {
+            return pathComponents[1]
+        }
+
+        return nil
+    }
+
+    var convosPairingExpiresAt: Date? {
+        guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let expiresString = components.queryItems?.first(where: { $0.name == "expires" })?.value,
+              let expiresUnix = TimeInterval(expiresString)
+        else { return nil }
+        return Date(timeIntervalSince1970: expiresUnix)
+    }
+
+    var convosPairingDeviceName: String? {
+        guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let name = components.queryItems?.first(where: { $0.name == "name" })?.value,
+              !name.isEmpty
+        else { return nil }
+        return name
     }
 }

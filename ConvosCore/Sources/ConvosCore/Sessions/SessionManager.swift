@@ -1,4 +1,6 @@
 import Combine
+import ConvosConnections
+import ConvosMetrics
 import Foundation
 import GRDB
 import os
@@ -27,7 +29,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
+    private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
     /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
@@ -41,10 +45,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         var isOnConversationsList: Bool = false
     }
 
-    private let databaseWriter: any DatabaseWriter
-    private let databaseReader: any DatabaseReader
+    let databaseWriter: any DatabaseWriter
+    let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
+    private let coreActions: any CoreActions
     private var initializationTask: Task<Void, Never>?
     private let voiceMemoTranscriptionServiceLock: NSLock = NSLock()
     private var _voiceMemoTranscriptionService: (any VoiceMemoTranscriptionServicing)?
@@ -95,11 +100,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          identityStore: any KeychainIdentityStoreProtocol,
          unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
          platformProviders: PlatformProviders,
-         mode: Mode = .fullApp) {
+         mode: Mode = .fullApp,
+         coreActions: any CoreActions = NoOpCoreActions()) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
+        self.coreActions = coreActions
         self.platformProviders = platformProviders
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
@@ -136,8 +143,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
 
             await self.prewarmUnusedConversation()
-
             guard !Task.isCancelled else { return }
+
+            await self.bootstrapCapabilityProviders()
+            guard !Task.isCancelled else { return }
+
+            // Kick off the AgentBuilder grant replayer after the capability
+            // providers have bootstrapped — it relies on the cloud-connection
+            // and enablement stores being ready to query.
+            _ = self.agentBuilderConnectionGrantReplayer()
+
+            // Replay any builder brief whose send a previous process died
+            // holding (the agent-join hold can last 150s; see
+            // UnsentBuilderBriefReplayer).
+            _ = self.unsentBuilderBriefReplayer()
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -154,7 +174,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     deinit {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
+        staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
+        cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
@@ -171,6 +193,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+                self.runStaleStrangerGC(reason: "foreground")
             }
         }
 
@@ -182,7 +205,42 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
         }
+
+        scheduleStaleStrangerGC()
     }
+
+    /// Periodic garbage collector for stranger conversations that have
+    /// sat hidden in the main feed (creator never became a contact, so
+    /// consent was never promoted past `.unknown`) beyond the retention
+    /// window. Runs at launch and once per `staleStrangerGCInterval`
+    /// while the process is alive; foreground entries also trigger an
+    /// extra run.
+    private func scheduleStaleStrangerGC() {
+        staleStrangerGCTask?.cancel()
+        staleStrangerGCTask = Task { [weak self] in
+            await self?.runStaleStrangerGC(reason: "launch")
+            while !Task.isCancelled {
+                let interval: UInt64 = UInt64(SessionManager.staleStrangerGCInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard let self, !Task.isCancelled else { return }
+                await self.runStaleStrangerGC(reason: "interval")
+            }
+        }
+    }
+
+    private func runStaleStrangerGC(reason: String) {
+        Task.detached { [databaseWriter] in
+            await SessionManager.deleteStaleStrangerConversations(
+                databaseWriter: databaseWriter,
+                reason: reason
+            )
+        }
+    }
+
+    /// 7-day hold for stranger conversations before hard delete.
+    private static let staleStrangerTTL: TimeInterval = 7 * 24 * 60 * 60
+    /// Hourly cadence for the foreground GC loop.
+    private static let staleStrangerGCInterval: TimeInterval = 60 * 60
 
     private func updateActiveConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
@@ -278,7 +336,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     identityStore: identityStore,
                     environment: environment,
                     deviceInfoProvider: platformProviders.deviceInfo,
-                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                    backgroundUploadManager: platformProviders.backgroundUploadManager,
+                    coreActions: coreActions
                 )
                 cached = errored
                 return errored
@@ -307,7 +366,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 startsStreamingServices: true,
                 platformProviders: platformProviders,
                 deviceRegistrationManager: deviceRegistrationManager,
-                apiClient: apiClient
+                apiClient: apiClient,
+                coreActions: coreActions
             )
         } else {
             op = AuthorizeInboxOperation.register(
@@ -317,7 +377,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 environment: environment,
                 platformProviders: platformProviders,
                 deviceRegistrationManager: deviceRegistrationManager,
-                apiClient: apiClient
+                apiClient: apiClient,
+                coreActions: coreActions
             )
         }
         return MessagingService(
@@ -327,7 +388,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             identityStore: identityStore,
             environment: environment,
             deviceInfoProvider: platformProviders.deviceInfo,
-            backgroundUploadManager: platformProviders.backgroundUploadManager
+            backgroundUploadManager: platformProviders.backgroundUploadManager,
+            coreActions: coreActions
         )
     }
 
@@ -345,6 +407,63 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             environment: environment
         )
         return (service, conversationId)
+    }
+
+    public func commitClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.commitClaimedConversation(
+            id: conversationId,
+            databaseWriter: databaseWriter
+        )
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
+    }
+
+    public func registerClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.registerClaimedConversation(id: conversationId)
+    }
+
+    public func discardClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
+        guard !DBConversation.isDraft(id: conversationId) else { return }
+
+        // Leave the XMTP group BEFORE the local row goes away so we don't
+        // orphan it on the network. Cache-claimed conversations are
+        // published in `UnusedConversationCache.runPreparation`, so by
+        // the time the user discards, the group is live with us as the
+        // sole member. Without `leaveGroup`, every cache cycle the user
+        // discards leaves a stranded MLS group on the server — over
+        // time, syncs re-deliver those groups and the chats list can
+        // briefly flash empty rows before the consent filter catches
+        // up.
+        do {
+            let inboxReady = try await loadOrCreateService().sessionStateManager.waitForInboxReadyResult()
+            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId),
+               case .group(let group) = xmtpConversation {
+                try await group.leaveGroup()
+            }
+        } catch {
+            Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). The group may remain on the network.")
+        }
+
+        do {
+            try await databaseWriter.write { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversation.deleteOne(db, key: conversationId)
+            }
+            Log.info("Discarded claimed conversation \(conversationId)")
+        } catch {
+            Log.error("Failed to discard claimed conversation \(conversationId): \(error)")
+        }
     }
 
     public func deleteAllInboxes() async throws {
@@ -419,27 +538,35 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // A prior process may have left `isUnused == true` rows from an
-            // interrupted prewarm. Under a nil cached service the MLS-side
-            // `cleanupInboxData` never runs, so those rows would otherwise
-            // survive into the next session and hand out unusable conversation
-            // ids via `consumeUnusedConversationId`.
-            try DBConversation
-                .filter(DBConversation.Columns.isUnused == true)
-                .deleteAll(db)
+            // Reached only from "Delete All Data" / delete-all-inboxes, which
+            // is a full local account reset rather than a per-conversation
+            // cleanup. Some tables intentionally survive conversation deletion
+            // during normal app use (for example `contact` uses `setNull` on
+            // `addedViaConversationId` so a contact can outlive a single
+            // source conversation), so we must explicitly clear those account-
+            // scoped tables here as well.
+            try DBCloudConnectionGrant.deleteAll(db)
+            try DBCloudConnection.deleteAll(db)
+            try DBCapabilityResolution.deleteAll(db)
+            try DBCreditBalance.deleteAll(db)
+            try DBConversationReadReceipt.deleteAll(db)
+            try DBPendingPhotoUpload.deleteAll(db)
+            try DBBuilderBundleHiddenMessage.deleteAll(db)
+            try DBVoiceMemoTranscript.deleteAll(db)
+            try AttachmentLocalState.deleteAll(db)
+            try DBPhotoPreferences.deleteAll(db)
+            try ConversationLocalState.deleteAll(db)
+            try DBInvite.deleteAll(db)
+            try DBConversationContactsSync.deleteAll(db)
+            try DBAgentTemplate.deleteAll(db)
+            try DBMessage.deleteAll(db)
+            try DBMemberProfile.deleteAll(db)
+            try DBConversationMember.deleteAll(db)
+            try DBContact.deleteAll(db)
+            try DBMember.deleteAll(db)
+            try DBConversation.deleteAll(db)
             try DBInbox.deleteAll(db)
-
-            // DBConnection has no FK to DBInbox or DBConversation, so the MLS
-            // cleanup path and the deletes above both miss it. Wipe it here so
-            // "Delete All Data" doesn't leave the next identity holding stale
-            // Composio entity/connection ids from the previous user. The FK
-            // cascade from DBConnection removes DBConnectionGrant as well.
-            //
-            // Server-side revoke is intentionally skipped: by the time this
-            // runs, identityStore.delete() has already nuked the JWT signer
-            // so apiClient.revokeConnection would fail auth, and the abandoned
-            // entity ids aren't reachable from any new identity anyway.
-            try DBConnection.deleteAll(db)
+            try DBMyProfile.deleteAll(db)
         }
     }
 
@@ -469,16 +596,38 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await apiClient.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
+    public func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        let response = try await apiClient.requestAgentJoin(
+            slug: slug,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode
+        )
+        // Temporary diagnostic: the agent now sends a join-request DM that
+        // the message stream is expected to deliver. Poll for it for a
+        // bounded window in case the stream has died, so the agent doesn't
+        // time out and stream death shows up in the logs. Covers every
+        // agents/join entry point (add agent, contacts picker, compose,
+        // agent builder) since they all route through here.
+        await messagingService().sessionStateManager.startAgentJoinRequestPolling()
+        return response
     }
 
-    public func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await apiClient.redeemInviteCode(code)
+    public func agentShareResolver() -> any AgentShareResolving {
+        ApiAgentShareResolver(
+            apiClient: apiClient,
+            databaseReader: databaseReader,
+            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
+        )
     }
 
-    public func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await apiClient.fetchInviteCodeStatus(code)
+    public func inviteMembershipResolver() -> any InviteMembershipResolving {
+        DatabaseInviteMembershipResolver(databaseReader: databaseReader)
     }
 
     public func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol {
@@ -535,8 +684,20 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: databaseWriter)
+    }
+
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: databaseReader)
+    }
+
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: databaseReader)
     }
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
@@ -615,7 +776,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// registration that can be reset via `deleteAllInboxes`.
     public func isAccountOrphaned() throws -> Bool {
         try databaseReader.read { db in
-            guard (try DBInbox.fetchAll(db).first) != nil else { return false }
+            guard try DBInbox.currentInboxId(db) != nil else { return false }
             let nonDraftCount = try Int.fetchOne(
                 db,
                 sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
@@ -637,7 +798,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard (try DBConversation.fetchOne(db, key: conversationId)) != nil else {
                     return nil
                 }
-                return try DBInbox.fetchAll(db).first?.inboxId
+                return try DBInbox.currentInboxId(db)
             }
         } catch {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")
@@ -658,21 +819,319 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Connections
 
-    public func connectionManager(
+    public func cloudConnectionManager(
         callbackURLScheme: String
-    ) -> any ConnectionManagerProtocol {
-        ConnectionManager(
+    ) -> any CloudConnectionManagerProtocol {
+        CloudConnectionManager(
             apiClient: apiClient,
             oauthProvider: platformProviders.oauthSessionProvider,
             databaseWriter: databaseWriter,
             callbackURLScheme: callbackURLScheme,
             grantWriterProvider: { [weak self] in
                 self?.messagingService().connectionGrantWriter()
+            },
+            eventWriterProvider: { [weak self] in
+                self?.messagingService().connectionEventWriter()
+            },
+            resolverProvider: { [weak self] in
+                self?.capabilityResolver()
             }
         )
     }
 
-    public func connectionRepository() -> any ConnectionRepositoryProtocol {
-        ConnectionRepository(databaseReader: databaseReader)
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        CloudConnectionRepository(databaseReader: databaseReader)
+    }
+
+    // MARK: - Capability resolution
+
+    /// Lazily-constructed singleton registry. Multiple subsystems register providers
+    /// concurrently (device sinks at boot, cloud OAuth at link/unlink), so we want one
+    /// shared registry per session instead of per-callsite copies.
+    private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
+    private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
+    /// Lazily-constructed singleton replayer. Lives for the lifetime of
+    /// the session because it owns a long-running `ValueObservation`
+    /// stream over `agentBuilderSummary` + member rows. Constructed by
+    /// the accessor in `SessionManager+AgentBuilderGrantReplayer.swift`.
+    let agentBuilderGrantReplayerLock: OSAllocatedUnfairLock<AgentBuilderConnectionGrantReplayer?> = .init(initialState: nil)
+
+    /// Session-wide unsent-brief replayer (one-shot scan at session start).
+    /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
+    let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        capabilityRegistryLock.withLock { registry in
+            if let registry { return registry }
+            let new: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
+            registry = new
+            return new
+        }
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        GRDBCapabilityResolver(
+            database: databaseWriter,
+            registry: capabilityProviderRegistry()
+        )
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        DefaultDeviceConnectionAuthorizer(
+            dataSources: platformProviders.deviceConnections.dataSources
+        )
+    }
+
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        platformProviders.deviceConnections.dataSinks.first(where: { $0.kind == kind })
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        connectionEnablementStoreLock.withLock { store in
+            if let store { return store }
+            let new: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+            store = new
+            return new
+        }
+    }
+
+    /// Registers the default device-provider catalog and starts observing cloud
+    /// connections. Device providers report their live OS-authorization state via
+    /// the shared `DeviceConnectionAuthorizer`, so the manifest reflects current
+    /// permissions on every launch (including kinds the user previously authorized
+    /// in another session). Cloud providers are synced reactively from the
+    /// `CloudConnection` table — every status flip rebuilds the registry's
+    /// `composio.*` entries.
+    private func bootstrapCapabilityProviders() async {
+        let registry = capabilityProviderRegistry()
+        let authorizer = deviceConnectionAuthorizer()
+        let supportedDeviceSpecs = DeviceCapabilityProvider.defaultSpecs.filter {
+            SupportedConnections.isSupported($0.kind)
+        }
+        await CapabilityProviderBootstrap.registerDeviceProviders(
+            specs: supportedDeviceSpecs,
+            registry: registry,
+            linkedByUser: { kind in
+                { await authorizer.currentAuthorization(for: kind).canDeliverData }
+            }
+        )
+
+        cloudConnectionsCancellable?.cancel()
+        let publisher = cloudConnectionRepository().connectionsPublisher()
+        let seedServiceIds = SupportedConnections.supportedCloudServiceIds
+        // GRDB's `.immediate` scheduler requires subscription on the main thread.
+        await MainActor.run {
+            self.cloudConnectionsCancellable = publisher.sink { connections in
+                Task { [registry] in
+                    await CapabilityProviderBootstrap.syncCloudProviders(
+                        connections: connections,
+                        seedServiceIds: seedServiceIds,
+                        registry: registry
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Stale-stranger GC
+
+extension SessionManager {
+    private static func deleteStaleStrangerConversations(
+        databaseWriter: any DatabaseWriter,
+        reason: String
+    ) async {
+        let cutoff: Date = Date().addingTimeInterval(-staleStrangerTTL)
+        do {
+            let deleted: Int = try await databaseWriter.write { db in
+                try deleteStaleStrangerConversations(db: db, cutoff: cutoff)
+            }
+            if deleted > 0 {
+                Log.info("StaleStrangerGC: deleted \(deleted) stranger conversation(s) (reason=\(reason))")
+            }
+        } catch {
+            Log.error("StaleStrangerGC sweep (reason=\(reason)) failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Hard-deletes empty stranger conversations (consent `.unknown` with no
+    /// local messages) created before `cutoff`. A conversation the user
+    /// created, joined, or whose creator became a contact has had its consent
+    /// promoted (`.allowed`) or demoted (`.denied`), so anything still
+    /// `.unknown` past the window is an unsolicited stranger the user never
+    /// engaged with.
+    ///
+    /// The `NOT EXISTS messages` guard means a stranger conversation that
+    /// actually received content is never deleted here - only truly empty
+    /// shells are reclaimed. `createdAt` is the XMTP network timestamp, so a
+    /// freshly-synced but network-old empty shell is eligible immediately;
+    /// gating the grace window on a local-arrival timestamp instead is a
+    /// follow-up (the column was dropped with the quarantine machinery).
+    ///
+    /// Returns the number of rows deleted. `internal` + db/cutoff-injectable
+    /// so it can be unit-tested without a clock seam.
+    static func deleteStaleStrangerConversations(db: Database, cutoff: Date) throws -> Int {
+        let sql: SQL = """
+            DELETE FROM conversation
+            WHERE createdAt < \(cutoff)
+              AND consent = \(Consent.unknown.rawValue)
+              AND NOT EXISTS (
+                  SELECT 1 FROM message WHERE message.conversationId = conversation.id
+              )
+            """
+        try db.execute(literal: sql)
+        return db.changesCount
+    }
+}
+
+// MARK: - Pairing
+
+public extension SessionManager {
+    func joinerPairingService() -> any PairingServiceProtocol {
+        LivePairingService(role: .joiner(identityStore: identityStore, environment: environment))
+    }
+
+    /// Returns true when the local DB contains at least one `DBConversation`
+    /// the user has actually engaged with (`isUnused == false`). Used by
+    /// the pairing flow to decide whether the joiner has real data that
+    /// would be lost on adoption. Silent identity creation + pre-warmed
+    /// unused conversation means every fresh install reports `false` here,
+    /// so the destructive-warning sheet stays out of the way.
+    func hasAnyUsedConversations() async -> Bool {
+        do {
+            return try await databaseReader.read { db in
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == false)
+                    .fetchCount(db) > 0
+            }
+        } catch {
+            Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
+            return false
+        }
+    }
+
+    /// Called after a successful pairing on the joiner side. The paired
+    /// secp256k1 key was already saved to the keychain by
+    /// `LivePairingService.handleIdentityShare` before this runs. We:
+    ///
+    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
+    ///    bootstrap may have stood up before the deep link arrived).
+    /// 2. Delete any pre-existing libxmtp DB files for the *adopted*
+    ///    inboxId. See `deleteStaleLibxmtpDatabaseFilesForAdoptedInbox`
+    ///    for the file-naming details and the pair-then-re-pair scenario
+    ///    that produces the conflict.
+    /// 3. Wipe the placeholder's GRDB rows. Without this, the local DB
+    ///    still has the placeholder marked as `isCurrentUser` and the
+    ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
+    ///    History-synced messages from the *paired* identity then come in
+    ///    as not-mine and render on the wrong side of the message list.
+    /// 4. Clear the cache. Next `messagingService()` call reads the new
+    ///    keychain entry and bootstraps a fresh service under the paired
+    ///    inboxId.
+    ///
+    /// Note: we deliberately do NOT call `existing.stopAndDelete()` even
+    /// though it has DB-file-deletion logic. The `MessagingService.delete`
+    /// path also runs `identityStore.delete()` — and the keychain has
+    /// already been overwritten with the freshly-paired identity by
+    /// `LivePairingService.handleIdentityShare`. Letting `stopAndDelete`
+    /// run would wipe the newly-paired keychain entry. Inline file
+    /// deletion keeps the keychain intact.
+    func refreshAfterPairingCompleted() async {
+        // Mirror `tearDownInbox`'s ordering: keep the cached reference live
+        // through stop + wipe so a concurrent `loadOrCreateService()` call
+        // observes the being-torn-down service rather than building a second
+        // one under the (just-replaced) paired keychain entry.
+        let existing = cachedMessagingService.withLock { $0 }
+        if let existing {
+            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
+            await existing.stop()
+        }
+        deleteStaleLibxmtpDatabaseFilesForAdoptedInbox()
+        do {
+            try await wipeResidualInboxRows()
+            Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
+        } catch {
+            Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
+        }
+        cachedMessagingService.withLock { $0 = nil }
+    }
+
+    /// Removes libxmtp's on-disk DB files for the *just-adopted* inboxId
+    /// so the paired identity's `Client.create` opens a fresh SQLCipher
+    /// store with its own databaseKey.
+    ///
+    /// File naming and cause of the conflict:
+    /// `XMTPiOS.Client.create` builds the alias `xmtp-<env>-<inboxId>.db3`
+    /// (see `sdks/ios/Sources/XMTPiOS/Client.swift`) with sidecars
+    /// `<alias>-wal`, `<alias>-shm`, and `<alias>.sqlcipher_salt`. Each
+    /// inboxId gets its own family. The conflict here is *not* about
+    /// "one family per install": it's that the joiner reuses the
+    /// **same paired inboxId** across pair attempts (it's the
+    /// initiator's). `LivePairingService.handleIdentityShare` generates
+    /// a **fresh random databaseKey** on every adoption and overwrites
+    /// the keychain. So pair #2 finds pair #1's files at exactly that
+    /// per-inbox path, encrypted with the previous key, and SQLCipher
+    /// rejects with `PRAGMA key or salt has incorrect value`.
+    ///
+    /// Targeted deletion only removes the adopted inboxId's family.
+    /// The placeholder identity's own files (different inboxId,
+    /// different path) are left as cruft until a full "Delete All
+    /// Data" sweep — they don't conflict with anything new because the
+    /// silent-bootstrap path always generates a fresh inboxId.
+    private func deleteStaleLibxmtpDatabaseFilesForAdoptedInbox() {
+        let adoptedInboxId: String
+        do {
+            guard let identity = try identityStore.loadSync() else {
+                Log.info("SessionManager: no adopted identity in keychain; skipping libxmtp DB cleanup")
+                return
+            }
+            adoptedInboxId = identity.inboxId
+        } catch {
+            Log.warning("SessionManager: identityStore.loadSync failed during libxmtp DB cleanup: \(error)")
+            return
+        }
+
+        let fileManager = FileManager.default
+        let dbDirectory = environment.defaultDatabasesDirectoryURL
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: dbDirectory,
+            includingPropertiesForKeys: nil
+        ) else {
+            Log.warning("SessionManager: could not enumerate \(dbDirectory.path) for adopted-inbox DB cleanup")
+            return
+        }
+
+        // Match any file whose name starts with `xmtp-` and contains the
+        // adopted inboxId. Covers the current alias form
+        // (`xmtp-<env>-<inboxId>.db3`), the legacy form
+        // (`xmtp-<env>:443-<inboxId>.db3`) that libxmtp's Swift binding
+        // still falls back to, and all four sidecar suffixes (`.db3`,
+        // `.db3-wal`, `.db3-shm`, `.db3.sqlcipher_salt`).
+        var deletedCount: Int = 0
+        for url in entries {
+            let name = url.lastPathComponent
+            guard name.hasPrefix("xmtp-"), name.contains(adoptedInboxId) else { continue }
+            do {
+                try fileManager.removeItem(at: url)
+                deletedCount += 1
+            } catch {
+                Log.warning("SessionManager: failed to delete stale libxmtp file \(name): \(error)")
+            }
+        }
+        Log.info("SessionManager: removed \(deletedCount) stale libxmtp file(s) for adopted inboxId after pairing adoption")
+    }
+}
+
+extension SessionManager {
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
     }
 }

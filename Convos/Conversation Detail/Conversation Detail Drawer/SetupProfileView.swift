@@ -1,3 +1,4 @@
+import ConvosMetrics
 import SwiftUI
 
 struct SetupProfileSuccessView: View {
@@ -27,6 +28,18 @@ struct SetupProfileSuccessView: View {
 
 struct SetupProfileView: View {
     let action: () -> Void
+
+    @State private var navState: SetupProfileNavigatorImpl = .init()
+    @State private var navigator: SetupProfileCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = SetupProfileCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
     var body: some View {
         Button {
             action()
@@ -51,6 +64,13 @@ struct SetupProfileView: View {
         .transition(.blurReplace)
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

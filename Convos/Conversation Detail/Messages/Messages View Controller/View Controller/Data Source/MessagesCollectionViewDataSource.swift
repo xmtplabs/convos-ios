@@ -17,7 +17,12 @@ final class MessagesCollectionViewDataSource: NSObject {
     var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
@@ -26,18 +31,23 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var creditsDepleted: Bool = false
     var onTapUpdateMember: ((ConversationMember) -> Void)?
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
-    var onRetryAssistantJoin: (() -> Void)?
+    var onRetryAgentJoin: (() -> Void)?
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
+    var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
-    var isAssistantEnabled: Bool = false
+    var memberContactOverride: ((String) -> Contact?)?
+    var isAgentJoinPending: Bool = false
+    var headerMode: MessagesHeaderMode = .standard
+    var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
+    var hidesInviteCard: Bool = false
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -83,11 +93,25 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
             },
+            inviteMembershipResolver: inviteMembershipResolver,
+            agentShareResolver: agentShareResolver,
+            onTapAgentShare: { [weak self] agentShare in
+                self?.onTapAgentShare?(agentShare)
+            },
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
             },
+            onTapSender: { [weak self] member in
+                self?.onTapAvatar?(member)
+            },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
+            },
+            onTapReadReceipts: { [weak self] group in
+                self?.onTapReadReceipts?(group)
+            },
+            onTapThinkingIndicator: { [weak self] descriptor in
+                self?.onTapThinkingIndicator?(descriptor)
             },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)
@@ -110,8 +134,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },
-            onRetryAssistantJoin: { [weak self] in
-                self?.onRetryAssistantJoin?()
+            creditsDepleted: creditsDepleted,
+            onRetryAgentJoin: { [weak self] in
+                self?.onRetryAgentJoin?()
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
@@ -119,8 +144,11 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapUpdateMember: { [weak self] member in
                 self?.onTapUpdateMember?(member)
             },
-            onOpenFile: { [weak self] attachment in
-                self?.onOpenFile?(attachment)
+            onTapCapabilityConnect: { [weak self] prompt in
+                self?.onTapCapabilityConnect?(prompt)
+            },
+            onOpenFile: { [weak self] attachment, message in
+                self?.onOpenFile?(attachment, message)
             },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)
@@ -134,16 +162,21 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onConvoCode: { [weak self] in
                 self?.onConvoCode?()
             },
-            onInviteAssistant: { [weak self] in
-                self?.onInviteAssistant?()
+            onInviteAgent: { [weak self] in
+                self?.onInviteAgent?()
             },
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)
             },
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
-            hasAssistant: hasAssistant,
-            isAssistantJoinPending: isAssistantJoinPending,
-            isAssistantEnabled: isAssistantEnabled
+            isAgentJoinPending: isAgentJoinPending,
+            headerMode: headerMode,
+            hidesInviteCard: hidesInviteCard,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
+            memberContactOverride: { [weak self] inboxId in
+                self?.memberContactOverride?(inboxId)
+            }
         )
         return CellFactory.createCell(
             in: collectionView,

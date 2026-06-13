@@ -326,6 +326,10 @@ struct JoinRequestProcessingTests {
             senderInboxId: "joiner-123",
             error: .invalidSignature
         )
+        let alreadyMember = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123"
+        )
 
         #expect(accepted.shouldKeepDMSubscribed)
         #expect(accepted.dmConversationId == "dm-123")
@@ -333,6 +337,10 @@ struct JoinRequestProcessingTests {
         #expect(benignFailure.shouldKeepDMSubscribed)
         #expect(!malicious.shouldKeepDMSubscribed)
         #expect(malicious.isMalicious)
+        #expect(alreadyMember.shouldKeepDMSubscribed)
+        #expect(alreadyMember.dmConversationId == "dm-123")
+        #expect(alreadyMember.joinResult == nil)
+        #expect(!alreadyMember.isMalicious)
     }
 
     // MARK: - InviteJoinError Feedback
@@ -409,6 +417,27 @@ struct JoinRequestProcessingTests {
         #expect(decoded.errorType == .consentNotAllowed)
         #expect(decoded.inviteTag == "tag-cn")
         #expect(decoded.userFacingMessage == "This conversation is no longer available")
+    }
+
+    // MARK: - Consent Rejection Rule
+
+    @Test("Allowed consent does not reject a join")
+    func allowedConsentDoesNotReject() {
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .allowed))
+    }
+
+    @Test("Denied consent rejects a join")
+    func deniedConsentRejects() {
+        #expect(InviteCoordinator.shouldRejectJoin(for: .denied))
+    }
+
+    @Test("Unknown consent does not reject a join")
+    func unknownConsentDoesNotReject() {
+        // `.unknown` means this installation has no consent record for the
+        // group yet (secondary device, fresh reinstall), not that the
+        // creator denied the conversation. It must not trigger
+        // consent_not_allowed for an otherwise-valid invite.
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .unknown))
     }
 
     // MARK: - Date Extension

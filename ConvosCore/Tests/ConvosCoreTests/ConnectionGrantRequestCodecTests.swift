@@ -3,12 +3,12 @@ import Foundation
 import Testing
 import XMTPiOS
 
-@Suite("ConnectionGrantRequestCodec Tests")
+@Suite("CloudConnectionGrantRequestCodec Tests")
 struct ConnectionGrantRequestCodecTests {
-    let codec: ConnectionGrantRequestCodec = ConnectionGrantRequestCodec()
+    let codec: CloudConnectionGrantRequestCodec = CloudConnectionGrantRequestCodec()
 
-    private let sampleRequest: ConnectionGrantRequest = ConnectionGrantRequest(
-        service: "google_calendar",
+    private let sampleRequest: CloudConnectionGrantRequest = CloudConnectionGrantRequest(
+        service: "googlecalendar",
         requestedByInboxId: "agent_inbox",
         targetInboxId: "user_inbox",
         reason: "I can check your schedule."
@@ -21,7 +21,7 @@ struct ConnectionGrantRequestCodecTests {
 
         #expect(decoded == sampleRequest)
         #expect(decoded.version == 1)
-        #expect(decoded.service == "google_calendar")
+        #expect(decoded.service == "googlecalendar")
         #expect(decoded.requestedByInboxId == "agent_inbox")
         #expect(decoded.targetInboxId == "user_inbox")
         #expect(decoded.reason == "I can check your schedule.")
@@ -29,10 +29,10 @@ struct ConnectionGrantRequestCodecTests {
 
     @Test("ContentTypeID matches the runtime's expected identifier")
     func contentTypeID() {
-        #expect(ContentTypeConnectionGrantRequest.authorityID == "convos.org")
-        #expect(ContentTypeConnectionGrantRequest.typeID == "connection_grant_request")
-        #expect(ContentTypeConnectionGrantRequest.versionMajor == 1)
-        #expect(ContentTypeConnectionGrantRequest.versionMinor == 0)
+        #expect(ContentTypeCloudConnectionGrantRequest.authorityID == "convos.org")
+        #expect(ContentTypeCloudConnectionGrantRequest.typeID == "connection_grant_request")
+        #expect(ContentTypeCloudConnectionGrantRequest.versionMajor == 1)
+        #expect(ContentTypeCloudConnectionGrantRequest.versionMinor == 0)
     }
 
     @Test("shouldPush is false — cards surface without extra notification")
@@ -43,14 +43,14 @@ struct ConnectionGrantRequestCodecTests {
     @Test("Fallback text mentions the service for pre-codec clients")
     func fallback() throws {
         let text = try #require(try codec.fallback(content: sampleRequest))
-        #expect(text.contains("google_calendar"))
+        #expect(text.contains("googlecalendar"))
     }
 
     @Test("Decoding empty content throws")
     func emptyContentThrows() throws {
         var empty = try codec.encode(content: sampleRequest)
         empty.content = Data()
-        #expect(throws: ConnectionGrantRequestCodecError.self) {
+        #expect(throws: CloudConnectionGrantRequestCodecError.self) {
             _ = try codec.decode(content: empty)
         }
     }
@@ -59,7 +59,7 @@ struct ConnectionGrantRequestCodecTests {
     func invalidContentThrows() throws {
         var bogus = try codec.encode(content: sampleRequest)
         bogus.content = Data([0x00, 0x01, 0x02, 0x03])
-        #expect(throws: ConnectionGrantRequestCodecError.self) {
+        #expect(throws: CloudConnectionGrantRequestCodecError.self) {
             _ = try codec.decode(content: bogus)
         }
     }
@@ -69,7 +69,7 @@ struct ConnectionGrantRequestCodecTests {
         let futurePayload = """
         {
           "version": 2,
-          "service": "google_calendar",
+          "service": "googlecalendar",
           "requestedByInboxId": "agent_inbox",
           "targetInboxId": "user_inbox",
           "reason": "future schema"
@@ -78,14 +78,14 @@ struct ConnectionGrantRequestCodecTests {
         var encoded = try codec.encode(content: sampleRequest)
         encoded.content = Data(futurePayload.utf8)
 
-        #expect(throws: ConnectionGrantRequestCodecError.self) {
+        #expect(throws: CloudConnectionGrantRequestCodecError.self) {
             _ = try codec.decode(content: encoded)
         }
 
         do {
             _ = try codec.decode(content: encoded)
             Issue.record("Expected unsupportedVersion error")
-        } catch ConnectionGrantRequestCodecError.unsupportedVersion(let version) {
+        } catch CloudConnectionGrantRequestCodecError.unsupportedVersion(let version) {
             #expect(version == 2)
         } catch {
             Issue.record("Expected unsupportedVersion, got \(error)")
@@ -94,9 +94,9 @@ struct ConnectionGrantRequestCodecTests {
 
     @Test("Reason longer than the cap is truncated on decode")
     func reasonTruncatedOnDecode() throws {
-        let oversizedReason = String(repeating: "A", count: ConnectionGrantRequest.maxReasonLength + 250)
-        let paddedRequest = ConnectionGrantRequest(
-            service: "google_calendar",
+        let oversizedReason = String(repeating: "A", count: CloudConnectionGrantRequest.maxReasonLength + 250)
+        let paddedRequest = CloudConnectionGrantRequest(
+            service: "googlecalendar",
             requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: oversizedReason
@@ -104,7 +104,7 @@ struct ConnectionGrantRequestCodecTests {
 
         // The public initializer also truncates — confirm that first so callers
         // building payloads locally can't bloat the DB either.
-        #expect(paddedRequest.reason.count == ConnectionGrantRequest.maxReasonLength)
+        #expect(paddedRequest.reason.count == CloudConnectionGrantRequest.maxReasonLength)
 
         // Craft a raw payload with the oversized reason and make sure decode still caps it.
         struct RawPayload: Encodable {
@@ -115,8 +115,8 @@ struct ConnectionGrantRequestCodecTests {
             let reason: String
         }
         let rawData = try JSONEncoder().encode(RawPayload(
-            version: ConnectionGrantRequest.supportedVersion,
-            service: "google_calendar",
+            version: CloudConnectionGrantRequest.supportedVersion,
+            service: "googlecalendar",
             requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: oversizedReason
@@ -126,15 +126,15 @@ struct ConnectionGrantRequestCodecTests {
         encoded.content = rawData
         let decoded = try codec.decode(content: encoded)
 
-        #expect(decoded.reason.count == ConnectionGrantRequest.maxReasonLength)
-        #expect(decoded.reason == String(repeating: "A", count: ConnectionGrantRequest.maxReasonLength))
+        #expect(decoded.reason.count == CloudConnectionGrantRequest.maxReasonLength)
+        #expect(decoded.reason == String(repeating: "A", count: CloudConnectionGrantRequest.maxReasonLength))
     }
 
     @Test("validateConnectionGrantRequest rejects spoofed requestedByInboxId")
     func validateRejectsSpoofedSender() throws {
-        let spoofed = ConnectionGrantRequest(
-            service: "google_calendar",
-            requestedByInboxId: "trusted_assistant_inbox",
+        let spoofed = CloudConnectionGrantRequest(
+            service: "googlecalendar",
+            requestedByInboxId: "trusted_agent_inbox",
             targetInboxId: "user_inbox",
             reason: "hostile reason"
         )
@@ -150,16 +150,16 @@ struct ConnectionGrantRequestCodecTests {
 
     @Test("validateConnectionGrantRequest passes when sender matches requestedByInboxId")
     func validateAcceptsMatchingSender() throws {
-        let legitimate = ConnectionGrantRequest(
-            service: "google_calendar",
-            requestedByInboxId: "assistant_inbox",
+        let legitimate = CloudConnectionGrantRequest(
+            service: "googlecalendar",
+            requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: "I can check your schedule."
         )
 
         try XMTPiOS.DecodedMessage.validateConnectionGrantRequest(
             legitimate,
-            senderInboxId: "assistant_inbox",
+            senderInboxId: "agent_inbox",
             messageId: "msg-2"
         )
     }

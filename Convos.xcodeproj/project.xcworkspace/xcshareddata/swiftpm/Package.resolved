@@ -1,5 +1,5 @@
 {
-  "originHash" : "9a89f560c6cecec4f5157682d897237c98b1627d30b040a591e67439dfd841a8",
+  "originHash" : "ea2aea7f0b30f28625ca65fde9563c44657e5fd6a2c3085d173ad16c8f36b6db",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "8ff57dad962668357af2959fdd63868682f3053e",
         "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "convos-shared",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xmtplabs/convos-shared.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "b82d23fc47fd2a9ed41370369a783306b9fbdc8a"
       }
     },
     {
@@ -150,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.9.0-dev.88ddfad",
-        "revision" : "899650a4189207ca2df515bf46beb549da07ff46"
+        "branch" : "ios-4.10.0-nightly.20260530.065bd0d",
+        "revision" : "306aab69cba621ce70d8991bef77b61864940fd2"
       }
     },
     {
@@ -161,6 +170,15 @@
       "state" : {
         "revision" : "b7e1104502eca3a213b46303391ca4d3bc8ddec1",
         "version" : "2.30910.0"
+      }
+    },
+    {
+      "identity" : "posthog-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PostHog/posthog-ios.git",
+      "state" : {
+        "revision" : "218fb6fe016a27baa3651613d53dae5c6e36af15",
+        "version" : "3.57.3"
       }
     },
     {
@@ -204,8 +222,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "2aed77ae5ec9a86d8fe42c12275e4c2653a286ee",
+        "version" : "1.13.1"
       }
     },
     {

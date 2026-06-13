@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 
 private struct SafariTestSheet: View {
     @State private var safariURL: URL?
@@ -32,6 +33,7 @@ import UIKit
 struct DebugViewSection: View {
     let environment: AppEnvironment
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
@@ -40,177 +42,43 @@ struct DebugViewSection: View {
     @State private var showingRenewalAlert: Bool = false
     @State private var presentingPhotosInfoSheet: Bool = false
     @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
-    @State private var showingAssistantsInfoSheet: Bool = false
+    @State private var showingAgentsInfoSheet: Bool = false
     @State private var showingSafariTestSheet: Bool = false
+    @State private var presentingPaywall: Bool = false
+    @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
+    @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
+    @State private var useRealCredits: Bool = CreditsServices.useRealBackend
 
     var body: some View {
         Group {
             featuresSection
-
+            subscriptionSection
             pushNotificationsSection
-
-            Section("Debug") {
-                HStack {
-                    Text("Bundle ID")
-                    Spacer()
-                    Text(Bundle.main.bundleIdentifier ?? "Unknown")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Version")
-                    Spacer()
-                    Text(Bundle.appVersion)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Environment")
-                    Spacer()
-                    Text(ConfigManager.shared.currentEnvironment.name.capitalized)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Log storage")
-                    Spacer()
-                    if let info = logStorageInfo {
-                        Text(info.formattedTotalSize)
-                            .foregroundStyle(.colorTextSecondary)
-                    } else {
-                        ProgressView()
-                    }
-                }
-            }
-
-            Section("Sentry Testing") {
-                Button {
-                    testSentryMessage()
-                } label: {
-                    Text("Send Test Message")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryError()
-                } label: {
-                    Text("Send Test Error")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryException()
-                } label: {
-                    Text("Send Test Exception")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryWithBreadcrumbs()
-                } label: {
-                    Text("Send Event with Breadcrumbs")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Pending Invites") {
-                NavigationLink {
-                    PendingInviteDebugView(session: session)
-                } label: {
-                    Text("View Pending Invites")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                NavigationLink {
-                    OrphanedInboxDebugView(session: session)
-                } label: {
-                    Text("View Orphaned Inboxes")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Asset Renewal") {
-                NavigationLink {
-                    DebugAssetRenewalView(session: session)
-                } label: {
-                    Text("View Renewable Assets")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-
-                Button {
-                    Task { await renewAssetsNow() }
-                } label: {
-                    HStack {
-                        Text("Renew Assets Now")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        if isRenewingAssets { ProgressView() }
-                    }
-                }
-                .disabled(isRenewingAssets)
-            }
-
-            Section("Sheets") {
-                Button {
-                    presentingPhotosInfoSheet = true
-                } label: {
-                    Text("Show Photos Info Sheet")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
-                PhotosInfoSheet()
-            }
-
-            Section {
-                Button {
-                    Task { await registerDeviceAgain() }
-                } label: {
-                    Text("Register Device Again")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetOnboarding()
-                } label: {
-                    Text("Reset Onboarding")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetAllSettings()
-                } label: {
-                    Text("Reset All Settings")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
+            debugSection
+            authProbeSection
+            sentryTestingSection
+            pendingInvitesSection
+            assetRenewalSection
+            sheetsSection
+            resetSection
         }
         .task {
             await refreshNotificationStatus()
             logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
         }
-        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
     }
-
-    // MARK: - Body subviews
-    //
-    // Extracted from `body` so the section list stays under the project's
-    // 100ms warn-long-function-bodies budget. The two heaviest sections
-    // (Features with its inline closure-bound buttons and sheets, and Push
-    // Notifications with its HStack/VStack/ScrollView/Button nesting plus
-    // ternaries) tipped the type-checker over when inline.
 
     @ViewBuilder
     private var featuresSection: some View {
         Section("Features") {
-            Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
 
-            Toggle("Cloud Connections enabled", isOn: Bindable(FeatureFlags.shared).isCloudConnectionsEnabled)
-
-            let showInfoAction = { showingAssistantsInfoSheet = true }
+            let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
-                Text("Show Assistants Info Sheet")
+                Text("Show Agents Info Sheet")
             }
-            .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
-                AssistantsInfoView(isConfirmation: true, onConfirm: {})
+            .selfSizingSheet(isPresented: $showingAgentsInfoSheet) {
+                AgentsInfoView()
                     .padding(.top, 20)
             }
 
@@ -225,9 +93,55 @@ struct DebugViewSection: View {
     }
 
     @ViewBuilder
+    private var subscriptionSection: some View {
+        Section("Subscription") {
+            Toggle("Use real StoreKit", isOn: $useRealStoreKit)
+                .onChange(of: useRealStoreKit) { _, newValue in
+                    SubscriptionServices.setUseRealStoreKit(newValue)
+                }
+            Toggle("Use real backend credits", isOn: $useRealCredits)
+                .onChange(of: useRealCredits) { _, newValue in
+                    CreditsServices.setUseRealBackend(newValue)
+                }
+
+            if !useRealStoreKit && !useRealCredits {
+                Picker("Credits state", selection: $creditsPresetSelection) {
+                    ForEach(CreditsStatePreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+                .onChange(of: creditsPresetSelection) { _, newValue in
+                    FeatureFlags.shared.mockCreditsPreset = newValue
+                    MockCreditsService.shared.setPreset(newValue)
+                    MockSubscriptionService.shared.setPreset(newValue)
+                }
+            }
+
+            NavigationLink {
+                SubscriptionSettingsView(coreActions: coreActions)
+            } label: {
+                Text("Credits & Subscription Details")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+
+            let openPaywallAction = { presentingPaywall = true }
+            Button(action: openPaywallAction) {
+                Text("Show Paywall")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .sheet(isPresented: $presentingPaywall) {
+                let viewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    paywallSource: .debug,
+                    coreActions: coreActions
+                )
+                PaywallView(viewModel: viewModel)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var pushNotificationsSection: some View {
-        let authorizedText: String = notificationAuthGranted ? "Yes" : "No"
-        let requestNowOpacity: Double = notificationAuthGranted ? 0.5 : 1.0
         Section(header: Text("Push Notifications")) {
             HStack {
                 Text("Auth Status")
@@ -238,29 +152,10 @@ struct DebugViewSection: View {
             HStack {
                 Text("Authorized")
                 Spacer()
-                Text(authorizedText)
+                Text(notificationAuthGranted ? "Yes" : "No")
                     .foregroundStyle(.colorTextSecondary)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Device Token")
-                HStack(spacing: 8) {
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        Text(lastDeviceToken)
-                            .font(.system(.footnote, design: .monospaced))
-                            .foregroundStyle(.colorTextSecondary)
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Button {
-                        UIPasteboard.general.string = lastDeviceToken
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(lastDeviceToken.isEmpty)
-                }
-            }
+            deviceTokenRow
             HStack {
                 Text("APNS Environment")
                 Spacer()
@@ -272,7 +167,223 @@ struct DebugViewSection: View {
                     Task { await requestNotificationsNow() }
                 }
                 .disabled(notificationAuthGranted)
-                .opacity(requestNowOpacity)
+                .opacity(notificationAuthGranted ? 0.5 : 1.0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deviceTokenRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Device Token")
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Text(lastDeviceToken)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.colorTextSecondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Button {
+                    UIPasteboard.general.string = lastDeviceToken
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(lastDeviceToken.isEmpty)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var debugSection: some View {
+        Section("Debug") {
+            HStack {
+                Text("Bundle ID")
+                Spacer()
+                Text(Bundle.main.bundleIdentifier ?? "Unknown")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(Bundle.appVersion)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+
+            HStack {
+                Text("Environment")
+                Spacer()
+                Text(ConfigManager.shared.currentEnvironment.name.capitalized)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+
+            HStack {
+                Text("Log storage")
+                Spacer()
+                if let info = logStorageInfo {
+                    Text(info.formattedTotalSize)
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    ProgressView()
+                }
+            }
+
+            postHogTokenRow
+        }
+    }
+
+    @ViewBuilder
+    private var postHogTokenRow: some View {
+        let token: String = Secrets.POSTHOG_API_KEY
+        VStack(alignment: .leading, spacing: 6) {
+            Text("PostHog Project Token")
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Text(token.isEmpty ? "(not set)" : token)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.colorTextSecondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Button {
+                    UIPasteboard.general.string = token
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(token.isEmpty)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var authProbeSection: some View {
+        Section("SIWE Auth") {
+            NavigationLink {
+                DebugAuthProbeView(environment: environment)
+            } label: {
+                Text("Run SIWE Auth Probe")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sentryTestingSection: some View {
+        Section("Sentry Testing") {
+            Button {
+                testSentryMessage()
+            } label: {
+                Text("Send Test Message")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryError()
+            } label: {
+                Text("Send Test Error")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryException()
+            } label: {
+                Text("Send Test Exception")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryWithBreadcrumbs()
+            } label: {
+                Text("Send Event with Breadcrumbs")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pendingInvitesSection: some View {
+        Section("Pending Invites") {
+            NavigationLink {
+                PendingInviteDebugView(session: session)
+            } label: {
+                Text("View Pending Invites")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            NavigationLink {
+                OrphanedInboxDebugView(session: session)
+            } label: {
+                Text("View Orphaned Inboxes")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var assetRenewalSection: some View {
+        Section("Asset Renewal") {
+            NavigationLink {
+                DebugAssetRenewalView(session: session)
+            } label: {
+                Text("View Renewable Assets")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+
+            Button {
+                Task { await renewAssetsNow() }
+            } label: {
+                HStack {
+                    Text("Renew Assets Now")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    if isRenewingAssets { ProgressView() }
+                }
+            }
+            .disabled(isRenewingAssets)
+        }
+        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    @ViewBuilder
+    private var sheetsSection: some View {
+        Section("Sheets") {
+            Button {
+                presentingPhotosInfoSheet = true
+            } label: {
+                Text("Show Photos Info Sheet")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+        .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+            PhotosInfoSheet()
+        }
+    }
+
+    @ViewBuilder
+    private var resetSection: some View {
+        Section {
+            Button {
+                Task { await registerDeviceAgain() }
+            } label: {
+                Text("Register Device Again")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetOnboarding()
+            } label: {
+                Text("Reset Onboarding")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetAllSettings()
+            } label: {
+                Text("Reset All Settings")
+                    .foregroundStyle(.colorTextPrimary)
             }
         }
     }
@@ -280,7 +391,7 @@ struct DebugViewSection: View {
 
 #Preview {
     List {
-        DebugViewSection(environment: .tests, session: MockInboxesService())
+        DebugViewSection(environment: .tests, session: MockInboxesService(), coreActions: NoOpCoreActions())
     }
 }
 
@@ -321,12 +432,29 @@ extension DebugViewSection {
         let apnsEnv = ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue
         Log.info("Debug: Force re-registering device (APNS env: \(apnsEnv))")
 
-        let platformProviders = PlatformProviders.iOS
-        DeviceRegistrationManager.clearRegistrationState(deviceInfo: platformProviders.deviceInfo)
+        // The original implementation called `PlatformProviders.iOS` here, which
+        // constructs a fresh `IOSPushNotificationRegistrar` whose in-memory token
+        // is nil. That made the debug button race against the real app's state
+        // and could register the device with `pushToken: nil` even when the
+        // device had a valid token. Reuse the already-configured singletons so
+        // the debug action sees the SAME APNS token, deviceId, and registrar
+        // state the app uses everywhere else.
+        //
+        // `ConvosCore.DeviceInfo` is fully qualified because the main app has
+        // its own `DeviceInfo` struct in Utilities & Extensions that shadows
+        // the ConvosCore enum at this call site.
+        let deviceInfo = ConvosCore.DeviceInfo.shared
+        let providersForDebug = PlatformProviders(
+            appLifecycle: MockAppLifecycleProvider(),
+            deviceInfo: deviceInfo,
+            pushNotificationRegistrar: PushNotificationRegistrar.shared,
+            notificationCenter: UNUserNotificationCenter.current()
+        )
+        DeviceRegistrationManager.clearRegistrationState(deviceInfo: deviceInfo)
 
         let manager = DeviceRegistrationManager(
             environment: ConfigManager.shared.currentEnvironment,
-            platformProviders: platformProviders
+            platformProviders: providersForDebug
         )
         await manager.registerDeviceIfNeeded()
     }

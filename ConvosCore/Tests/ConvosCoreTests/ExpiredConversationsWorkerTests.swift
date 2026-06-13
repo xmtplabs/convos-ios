@@ -6,7 +6,6 @@ import Testing
 
 @Suite("ExpiredConversationsWorker Tests", .serialized)
 struct ExpiredConversationsWorkerTests {
-
     @Test("Cleans up already-expired conversations on init")
     func testCleansUpExpiredOnInit() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
@@ -355,7 +354,7 @@ struct ExpiredConversationsWorkerTests {
         try await databaseManager.dbWriter.write { db in
             let conversation = DBConversation(
                 id: conversationId,
-                                clientConversationId: conversationId,
+                clientConversationId: conversationId,
                 inviteTag: "test-invite-tag",
                 creatorId: "test-inbox-id",
                 kind: .group,
@@ -375,7 +374,7 @@ struct ExpiredConversationsWorkerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             )
             try conversation.upsert(db)
         }
@@ -596,7 +595,7 @@ private class ExpiredWorkerTestFixtures {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             )
             try conversation.upsert(db)
         }

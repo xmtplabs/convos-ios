@@ -7,6 +7,37 @@ public enum ConvosAPI {
         public let token: String
     }
 
+    // MARK: - v2/auth/token (SIWE)
+
+    /// Request body for `POST /api/v2/auth/token`. Omit `siwe` for the
+    /// legacy device-only path; include it to bind the JWT to an
+    /// Ethereum account.
+    public struct AuthTokenRequest: Encodable {
+        public let deviceId: String
+        public let siwe: SIWEPayload?
+
+        public init(deviceId: String, siwe: SIWEPayload?) {
+            self.deviceId = deviceId
+            self.siwe = siwe
+        }
+    }
+
+    public struct SIWEPayload: Encodable {
+        public let message: String
+        public let signature: String
+
+        public init(message: String, signature: String) {
+            self.message = message
+            self.signature = signature
+        }
+    }
+
+    public struct AuthTokenResponse: Decodable {
+        public let token: String
+
+        public init(token: String) { self.token = token }
+    }
+
     // MARK: - Device Update Models
 
     struct DeviceUpdateRequest: Codable {
@@ -131,15 +162,38 @@ public enum ConvosAPI {
 
     // MARK: - v2/agents/join
     // POST /v2/agents/join
+    // The body is validated strictly server-side: unknown keys are rejected.
+    // `templateId` is optional - omitting it requests a bare join (the
+    // backend provisions a default agent). A nil `templateId` is omitted
+    // from the encoded JSON by Codable's synthesized encoder.
 
     public struct AgentJoinRequest: Codable {
         public let slug: String
-        public let instructions: String
+        public let templateId: String?
+        public let options: AgentJoinOptions?
 
-        public init(slug: String, instructions: String) {
+        public init(slug: String, templateId: String? = nil, options: AgentJoinOptions? = nil) {
             self.slug = slug
-            self.instructions = instructions
+            self.templateId = templateId
+            self.options = options
         }
+    }
+
+    /// Per-request hints to the agent pool. Currently the only knob is
+    /// `onboarding`, which signals which client flow is requesting the
+    /// join. The backend uses it to pick the right system prompt /
+    /// behavior set — e.g. the Agent Builder asks for the
+    /// builder-specific onboarding so the agent introduces itself in
+    /// the contact-card "Learning more about my job" voice rather than
+    /// the generic chat persona.
+    public struct AgentJoinOptions: Codable, Sendable {
+        public let onboarding: String?
+
+        public init(onboarding: String?) {
+            self.onboarding = onboarding
+        }
+
+        public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
     }
 
     public struct AgentJoinResponse: Codable {
@@ -152,58 +206,60 @@ public enum ConvosAPI {
         }
     }
 
-    // MARK: - v2/invite-codes/redeem
-    // POST /v2/invite-codes/redeem
+    // MARK: - v2/agent-templates/:id
 
-    public struct RedeemCodeRequest: Codable {
-        public let code: String
+    // Subset of the agent-template object the backend returns from the
+    // publish endpoint (POST /:id/publish). We only model the fields the
+    // share flow consumes today (id, status, publishedUrl); decoding is
+    // tolerant of extra keys via the default Codable behavior.
+    public struct AgentTemplate: Codable, Sendable {
+        public let id: String
+        public let status: String
+        public let publishedUrl: String?
+        /// Public profile fields, populated by the detail endpoint
+        /// (`GET /v2/agent-templates/:idOrUrlSlug`). Optional because the
+        /// publish response historically only carried id/status/publishedUrl.
+        public let slug: String?
+        public let agentName: String?
+        public let description: String?
+        public let emoji: String?
+        public let avatarUrl: String?
 
-        public init(code: String) {
-            self.code = code
+        public init(
+            id: String,
+            status: String,
+            publishedUrl: String?,
+            slug: String? = nil,
+            agentName: String? = nil,
+            description: String? = nil,
+            emoji: String? = nil,
+            avatarUrl: String? = nil
+        ) {
+            self.id = id
+            self.status = status
+            self.publishedUrl = publishedUrl
+            self.slug = slug
+            self.agentName = agentName
+            self.description = description
+            self.emoji = emoji
+            self.avatarUrl = avatarUrl
         }
     }
 
-    public struct InviteCodeStatusResponse: Codable, Sendable {
-        public let success: Bool
-        public let data: InviteCodeStatus
+    /// One page of the agent-templates list endpoint
+    /// (`GET /v2/agent-templates/`). The backend returns a cursor-paginated
+    /// envelope: `data` is the page, `hasMore` signals another page exists,
+    /// and `nextCursor` is the opaque base64url cursor to pass back as
+    /// `&cursor=` for the following page (`nil` on the last page).
+    public struct AgentTemplatesPage: Codable, Sendable {
+        public let data: [AgentTemplate]
+        public let hasMore: Bool
+        public let nextCursor: String?
 
-        public init(success: Bool, data: InviteCodeStatus) {
-            self.success = success
+        public init(data: [AgentTemplate], hasMore: Bool, nextCursor: String?) {
             self.data = data
-        }
-    }
-
-    public struct InviteCodeStatus: Codable, Sendable {
-        public let code: String
-        public let name: String?
-        public let maxRedemptions: Int
-        public let redemptionCount: Int
-        public let remainingRedemptions: Int
-
-        public init(code: String, name: String?, maxRedemptions: Int, redemptionCount: Int, remainingRedemptions: Int) {
-            self.code = code
-            self.name = name
-            self.maxRedemptions = maxRedemptions
-            self.redemptionCount = redemptionCount
-            self.remainingRedemptions = remainingRedemptions
-        }
-    }
-
-    public struct RedeemInviteCodeResponse: Codable, Sendable {
-        public let success: Bool
-        public let data: RedeemInviteCodeData
-
-        public init(success: Bool, data: RedeemInviteCodeData) {
-            self.success = success
-            self.data = data
-        }
-    }
-
-    public struct RedeemInviteCodeData: Codable, Sendable {
-        public let inviteCode: InviteCodeStatus
-
-        public init(inviteCode: InviteCodeStatus) {
-            self.inviteCode = inviteCode
+            self.hasMore = hasMore
+            self.nextCursor = nextCursor
         }
     }
 
@@ -243,6 +299,20 @@ public enum ConvosAPI {
             let success: Bool
             let error: String?
         }
+    }
+
+    // MARK: - IAP Subscription verify
+
+    /// Verify body is just the signed Apple JWS. The `appAccountToken` lives
+    /// inside the signed payload and the backend extracts it from there + binds
+    /// it to the JWT-authenticated account on first call; sending it in the
+    /// body too would let a caller claim someone else's transaction.
+    struct VerifySubscriptionRequest: Encodable {
+        let jwsRepresentation: String
+    }
+
+    struct VerifySubscriptionResponse: Decodable {
+        let subscription: UserSubscription
     }
 }
 

@@ -1,3 +1,4 @@
+import ConvosConnectionsXMTP
 import ConvosInvites
 import Foundation
 import GRDB
@@ -25,6 +26,42 @@ public struct InboxReadyResult: @unchecked Sendable {
 
 typealias AnySyncingManager = (any SyncingManagerProtocol)
 typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
+
+/// `.onDisk` routes through libxmtp's persistent SQLCipher path (production
+/// behavior). `.inMemory` routes through `Client.createInMemory`, where
+/// `dropLocalDatabaseConnection` and friends are no-ops — so the lifecycle-
+/// notification broadcast cannot wedge a parallel test's pool.
+struct XMTPClientFactory: Sendable {
+    typealias Create = @Sendable (SigningKey, ClientOptions) async throws -> any XMTPClientProvider
+    typealias Build = @Sendable (String, PublicIdentity, SigningKey, ClientOptions) async throws -> any XMTPClientProvider
+
+    let create: Create
+    let build: Build
+
+    static let onDisk: XMTPClientFactory = XMTPClientFactory(
+        create: { signingKey, options in
+            try await Client.create(account: signingKey, options: options)
+        },
+        build: { inboxId, identity, _, options in
+            try await Client.build(publicIdentity: identity, options: options, inboxId: inboxId)
+        }
+    )
+
+    /// `build` reuses `createInMemory` because tests carry no on-disk history;
+    /// inboxId derives from signing key, preserving the
+    /// `client.inboxId == identity.inboxId` invariant in `authorize`.
+    static let inMemory: XMTPClientFactory = {
+        let createInMemory: Create = { signingKey, options in
+            try await Client.createInMemory(account: signingKey, options: options)
+        }
+        return XMTPClientFactory(
+            create: createInMemory,
+            build: { _, _, signingKey, options in
+                try await createInMemory(signingKey, options)
+            }
+        )
+    }()
+}
 
 // swiftlint:disable type_body_length
 
@@ -70,12 +107,17 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
+    private let xmtpClientFactory: XMTPClientFactory
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
     private var appLifecycleTask: Task<Void, Never>?
+    /// Observer handle for `installationWasRevokedByPeer`, set when the
+    /// session enters `.ready`. The notification is posted by
+    /// `StreamProcessor` when a `DeviceRemovedContent` self-DM lands.
+    private nonisolated(unsafe) var revocationObserver: (any NSObjectProtocol)?
     private var foregroundRetryCount: Int = 0
     private static let maxForegroundRetries: Int = 2
 
@@ -223,7 +265,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         overrideJWTToken: String? = nil,
         environment: AppEnvironment,
         appLifecycle: any AppLifecycleProviding,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        xmtpClientFactory: XMTPClientFactory = .onDisk
     ) {
         let initialState: State = .idle
         self.initialClientId = clientId
@@ -237,6 +280,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
         self.environment = environment
         self.appLifecycle = appLifecycle
+        self.xmtpClientFactory = xmtpClientFactory
 
         // Use provided API client or create a new one
         if let apiClient {
@@ -328,6 +372,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     public func requestDiscovery() async {
         guard let syncingManager else { return }
         await syncingManager.requestDiscovery()
+    }
+
+    public func startAgentJoinRequestPolling() async {
+        guard let syncingManager else { return }
+        await syncingManager.startAgentJoinRequestPolling()
     }
 
     // MARK: - SessionStateManagerProtocol
@@ -472,6 +521,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw KeychainIdentityStoreError.identityNotFound("ClientId mismatch: expected \(initialClientId), got \(identity.clientId)")
         }
 
+        // Installs that registered before the synced backup slot existed
+        // only ever wrote the primary slot; mirror the identity here so
+        // they become recoverable too. Best-effort, no-op once populated.
+        await identityStore.backfillSyncedBackupIfNeeded()
+
         emitStateChange(.authorizing(inboxId: inboxId))
         Log.info("Started authorization flow for inbox: \(inboxId), clientId: \(initialClientId)")
 
@@ -487,6 +541,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             client = try await buildXmtpClient(
                 inboxId: identity.inboxId,
                 identity: keys.signingKey.identity,
+                signingKey: keys.signingKey,
                 options: clientOptions
             )
         } catch {
@@ -579,6 +634,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
+        try await assertInstallationActive(client: client)
+
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
@@ -595,12 +652,29 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     private func handleAuthorized(result: InboxReadyResult) async throws {
+        // Drain the backlog in batched form before streams start. Same
+        // motivation as `handleEnterForeground` — on cold start the
+        // network may have a large backlog (NSE didn't run, or the app
+        // was killed for a long time) and per-event stream catch-up
+        // would N-times the writes / observer fires / SwiftUI renders.
+        // The cursor is the same `lastWelcomeProcessed` UserDefaults
+        // value the NSE writes, so even cold start respects whatever the
+        // NSE has already processed in the background.
+        await runBatchCatchUp(client: result.client)
+
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(result))
         await startNetworkMonitoring()
         startAppLifecycleObservation()
-        if await appLifecycle.currentState != .active {
+        startRevocationObserver()
+        // .inactive is a transient state during launch (scene activating) and
+        // routine interruptions (control center, notifications). Only treat
+        // .background as a real background launch — otherwise we drop the
+        // libxmtp DB pool here, never receive a willEnterForeground (the OS
+        // doesn't post it on a fresh launch), and every worker spins on
+        // PoolNeedsConnection until the next process restart.
+        if await appLifecycle.currentState == .background {
             enqueueAction(.enterBackground)
         }
     }
@@ -679,6 +753,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleStop() async throws {
         Log.info("Stopping inbox with clientId \(initialClientId)...")
+        stopRevocationObserver()
 
         let clientToClose: (any XMTPClientProvider)?
         switch _state {
@@ -713,6 +788,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("App entering background, pausing sync for clientId \(initialClientId)...")
 
         await stopNetworkMonitoring()
+        stopRevocationObserver()
         await syncingManager?.pause()
 
         try result.client.dropLocalDatabaseConnection()
@@ -726,15 +802,129 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await result.client.reconnectLocalDatabase()
 
+        do {
+            try await assertInstallationActive(client: result.client)
+        } catch {
+            try? result.client.dropLocalDatabaseConnection()
+            throw error
+        }
+
+        // Drain the backlog in batched form before streams resume.
+        await runBatchCatchUp(client: result.client)
+
         await startNetworkMonitoring()
         await syncingManager?.resume()
 
         emitStateChange(.ready(result))
+        startRevocationObserver()
         Log.info("Inbox returned to ready state")
+    }
+
+    /// Probes the XMTP network for whether this device's installation is
+    /// still in the inbox's active set. Throws `DeviceReplacedError`
+    /// (terminal) if it isn't — typically meaning another paired device
+    /// revoked us from its `Devices` screen.
+    private func assertInstallationActive(client: any XMTPClientProvider) async throws {
+        if await XMTPInstallationStateChecker.isInstallationActive(
+            inboxId: client.inboxId,
+            installationId: client.installationId,
+            environment: environment
+        ) {
+            return
+        }
+        Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
+        throw DeviceReplacedError()
+    }
+
+    /// Observes `installationWasRevokedByPeer` (posted by `StreamProcessor`
+    /// when a `DeviceRemovedContent` self-DM arrives whose
+    /// `revokedInstallationId` matches this client). On match, transitions
+    /// the session to `.error(DeviceReplacedError)` — the same terminal
+    /// state the bootstrap / foreground checks land in. This replaces a
+    /// periodic XMTP-API poll with an event-driven path that's effectively
+    /// real-time as long as the device is online and streaming.
+    private func startRevocationObserver() {
+        stopRevocationObserver()
+        revocationObserver = NotificationCenter.default.addObserver(
+            forName: .installationWasRevokedByPeer,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.emitTerminalError(DeviceReplacedError())
+            }
+        }
+    }
+
+    private func stopRevocationObserver() {
+        if let revocationObserver {
+            NotificationCenter.default.removeObserver(revocationObserver)
+        }
+        revocationObserver = nil
+    }
+
+    private func emitTerminalError(_ error: any Error) {
+        emitStateChange(.error(error))
+    }
+
+    /// Drain the backlog of activity since the last catch-up frontier, in
+    /// batched form, before streams start or resume. Called from both
+    /// `handleAuthorized` (cold start) and `handleEnterForeground`
+    /// (foreground after background). Cursor is the same
+    /// `lastWelcomeProcessed` UserDefaults value the NSE writes after
+    /// each push-driven catch-up, so foreground/cold-start and NSE all
+    /// share the same frontier without double-processing.
+    ///
+    /// `nonisolated` so the non-Sendable `XMTPClientProvider` doesn't
+    /// cross the actor's isolation boundary on the way to
+    /// `syncingManager.runBatchCatchUp` (also nonisolated for the same
+    /// reason). `syncingManager` is captured locally so we don't need
+    /// to hop the actor for it either.
+    private nonisolated func runBatchCatchUp(client: any XMTPClientProvider) async {
+        let inboxId = client.inboxId
+        let cursor = Self.readLastCatchUpCursor(for: inboxId)
+        Log.info("[catchup] running batch since=\(cursor.map { "\($0)" } ?? "nil") for inbox=\(inboxId.prefix(8))")
+        // Don't advance the cursor unless we actually invoked the batch.
+        // `syncingManager` is nil when `AuthorizeInboxOperation` is configured
+        // with `startsStreamingServices: false` — silently advancing the
+        // cursor in that case would mark missed activity as "processed" and
+        // permanently skip it on the next foreground.
+        guard let syncingManager else {
+            Log.warning("[catchup] syncingManager nil, skipping batch (cursor unchanged)")
+            return
+        }
+        await syncingManager.runBatchCatchUp(client: client, since: cursor)
+        Self.writeLastCatchUpCursor(Date(), for: inboxId)
+    }
+
+    /// Persisted catch-up cursor shared with `MessagingService+PushNotifications`.
+    /// Same UserDefaults key — foreground, cold start, and NSE all update
+    /// it as they drain backlog, converging on the same frontier.
+    private static let catchUpCursorKeyPrefix: String = "convos.pushNotifications.lastWelcomeProcessed"
+
+    private static func readLastCatchUpCursor(for inboxId: String) -> Date? {
+        UserDefaults.standard.object(forKey: "\(catchUpCursorKeyPrefix).\(inboxId)") as? Date
+    }
+
+    private static func writeLastCatchUpCursor(_ date: Date?, for inboxId: String) {
+        UserDefaults.standard.set(date, forKey: "\(catchUpCursorKeyPrefix).\(inboxId)")
     }
 
     private func handleRetryFromError() async throws {
         try Task.checkCancellation()
+
+        // Terminal errors (e.g. `DeviceReplacedError`) cannot be cured by
+        // foreground retries — the only resolution is the user resetting
+        // the device. The observer layer (`StaleDeviceBanner`) handles
+        // that surface. Bail before the retry counter advances so a
+        // coincidence (transient refresh, race) doesn't accidentally
+        // land us back in `.ready` without the user ever seeing the
+        // banner.
+        if case let .error(error) = _state, error is TerminalSessionError {
+            Log.info("Not retrying terminal error: \(type(of: error))")
+            return
+        }
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
             Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
@@ -920,26 +1110,36 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 ReactionCodec(),
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
+                MultiRemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
                 InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
-                AssistantJoinRequestCodec(),
-                ConnectionGrantRequestCodec(),
+                AgentJoinRequestCodec(),
+                CloudConnectionGrantRequestCodec(),
+                ConnectionEventCodec(),
+                CapabilityRequestCodec(),
+                CapabilityRequestResultCodec(),
                 TypingIndicatorCodec(),
                 FocusModeControlCodec(),
                 StreamingTextCodec(),
                 StreamingClearCodec(),
                 ConversationSnapshotCodec(),
-                ReadReceiptCodec()
-            ],
+                ReadReceiptCodec(),
+                PairingMessageCodec(),
+                PairingJoinRequestCodec(),
+                IdentityShareCodec(),
+                DeviceRemovedCodec(),
+                ThinkingCodec(),
+                BuilderBundleManifestCodec()
+            ] + ConvosConnectionsXMTP.codecs(),
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
             deviceSyncEnabled: true,
-            maxDbPoolSize: 10,
-            minDbPoolSize: 3
+            dbPoolOptions: DbPoolOptions(maxPoolSize: 10, minPoolSize: 3)
         )
     }
 
@@ -958,20 +1158,17 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private func createXmtpClient(signingKey: SigningKey,
                                   options: ClientOptions) async throws -> any XMTPClientProvider {
         Log.info("Creating XMTP client...")
-        let client = try await Client.create(account: signingKey, options: options)
+        let client = try await xmtpClientFactory.create(signingKey, options)
         Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
         return client
     }
 
     private func buildXmtpClient(inboxId: String,
                                  identity: PublicIdentity,
+                                 signingKey: SigningKey,
                                  options: ClientOptions) async throws -> any XMTPClientProvider {
         Log.debug("Building XMTP client for \(inboxId)...")
-        let client = try await Client.build(
-            publicIdentity: identity,
-            options: options,
-            inboxId: inboxId
-        )
+        let client = try await xmtpClientFactory.build(inboxId, identity, signingKey, options)
         Log.debug("XMTP Client built.")
         return client
     }
@@ -1010,9 +1207,34 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
                 try Task.checkCancellation()
 
-                Log.debug("Authenticating with backend and storing JWT...")
-                _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
-                Log.info("Successfully authenticated with backend")
+                // Default path: SIWE auth. Loads the on-device identity,
+                // signs an EIP-4361 message with its Ethereum private key,
+                // exchanges for a JWT containing `accountId`. Registering
+                // the signing context with the API client BEFORE the call
+                // is what makes the 401 re-auth path and every subsequent
+                // authenticated request use the SIWE slot — without this
+                // the API client would silently fall back to legacy
+                // device-only auth on token expiry.
+                if let identity = try await identityStore.load() {
+                    let signing = BackendAuthSigningContext.make(from: identity.keys.privateKey)
+                    apiClient.updateSIWESigningContext(signing)
+                    Log.debug("Authenticating with backend via SIWE (address \(signing.address))...")
+                    let token = try await apiClient.authenticateWithSIWE(
+                        appCheckToken: appCheckToken,
+                        signing: signing
+                    )
+                    let accountId = BackendAuthProbe.extractAccountId(from: token) ?? "?"
+                    Log.info("Successfully authenticated with backend (SIWE, address=\(signing.address), accountId=\(accountId))")
+                } else {
+                    // No on-device identity yet: clear any stale signing
+                    // context and fall back to the legacy device-only
+                    // path. SIWE will run on the next attempt once an
+                    // identity is provisioned.
+                    apiClient.updateSIWESigningContext(nil)
+                    Log.debug("No identity yet; falling back to legacy device-only auth...")
+                    _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
+                    Log.info("Successfully authenticated with backend (legacy)")
+                }
                 return
             } catch is CancellationError {
                 throw CancellationError()

@@ -33,7 +33,8 @@ BUILD_CONFIG="${BITRISE_BUILD_CONFIG:-${BUILD_CONFIGURATION:-Release}}"
 
 echo "Build configuration: $BUILD_CONFIG"
 
-# Only use dev DSN for Dev CI builds, empty for Release/Prod
+# Dev builds use the dev DSN; Prod/Release builds use the prod DSN.
+# An unset DSN leaves Sentry disabled in the resulting build.
 if [[ "$BUILD_CONFIG" == "Dev" ]]; then
     # Dev CI build - use dev DSN if available
     if [[ -n "${SENTRY_DSN_DEV}" ]]; then
@@ -43,15 +44,22 @@ if [[ "$BUILD_CONFIG" == "Dev" ]]; then
         ESCAPED_SENTRY_DSN=$(swift_escape "${SENTRY_DSN:-}")
         echo "Dev CI build - using SENTRY_DSN (fallback)"
     fi
-elif [[ "$BUILD_CONFIG" == "Release" ]]; then
-    # Production build - explicitly disable Sentry
-    ESCAPED_SENTRY_DSN=""
-    echo "Production build - Sentry DSN set to empty"
+elif [[ "$BUILD_CONFIG" == "Release" || "$BUILD_CONFIG" == "Prod" ]]; then
+    # Production build - use prod DSN if available
+    if [[ -n "${SENTRY_DSN_PROD:-}" ]]; then
+        ESCAPED_SENTRY_DSN=$(swift_escape "${SENTRY_DSN_PROD}")
+        echo "Production build - using SENTRY_DSN_PROD"
+    else
+        ESCAPED_SENTRY_DSN=""
+        echo "Production build - SENTRY_DSN_PROD not set, Sentry disabled"
+    fi
 else
     # Unknown configuration - default to empty for safety
     ESCAPED_SENTRY_DSN=""
     echo "Unknown build configuration '$BUILD_CONFIG' - Sentry disabled for safety"
 fi
+
+ESCAPED_POSTHOG_API_KEY=$(swift_escape "${POSTHOG_API_KEY:-}")
 
 # Generate Secrets.swift WITHOUT exposing values in logs
 cat >"$SECRETS_FILE" <<EOF
@@ -68,6 +76,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$ESCAPED_XMTP_HOST"
     static let GATEWAY_URL: String = "$ESCAPED_GATEWAY_URL"
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
+    static let POSTHOG_API_KEY: String = "$ESCAPED_POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
     static let GIT_COMMIT_SHA: String = "$ESCAPED_GIT_SHA"
     static let AGENT_DEBUG_JWKS: String = ""
@@ -102,6 +111,12 @@ if [[ -n "$ESCAPED_SENTRY_DSN" ]]; then
     echo "  - SENTRY_DSN: (configured - not displayed for security)"
 else
     echo "  - SENTRY_DSN: (empty - Sentry disabled)"
+fi
+
+if [[ -n "$ESCAPED_POSTHOG_API_KEY" ]]; then
+    echo "  - POSTHOG_API_KEY: (configured - not displayed for security)"
+else
+    echo "  - POSTHOG_API_KEY: (empty - PostHog disabled)"
 fi
 
 echo ""

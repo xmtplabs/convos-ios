@@ -398,7 +398,7 @@ struct ChronologicalSortIdTests {
 
         try DBConversation(
             id: conversationId,
-                        clientConversationId: clientConversationId,
+            clientConversationId: clientConversationId,
             inviteTag: "tag-\(conversationId)",
             creatorId: currentInboxId,
             kind: .group,
@@ -418,7 +418,7 @@ struct ChronologicalSortIdTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAgent: false
         ).insert(db)
 
         try ConversationLocalState(
@@ -427,7 +427,9 @@ struct ChronologicalSortIdTests {
             isUnread: false,
             isUnreadUpdatedAt: Date(),
             isMuted: false,
-            pinnedOrder: nil
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
 
         try DBConversationMember(

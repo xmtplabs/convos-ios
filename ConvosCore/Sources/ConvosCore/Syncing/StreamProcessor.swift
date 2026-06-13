@@ -1,4 +1,7 @@
+import ConvosConnections
+import ConvosConnectionsXMTP
 import ConvosInvites
+import ConvosMetrics
 import Foundation
 import GRDB
 import UserNotifications
@@ -26,6 +29,14 @@ protocol StreamProcessorProtocol: Actor {
     ) async
 
     func reconcilePushSubscriptions(params: SyncClientParams, context: String) async
+
+    /// Drops every cached push-topic-set hash. Intended for the explicit
+    /// "Delete all data" / sign-out path where the caller wants to force the
+    /// next reconcile to hit the wire instead of debouncing. Day-to-day
+    /// identity rotation is already handled by partitioning the cache key
+    /// on inboxId / clientId, so callers should NOT invoke this on every
+    /// resume / foreground.
+    func clearPushSubscriptionCache() async
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
@@ -69,13 +80,16 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let pushTopicSubscriptionManager: any PushTopicSubscriptionManaging
+    private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
+    private let inboundFilter: InboundConversationFilter
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private let focusSessionWriter: any FocusSessionWriterProtocol
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
+    private let invocationRuntime: ConnectionInvocationRuntime?
 
     // MARK: - Initialization
 
@@ -84,22 +98,36 @@ actor StreamProcessor: StreamProcessorProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        notificationCenter: any UserNotificationCenterProtocol
+        notificationCenter: any UserNotificationCenterProtocol,
+        invocationRuntime: ConnectionInvocationRuntime? = nil,
+        coreActions: any CoreActions
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.pushTopicSubscriptionManager = PushTopicSubscriptionManager(
             identityStore: identityStore,
-            deviceRegistrationManager: deviceRegistrationManager
+            deviceRegistrationManager: deviceRegistrationManager,
+            cache: PushTopicSubscriptionCache(),
+            // Closure captures the configured singleton so cache keys partition
+            // by the live APNS token. Token rotation forces a miss; the new
+            // `.convosPushTokenDidChange` listener (D14) then drives a fresh
+            // reconcile through the wire.
+            pushTokenProvider: { PushNotificationRegistrar.token }
         )
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
+        self.invocationRuntime = invocationRuntime
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            messageWriter: messageWriter
+            messageWriter: messageWriter,
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            ),
+            coreActions: coreActions
         )
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
@@ -108,6 +136,8 @@ actor StreamProcessor: StreamProcessorProtocol {
             databaseWriter: databaseWriter
         )
         self.focusSessionWriter = FocusSessionWriter(databaseWriter: databaseWriter)
+        self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
+        self.inboundFilter = InboundConversationFilter()
     }
 
     // MARK: - Public Interface
@@ -137,8 +167,24 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
-        guard try await shouldProcessConversation(conversation, params: params) else { return }
+        let decision = try await decideInboundConversation(conversation, params: params)
+        switch decision {
+        case .reject:
+            return
+        case .deliver:
+            try await persistDeliveredConversation(
+                conversation,
+                params: params,
+                clientConversationId: clientConversationId
+            )
+        }
+    }
 
+    private func persistDeliveredConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams,
+        clientConversationId: String?
+    ) async throws {
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
@@ -156,13 +202,21 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
+        let storedConversation = try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
+
+        // The user deleted this conversation while its invite was still
+        // verifying -- it arrived denied and stays hidden, so skip the
+        // profile snapshot and don't subscribe its push topic.
+        guard storedConversation.consent != .denied else {
+            Log.info("Skipping post-store side effects for denied conversation \(conversation.id)")
+            return
+        }
 
         if creatorInboxId == params.client.inboxId {
             await sendInitialProfileSnapshot(group: conversation)
@@ -181,6 +235,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        if handleDeviceRemovedFastPath(message: message, params: params) { return }
+
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(
@@ -210,6 +266,24 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    // Short-circuit row-independent events so a catch-up burst of
+                    // typing indicators or read receipts doesn't re-save the conversation
+                    // row N times for no state change. Read receipts persist to
+                    // DBConversationReadReceipt independently; typing indicators don't
+                    // write at all. Explode/profile/real-message paths below still
+                    // depend on a fresh row, so they stay downstream of store().
+                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
+                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
+                        return
+                    }
+
+                    if await processBuilderBundleManifest(message, conversationId: conversation.id) {
+                        return
+                    }
+
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -231,7 +305,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
+                    if await processThinking(message, conversationId: conversation.id, params: params) {
                         return
                     }
 
@@ -239,16 +313,23 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
-                        return
-                    }
+                    await invocationRuntime?.process(
+                        message: message,
+                        conversationId: conversation.id,
+                        client: params.client
+                    )
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    // Mark unread if needed
-                    if result.contentType.marksConversationAsUnread,
-                       conversation.id != activeConversationId,
-                       message.senderInboxId != params.client.inboxId {
+                    // Mark unread if needed (shared predicate with the
+                    // catch-up paths so the gate can't drift).
+                    if marksConversationUnread(
+                        contentType: result.contentType,
+                        senderInboxId: message.senderInboxId,
+                        currentInboxId: params.client.inboxId,
+                        conversationId: conversation.id,
+                        activeConversationId: activeConversationId
+                    ) {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
 
@@ -276,7 +357,8 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
-        Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
+        let reason = error.reason ?? "none"
+        Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId), reason: \(reason)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
     }
 
@@ -322,6 +404,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Profile Messages
 
+    /// Typing indicators are ephemeral UI signals — "X is typing" has no
+    /// meaning outside the live window. When streams reconnect after the
+    /// app was backgrounded or killed, libxmtp replays the backlog and
+    /// historical typing indicators arrive alongside real messages. Without
+    /// a freshness gate the UI would flash "X is typing" for someone who
+    /// finished typing minutes ago. Drop anything older than the live
+    /// window; the indicator's natural debounce on the sender side keeps
+    /// this well above one round-trip of normal latency.
+    private static let typingIndicatorLiveWindow: TimeInterval = 10
+
     private func processTypingIndicator(
         _ message: DecodedMessage,
         conversationId: String,
@@ -332,6 +424,12 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         guard message.senderInboxId != params.client.inboxId else {
+            return true
+        }
+
+        let ageSeconds = Date().timeIntervalSince1970 - (TimeInterval(message.sentAtNs) / 1_000_000_000)
+        guard ageSeconds <= Self.typingIndicatorLiveWindow else {
+            Log.debug("Dropping stale typing indicator from \(message.senderInboxId) (age=\(Int(ageSeconds))s)")
             return true
         }
 
@@ -409,20 +507,34 @@ actor StreamProcessor: StreamProcessorProtocol {
         return false
     }
 
-    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
-        guard let contentType = try? message.encodedContent.type else {
+    private func processThinking(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        guard message.isThinking else {
             return false
         }
 
-        if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdate(message, conversationId: conversationId)
-            return true
-        } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshot(message, conversationId: conversationId)
+        guard message.senderInboxId != params.client.inboxId else {
             return true
         }
 
-        return false
+        guard let content = try? ThinkingCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode Thinking from message \(message.id)")
+            return true
+        }
+
+        Log.info("[Thinking] received state=\(content.state.rawValue) target=\(content.targetMessageId) sender=\(message.senderInboxId) conversation=\(conversationId)")
+
+        await thinkingSessionWriter.apply(
+            event: content,
+            momentId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
+        return true
     }
 
     private func processProfileUpdate(_ message: DecodedMessage, conversationId: String) async {
@@ -430,6 +542,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             Log.warning("Failed to decode ProfileUpdate from message \(message.id)")
             return
         }
+        let receivedAt = message.sentAt
 
         let senderInboxId = message.senderInboxId
         guard !senderInboxId.isEmpty else {
@@ -488,8 +601,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try profile.save(db)
-                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -502,6 +615,9 @@ actor StreamProcessor: StreamProcessorProtocol {
             Log.warning("Failed to decode ProfileSnapshot from message \(message.id)")
             return
         }
+        // Derived from `message.sentAt`, not wall-clock `Date()`.
+        // Mirrors `processProfileUpdate`.
+        let receivedAt = message.sentAt
 
         do {
             try await databaseWriter.write { db in
@@ -560,8 +676,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try profile.save(db)
-                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
@@ -570,15 +686,15 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
-    private static func markConversationHasVerifiedAssistantIfNeeded(
+    private static func markConversationHasVerifiedAgentIfNeeded(
         profile: DBMemberProfile,
         conversationId: String,
         db: Database
     ) throws {
-        guard profile.agentVerification.isConvosAssistant,
+        guard profile.agentVerification.isConvosAgent,
               let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAssistant else { return }
-        try conversation.with(hasHadVerifiedAssistant: true).save(db)
+              !conversation.hasHadVerifiedAgent else { return }
+        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
@@ -627,10 +743,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func getSenderDisplayName(senderInboxId: String, conversationId: String) async -> String {
         do {
-            let profile = try await databaseReader.read { db in
-                try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
+            // The contact's display name (the user's global profile snapshot
+            // for this inbox) wins over the per-conversation profile name,
+            // mirroring `Profile.formattedNamesString(memberNameOverride:)`.
+            let name: String? = try await databaseReader.read { db in
+                if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: senderInboxId) {
+                    return contactName
+                }
+                return try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)?.name
             }
-            if let name = profile?.name, !name.isEmpty {
+            if let name, !name.isEmpty {
                 return name
             }
         } catch {
@@ -687,7 +809,15 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     /// Checks if a conversation should be processed based on its consent state.
-    /// If consent is unknown but there's an outgoing join request, updates consent to allowed.
+    /// If consent is unknown but there's an outgoing join request, updates
+    /// consent to allowed.
+    ///
+    /// Used by the message-stream path (`processMessage` → group case) to
+    /// gate whether messages from a particular conversation should be
+    /// processed. This intentionally does not consult the contact list or
+    /// block list — blocking only affects new inbound conversation
+    /// invitations, not in-group messages from an already-accepted sender.
+    /// New-conversation arrival uses `decideInboundConversation`.
     /// - Parameters:
     ///   - conversation: The conversation to check
     ///   - params: The sync client parameters
@@ -720,11 +850,78 @@ actor StreamProcessor: StreamProcessorProtocol {
         return consentState == .allowed
     }
 
+    /// Returns the inbound-conversation decision (deliver / reject) for a
+    /// NEW inbound conversation. `processConversation` uses this to decide
+    /// persistence. The message-stream path uses `shouldProcessConversation`
+    /// so blocking does not silence in-group messages.
+    ///
+    /// Consent is the source of truth for feed visibility: a conversation
+    /// reads as `.allowed` only once the local user has consented to it.
+    /// As a side effect, this bumps XMTP consent `.unknown -> .allowed`
+    /// when the local user has either requested to join (invite handshake)
+    /// or already has the creator as a non-blocked contact. Unsolicited
+    /// strangers stay `.unknown` (delivered but hidden from the feed) until
+    /// the creator becomes a contact, at which point `SyncingManager`'s
+    /// consent promoter flips them.
+    private func decideInboundConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams
+    ) async throws -> InboundConversationDecision {
+        let consent = try conversation.consentState().asConsent
+        let creatorInboxId = try await conversation.creatorInboxId()
+        let clientInboxId = params.client.inboxId
+
+        // Only do the (potentially expensive) outgoing-join-request lookup
+        // when the conversation is still unknown and not self-created.
+        let hasOutgoingJoinRequest: Bool
+        if consent == .unknown && creatorInboxId != clientInboxId {
+            hasOutgoingJoinRequest = try await joinRequestsManager.hasOutgoingJoinRequest(
+                for: conversation,
+                client: params.client
+            )
+        } else {
+            hasOutgoingJoinRequest = false
+        }
+
+        let decision = inboundFilter.decide(
+            consentState: consent,
+            creatorInboxId: creatorInboxId,
+            clientInboxId: clientInboxId,
+            hasOutgoingJoinRequest: hasOutgoingJoinRequest
+        )
+
+        // Bump XMTP consent to `.allowed` only when the local user has
+        // consented to this conversation - either by requesting to join,
+        // or because the creator is already a non-blocked contact. Strangers
+        // are delivered but left `.unknown` so they stay out of the feed.
+        if decision == .deliver, consent == .unknown, creatorInboxId != clientInboxId {
+            let creatorIsContact = try await isNonBlockedContact(creatorInboxId)
+            if hasOutgoingJoinRequest || creatorIsContact {
+                try await conversation.updateConsentState(state: .allowed)
+            }
+        }
+
+        return decision
+    }
+
+    /// True when `inboxId` is a stored contact that is not blocked. Mirrors
+    /// the join used by the feed query and the consent promoter.
+    private func isNonBlockedContact(_ inboxId: String) async throws -> Bool {
+        try await databaseReader.read { db in
+            try DBContact
+                .filter(DBContact.Columns.inboxId == inboxId)
+                .filter(DBContact.Columns.blockedAt == nil)
+                .fetchCount(db) > 0
+        }
+    }
+
     // MARK: - Push Notifications
 
     func reconcilePushSubscriptions(params: SyncClientParams, context: String) async {
         await pushTopicSubscriptionManager.reconcilePushTopics(params: params, context: context)
     }
+
+    func clearPushSubscriptionCache() async { await pushTopicSubscriptionManager.clearCache() }
 
     private func handleJoinRequestOutcome(
         _ outcome: InviteJoinRequestOutcome,
@@ -746,5 +943,86 @@ actor StreamProcessor: StreamProcessorProtocol {
                 context: context
             )
         }
+    }
+}
+
+// MARK: - Builder Bundle Manifest
+
+extension StreamProcessor {
+    /// Persist the hidden bundle ids a `BuilderBundleManifest` carries so the
+    /// messages list filters the agent brief out (see
+    /// `BuilderBundleHiddenMessagesRepository`). Returns `true` when the message
+    /// was a manifest (handled), so the caller stops further routing.
+    func processBuilderBundleManifest(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard message.isBuilderBundleManifest else {
+            return false
+        }
+        guard let manifest = try? BuilderBundleManifestCodec().decode(content: message.encodedContent),
+              !manifest.messageIds.isEmpty else {
+            return true
+        }
+        do {
+            try await databaseWriter.write { db in
+                for messageId in manifest.messageIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationId, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
+        }
+        return true
+    }
+
+    /// Routes a profile message (update or snapshot) to its handler. Returns
+    /// `true` when handled, so the caller stops further routing -- profiles are
+    /// applied by the profile handlers, never stored as chat rows.
+    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else {
+            return false
+        }
+        if contentType == ContentTypeProfileUpdate {
+            await processProfileUpdate(message, conversationId: conversationId)
+            return true
+        } else if contentType == ContentTypeProfileSnapshot {
+            await processProfileSnapshot(message, conversationId: conversationId)
+            return true
+        }
+        return false
+    }
+}
+
+// MARK: - Device Revocation
+
+extension StreamProcessor {
+    /// Pre-conversation-lookup fast path: `DeviceRemovedContent` doesn't need
+    /// a conversation context — it's a system signal from the user's other
+    /// installation saying "you've been revoked". Check it before the
+    /// (potentially failing) findConversation call so a missing-conversation
+    /// race doesn't suppress the banner trigger.
+    ///
+    /// Sender check: the signal is only meaningful when it comes from one
+    /// of *our own* installations (the paired peer that performed the
+    /// revoke). Without this, any participant in any shared conversation
+    /// could forge a `DeviceRemovedContent` with our installationId and
+    /// falsely trip the stale-device banner.
+    ///
+    /// Returns true when the message was handled and the caller should
+    /// stop further processing.
+    func handleDeviceRemovedFastPath(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        guard let typeId = try? message.encodedContent.type.typeID,
+              typeId == ContentTypeDeviceRemoved.typeID,
+              let removal = try? message.content() as DeviceRemovedContent,
+              removal.revokedInstallationId == params.client.installationId,
+              message.senderInboxId == params.client.inboxId else {
+            return false
+        }
+        Log.info("StreamProcessor: received DeviceRemoved for our own installation \(params.client.installationId) — posting revocation notification")
+        NotificationCenter.default.post(
+            name: .installationWasRevokedByPeer,
+            object: nil,
+            userInfo: ["revokedInstallationId": removal.revokedInstallationId]
+        )
+        return true
     }
 }

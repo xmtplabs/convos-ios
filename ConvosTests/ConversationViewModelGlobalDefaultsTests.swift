@@ -1,7 +1,8 @@
 import Combine
-import XCTest
-import ConvosCore
 @testable import Convos
+import ConvosConnections
+import ConvosCore
+import XCTest
 
 @MainActor
 final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
@@ -39,6 +40,74 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         )
 
         XCTAssertFalse(viewModel.includeInfoInPublicPreview)
+    }
+
+    func testRevealModeDefaultsToOffWhenNoPerConversationPreference() async throws {
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: nil),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "no-prefs-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertTrue(viewModel.autoRevealPhotos)
+        XCTAssertFalse(viewModel.shouldBlurPhotos)
+    }
+
+    func testRevealModeFallsBackToGlobalDefaultWhenBlurEnabledGlobally() async throws {
+        GlobalConvoDefaults.shared.autoRevealPhotos = false
+
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: nil),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "global-blur-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertFalse(viewModel.autoRevealPhotos)
+        XCTAssertTrue(viewModel.shouldBlurPhotos)
+    }
+
+    func testExplicitConversationPreferenceOverridesGlobalDefault() async throws {
+        let preferences = PhotoPreferences(
+            conversationId: "explicit-prefs-conversation",
+            autoReveal: false,
+            hasRevealedFirst: false,
+            sendReadReceipts: nil
+        )
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            photoPreferencesRepository: MockPhotoPreferencesRepository(preferences: preferences),
+            photoPreferencesWriter: MockPhotoPreferencesWriter()
+        )
+
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "explicit-prefs-conversation", name: "Real"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertFalse(viewModel.autoRevealPhotos)
+        XCTAssertTrue(viewModel.shouldBlurPhotos)
     }
 
     func testRevealPreferenceSeededWhenConversationReadyAfterCreation() async throws {
@@ -224,16 +293,18 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.inboxId(for: conversationId)
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
-    }
-
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await base.redeemInviteCode(code)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await base.fetchInviteCodeStatus(code)
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await base.requestAgentJoin(
+            slug: slug,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode
+        )
     }
 
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
@@ -248,8 +319,60 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.voiceMemoTranscriptionService()
     }
 
-    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        base.assistantFilesLinksRepository(for: conversationId)
+    func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        base.agentFilesLinksRepository(for: conversationId)
+    }
+
+    func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        base.agentBuilderSummaryWriter()
+    }
+
+    func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        base.agentBuilderSummaryRepository()
+    }
+
+    func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        base.builderBundleHiddenMessagesRepository()
+    }
+
+    func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        base.thinkingSessionRepository()
+    }
+
+    func connectionEnablementStore() -> any EnablementStore {
+        base.connectionEnablementStore()
+    }
+
+    func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        base.deviceDataSink(for: kind)
+    }
+
+    func joinerPairingService() -> any PairingServiceProtocol {
+        base.joinerPairingService()
+    }
+
+    func refreshAfterPairingCompleted() async {
+        await base.refreshAfterPairingCompleted()
+    }
+
+    func hasAnyUsedConversations() async -> Bool {
+        await base.hasAnyUsedConversations()
+    }
+
+    func commitClaimedConversation(id conversationId: String) async {
+        await base.commitClaimedConversation(id: conversationId)
+    }
+
+    func registerClaimedConversation(id conversationId: String) async {
+        await base.registerClaimedConversation(id: conversationId)
+    }
+
+    func releaseClaimedConversation(id conversationId: String) async {
+        await base.releaseClaimedConversation(id: conversationId)
+    }
+
+    func discardClaimedConversation(id conversationId: String) async {
+        await base.discardClaimedConversation(id: conversationId)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
@@ -268,11 +391,31 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.makeAssetRenewalManager()
     }
 
-    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol {
-        base.connectionManager(callbackURLScheme: callbackURLScheme)
+    func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol {
+        base.cloudConnectionManager(callbackURLScheme: callbackURLScheme)
     }
 
-    func connectionRepository() -> any ConnectionRepositoryProtocol {
-        base.connectionRepository()
+    func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        base.cloudConnectionRepository()
+    }
+
+    func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        base.capabilityProviderRegistry()
+    }
+
+    func capabilityResolver() -> any CapabilityResolver {
+        base.capabilityResolver()
+    }
+
+    func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        base.capabilityRequestRepository(for: conversationId)
+    }
+
+    func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        base.deviceConnectionAuthorizer()
+    }
+
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        base.capabilityResolutionsRepository(for: conversationId)
     }
 }

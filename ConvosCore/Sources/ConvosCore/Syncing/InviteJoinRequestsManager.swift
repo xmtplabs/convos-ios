@@ -22,6 +22,7 @@ enum InviteJoinRequestOutcome: Sendable {
     case accepted(JoinRequestResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String)
     case noJoinRequest
 
     var result: JoinRequestResult? {
@@ -37,6 +38,8 @@ enum InviteJoinRequestOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
+        case .alreadyMember(let dmConversationId, _):
+            return dmConversationId
         case .noJoinRequest:
             return nil
         }
@@ -44,7 +47,7 @@ enum InviteJoinRequestOutcome: Sendable {
 
     var shouldKeepDMSubscribed: Bool {
         switch self {
-        case .accepted, .benignFailure:
+        case .accepted, .benignFailure, .alreadyMember:
             return true
         case .malicious, .noJoinRequest:
             return false
@@ -82,7 +85,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
-         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()) {
+         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+         handledRequestStore: (any HandledJoinRequestStoreProtocol)? = nil) {
         self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
@@ -91,7 +95,11 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 }
                 return identity.keys.privateKey.secp256K1.bytes
             },
-            tagStorage: tagStorage
+            tagStorage: tagStorage,
+            // The persistent ledger is what keeps an already-honored join
+            // request inert across passes and processes; every production
+            // caller funnels through this default.
+            handledRequestStore: handledRequestStore ?? DatabaseHandledJoinRequestStore(databaseWriter: databaseWriter)
         )
     }
 
@@ -135,8 +143,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         since: Date?,
         client: AnyClientProvider
     ) async -> [InviteJoinRequestOutcome] {
+        let effectiveSince = Self.effectiveCatchUpSince(since: since, now: Date())
         let outcomes = await coordinator.processJoinRequestOutcomes(
-            since: since,
+            since: effectiveSince,
             client: InviteClientProviderAdapter(client)
         )
         var mapped: [InviteJoinRequestOutcome] = []
@@ -193,12 +202,15 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                     memberKind: memberKind,
                     metadata: profileMetadata
                 )
-                try dbProfile.save(db)
+                // Note: `Date()` here rather than the message's `sentAtNs`
+                // because `JoinResult` doesn't carry the original timestamp.
+                // Tracked as a follow-up — see the contacts MVP plan.
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
-                if dbProfile.agentVerification.isConvosAssistant,
+                if dbProfile.agentVerification.isConvosAgent,
                    let conversation = try DBConversation.fetchOne(db, id: result.conversationId),
-                   !conversation.hasHadVerifiedAssistant {
-                    try conversation.with(hasHadVerifiedAssistant: true).save(db)
+                   !conversation.hasHadVerifiedAgent {
+                    try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }
             Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")
@@ -240,6 +252,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
+            )
+        case let .alreadyMember(dmConversationId, joinerInboxId):
+            Log.debug("Join request for \(joinerInboxId) already handled by another pass (DM \(dmConversationId))")
+            return .alreadyMember(
+                dmConversationId: dmConversationId,
+                joinerInboxId: joinerInboxId
             )
         case .noJoinRequest:
             return .noJoinRequest
@@ -314,5 +332,22 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 focusedInboxId: session.focusedInboxId
             )
         }
+    }
+
+    /// A nil or very old cursor (fresh install, restore, long-dormant
+    /// device) would revalidate every historical join request in every
+    /// DM and reply with stale invite_join_error messages to joiners
+    /// whose requests died long ago. Joiners give up within minutes, so
+    /// bound the sweep to a recent window.
+    static func effectiveCatchUpSince(since: Date?, now: Date) -> Date {
+        let oldestUsefulRequestDate = now.addingTimeInterval(-Constant.maxCatchUpWindow)
+        return max(since ?? .distantPast, oldestUsefulRequestDate)
+    }
+
+    private enum Constant {
+        /// Oldest join request a catch-up pass will still act on. Joining
+        /// clients time out within minutes, so anything older only produces
+        /// noise (and stale error replies) if revalidated.
+        static let maxCatchUpWindow: TimeInterval = 24 * 60 * 60
     }
 }

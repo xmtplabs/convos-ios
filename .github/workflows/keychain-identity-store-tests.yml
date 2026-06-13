@@ -63,7 +63,7 @@ jobs:
           xcodebuild test \
             -project Convos.xcodeproj \
             -scheme KeychainIdentityStoreTests \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -enableCodeCoverage YES \
             -skipPackagePluginValidation \
             -resultBundlePath TestResults.xcresult \

@@ -2,6 +2,7 @@
 import UIKit
 #endif
 import Combine
+import ConvosConnections
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -128,8 +129,34 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
-    public func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
+    public func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         MockConnectionGrantWriter()
+    }
+
+    public func connectionServicesStore() -> any ConnectionServicesStoreProtocol {
+        ConnectionServicesStore(fetchServices: { CloudConnectionsAPI.ServicesResponse(services: []) })
+    }
+
+    public func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        MockConnectionEventWriter()
+    }
+
+    public func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        MockCapabilityRequestResultWriter()
+    }
+
+    // MARK: - Contacts
+
+    public func contactsRepository() -> any ContactsRepositoryProtocol {
+        MockContactsRepository()
+    }
+
+    public func contactsWriter() -> any ContactsWriterProtocol {
+        MockContactsWriter()
+    }
+
+    public func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
+        MockContactSyncCoordinator()
     }
 
     public func uploadImage(data: Data, filename: String) async throws -> String {
@@ -160,5 +187,52 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func sendStreamingClear(_ payload: StreamingClear, for conversationId: String) async throws {
+
+    public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
+    }
+
+    public func initiatorPairingService() async throws -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        InstallationsSnapshot(inboxId: "mock-inbox", currentInstallationId: "mock-installation", installations: [])
+    }
+
+    public func broadcastProfileSnapshotsToAllGroups() async -> Int { 0 }
+
+    public func revokeOtherInstallations() async throws -> [String] {
+        []
+    }
+
+    public func revokeInstallation(installationId: String) async throws {
+    }
+}
+
+public final class MockConnectionEventWriter: ConnectionEventWriterProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
+
+    public func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
+}
+
+public final class MockCapabilityRequestResultWriter: CapabilityRequestResultWriterProtocol, @unchecked Sendable {
+    public private(set) var sentResults: [(result: CapabilityRequestResult, conversationId: String)] = []
+
+    public init() {}
+
+    public func sendResult(_ result: CapabilityRequestResult, in conversationId: String) async throws {
+        sentResults.append((result: result, conversationId: conversationId))
     }
 }

@@ -1,10 +1,12 @@
 import ConvosCore
+import LinkPresentation
 import Photos
 import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
     let shouldBlurPhotos: Bool
+    var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
@@ -24,6 +26,8 @@ struct MessageContextMenuOverlay: View {
     @State private var isDragDismissing: Bool = false
     @State private var isPoofDismissing: Bool = false
     @State private var keyboardHeight: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -121,11 +125,20 @@ struct MessageContextMenuOverlay: View {
                 height: state.bubbleFrame.height
             )
             let isPhoto: Bool = photoAttachment != nil
+            // HTML tiles are fixed 160pt squares, not full-bleed photos; the
+            // photo layout would shrink and recenter them, so keep them on
+            // the text-bubble path where the tile holds its size and place.
+            let isHTMLTile: Bool = photoAttachment?.isHTMLFile == true
+            let usesPhotoLayout: Bool = isPhoto && !isHTMLTile && !state.isReplyParent
+            let menuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
+                ? C.photoMenuEstimatedHeight
+                : C.textMenuEstimatedHeight
             let endBubble = endBubbleRect(
                 source: localBubble,
                 screenSize: screenSize,
                 safeTop: safeTop,
-                isPhoto: isPhoto && !state.isReplyParent
+                isPhoto: usesPhotoLayout,
+                menuHeight: menuEstimatedHeight
             )
             let activeBubble: CGRect = appeared ? endBubble : localBubble
             let keyboardTop: CGFloat = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
@@ -136,14 +149,16 @@ struct MessageContextMenuOverlay: View {
             ZStack(alignment: .topLeading) {
                 backgroundDimming
 
-                reactionsBar(
-                    messageId: message.messageId,
-                    bubbleRect: activeBubble,
-                    sourceBubble: localBubble,
-                    keyboardAdjustment: keyboardAdjustment,
-                    minBarY: safeTop
-                )
-                .zIndex(1)
+                if !isReadOnly {
+                    reactionsBar(
+                        messageId: message.messageId,
+                        bubbleRect: activeBubble,
+                        sourceBubble: localBubble,
+                        keyboardAdjustment: keyboardAdjustment,
+                        minBarY: safeTop
+                    )
+                    .zIndex(1)
+                }
 
                 actionMenu(
                     message: message,
@@ -249,85 +264,28 @@ struct MessageContextMenuOverlay: View {
     }
 
     @ViewBuilder
+    private func reactionsBarMask(readerHeight: CGFloat) -> some View {
+        let gradientWidth: CGFloat = readerHeight * 0.3
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: gradientWidth)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
     private func reactionsBarContent(messageId: String, width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
             ZStack(alignment: .leading) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
-                            emojiButton(emoji: emoji, index: index, messageId: messageId)
-                        }
-                    }
-                    .padding(.horizontal, C.padding)
-                }
-                .frame(height: reader.size.height)
-                .scrollBounceBehavior(.basedOnSize)
-                .contentMargins(.trailing, readerHeight, for: .scrollContent)
-                .mask(
-                    HStack(spacing: 0) {
-                        Rectangle().fill(.black)
-                        LinearGradient(
-                            colors: [.black, .black.opacity(0)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: readerHeight * 0.3)
-                        Rectangle().fill(.clear)
-                            .frame(width: readerHeight)
-                    }
-                )
-
-                HStack(spacing: 0) {
-                    Spacer()
-
-                    ZStack {
-                        Text(selectedEmoji ?? customEmoji ?? "")
-                            .font(.system(size: C.selectedEmojiFontSize))
-                            .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
-                            .scaleEffect(
-                                popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
-                            )
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
-                            .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
-
-                        Image(systemName: "face.smiling")
-                            .font(.system(size: C.faceSmilingFontSize))
-                            .foregroundStyle(.colorTextSecondary)
-                            .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
-                            .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
-                            .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
-                    }
-                    .frame(width: reader.size.height, height: reader.size.height)
-
-                    let plusAction = {
-                        withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
-                            drawerExpanded.toggle()
-                            showingEmojiPicker = !drawerExpanded
-                        }
-                    }
-                    Button(action: plusAction) {
-                        Image(systemName: "plus")
-                            .font(.system(size: C.plusIconFontSize))
-                            .padding(C.padding)
-                            .tint(.colorTextSecondary)
-                            .offset(x: !showMoreAppeared ? 40 : 0)
-                            .opacity(!showMoreAppeared ? 0 : 1)
-                            .animation(
-                                .spring(response: 0.29, dampingFraction: 0.7),
-                                value: showMoreAppeared
-                            )
-                            .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .frame(minWidth: readerHeight, minHeight: readerHeight)
-                    .padding(.horizontal, C.plusHorizontalPadding)
-                    .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
-                }
+                reactionsScrollView(messageId: messageId, reader: reader, readerHeight: readerHeight)
+                reactionsTrailingControls(reader: reader, readerHeight: readerHeight)
             }
             .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         }
@@ -358,7 +316,8 @@ struct MessageContextMenuOverlay: View {
         source: CGRect,
         screenSize: CGSize,
         safeTop: CGFloat,
-        isPhoto: Bool = false
+        isPhoto: Bool = false,
+        menuHeight: CGFloat = C.textMenuEstimatedHeight
     ) -> CGRect {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
@@ -366,7 +325,6 @@ struct MessageContextMenuOverlay: View {
         var endWidth: CGFloat = source.width - (photoInset * 2)
         var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
 
-        let menuHeight: CGFloat = isPhoto ? C.photoMenuEstimatedHeight : C.textMenuEstimatedHeight
         let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.verticalBreathingRoom
         let maxContentHeight: CGFloat = screenSize.height - minY - bottomPadding - C.verticalBreathingRoom
 
@@ -444,6 +402,9 @@ struct MessageContextMenuOverlay: View {
                     onTapAvatar: nil
                 )
 
+            case .agentShare(let agentShare):
+                AgentShareBubble(agentShare: agentShare)
+
             case .linkPreview(let preview):
                 LinkPreviewBubbleView(
                     preview: preview,
@@ -514,14 +475,16 @@ struct MessageContextMenuOverlay: View {
                         .padding(.bottom, 8)
                 }
 
-                let replyAction = {
-                    let msg = message
-                    dismissMenu()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        onReply(msg)
+                if !isReadOnly {
+                    let replyAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            onReply(msg)
+                        }
                     }
+                    ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
                 }
-                ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
                     let copyAction = {
@@ -532,35 +495,43 @@ struct MessageContextMenuOverlay: View {
                 }
 
                 if let attachment = photoAttachment {
-                    let saveAction = {
-                        if attachment.mediaType == .video {
-                            saveVideoToPhotoLibrary(key: attachment.key)
-                        } else {
-                            saveAttachmentToPhotoLibrary(key: attachment.key)
+                    if attachment.isHTMLFile {
+                        let senderName = message.sender.profile.displayName
+                        let appearance = colorScheme.uiUserInterfaceStyle
+                        let shareAction = {
+                            shareRenderedAttachment(attachment, fallbackTitle: senderName, appearance: appearance)
+                            dismissMenu()
                         }
+                        ContextMenuRow(icon: "square.and.arrow.up", title: "Share", action: shareAction)
+                    }
+
+                    let saveAction = {
+                        saveAttachment(attachment)
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
 
-                    let isBlurred = shouldBlurPhoto
-                    let key = attachment.key
-                    let revealCallback = onPhotoRevealed
-                    let hideCallback = onPhotoHidden
-                    let toggleAction = {
-                        if isBlurred {
-                            blurOverride = false
-                            revealCallback(key)
-                        } else {
-                            blurOverride = true
-                            hideCallback(key)
+                    if attachment.supportsBlur {
+                        let isBlurred = shouldBlurPhoto
+                        let key = attachment.key
+                        let revealCallback = onPhotoRevealed
+                        let hideCallback = onPhotoHidden
+                        let toggleAction = {
+                            if isBlurred {
+                                blurOverride = false
+                                revealCallback(key)
+                            } else {
+                                blurOverride = true
+                                hideCallback(key)
+                            }
+                            dismissMenu(afterStateChange: true)
                         }
-                        dismissMenu(afterStateChange: true)
+                        ContextMenuRow(
+                            icon: isBlurred ? "eye" : "eye.slash",
+                            title: isBlurred ? "Reveal" : "Blur",
+                            action: toggleAction
+                        )
                     }
-                    ContextMenuRow(
-                        icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Blur",
-                        action: toggleAction
-                    )
                 }
             }
             .padding(.vertical, 10)
@@ -668,6 +639,19 @@ struct MessageContextMenuOverlay: View {
                     isLoading: false
                 )
             }
+        } else if attachment.isHTMLFile {
+            // The tile rests at its natural corner radius in the list, so
+            // keep it constant during the menu transition instead of
+            // animating from square; only reply-parent thumbnails shrink it.
+            let radius: CGFloat? = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : nil
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: profile,
+                agentVerification: message?.sender.agentVerification ?? .unverified,
+                cornerRadiusOverride: radius
+            )
         } else if attachment.mediaType == .file {
             FileAttachmentBubble(
                 attachment: attachment,
@@ -676,14 +660,114 @@ struct MessageContextMenuOverlay: View {
                 profile: profile
             )
         } else {
+            // Match the list's resting corner radius (rounded on regular
+            // width, full bleed on compact) so dismissal lands seamlessly.
+            let restingRadius: CGFloat = horizontalSizeClass == .regular ? DesignConstants.CornerRadius.medium : 0
+            let previewRadius: CGFloat = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : (appeared ? C.photoCornerRadius : restingRadius)
             ContextMenuPhotoPreview(
                 attachmentKey: attachment.key,
                 shouldBlur: shouldBlurPhoto,
-                cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+                cornerRadius: previewRadius,
                 isVideo: attachment.mediaType == .video,
                 isReplyParent: state.isReplyParent
             )
         }
+    }
+}
+
+// MARK: - Reactions Bar Subviews
+
+private extension MessageContextMenuOverlay {
+    @ViewBuilder
+    func reactionsScrollView(messageId: String, reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
+                    emojiButton(emoji: emoji, index: index, messageId: messageId)
+                }
+            }
+            .padding(.horizontal, C.padding)
+        }
+        .frame(height: reader.size.height)
+        .scrollBounceBehavior(.basedOnSize)
+        .contentMargins(.trailing, readerHeight, for: .scrollContent)
+        .mask(reactionsScrollMask(readerHeight: readerHeight))
+    }
+
+    func reactionsScrollMask(readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: readerHeight * 0.3)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
+    func reactionsTrailingControls(reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Spacer()
+            selectedEmojiPreview
+                .frame(width: reader.size.height, height: reader.size.height)
+            plusButton
+                .frame(minWidth: readerHeight, minHeight: readerHeight)
+                .padding(.horizontal, C.plusHorizontalPadding)
+                .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+                .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+        }
+    }
+
+    var selectedEmojiPreview: some View {
+        ZStack {
+            Text(selectedEmoji ?? customEmoji ?? "")
+                .font(.system(size: C.selectedEmojiFontSize))
+                .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
+                .scaleEffect(
+                    popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
+                )
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
+                .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
+
+            Image(systemName: "face.smiling")
+                .font(.system(size: C.faceSmilingFontSize))
+                .foregroundStyle(.colorTextSecondary)
+                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
+                .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
+                .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
+        }
+    }
+
+    var plusButton: some View {
+        let plusAction = {
+            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                drawerExpanded.toggle()
+                showingEmojiPicker = !drawerExpanded
+            }
+        }
+        return Button(action: plusAction) {
+            Image(systemName: "plus")
+                .font(.system(size: C.plusIconFontSize))
+                .padding(C.padding)
+                .tint(.colorTextSecondary)
+                .offset(x: !showMoreAppeared ? 40 : 0)
+                .opacity(!showMoreAppeared ? 0 : 1)
+                .animation(
+                    .spring(response: 0.29, dampingFraction: 0.7),
+                    value: showMoreAppeared
+                )
+                .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
 
@@ -760,6 +844,17 @@ private func recoverInlineAttachmentData(fromPath path: String) async throws -> 
     }
     let messageId = String(filename[filename.startIndex..<underscoreIndex])
     return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+}
+
+private func saveAttachment(_ attachment: HydratedAttachment) {
+    switch attachment.mediaType {
+    case .image:
+        saveAttachmentToPhotoLibrary(key: attachment.key)
+    case .video:
+        saveVideoToPhotoLibrary(key: attachment.key)
+    case .file, .audio, .unknown:
+        saveFileToFiles(key: attachment.key, filename: attachment.filename)
+    }
 }
 
 private func saveAttachmentToPhotoLibrary(key: String) {
@@ -861,6 +956,105 @@ private func saveFileToFiles(key: String, filename: String?) {
         } catch {
             Log.error("Failed to save file: \(error)")
         }
+    }
+}
+
+/// Shares an HTML or Markdown attachment with the same payload as
+/// `AttachmentShareLink` (the share button on the attachment preview and
+/// thing detail screens): the full-page rendered image for HTML, titled
+/// after the artifact, with the square tile as the share sheet preview.
+private func shareRenderedAttachment(
+    _ attachment: HydratedAttachment,
+    fallbackTitle: String?,
+    appearance: UIUserInterfaceStyle
+) {
+    Task { @MainActor in
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            guard let payload = await AttachmentSharePayload.resolve(
+                attachment: attachment,
+                fileURL: fileURL,
+                appearance: appearance,
+                fallbackTitle: fallbackTitle
+            ) else {
+                Log.error("Share skipped: no share payload resolved for attachment")
+                return
+            }
+            presentShareSheet(for: payload)
+        } catch {
+            Log.error("Failed to share attachment: \(error)")
+        }
+    }
+}
+
+@MainActor
+private func presentShareSheet(for payload: AttachmentSharePayload) {
+    guard let primaryItem = payload.items.first else { return }
+    let itemSource = SharePayloadItemSource(
+        url: primaryItem,
+        title: payload.title,
+        previewImage: payload.previewImage
+    )
+    var activityItems: [Any] = [itemSource]
+    for item in payload.items.dropFirst() {
+        activityItems.append(item)
+    }
+    let activityVC = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+          let root = scene.keyWindow?.rootViewController else { return }
+    var presenter = root
+    while let presented = presenter.presentedViewController {
+        presenter = presented
+    }
+    activityVC.popoverPresentationController?.sourceView = presenter.view
+    activityVC.popoverPresentationController?.sourceRect = CGRect(
+        x: presenter.view.bounds.midX,
+        y: presenter.view.bounds.midY,
+        width: 0, height: 0
+    )
+    presenter.present(activityVC, animated: true)
+}
+
+/// Wraps the primary share URL so the activity sheet header shows the
+/// artifact title and tile thumbnail, matching `ShareLink`'s `SharePreview`
+/// in `AttachmentShareLink`.
+private final class SharePayloadItemSource: NSObject, UIActivityItemSource {
+    private let url: URL
+    private let title: String
+    private let previewImage: UIImage?
+
+    init(url: URL, title: String, previewImage: UIImage?) {
+        self.url = url
+        self.title = title
+        self.previewImage = previewImage
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        title
+    }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = title
+        metadata.originalURL = url
+        if let previewImage {
+            metadata.imageProvider = NSItemProvider(object: previewImage)
+        }
+        return metadata
     }
 }
 

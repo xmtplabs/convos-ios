@@ -75,3 +75,62 @@ struct HydratedAttachmentIsMarkdownFileTests {
         #expect(attachment.isMarkdownFile)
     }
 }
+
+@Suite("HydratedAttachment.isHTMLFile")
+struct HydratedAttachmentIsHTMLFileTests {
+    @Test("detects .html extension")
+    func htmlExtension() {
+        let attachment = HydratedAttachment(key: "test", filename: "page.html")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("detects .htm extension")
+    func htmExtension() {
+        let attachment = HydratedAttachment(key: "test", filename: "legacy.htm")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("detects .html extension case-insensitively")
+    func htmlExtensionUppercase() {
+        let attachment = HydratedAttachment(key: "test", filename: "INDEX.HTML")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("detects text/html mime type")
+    func textHTMLMime() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "text/html", filename: "file")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("detects text/html mime type case-insensitively")
+    func textHTMLMimeCaseInsensitive() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "Text/HTML", filename: "file")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("returns false for non-html files")
+    func nonHTML() {
+        let pdf = HydratedAttachment(key: "test", filename: "document.pdf")
+        let md = HydratedAttachment(key: "test", filename: "readme.md")
+        #expect(!pdf.isHTMLFile)
+        #expect(!md.isHTMLFile)
+    }
+
+    @Test("returns false for nil filename and nil mime type")
+    func nilFilenameAndMime() {
+        let attachment = HydratedAttachment(key: "test")
+        #expect(!attachment.isHTMLFile)
+    }
+
+    @Test("mime type detection works without filename extension")
+    func mimeWithoutExtension() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "text/html", filename: "file-no-ext")
+        #expect(attachment.isHTMLFile)
+    }
+
+    @Test("extension takes priority even with wrong mime type")
+    func extensionOverridesMime() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/octet-stream", filename: "page.html")
+        #expect(attachment.isHTMLFile)
+    }
+}

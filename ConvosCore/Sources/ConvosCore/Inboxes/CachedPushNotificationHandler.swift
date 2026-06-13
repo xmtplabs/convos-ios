@@ -1,4 +1,5 @@
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 
@@ -42,14 +43,16 @@ public actor CachedPushNotificationHandler {
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        coreActions: any CoreActions
     ) {
         let factory = PushNotificationServiceFactory(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             identityStore: identityStore,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            coreActions: coreActions
         )
         initialize(
             environment: environment,

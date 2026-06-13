@@ -13,6 +13,8 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let isUnreadUpdatedAt: Column = Column(CodingKeys.isUnreadUpdatedAt)
         static let isMuted: Column = Column(CodingKeys.isMuted)
         static let pinnedOrder: Column = Column(CodingKeys.pinnedOrder)
+        static let hidesInviteCard: Column = Column(CodingKeys.hidesInviteCard)
+        static let wasRemoved: Column = Column(CodingKeys.wasRemoved)
     }
 
     let conversationId: String
@@ -21,6 +23,8 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     let isUnreadUpdatedAt: Date
     let isMuted: Bool
     let pinnedOrder: Int?
+    let hidesInviteCard: Bool
+    let wasRemoved: Bool
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -38,7 +42,9 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: !isUnread ? Date() : (isUnread != self.isUnread ? Date() : isUnreadUpdatedAt),
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -48,7 +54,9 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -58,7 +66,9 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -68,7 +78,33 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
+        )
+    }
+    func with(hidesInviteCard: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
+        )
+    }
+    func with(wasRemoved: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved
         )
     }
 }

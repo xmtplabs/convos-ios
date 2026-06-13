@@ -93,6 +93,10 @@ struct MessageInviteContainerView: View {
 struct MessageInviteView: View {
     let invite: MessageInvite
     @State private var cachedImage: UIImage?
+    /// Member count of the linked conversation when the current user has
+    /// already joined it; nil while resolving or when not a member.
+    @State private var joinedMemberCount: Int?
+    @Environment(\.inviteMembershipResolver) private var membershipResolver: any InviteMembershipResolving
 
     var title: String {
         if let name = invite.conversationName, !name.isEmpty {
@@ -108,12 +112,16 @@ struct MessageInviteView: View {
     var description: String {
         if invite.isConversationExpired { return "Exploded" }
         if invite.isInviteExpired { return "Expired" }
+        if let joinedMemberCount {
+            return "\(joinedMemberCount) \(joinedMemberCount == 1 ? "member" : "members")"
+        }
         return "Tap to join"
     }
 
     private var accessibilityDescriptionIdentifier: String {
         if invite.isConversationExpired { return "invite-preview-exploded-label" }
         if invite.isInviteExpired { return "invite-preview-expired-label" }
+        if joinedMemberCount != nil { return "invite-preview-member-count-label" }
         return "invite-preview-subtitle"
     }
 
@@ -186,6 +194,9 @@ struct MessageInviteView: View {
         .accessibilityIdentifier("invite-preview-card")
         .cachedImage(for: invite) { image in
             cachedImage = image
+        }
+        .task(id: invite.inviteSlug) {
+            joinedMemberCount = await membershipResolver.memberCount(forInviteSlug: invite.inviteSlug)
         }
         .task {
             guard let imageURL = invite.imageURL else {

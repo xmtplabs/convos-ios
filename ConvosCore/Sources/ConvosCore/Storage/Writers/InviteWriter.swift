@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMetrics
 import Foundation
 import GRDB
 
@@ -17,11 +18,14 @@ enum InviteWriterError: Error {
 class InviteWriter: InviteWriterProtocol {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let databaseWriter: any DatabaseWriter
+    private let coreActions: any CoreActions
 
     init(identityStore: any KeychainIdentityStoreProtocol,
-         databaseWriter: any DatabaseWriter) {
+         databaseWriter: any DatabaseWriter,
+         coreActions: any CoreActions) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
+        self.coreActions = coreActions
     }
 
     func generate(
@@ -64,7 +68,7 @@ class InviteWriter: InviteWriterProtocol {
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse
             )
-            try await databaseWriter.write { db in
+            let (memberCount, hasAssistant): (Int, Bool) = try await databaseWriter.write { db in
                 try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
                 try DBConversationMember(
                     conversationId: conversation.id,
@@ -83,6 +87,21 @@ class InviteWriter: InviteWriterProtocol {
                 )
                 try? memberProfile.insert(db, onConflict: .ignore)
                 try dbInvite.save(db)
+                let count: Int = try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == conversation.id)
+                    .fetchCount(db)
+                let agentRow: DBMemberProfile? = try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversation.id)
+                    .filter(DBMemberProfile.Columns.memberKind != nil)
+                    .fetchOne(db)
+                return (count, agentRow?.isAgent ?? false)
+            }
+            let actions: any CoreActions = coreActions
+            Task {
+                await actions.invitedToConversation(
+                    memberCount: memberCount,
+                    hasAssistant: hasAssistant
+                )
             }
             return dbInvite.hydrateInvite()
         } catch {

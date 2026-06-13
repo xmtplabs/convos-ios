@@ -8,6 +8,10 @@ struct ReplyComposerBar: View {
     var audioTranscriptText: String?
     let onDismiss: () -> Void
 
+    @Environment(\.agentShareResolver) private var agentShareResolver: any AgentShareResolving
+    @State private var resolvedHTMLTitle: String?
+    @State private var resolvedAgentShare: AgentShareInfo?
+
     private var senderName: String {
         message.sender.profile.displayName
     }
@@ -28,11 +32,22 @@ struct ReplyComposerBar: View {
             return "Photo"
         case .invite:
             return "Invite"
+        case .agentShare:
+            let name = resolvedAgentShare?.displayName
+            if let name, !name.isEmpty {
+                return name
+            }
+            return "Agent"
         case .linkPreview(let preview):
             return preview.title ?? preview.displayHost
         default:
             return ""
         }
+    }
+
+    private var htmlAttachment: HydratedAttachment? {
+        guard let attachment, attachment.isHTMLFile else { return nil }
+        return attachment
     }
 
     private var attachment: HydratedAttachment? {
@@ -44,6 +59,17 @@ struct ReplyComposerBar: View {
         default:
             return nil
         }
+    }
+
+    private var agentShare: MessageAgentShare? {
+        if case .agentShare(let share) = message.content {
+            return share
+        }
+        return nil
+    }
+
+    private var hasLeadingThumbnail: Bool {
+        attachment != nil || agentShare != nil
     }
 
     private var shouldBlurAttachment: Bool {
@@ -67,6 +93,9 @@ struct ReplyComposerBar: View {
     }
 
     private func replyLabel(for attachment: HydratedAttachment) -> String {
+        if attachment.isHTMLFile, let title = resolvedHTMLTitle, !title.isEmpty {
+            return title
+        }
         if attachment.mediaType == .file, let filename = attachment.filename {
             return filename
         }
@@ -84,6 +113,8 @@ struct ReplyComposerBar: View {
                     .frame(width: 32, height: 32)
                     .background(Color.colorFillSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else if let htmlAttachment {
+                ReplyHTMLThumbnail(attachment: htmlAttachment)
             } else if let attachment {
                 ReplyPhotoThumbnail(
                     attachmentKey: attachment.key,
@@ -91,6 +122,8 @@ struct ReplyComposerBar: View {
                     shouldBlur: shouldBlurAttachment,
                     isVideo: isVideo
                 )
+            } else if agentShare != nil {
+                ReplyAgentShareThumbnail(emoji: resolvedAgentShare?.emoji)
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -122,16 +155,100 @@ struct ReplyComposerBar: View {
             .accessibilityLabel("Cancel reply")
             .accessibilityIdentifier("cancel-reply-button")
         }
-        .padding(.leading, attachment != nil ? DesignConstants.Spacing.step2x : DesignConstants.Spacing.step4x)
+        .padding(.leading, hasLeadingThumbnail ? DesignConstants.Spacing.step2x : DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: attachment != nil ? 16.0 : 26.0))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: hasLeadingThumbnail ? 16.0 : 26.0))
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Replying to \(senderName): \(previewText)")
         .accessibilityIdentifier("reply-composer-bar")
+        .task(id: htmlAttachment?.key) {
+            await loadHTMLTitle()
+        }
+        .task(id: agentShare?.identifier) {
+            await resolveAgentShare()
+        }
+    }
+
+    private func resolveAgentShare() async {
+        guard let agentShare else {
+            resolvedAgentShare = nil
+            return
+        }
+        resolvedAgentShare = await agentShareResolver.resolve(identifier: agentShare.identifier)
+    }
+
+    private func loadHTMLTitle() async {
+        guard let attachment = htmlAttachment else {
+            resolvedHTMLTitle = nil
+            return
+        }
+        if let cached = HTMLPageMetadata.shared.cachedTitle(for: attachment.key) {
+            resolvedHTMLTitle = cached
+            return
+        }
+        resolvedHTMLTitle = nil
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            resolvedHTMLTitle = await HTMLPageMetadata.shared.title(for: attachment.key, fileURL: fileURL)
+        } catch {
+            Log.error("Failed to load HTML page title for reply composer: \(error)")
+            resolvedHTMLTitle = nil
+        }
+    }
+}
+
+private struct ReplyHTMLThumbnail: View {
+    let attachment: HydratedAttachment
+
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    @State private var loadedImage: UIImage?
+
+    private static let thumbnailSize: CGFloat = 40.0
+
+    init(attachment: HydratedAttachment) {
+        self.attachment = attachment
+        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: attachment.key,
+            appearance: .light
+        ))
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 8.0))
+            } else {
+                RoundedRectangle(cornerRadius: 8.0)
+                    .fill(.quaternary)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            }
+        }
+        .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
+            let appearance = colorScheme.uiUserInterfaceStyle
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(
+                for: attachment.key,
+                appearance: appearance
+            )
+            guard loadedImage == nil else { return }
+            do {
+                let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+                loadedImage = await HTMLThumbnailRenderer.shared.thumbnail(
+                    for: attachment.key,
+                    fileURL: fileURL,
+                    appearance: appearance
+                )
+            } catch {
+                Log.error("Failed to load HTML reply composer thumbnail: \(error)")
+            }
+        }
     }
 }
 
@@ -215,6 +332,26 @@ private struct ReplyPhotoThumbnail: View {
     }
 }
 
+private struct ReplyAgentShareThumbnail: View {
+    let emoji: String?
+
+    private static let thumbnailSize: CGFloat = 40.0
+    private static let cornerRadius: CGFloat = 8.0
+
+    var body: some View {
+        let emojiFontSize: CGFloat = Self.thumbnailSize * 0.43
+        RoundedRectangle(cornerRadius: Self.cornerRadius)
+            .fill(Color.colorLava)
+            .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            .overlay {
+                if let emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: emojiFontSize, weight: .semibold, design: .rounded))
+                }
+            }
+    }
+}
+
 #Preview("Reply Composer Bar") {
     VStack {
         Spacer()
@@ -237,6 +374,21 @@ private struct ReplyPhotoThumbnail: View {
             message: .message(Message.mock(
                 text: "I was thinking we could implement a new feature that allows users to customize their profile",
                 sender: .mock(isCurrentUser: false, name: "Shane"),
+                status: .published
+            ), .existing),
+            shouldBlurPhotos: false,
+            onDismiss: {}
+        )
+    }
+}
+
+#Preview("Reply Composer Bar - Agent Share") {
+    VStack {
+        Spacer()
+        ReplyComposerBar(
+            message: .message(Message.mock(
+                content: .agentShare(.mock),
+                sender: .mock(isCurrentUser: false, name: "Louis"),
                 status: .published
             ), .existing),
             shouldBlurPhotos: false,

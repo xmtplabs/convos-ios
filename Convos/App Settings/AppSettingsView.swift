@@ -1,9 +1,13 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConvosToolbarButton: View {
     let padding: Bool
     let action: () -> Void
+    var statusLabel: String = "Basic"
+    var statusColor: Color = .colorTextSecondary
+    var showsBoltIcon: Bool = false
 
     var body: some View {
         Button {
@@ -18,14 +22,34 @@ struct ConvosToolbarButton: View {
                     .frame(width: 24.0, height: 24.0)
                     .accessibilityHidden(true)
 
-                Text("Convos")
-                    .font(.body)
-                    .foregroundStyle(.colorFillPrimary)
-                    .padding(.trailing, DesignConstants.Spacing.stepX)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Convos")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.colorFillPrimary)
+                    statusLine
+                }
+                .padding(.trailing, DesignConstants.Spacing.stepX)
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
         .accessibilityIdentifier("convos-logo-button")
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        if showsBoltIcon {
+            HStack(spacing: 2) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 10))
+                Text(statusLabel)
+                    .font(.system(size: 12))
+            }
+            .foregroundStyle(statusColor)
+        } else {
+            Text(statusLabel)
+                .font(.system(size: 12))
+                .foregroundStyle(statusColor)
+        }
     }
 }
 
@@ -33,26 +57,30 @@ struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var navState: AppSettingsNavigatorImpl = .init()
+    @State private var navigator: AppSettingsCollector?
 
-    @ViewBuilder
-    private var connectionsSection: some View {
-        if FeatureFlags.shared.isCloudConnectionsEnabled {
-            Section {
-                NavigationLink {
-                    ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
-                } label: {
-                    Text("Connections")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-            } footer: {
-                Text("Share services with conversations")
-            }
-        }
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = AppSettingsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
+
+    private func handlePaywallPresented(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .settings))
+    }
+
+    private func handleDeleteAllDataPresented(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.navigateTo(deleteAllData: DeleteAllDataNavigatorArgs())
     }
 
     var body: some View {
@@ -60,8 +88,9 @@ struct AppSettingsView: View {
             List {
                 headerSection
                 myInfoSection
-                assistantsSection
+                subscriptionSection
                 connectionsSection
+                devicesSection
                 customizeSection
                 linksSection
                 deleteSection
@@ -72,6 +101,21 @@ struct AppSettingsView: View {
             .contentMargins(.top, 0.0)
             .toolbarTitleDisplayMode(.inline)
             .toolbar { topToolbar }
+            .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
+            .onAppear {
+                ensureNavigator()
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                navigator?.closed(context: navState.closeContext())
+            }
+            .onChange(of: presentingPaywall) { oldValue, newValue in
+                handlePaywallPresented(from: oldValue, to: newValue)
+            }
+            .onChange(of: showingDeleteAllDataConfirmation) { oldValue, newValue in
+                handleDeleteAllDataPresented(from: oldValue, to: newValue)
+            }
         }
     }
 
@@ -82,9 +126,6 @@ struct AppSettingsView: View {
                 Text("Convos")
                     .font(.convosTitle)
                     .tracking(Font.convosTitleTracking)
-                    .foregroundStyle(.colorTextPrimary)
-                Text("Private chat for the AI world")
-                    .font(.subheadline)
                     .foregroundStyle(.colorTextPrimary)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
@@ -110,8 +151,8 @@ struct AppSettingsView: View {
                     showsProfile: false,
                     showsUseProfileButton: false,
                     canEditProfile: true
-                ) { _ in
-                }
+                ) { _ in }
+                .onAppear { navigator?.navigateTo(myInfo: MyInfoNavigatorArgs()) }
             } label: {
                 myInfoRowLabel
             }
@@ -120,10 +161,40 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
+    private var devicesSection: some View {
+        Section {
+            NavigationLink {
+                DevicesView(
+                    viewModel: DevicesViewModel(
+                        pairingServiceFactory: { [session] in
+                            DeferredInitiatorPairingService(session: session)
+                        },
+                        session: session,
+                        appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+                    )
+                )
+                .onAppear { navigator?.navigateTo(devices: DevicesNavigatorArgs()) }
+            } label: {
+                HStack {
+                    Image(systemName: "iphone.gen3.sizes")
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+                    Text("Devices")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .accessibilityIdentifier("devices-row")
+        } footer: {
+            Text("Manage and pair other devices")
+        }
+    }
+
+    @ViewBuilder
     private var myInfoRowLabel: some View {
         HStack {
             Image(systemName: "lanyardcard.fill")
                 .foregroundStyle(.colorTextPrimary)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
             Text("My info")
                 .foregroundStyle(.colorTextPrimary)
@@ -145,18 +216,90 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
-    private var assistantsSection: some View {
-        if FeatureFlags.shared.isAssistantEnabled {
-            Section {
-                NavigationLink {
-                    AssistantSettingsView(session: session)
-                } label: {
-                    Text("Assistants")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-            } footer: {
-                Text("Optional AI for groups")
+    private var connectionsSection: some View {
+        Section {
+            NavigationLink {
+                ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                    .onAppear { navigator?.navigateTo(connections: ConnectionsNavigatorArgs()) }
+            } label: {
+                connectionsRowLabel
+            }
+            .accessibilityIdentifier("connections-row")
+        } footer: {
+            Text("Apps and info agents can use")
+        }
+    }
+
+    @ViewBuilder
+    private var connectionsRowLabel: some View {
+        let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
+        HStack {
+            Image(systemName: "batteryblock.fill")
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+
+            Text("Connections")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
+
+            if connectionsCount > 0 {
+                Text("\(connectionsCount)")
+                    .foregroundStyle(.colorTextSecondary)
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    @State private var presentingPaywall: Bool = false
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+
+    private var membershipFooterLabel: String {
+        if currentSubscription != nil { return "Plus membership" }
+        return "Basic membership"
+    }
+
+    private var isPowerDepleted: Bool {
+        creditBalance?.isDepleted == true
+    }
+
+    @ViewBuilder
+    private var subscriptionSection: some View {
+        Section {
+            let subscribeAction = { presentingPaywall = true }
+            Button(action: subscribeAction) {
+                powerRowLabel
+            }
+            .accessibilityIdentifier("subscription-row")
+            .sheet(isPresented: $presentingPaywall) {
+                let viewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    paywallSource: .settings,
+                    coreActions: coreActions
+                )
+                PaywallView(viewModel: viewModel)
+            }
+        } footer: {
+            Text(membershipFooterLabel)
+        }
+    }
+
+    @ViewBuilder
+    private var powerRowLabel: some View {
+        HStack {
+            Image(systemName: "bolt.fill")
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+
+            Text("Power")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
+
+            if isPowerDepleted {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.colorLava)
             }
         }
     }
@@ -166,15 +309,11 @@ struct AppSettingsView: View {
         Section {
             NavigationLink {
                 CustomizeSettingsView()
+                    .onAppear { navigator?.navigateTo(customize: CustomizeSettingsNavigatorArgs()) }
             } label: {
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    Text("Customize")
-                        .foregroundStyle(.colorTextPrimary)
-
-                    Spacer()
-                }
+                Text("Customize")
+                    .foregroundStyle(.colorTextPrimary)
             }
-            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
         }
         .listRowSeparatorTint(.colorBorderSubtle)
     }
@@ -182,7 +321,6 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var linksSection: some View {
         Section {
-            securedByXMTPRow
             privacyTermsRow
             sendFeedbackRow
             if !ConfigManager.shared.currentEnvironment.isProduction {
@@ -192,28 +330,6 @@ struct AppSettingsView: View {
             linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
-    }
-
-    @ViewBuilder
-    private var securedByXMTPRow: some View {
-        Button {
-            openExternalURL("https://xmtp.org")
-        } label: {
-            NavigationLink {
-                EmptyView()
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                    Text("Secured by ")
-                    Image("xmtpIcon")
-                        .renderingMode(.template)
-                        .foregroundStyle(.colorTextPrimary)
-                        .padding(.trailing, 1.0)
-                    Text("XMTP")
-                }
-                .foregroundStyle(.colorTextPrimary)
-            }
-        }
-        .foregroundStyle(.colorTextPrimary)
     }
 
     @ViewBuilder
@@ -239,7 +355,7 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var debugRow: some View {
         NavigationLink {
-            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session, coreActions: coreActions)
         } label: {
             Text("Debug")
         }
@@ -288,16 +404,10 @@ struct AppSettingsView: View {
                 dismiss()
             }
         }
-
-        ToolbarItem(placement: .principal) {
-            ConvosToolbarButton(padding: true) {}
-                .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
-                .disabled(true)
-        }
     }
 
     private func sendFeedback() {
-        let email = "convos@xmtp.com"
+        let email = "hi@convos.org"
         let subject = "Convos Feedback"
         let mailtoString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)"
 
@@ -319,6 +429,7 @@ struct AppSettingsView: View {
             viewModel: .mock,
             profileSettingsViewModel: profileSettingsViewModel,
             session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
             onDeleteAllData: {}
         )
     }

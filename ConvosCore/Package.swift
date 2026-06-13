@@ -18,20 +18,27 @@ let package = Package(
             name: "ConvosCoreiOS",
             targets: ["ConvosCoreiOS"]
         ),
+        .library(
+            name: "ConvosConnectionsXMTP",
+            targets: ["ConvosConnectionsXMTP"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.9.0-dev.88ddfad"
+            revision: "ios-4.10.0-nightly.20260530.065bd0d"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
+        .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "main"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosConnections"),
     ],
     targets: [
         .target(
@@ -43,10 +50,14 @@ let package = Package(
                 .product(name: "FirebaseAppCheck", package: "firebase-ios-sdk"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
+                .product(name: "ConvosMetrics", package: "convos-shared"),
+                .target(name: "ConvosConnectionsXMTP"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -68,13 +79,38 @@ let package = Package(
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ]
         ),
+        .target(
+            name: "ConvosConnectionsXMTP",
+            dependencies: [
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
+            ],
+            path: "Sources/ConvosConnectionsXMTP",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .define("DEBUG", .when(configuration: .debug)),
+                .unsafeFlags(["-Onone"], .when(configuration: .debug)),
+            ]
+        ),
         .testTarget(
             name: "ConvosCoreTests",
             dependencies: [
                 "ConvosCore",
                 "ConvosAppData",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
             ]
+        ),
+        .testTarget(
+            name: "ConvosConnectionsXMTPTests",
+            dependencies: [
+                "ConvosConnectionsXMTP",
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+            ],
+            path: "Tests/ConvosConnectionsXMTPTests"
         ),
     ]
 )

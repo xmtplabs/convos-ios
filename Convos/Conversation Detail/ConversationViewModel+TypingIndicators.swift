@@ -147,7 +147,7 @@ extension ConversationViewModel {
            case .messages(let lastGroup) = messages[lastIndex],
            lastGroup.sender.profile.inboxId == typer.profile.inboxId {
             var updated = messages
-            let updatedGroup = MessagesGroup(
+            var updatedGroup = MessagesGroup(
                 id: lastGroup.id,
                 sender: lastGroup.sender,
                 messages: lastGroup.rawMessages,
@@ -160,6 +160,18 @@ extension ConversationViewModel {
                 isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers,
                 voiceMemoTranscripts: lastGroup.voiceMemoTranscripts
             )
+            // Copy the presentation side-channel fields the initializer
+            // doesn't take, so e.g. the agent contact card doesn't vanish
+            // from its group while the agent is typing.
+            updatedGroup.agentContactCard = lastGroup.agentContactCard
+            updatedGroup.contactCardPrecedesAgentMessages = lastGroup.contactCardPrecedesAgentMessages
+            updatedGroup.contactCardThinkingDescriptor = lastGroup.contactCardThinkingDescriptor
+            updatedGroup.thinkingByMessageId = lastGroup.thinkingByMessageId
+            updatedGroup.hidesSenderLabel = lastGroup.hidesSenderLabel
+            updatedGroup.adjacentToFullBleedAbove = lastGroup.adjacentToFullBleedAbove
+            updatedGroup.adjacentToFullBleedBelow = lastGroup.adjacentToFullBleedBelow
+            updatedGroup.continuesPreviousGroup = lastGroup.continuesPreviousGroup
+            updatedGroup.isContinuedBelow = lastGroup.isContinuedBelow
             updated[lastIndex] = .messages(updatedGroup)
             return updated
         }

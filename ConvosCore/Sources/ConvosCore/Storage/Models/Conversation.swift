@@ -18,6 +18,18 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let isUnread: Bool
     public let isMuted: Bool
     public let pinnedOrder: Int?
+    /// Per-conversation UI flag set by the contacts picker when it seeds a
+    /// new conversation with members. Suppresses the QR invite header in
+    /// the messages list so the user doesn't see an empty-state CTA on a
+    /// chat that already has members. The plus-menu "Convo code" entry
+    /// still reaches the QR on demand.
+    public let hidesInviteCard: Bool
+    /// True when the local user was removed from this conversation (persisted
+    /// from a GroupUpdated removal, cleared when a sync proves membership
+    /// again). List queries already exclude removed conversations; this
+    /// surfaces the state to any view that can still reach one - e.g. it was
+    /// open when the removal landed - so it renders read-only.
+    public let wasRemoved: Bool
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
     public let imageSalt: Data?
@@ -30,8 +42,15 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let expiresAt: Date?
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
-    public let assistantJoinStatus: AssistantJoinStatus?
-    public let hasHadVerifiedAssistant: Bool
+    public let agentJoinStatus: AgentJoinStatus?
+    public let hasHadVerifiedAgent: Bool
+    /// True when this conversation was created through the Agent Builder
+    /// (an `AgentBuilderSummary` row exists for it). Drives the
+    /// pending-agent presentation -- "New Agent" placeholder name + the
+    /// add-agent avatar instead of the generic "New Convo" + emoji circle
+    /// -- until a verified agent actually joins. See
+    /// `isPendingAgentBuilderDraft`.
+    public let wasCreatedFromAgentBuilder: Bool
 }
 
 public extension Conversation {
@@ -49,22 +68,93 @@ public extension Conversation {
         members.filter { !$0.isCurrentUser }
     }
 
+    /// Copy of this conversation with `members` replaced. Used by the
+    /// optimistic contacts-picker flows to overlay synthetic members onto
+    /// a DB-emitted conversation so the chat header keeps rendering the
+    /// picked end state while the real member additions are in flight.
+    func withMembers(_ newMembers: [ConversationMember]) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: newMembers,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            wasRemoved: wasRemoved,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
+    }
+
     var displayName: String {
         computedDisplayName
     }
 
     var computedDisplayName: String {
+        computedDisplayName(memberNameOverride: { _ in nil })
+    }
+
+    /// `computedDisplayName` with an inbox → contact-name override applied
+    /// to the auto-generated unnamed-group title and to DM titles. The
+    /// override wins over the per-conversation profile name (mirrors
+    /// `Profile`/`ConversationMember`'s override semantics). When the
+    /// conversation already has an explicit `name`, it's returned verbatim
+    /// — the override only affects auto-generated titles.
+    /// True while an Agent-Builder-created conversation is still waiting on
+    /// its verified agent to join. In this window the conversation has only
+    /// the local user as a member, so it would otherwise render as the
+    /// generic "New Convo" + emoji circle; instead we surface the
+    /// pending-agent identity ("New Agent" + add-agent avatar) to match the
+    /// builder indicator. Gated on the sticky `hasHadVerifiedAgent` flag
+    /// (set once any Convos-verified agent has joined) rather than the
+    /// current member list, so the hand-off to normal member-driven
+    /// rendering is permanent -- a builder agent that later leaves doesn't
+    /// flip the conversation back to the "New Agent" placeholder.
+    var isPendingAgentBuilderDraft: Bool {
+        wasCreatedFromAgentBuilder && !hasHadVerifiedAgent
+    }
+
+    func computedDisplayName(memberNameOverride: (String) -> String?) -> String {
         if let name, !name.isEmpty {
             return name
         }
+        if isPendingAgentBuilderDraft {
+            return "New Agent"
+        }
         if kind == .dm {
-            return otherMember?.profile.displayName ?? "Somebody"
+            if let other = otherMember {
+                return other.displayName(memberNameOverride: memberNameOverride)
+            }
+            return "Somebody"
         }
         let otherMembers = membersWithoutCurrent
         if otherMembers.isEmpty {
             return "New Convo"
         }
-        return otherMembers.formattedNamesString
+        return otherMembers.formattedNamesString(memberNameOverride: memberNameOverride)
     }
 
     var isFullyAnonymous: Bool {
@@ -81,6 +171,14 @@ public extension Conversation {
     }
 
     var avatarType: ConversationAvatarType {
+        // A pending agent-builder draft shows the add-agent glyph (matching
+        // the builder bar / indicator) rather than the conversation emoji,
+        // even before the verified agent joins. Checked before the
+        // image/member branches so a user-only draft doesn't fall through
+        // to the emoji circle.
+        if isPendingAgentBuilderDraft {
+            return .pendingAgent
+        }
         if imageURL != nil {
             return .customImage
         }
@@ -116,20 +214,20 @@ public extension Conversation {
         members.filter(\.isAgent).count
     }
 
-    var verifiedAssistantCount: Int {
-        members.filter(\.agentVerification.isConvosAssistant).count
+    var verifiedConvosAgentCount: Int {
+        members.filter(\.agentVerification.isConvosAgent).count
     }
 
     var hasAgent: Bool {
         agentCount > 0
     }
 
-    var hasVerifiedAssistant: Bool {
-        members.contains(where: \.agentVerification.isConvosAssistant)
+    var hasVerifiedConvosAgent: Bool {
+        members.contains(where: \.agentVerification.isConvosAgent)
     }
 
-    var hasEverHadVerifiedAssistant: Bool {
-        hasHadVerifiedAssistant
+    var hasEverHadVerifiedConvosAgent: Bool {
+        hasHadVerifiedAgent
     }
 
     var hasVerifiedAgent: Bool {
@@ -137,25 +235,17 @@ public extension Conversation {
     }
 
     var agentCountString: String? {
-        let verified = verifiedAssistantCount
+        let verified = verifiedConvosAgentCount
         let unverified = agentCount - verified
         var parts: [String] = []
         if verified > 0 {
-            parts.append("\(verified) \(verified == 1 ? "Assistant" : "Assistants")")
+            parts.append("\(verified) \(verified == 1 ? "Agent" : "Agents")")
         }
         if unverified > 0 {
             parts.append("\(unverified) \(unverified == 1 ? "Agent" : "Agents")")
         }
         guard !parts.isEmpty else { return nil }
         return parts.joined(separator: ", ")
-    }
-
-    public var hasAgentOutOfCredits: Bool {
-        members.contains { $0.isAgent && $0.profile.isOutOfCredits }
-    }
-
-    public var agentOutOfCreditsProfile: Profile? {
-        members.first { $0.isAgent && $0.profile.isOutOfCredits }?.profile
     }
 
     var shouldShowQuickEdit: Bool {

@@ -277,7 +277,7 @@ struct MessagesRepositoryTests {
         }
     }
 
-    @Test("saveConversationToDatabase preserves memberProfile rows for removed members")
+    @Test("ConversationWriter.persist preserves memberProfile rows for removed members")
     func testSaveConversationPreservesHistoricalProfiles() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let conversationId = "conversation-1"
@@ -464,7 +464,7 @@ struct MessagesRepositoryTests {
 
         try DBConversation(
             id: conversationId,
-                        clientConversationId: "client-\(conversationId)",
+            clientConversationId: "client-\(conversationId)",
             inviteTag: "invite-tag-\(conversationId)",
             creatorId: currentInboxId,
             kind: .group,
@@ -484,7 +484,7 @@ struct MessagesRepositoryTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
         ).insert(db)
 
         try ConversationLocalState(
@@ -493,7 +493,9 @@ struct MessagesRepositoryTests {
             isUnread: false,
             isUnreadUpdatedAt: now,
             isMuted: false,
-            pinnedOrder: nil
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            wasRemoved: false
         ).insert(db)
 
         try DBConversationMember(

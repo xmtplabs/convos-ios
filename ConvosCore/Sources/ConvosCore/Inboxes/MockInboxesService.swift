@@ -1,9 +1,13 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 
-public final class MockInboxesService: SessionManagerProtocol {
+public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendable {
     private let mockMessagingService: MockMessagingService
+    /// Single shared registry so providers registered through this mock are visible to
+    /// the resolver `capabilityResolver()` returns.
+    private let mockCapabilityRegistry: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
 
     public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
         self.mockMessagingService = mockMessagingService
@@ -13,6 +17,18 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
         (service: mockMessagingService, conversationId: nil)
+    }
+
+    public func commitClaimedConversation(id conversationId: String) async {
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+    }
+
+    public func registerClaimedConversation(id conversationId: String) async {
+    }
+
+    public func discardClaimedConversation(id conversationId: String) async {
     }
 
     public func deleteAllInboxes() async throws {
@@ -45,6 +61,19 @@ public final class MockInboxesService: SessionManagerProtocol {
         mockMessagingService
     }
 
+    public func joinerPairingService() -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func refreshAfterPairingCompleted() async {
+    }
+
+    public var mockHasAnyUsedConversations: Bool = false
+
+    public func hasAnyUsedConversations() async -> Bool {
+        mockHasAnyUsedConversations
+    }
+
     // MARK: - Factory methods for repositories
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
@@ -63,7 +92,12 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    public func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
             case 502: throw APIError.agentProvisionFailed
@@ -73,14 +107,6 @@ public final class MockInboxesService: SessionManagerProtocol {
             }
         }
         return .init(success: true, joined: true)
-    }
-
-    public func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    public func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
@@ -121,8 +147,24 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     private static let mockDatabase: DatabaseQueue = MockDatabaseManager.shared.dbPool
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    }
+
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
+    }
+
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    }
+
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: Self.mockDatabase)
+    }
+
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: Self.mockDatabase)
     }
 
     // MARK: - Notifications
@@ -172,13 +214,54 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Connections
 
-    public func connectionManager(
+    public func cloudConnectionManager(
         callbackURLScheme: String
-    ) -> any ConnectionManagerProtocol {
-        MockConnectionManager()
+    ) -> any CloudConnectionManagerProtocol {
+        MockCloudConnectionManager()
     }
 
-    public func connectionRepository() -> any ConnectionRepositoryProtocol {
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         MockConnectionRepository()
     }
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        mockCapabilityRegistry
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        MockCapabilityRequestRepository()
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        MockDeviceConnectionAuthorizer()
+    }
+
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        nil
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        MockCapabilityResolutionsRepository()
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        InMemoryEnablementStore()
+    }
+}
+
+private final class MockCapabilityResolutionsRepository: CapabilityResolutionsRepositoryProtocol, @unchecked Sendable {
+    let resolutionsPublisher: AnyPublisher<[CapabilityResolution], Never> = Just([]).eraseToAnyPublisher()
+}
+
+private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
+    func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus { .notDetermined }
+    func requestAuthorization(for kind: ConnectionKind) async throws -> ConnectionAuthorizationStatus { .authorized }
+}
+
+private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

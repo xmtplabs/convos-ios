@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import Foundation
 import Observation
 import SwiftUI
@@ -54,7 +55,8 @@ final class ConversationsViewModel {
                 updateSelectionTask?.cancel()
                 let viewModel = ConversationViewModel.createSync(
                     conversation: conversation,
-                    session: session
+                    session: session,
+                    coreActions: coreActions
                 )
                 selectedConversationViewModel = viewModel
                 markConversationAsRead(conversation)
@@ -80,6 +82,9 @@ final class ConversationsViewModel {
     }
 
     var pendingGrantRequest: PendingGrantRequest?
+    var pendingPairDevice: PendingPairDevice?
+    var pendingJoinerPairing: JoinerPairingSheetViewModel?
+    let staleDeviceObserver: StaleDeviceObserver = .init()
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
@@ -94,7 +99,42 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    /// The claimed conversation backing the Compose flow. Created upfront by
+    /// `onStartConvo()` (mode `.newConversation`, which claims a warm-cached
+    /// conversation that already has an invite) so the contacts picker can
+    /// show that conversation's convo code in its empty state, and reused as
+    /// the destination the picker pushes on Skip / Continue. Cleared (and
+    /// torn down if it stayed empty) by `endComposeFlow()`.
+    var composeConversationViewModel: NewConversationViewModel? {
+        didSet {
+            oldValue?.cleanUpIfNeeded()
+        }
+    }
+    var agentBuilderViewModel: AgentBuilderViewModel? {
+        didSet {
+            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
+            // an Agent Builder VM is dropped without committing (e.g.
+            // the host view sets this to nil on tab swap), discard the
+            // outgoing one so its draft XMTP group is torn down. Skip
+            // when the user committed — that conversation has shipped
+            // and should stay on the server.
+            if let outgoing = oldValue,
+               oldValue !== agentBuilderViewModel,
+               !outgoing.hasCommitted,
+               !outgoing.didDiscard {
+                outgoing.discard()
+            }
+            updateListVisibility()
+        }
+    }
+    /// Drives the Compose flow sheet: the contacts picker is the root and
+    /// the claimed `composeConversationViewModel` is pushed onto it on Skip /
+    /// Continue. Distinct from `newConversationViewModel` (scanner / join /
+    /// template), so the two never drive overlapping presentations.
+    var presentingComposeFlow: Bool = false
 
+    /// Honk-style focus-mode prototype (Assistant Builder). Distinct from
+    /// `agentBuilderViewModel`, which drives the production Agent Builder.
     var assistantBuilderViewModel: AssistantBuilderViewModel?
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
@@ -129,18 +169,25 @@ final class ConversationsViewModel {
     var activeFilter: ConversationFilter = .all
 
     var pinnedConversations: [Conversation] {
-        let baseConversations = conversations
+        let baseConversations = pinnedBaseConversations
+        return Self.applyFilter(activeFilter, to: baseConversations)
+    }
+
+    private var pinnedBaseConversations: [Conversation] {
+        conversations
             .filter { $0.isPinned }
             .filter { $0.kind == .group }
             .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
+    }
 
-        switch activeFilter {
+    private static func applyFilter(_ filter: ConversationFilter, to conversations: [Conversation]) -> [Conversation] {
+        switch filter {
         case .all:
-            return baseConversations
+            return conversations
         case .unread:
-            return baseConversations.filter { $0.isUnread }
+            return conversations.filter { $0.isUnread }
         case .exploding:
-            return baseConversations.filter { $0.scheduledExplosionDate != nil }
+            return conversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 
@@ -164,6 +211,18 @@ final class ConversationsViewModel {
         activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
     }
 
+    /// True when the chats list is empty and the `.all` filter is active —
+    /// i.e. the user is in the no-convos-yet state that previously rendered
+    /// `ConversationsListEmptyCTA` ("Pop-up private convos"). Mirrors the
+    /// SwiftUI-side gate inside `ConversationsView.sidebarContent` so the
+    /// shell can swap the chats tab for an inline agent builder and hide
+    /// the bottom chrome.
+    var isEmptyCTAActive: Bool {
+        unpinnedConversations.isEmpty
+            && pinnedConversations.isEmpty
+            && activeFilter == .all
+    }
+
     private static let hasCreatedMoreThanOneConvoKey: String = "hasCreatedMoreThanOneConvo"
     private(set) var hasCreatedMoreThanOneConvo: Bool {
         get {
@@ -181,6 +240,7 @@ final class ConversationsViewModel {
     // MARK: - Private
 
     let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -194,9 +254,11 @@ final class ConversationsViewModel {
 
     init(
         session: any SessionManagerProtocol,
-        horizontalSizeClass: UserInterfaceSizeClass? = nil
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
+        self.coreActions = coreActions
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
@@ -204,6 +266,14 @@ final class ConversationsViewModel {
         self.conversationsRepository = session.conversationsRepository(
             for: .allowed
         )
+        // Bind the stale-device observer to the session's state manager
+        // so the banner appears when this device's installation is
+        // revoked from the network. Done asynchronously because
+        // messagingService() may need to construct the service.
+        let stale = staleDeviceObserver
+        Task { @MainActor in
+            stale.bind(to: session.messagingService().sessionStateManager)
+        }
         self.conversationsCountRepository = session.conversationsCountRepo(
             for: .allowed,
             kinds: .groups
@@ -245,6 +315,7 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
+            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -252,9 +323,9 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
-    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> ConnectionGrantRequestSheetViewModel {
+    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> CloudConnectionGrantRequestSheetViewModel {
         let conversation = conversations.first(where: { $0.id == request.conversationId })
-        return ConnectionGrantRequestSheetViewModel(
+        return CloudConnectionGrantRequestSheetViewModel(
             serviceId: request.serviceId,
             conversationId: request.conversationId,
             conversation: conversation,
@@ -280,20 +351,109 @@ final class ConversationsViewModel {
                 serviceId: serviceId,
                 conversationId: conversationId
             )
+        case let .pairDevice(pairingId, expiresAt, initiatorName):
+            pendingPairDevice = PendingPairDevice(
+                pairingId: pairingId,
+                expiresAt: expiresAt,
+                initiatorName: initiatorName
+            )
+            let capturedSession = session
+            pendingJoinerPairing = JoinerPairingSheetViewModel(
+                pairingId: pairingId,
+                expiresAt: expiresAt,
+                initiatorName: initiatorName,
+                pairingService: capturedSession.joinerPairingService(),
+                onPairingAdopted: { [weak self] in
+                    await self?.session.refreshAfterPairingCompleted()
+                },
+                onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
+                    // The joiner just adopted the initiator's identity, so
+                    // it shouldn't be asked to onboard a profile from
+                    // scratch. Three side-effects in order:
+                    //   1. Seed DBMyProfile from the share payload (may fail).
+                    //   2. Re-bind the shared profile VM unconditionally.
+                    //      Identity adoption already happened, so the
+                    //      VM's cached writer / repository for the
+                    //      placeholder session are stale either way — a
+                    //      failed seed doesn't reverse the adoption, and
+                    //      leaving the VM bound to the now-stopped
+                    //      MessagingService risks crashes on subsequent
+                    //      profile operations.
+                    //   3. Flip global onboarding flags *only* on a
+                    //      successful seed, so a failed save doesn't
+                    //      permanently suppress prompts under an empty
+                    //      DBMyProfile.
+                    guard let session = self?.session else { return }
+                    var seeded: Bool = false
+                    do {
+                        try await session.messagingService().myGlobalProfileWriter().save(
+                            name: displayName,
+                            imageData: nil,
+                            imageAssetIdentifier: imageAssetIdentifier,
+                            metadata: nil
+                        )
+                        seeded = true
+                    } catch {
+                        Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
+                    }
+                    ProfileSettingsViewModel.shared.rebind(session: session)
+                    if seeded {
+                        ConversationOnboardingCoordinator.markCompletedForPairedDevice()
+                    }
+                },
+                onDeleteExistingData: { [weak self] in
+                    try await self?.session.deleteAllInboxes()
+                },
+                checkHasExistingData: { [weak self] in
+                    guard let session = self?.session else { return false }
+                    return await session.hasAnyUsedConversations()
+                }
+            )
+        case .agentTemplate(templateId: let templateId):
+            startConversation(withAgentTemplateId: templateId)
         }
     }
 
+    /// Compose opens the contacts picker first (optional selection), then
+    /// pushes the conversation on Skip / Continue (`ComposeFlowView`). With no
+    /// contacts to pick from, the picker would be pointless -- so we skip it
+    /// and open the new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        // Count the contacts the picker would actually show (excludes agents,
+        // blocked, and unnamed) -- the raw contact count includes those, so
+        // it can't decide whether the picker is worth showing.
+        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
+        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
+        guard !pickable.isEmpty else {
+            newConversationViewModel = NewConversationViewModel(
+                session: session,
+                mode: .newConversation,
+                coreActions: coreActions
+            )
+            return
+        }
+        composeConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .newConversation
+            mode: .newConversation,
+            coreActions: coreActions
         )
+        presentingComposeFlow = true
+    }
+
+    /// Tears down the Compose flow when its sheet is dismissed. Clearing
+    /// `composeConversationViewModel` runs its `didSet` cleanup (which keeps a
+    /// conversation that already has content / members and discards an empty
+    /// claimed draft).
+    func endComposeFlow() {
+        presentingComposeFlow = false
+        composeConversationViewModel = nil
     }
 
     func onJoinConvo() {
         newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .scanner
+            mode: .scanner,
+            coreActions: coreActions
         )
     }
 
@@ -325,16 +485,54 @@ final class ConversationsViewModel {
         )
     }
 
+    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
+        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
+    }
+
     private func join(from inviteCode: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .joinInvite(code: inviteCode)
+            mode: .joinInvite(code: inviteCode),
+            coreActions: coreActions
+        )
+    }
+
+    /// Opens a new conversation and, once it is ready, requests a fresh
+    /// instance of the given agent template into it. Entry point for the
+    /// `convos://template/<id>` deeplink.
+    private func startConversation(withAgentTemplateId templateId: String) {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            // Deep link knows only the template id; the optimistic identity is
+            // resolved asynchronously inside NewConversationViewModel.
+            mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: nil),
+            coreActions: coreActions
         )
     }
 
     func deleteAllData() {
         selectedConversation = nil
         appSettingsViewModel.deleteAllData {}
+    }
+
+    /// Called by `StaleDeviceBanner` when the user holds "Hold to reset"
+    /// on a session that has landed in `.error(DeviceReplacedError)`.
+    /// Same underlying action as "Delete all app data" (no confirmation
+    /// sheet — the hold itself is the confirmation, and the banner copy
+    /// is the explanation). After the delete completes we rebind the
+    /// stale-device observer to the freshly-built state manager so the
+    /// banner doesn't linger past the reset.
+    func resetForStaleDevice() {
+        staleDeviceObserver.dismiss()
+        selectedConversation = nil
+        let session = self.session
+        let observer = staleDeviceObserver
+        appSettingsViewModel.deleteAllData { [weak self] in
+            guard self != nil else { return }
+            Task { @MainActor in
+                observer.bind(to: session.messagingService().sessionStateManager)
+            }
+        }
     }
 
     func leave(conversation: Conversation) {

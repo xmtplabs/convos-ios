@@ -250,3 +250,67 @@ extension DBMemberProfile {
         return ref
     }
 }
+
+// MARK: - Agent template metadata
+
+extension DBMemberProfile {
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from, read from the agent's per-conversation profile
+    /// `metadata`. nil for human members and for legacy agents that do
+    /// not carry a template.
+    var agentTemplateId: String? {
+        trimmedMetadata(Constant.templateIdKey)
+    }
+
+    /// The shareable web URL for this agent's template (the backend's
+    /// `publishedUrl`). Drives the contact card's Share button.
+    var agentTemplatePublishedURL: String? {
+        trimmedMetadata(Constant.publishedURLKey)
+    }
+
+    /// The agent runtime's `instanceId` for this provisioned agent.
+    /// Surfaced on the contact card behind an internal-build gate.
+    var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
+    }
+
+    /// The agent template's emoji, when published.
+    var agentTemplateEmoji: String? {
+        trimmedMetadata(Constant.emojiKey)
+    }
+
+    /// Reads a metadata string value, coercing empty / whitespace-only to
+    /// nil. The agent runtime can briefly write an empty `templateId` before
+    /// its template lookup resolves; persisting `""` would collapse unrelated
+    /// agents in the dedup pipeline and fire a fetch on an empty id. Mirrors
+    /// `Profile.agentTemplateId`'s coercion so the two accessors agree.
+    private func trimmedMetadata(_ key: String) -> String? {
+        metadata?[key]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The agent template's description, when published.
+    var agentTemplateDescription: String? {
+        metadata?[Constant.descriptionKey]?.stringValue
+    }
+
+    /// True when this member is a template-backed agent - an agent that
+    /// published a `templateId` in its profile metadata. Legacy agents
+    /// without a templateId return false.
+    var isAgentTemplate: Bool {
+        isAgent && agentTemplateId != nil
+    }
+
+    /// Keys a template-backed agent stamps into its per-conversation
+    /// profile `metadata`. Must match the agent runtime's profile
+    /// builder.
+    private enum Constant {
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+        static let emojiKey: String = "emoji"
+        static let descriptionKey: String = "description"
+        static let instanceIdKey: String = "instanceId"
+    }
+}

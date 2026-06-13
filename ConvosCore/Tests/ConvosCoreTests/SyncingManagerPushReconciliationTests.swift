@@ -29,7 +29,8 @@ struct SyncingManagerPushReconciliationTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: NoopDeviceRegistrationManager(),
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient, apiClient: recordingAPI)
@@ -49,7 +50,15 @@ struct SyncingManagerPushReconciliationTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Reconciles push subscriptions after resume")
+    /// After D8 the resume path's reconcile no longer unconditionally hits
+    /// the wire -- if the cache says the desired topic set hasn't changed,
+    /// the reconcile correctly no-ops. To still prove resume DRIVES a
+    /// reconcile we clear the cache before resume, which forces a miss
+    /// regardless of what state the global PushNotificationRegistrar
+    /// singleton is in. Routing through the global singleton (token
+    /// rotation) flaked because PushNotificationRegistrarStaticTests
+    /// resets that singleton in parallel.
+    @Test("Resume triggers a reconcile that reaches the wire after cache is cleared")
     func reconcilesAfterResume() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
@@ -62,7 +71,8 @@ struct SyncingManagerPushReconciliationTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: NoopDeviceRegistrationManager(),
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient, apiClient: recordingAPI)
@@ -70,6 +80,9 @@ struct SyncingManagerPushReconciliationTests {
         let countAfterStart = recordingAPI.subscribeCount
 
         await syncingManager.pause()
+        // Force a cache miss without touching the global singleton.
+        // Equivalent to the "Delete all data" production escape hatch.
+        await syncingManager.clearPushSubscriptionCache()
         await syncingManager.resume()
 
         try await waitUntil(timeout: .seconds(15)) {
@@ -78,15 +91,22 @@ struct SyncingManagerPushReconciliationTests {
 
         #expect(
             recordingAPI.subscribeCount > countAfterStart,
-            "Resume must trigger a fresh push topic reconcile"
+            "Resume after clearPushSubscriptionCache must hit the wire to re-apply the topic set"
         )
 
         await syncingManager.stop()
         try? await fixtures.cleanup()
     }
 
-    @Test("Reconciles push subscriptions after requestDiscovery")
-    func reconcilesAfterRequestDiscovery() async throws {
+    /// Regression test for the D3 / iron-rule scenario: when ConversationStateMachine
+    /// polls requestDiscovery every 3 seconds waiting for a slow-arriving welcome,
+    /// the previous behavior was to call `reconcilePushSubscriptions` on every poll
+    /// even though no conversation had been discovered. That floods
+    /// `/v2/notifications/subscribe` with full topic-set posts (the "topicCount: 50
+    /// per poll" Datadog signal). After D3, requestDiscovery only reconciles when
+    /// `discoverNewConversations()` returns > 0, so a stuck join no longer floods.
+    @Test("requestDiscovery with no new conversations does not trigger a push reconcile")
+    func requestDiscoveryWithoutNewConversationsSkipsReconcile() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose
@@ -98,14 +118,70 @@ struct SyncingManagerPushReconciliationTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             deviceRegistrationManager: NoopDeviceRegistrationManager(),
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
         )
 
         await syncingManager.start(with: mockClient, apiClient: recordingAPI)
         try await waitUntil(timeout: .seconds(15)) { recordingAPI.subscribeCount >= 1 }
         let countAfterStart = recordingAPI.subscribeCount
 
-        await syncingManager.requestDiscovery()
+        // Simulate the 3s join-poll loop: hammer requestDiscovery ten times with
+        // an empty conversation set. None of these should reach the wire because
+        // discoverNewConversations() returns 0 each pass.
+        for _ in 0..<10 {
+            await syncingManager.requestDiscovery()
+        }
+        // Give any latent reconcile task a beat to fire before we assert the
+        // gate held. Real wire calls would arrive well within this window.
+        try await Task.sleep(for: .milliseconds(250))
+
+        #expect(
+            recordingAPI.subscribeCount == countAfterStart,
+            "Ten requestDiscovery polls with zero discovered conversations must not trigger any new push topic reconciles (was: each poll posted the full topic set)"
+        )
+
+        await syncingManager.stop()
+        try? await fixtures.cleanup()
+    }
+
+    /// D14: an APNS token rotation must drive a reconcile even when the
+    /// conversation set hasn't changed. This test proves the
+    /// .convosPushTokenDidChange listener is wired through to a reconcile
+    /// that reaches the wire. We force a cache miss via
+    /// `clearPushSubscriptionCache` rather than via the global
+    /// MockPushNotificationRegistrarProvider's token, because that
+    /// singleton is reset in parallel by PushNotificationRegistrarStaticTests
+    /// and the cross-suite race made this test flaky. The
+    /// "token sha changes -> cache key changes -> miss" property is
+    /// covered separately by the unit tests on PushTopicSubscriptionManager.
+    @Test("Posting .convosPushTokenDidChange triggers a push topic reconcile")
+    func tokenChangeTriggersReconcile() async throws {
+        let fixtures = TestFixtures()
+        let mockClient = TestableMockClient()
+        mockClient.streamBehavior = .neverClose
+        try await seedIdentity(matching: mockClient, into: fixtures)
+        let recordingAPI = RecordingPushAPIClientForReconciliationTests()
+
+        let syncingManager = SyncingManager(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceRegistrationManager: NoopDeviceRegistrationManager(),
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
+        )
+
+        await syncingManager.start(with: mockClient, apiClient: recordingAPI)
+        try await waitUntil(timeout: .seconds(15)) { recordingAPI.subscribeCount >= 1 }
+        let countAfterStart = recordingAPI.subscribeCount
+
+        // Force a deterministic cache miss for the upcoming reconcile.
+        // In production this would be driven by the token's sha changing
+        // inside the cache key; we shortcut to the same effect without
+        // depending on the global singleton.
+        await syncingManager.clearPushSubscriptionCache()
+        NotificationCenter.default.post(name: .convosPushTokenDidChange, object: nil)
 
         try await waitUntil(timeout: .seconds(15)) {
             recordingAPI.subscribeCount > countAfterStart
@@ -113,7 +189,7 @@ struct SyncingManagerPushReconciliationTests {
 
         #expect(
             recordingAPI.subscribeCount > countAfterStart,
-            "requestDiscovery must trigger a fresh push topic reconcile"
+            "convosPushTokenDidChange must drive a reconcile that reaches the wire"
         )
 
         await syncingManager.stop()
@@ -176,7 +252,7 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         let topics: [String]
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
+    private let state: OSAllocatedUnfairLock<[SubscribeCall]> = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
 
     var subscribeCalls: [SubscribeCall] {
         state.withLock { $0 }
@@ -197,6 +273,16 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
 
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String {
         "mock-jwt-token"
+    }
+
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String {
+        "mock-siwe-jwt-token"
+    }
+
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
     }
 
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String {
@@ -229,27 +315,19 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
-    }
-
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

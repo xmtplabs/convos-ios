@@ -3,36 +3,20 @@ import SwiftUI
 struct NewConvoIdentityView: View {
     var onCopyLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
-    var isAssistantEnabled: Bool = false
-
-    @State private var presentingInfoSheet: Bool = false
+    var onInviteAgent: (() -> Void)?
+    var isAgentJoinPending: Bool = false
 
     private var showInviteMenu: Bool { onCopyLink != nil }
 
-    private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
+    private var isAgentActionDisabled: Bool { isAgentJoinPending }
 
-    private var assistantSubtitle: String {
-        if hasAssistant { return "Already here" }
-        if isAssistantJoinPending { return "Joining…" }
-        return "Helps the group do things"
+    private var agentSubtitle: String {
+        if isAgentJoinPending { return "Joining…" }
+        return "Made for this group"
     }
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            let infoAction = { presentingInfoSheet = true }
-            Button(action: infoAction) {
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Image(systemName: "infinity.circle.fill")
-                        .foregroundStyle(.colorTextTertiary)
-                    Text("New convo, new everything")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                .font(.caption)
-            }
-
             if showInviteMenu {
                 Menu {
                     let copyLinkAction: () -> Void = { onCopyLink?() }
@@ -49,21 +33,37 @@ struct NewConvoIdentityView: View {
                         Image(systemName: "qrcode")
                     }
 
-                    if isAssistantEnabled {
-                        let assistantAction: () -> Void = { onInviteAssistant?() }
-                        Button(action: assistantAction) {
-                            Text("Instant assistant")
-                            Text(assistantSubtitle)
-                            Image(systemName: "a.circle")
-                        }
-                        .disabled(isAssistantActionDisabled)
+                    let addFromContactsAction: () -> Void = {
+                        // Routed via notification rather than a callback to
+                        // avoid plumbing through ~9 layers of Messages / cell
+                        // scaffolding. The containing `ConversationView`
+                        // observes and presents its existing picker sheet.
+                        NotificationCenter.default.post(
+                            name: .requestAddFromContactsInCurrentConversation,
+                            object: nil
+                        )
                     }
+                    Button(action: addFromContactsAction) {
+                        Text("Add from Contacts")
+                        Text("People and agents")
+                        Image(systemName: "person.crop.circle.badge.plus")
+                    }
+                    .accessibilityIdentifier("new-convo-add-from-contacts")
+
+                    let agentAction: () -> Void = { onInviteAgent?() }
+                    Button(action: agentAction) {
+                        Text("New Agent")
+                        Text(agentSubtitle)
+                        Image("addAgentIcon")
+                            .renderingMode(.template)
+                    }
+                    .disabled(isAgentActionDisabled)
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "plus")
                         Text("Invite members")
                     }
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.colorTextPrimary)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                     .padding(.vertical, DesignConstants.Spacing.step3HalfX)
@@ -76,30 +76,6 @@ struct NewConvoIdentityView: View {
             }
         }
         .padding(.top, DesignConstants.Spacing.step2x)
-        .selfSizingSheet(isPresented: $presentingInfoSheet) {
-            NewConvoIdentityInfoSheet()
-        }
-    }
-}
-
-struct NewConvoIdentityInfoSheet: View {
-    @Environment(\.dismiss) var dismiss: DismissAction
-
-    var body: some View {
-        FeatureInfoSheet(
-            tagline: "Private chat for the AI era",
-            title: "Every convo is a new world",
-            subtitle: "And you're a new you, too.",
-            paragraphs: [
-                .init("You have Infinite Identities, so you control how you show up, every time.", style: .primary),
-                .init("No info is shared between convos, so there's nothing to leak, link or spam.", size: .subheadline),
-            ],
-            primaryButtonTitle: "Awesome",
-            primaryButtonAction: { dismiss() },
-            learnMoreTitle: "About infinite identity",
-            learnMoreURL: URL(string: "https://learn.convos.org/infinite-identity"),
-            showDragIndicator: true
-        )
     }
 }
 
@@ -107,22 +83,10 @@ struct NewConvoIdentityInfoSheet: View {
     NewConvoIdentityView(
         onCopyLink: {},
         onConvoCode: {},
-        onInviteAssistant: {},
-        isAssistantEnabled: true
+        onInviteAgent: {}
     )
 }
 
 #Preview("Joiner") {
     NewConvoIdentityView()
-}
-
-#Preview("Info Sheet") {
-    @Previewable @State var isPresented: Bool = true
-    VStack {
-        let action = { isPresented.toggle() }
-        Button(action: action) { Text("Show") }
-    }
-    .selfSizingSheet(isPresented: $isPresented) {
-        NewConvoIdentityInfoSheet()
-    }
 }

@@ -15,6 +15,8 @@
 	<string>Convos needs local network access to connect to development backend and XMTP node</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Convos uses your photo library when an agent asks to read recent photos for a conversation.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

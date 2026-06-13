@@ -222,8 +222,14 @@ fi
 
 if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
     REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
-    PARENT_DIR="$(dirname "${REPO_ROOT}")"
-    PARENT_ENV="${PARENT_DIR}/.env"
+    # Shared convos-ios DEV .env location: prefer the local-stack workspace
+    # (CONVOS_REPOS_DIR env, or the .convos-stack pointer at the repo root) ->
+    # <workspace>/convos-ios.env. Fall back to the legacy parent (<dirname repo>/.env)
+    # when no workspace is configured. One token, shared across all checkouts/worktrees.
+    _ws=""
+    if [ -n "${CONVOS_REPOS_DIR:-}" ]; then _ws="${CONVOS_REPOS_DIR}"
+    elif [ -f "${REPO_ROOT}/.convos-stack" ]; then _ws="$(tr -d '\n' < "${REPO_ROOT}/.convos-stack")"; fi
+    if [ -n "${_ws}" ] && [ -d "${_ws}" ]; then PARENT_ENV="${_ws}/convos-ios.env"; else PARENT_ENV="$(dirname "${REPO_ROOT}")/.env"; fi
     LOCAL_ENV="${REPO_ROOT}/.env"
     FIREBASE_CONSOLE_URL="https://console.firebase.google.com/u/1/project/convos-otr/appcheck/apps"
 
@@ -261,6 +267,22 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         echo "4. Paste the UUID above"
     }
 
+    # Source of truth is the team "Convos" 1Password vault. Refresh the shared
+    # .env from it when op is available (soft: skipped if op is missing/signed
+    # out; the cached .env stays the fallback). This runs in shell context where
+    # an `op signin` session is visible, so it works even without 1Password
+    # desktop-app integration.
+    # shellcheck source=Scripts/secrets-utils.sh
+    . "${DIRNAME}/secrets-utils.sh"
+    if command -v op > /dev/null 2>&1; then
+        _op_token="$(op read "${FIREBASE_DEBUG_TOKEN_OP_REF}" --no-newline 2>/dev/null || true)"
+        if [ -n "${_op_token}" ]; then
+            touch "${PARENT_ENV}" 2>/dev/null || true
+            cache_firebase_token_to_env "${PARENT_ENV}" "${_op_token}"
+            echo "🔐 Refreshed Firebase debug token from 1Password (Convos vault)"
+        fi
+    fi
+
     LOCAL_TOKEN="$(read_firebase_token "${LOCAL_ENV}")"
     PARENT_TOKEN="$(read_firebase_token "${PARENT_ENV}")"
 
@@ -270,6 +292,12 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         elif [ -f "${LOCAL_ENV}" ] && [ -n "${LOCAL_TOKEN}" ]; then
             echo "✅ Firebase App Check debug token is configured in ${LOCAL_ENV}"
         else
+            # Token lives in the shared/parent env but this checkout has no .env yet
+            # (fresh worktree). Link it so the build phase finds the cached token.
+            if [ ! -e "${LOCAL_ENV}" ] && [ ! -L "${LOCAL_ENV}" ]; then
+                ln -s "${PARENT_ENV}" "${LOCAL_ENV}"
+                echo "✓ Linked .env → ${PARENT_ENV} at ${LOCAL_ENV}"
+            fi
             echo "✅ Firebase App Check debug token is configured in ${PARENT_ENV}"
         fi
     else
@@ -284,13 +312,13 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
 
         SYMLINK_NOTE=""
         if [ ! -e "${LOCAL_ENV}" ] && [ ! -L "${LOCAL_ENV}" ]; then
-            ln -s ../.env "${LOCAL_ENV}"
-            SYMLINK_NOTE="✓ Linked .env → ../.env at ${LOCAL_ENV}"
+            ln -s "${PARENT_ENV}" "${LOCAL_ENV}"
+            SYMLINK_NOTE="✓ Linked .env → ${PARENT_ENV} at ${LOCAL_ENV}"
         elif [ -L "${LOCAL_ENV}" ]; then
             link_target="$(readlink "${LOCAL_ENV}")"
             SYMLINK_NOTE="✓ .env → ${link_target} symlink already in place at ${LOCAL_ENV}"
         elif [ -f "${LOCAL_ENV}" ]; then
-            SYMLINK_NOTE=$'⚠️  '"${LOCAL_ENV}"$' is a regular file, not a symlink.\n   To share one token across worktrees:\n     cat .env >> ../.env && rm .env && ln -s ../.env .env'
+            SYMLINK_NOTE="⚠️  ${LOCAL_ENV} is a regular file, not a symlink. To share one token: cat .env >> ${PARENT_ENV} && rm .env && ln -s ${PARENT_ENV} .env"
         fi
 
         print_firebase_report "${NEW_TOKEN}" "${PARENT_ENV}" "${SYMLINK_NOTE}"

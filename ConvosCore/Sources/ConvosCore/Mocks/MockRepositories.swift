@@ -18,6 +18,42 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
     public func fetchAll() throws -> [Conversation] {
         mockConversations
     }
+
+    /// Note: this mock doesn't model the repo's `consent` scope, so a
+    /// test that injects conversations with mixed consent values and
+    /// queries with a narrow scope (e.g. `[.allowed]`) will see false
+    /// positives. The production `ConversationsRepository` enforces
+    /// the scope via the `WHERE consent IN (...)` clause in
+    /// `composeOneToOne`.
+    public func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation? {
+        mockConversations.first { conversation in
+            guard conversation.id != excludedConversationId else { return false }
+            let others = conversation.membersWithoutCurrent
+            return others.count == 1 && others.first?.profile.inboxId == inboxId
+        }
+    }
+
+    public func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
+        var addedByCurrentUser: [Conversation] = []
+        var addedByOthers: [Conversation] = []
+        for conversation in mockConversations {
+            let agentMember = conversation.members.first { member in
+                member.isAgent && member.profile.agentTemplateId == templateId
+            }
+            guard let agentMember else { continue }
+            let currentUserInboxId = conversation.members.first { $0.isCurrentUser }?.profile.inboxId
+            if let inviterInboxId = agentMember.invitedBy?.inboxId, inviterInboxId == currentUserInboxId {
+                addedByCurrentUser.append(conversation)
+            } else {
+                addedByOthers.append(conversation)
+            }
+        }
+        let partition = AgentTemplateConversations(
+            addedByCurrentUser: addedByCurrentUser,
+            addedByOthers: addedByOthers
+        )
+        return Just(partition).eraseToAnyPublisher()
+    }
 }
 
 // MARK: - Mock Conversations Count Repository

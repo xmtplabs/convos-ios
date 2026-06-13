@@ -9,6 +9,9 @@ public protocol InviteClientProvider {
     var inviteInboxId: String { get }
     func findConversation(conversationId: String) async throws -> XMTPiOS.Conversation?
     func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm
+    /// Pulls new conversations (welcomes) from the network so a recently
+    /// created group can be found locally before a join request is rejected.
+    func syncConversations() async throws
     // swiftlint:disable:next function_parameter_count
     func listDms(
         createdAfterNs: Int64?,
@@ -30,6 +33,10 @@ extension XMTPiOS.Client: InviteClientProvider {
 
     public func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
         try await conversations.findOrCreateDm(with: inboxId)
+    }
+
+    public func syncConversations() async throws {
+        try await conversations.sync()
     }
 
     // swiftlint:disable:next function_parameter_count

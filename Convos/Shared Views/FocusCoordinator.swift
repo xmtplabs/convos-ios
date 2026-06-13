@@ -1,3 +1,4 @@
+import ConvosCoreiOS
 import Foundation
 import Observation
 import SwiftUI
@@ -22,6 +23,17 @@ final class FocusCoordinator {
 
     /// The current focus state - synchronized with SwiftUI's @FocusState
     private(set) var currentFocus: MessagesViewInputFocus?
+
+    /// Bumped by `moveFocus(to:)` only when the requested focus already equals
+    /// `currentFocus`. Observers (`ConversationPresenter`, `MessagesBottomBar`)
+    /// re-assert SwiftUI's `@FocusState` on this change, because a same-value
+    /// `moveFocus` leaves `currentFocus` unchanged and the value-driven
+    /// `onChange(of: currentFocus)` syncs never fire. This happens when the
+    /// messages list dismisses the keyboard via its interactive drag gesture
+    /// without SwiftUI clearing `@FocusState`, leaving the stored focus and the
+    /// real first responder out of sync - so a reply or attachment that asks to
+    /// re-focus `.message` would otherwise never raise the keyboard again.
+    private(set) var refocusNonce: Int = 0
 
     /// The type of keyboard currently detected
     private(set) var keyboardType: KeyboardType = .unknown
@@ -126,9 +138,23 @@ final class FocusCoordinator {
             // Any non-quickEditor end of side-convo name editing falls through to default
             return defaultFocus
 
+        case (.thingsSearchBar, _):
+            // Things search lives in a peer page of the pager, not the messages composer.
+            // Don't pull focus back to .message — just dismiss.
+            return nil
+
         default:
             return defaultFocus
         }
+    }
+
+    /// Dismisses the Things search field if it currently holds focus. Used when the
+    /// conversation pager pages away from the Things page or the conversation
+    /// itself disappears, so the keyboard doesn't stay associated with a field on
+    /// an off-screen page and bump the messages bottom bar with a phantom inset.
+    func dismissThingsSearchIfNeeded() {
+        guard currentFocus == .thingsSearchBar else { return }
+        moveFocus(to: nil)
     }
 
     /// Moves focus to `message` if we're currently focusing a quick-editor field
@@ -147,7 +173,18 @@ final class FocusCoordinator {
         Log.info("moveFocus called with: \(String(describing: focus)), saving previous: \(String(describing: currentFocus))")
         previousFocus = currentFocus
         beginProgrammaticTransition(to: focus)
-        currentFocus = focus
+        if currentFocus == focus {
+            // The stored value isn't changing, so the value-driven `@FocusState`
+            // syncs won't fire. Re-assert focus anyway: the real first responder
+            // may have been dropped (e.g. the messages list dismissed the
+            // keyboard via its interactive drag) without SwiftUI clearing
+            // `@FocusState`. The transition began above so the nil intermediate
+            // of the observers' re-assert is treated as an interrupted
+            // transition, not a manual dismissal.
+            refocusNonce &+= 1
+        } else {
+            currentFocus = focus
+        }
     }
 
     /// Called when a field finishes editing to determine next focus
@@ -174,6 +211,25 @@ final class FocusCoordinator {
 
         beginProgrammaticTransition(to: nextFocus)
         currentFocus = nextFocus
+    }
+
+    /// Runs `work` with the keyboard's pending input settled, so that `work`
+    /// can safely mutate the focused field's bound text programmatically.
+    ///
+    /// Use this around programmatic mutations of a focused field's bound text
+    /// (e.g. clearing the composer on send). Mutating the binding while the
+    /// keyboard still holds uncommitted input can lose the write entirely:
+    /// the backing text view keeps the old text and the keyboard's next
+    /// commit point syncs the stale text back into the binding.
+    ///
+    /// The settle strategies live in `KeyboardInputSettling` (ConvosCoreiOS).
+    /// Pass `endingInputSession: true` when dictation is believed active.
+    /// (Dictation is not detectable directly: on iOS 26.2 `textInputMode`
+    /// stays the regular language during dictation and no input-mode-change
+    /// notification fires, so callers infer it behaviorally - see
+    /// `ConversationViewModel`.)
+    func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
+        KeyboardInputSettling.withSettledInput(endingInputSession: endingInputSession, work)
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated

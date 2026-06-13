@@ -41,7 +41,7 @@ extension AgentVerification {
         case .verified(let issuer):
             switch issuer {
             case .convos:
-                return "Assistant"
+                return "Agent"
             case .userOAuth:
                 return "Verified Agent"
             case .unknown:

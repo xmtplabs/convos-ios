@@ -6,8 +6,8 @@ extension RandomAccessCollection where Index == Int {
         var upperBound = endIndex
 
         while lowerBound < upperBound {
-            let midIndex = lowerBound &+ (upperBound &- lowerBound) / 2
-            let result = predicate(self[midIndex])
+            let midIndex: Int = lowerBound &+ (upperBound &- lowerBound) / 2
+            let result: ComparisonResult = predicate(self[midIndex])
             if result == .orderedSame {
                 return midIndex
             } else if result == .orderedAscending {
@@ -25,7 +25,7 @@ extension RandomAccessCollection where Index == Int {
             var upperBound = upperBound
 
             while lowerBound < upperBound {
-                let midIndex = (lowerBound &+ upperBound) / 2
+                let midIndex: Int = (lowerBound &+ upperBound) / 2
                 if predicate(self[midIndex]) == .orderedAscending {
                     lowerBound = midIndex &+ 1
                 } else {
@@ -44,7 +44,7 @@ extension RandomAccessCollection where Index == Int {
             var upperBound = upperBound
 
             while lowerBound < upperBound {
-                let midIndex = (lowerBound &+ upperBound &+ 1) / 2
+                let midIndex: Int = (lowerBound &+ upperBound &+ 1) / 2
                 if predicate(self[midIndex]) == .orderedDescending {
                     upperBound = midIndex &- 1
                 } else {

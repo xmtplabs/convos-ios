@@ -10,6 +10,8 @@ struct MessagesListView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
@@ -17,53 +19,46 @@ struct MessagesListView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onAgentOutOfCredits: () -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let isAgentJoinPending: Bool
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
     @State private var lastItemIndex: Int?
 
-    var body: some View {
+var body: some View {
         ScrollViewReader { _ in
-            scrollContent
-        }
-    }
-
-    private var scrollContent: some View {
-        ScrollView {
-            LazyVStack(spacing: 0.0) {
-                listHeader
-                messagesList
+            ScrollView {
+                LazyVStack(spacing: 0.0) {
+                    headerView
+                    messagesList
+                }
             }
+            .scrollEdgeEffectHidden(for: [.bottom])
+            .animation(.spring(duration: 0.5, bounce: 0.2), value: messages)
+            .contentMargins(.horizontal, DesignConstants.Spacing.step4x, for: .scrollContent)
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollPosition($scrollPosition, anchor: .bottom)
         }
-        .scrollEdgeEffectHidden(for: [.bottom])
-        .animation(.spring(duration: 0.5, bounce: 0.2), value: messages)
-        .contentMargins(.horizontal, DesignConstants.Spacing.step4x, for: .scrollContent)
-        .defaultScrollAnchor(.bottom)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollPosition($scrollPosition, anchor: .bottom)
     }
 
     @ViewBuilder
-    private var listHeader: some View {
+    private var headerView: some View {
         if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
             VStack(spacing: DesignConstants.Spacing.step4x) {
                 InviteView(invite: invite)
                 NewConvoIdentityView(
                     onCopyLink: onCopyInviteLink,
                     onConvoCode: onConvoCode,
-                    onInviteAssistant: onInviteAssistant,
-                    hasAssistant: hasAssistant,
-                    isAssistantJoinPending: isAssistantJoinPending,
-                    isAssistantEnabled: isAssistantEnabled
+                    onInviteAgent: onInviteAgent,
+                    isAgentJoinPending: isAgentJoinPending
                 )
             }
             .id("invite")
@@ -75,80 +70,109 @@ struct MessagesListView: View {
         }
     }
 
+    // Concrete tuple-array (not a lazy `EnumeratedSequence`) so the `ForEach`
+    // below works on a `RandomAccessCollection` with a fully-resolved element
+    // type, keeping its getter's type-check time well under the limit.
+    private var enumeratedMessages: [(offset: Int, element: MessagesListItemType)] {
+        Array(messages.enumerated())
+    }
+
     private var messagesList: some View {
-        ForEach(messages.enumerated(), id: \.element.id) { index, item in
-            Group {
-                listItemView(for: item)
-            }
-            .onScrollVisibilityChange(threshold: 0.1) { isVisible in
-                guard lastItemIndex == nil else { return }
-                if isVisible && index == messages.count - 1 {
-                    lastItemIndex = index
+        ForEach(enumeratedMessages, id: \.element.id) { entry in
+            itemView(for: entry.element)
+                .onScrollVisibilityChange(threshold: 0.1) { isVisible in
+                    handleScrollVisibilityChange(isVisible: isVisible, index: entry.offset)
                 }
-            }
+        }
+    }
+
+    private func handleScrollVisibilityChange(isVisible: Bool, index: Int) {
+        guard lastItemIndex == nil else { return }
+        if isVisible, index == messages.count - 1 {
+            lastItemIndex = index
         }
     }
 
     @ViewBuilder
-    private func listItemView(for item: MessagesListItemType) -> some View {
+    private func itemView(for item: MessagesListItemType) -> some View {
         switch item {
         case .date(let dateGroup):
             TextTitleContentView(title: dateGroup.value, profile: nil)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .update(_, let update, _):
-            updateRow(update: update)
+            updateView(for: update)
+
         case .messages(let group):
             messagesGroupView(for: group)
+
         case .invite(let invite):
             InviteView(invite: invite)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .conversationInfo(let conversation):
             ConversationInfoPreview(conversation: conversation)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
-        case .agentOutOfCredits(let profile):
-            TextTitleContentView(
-                title: "\(profile.displayName) is out of processing power",
-                profile: profile,
-                onTap: onAgentOutOfCredits
+
+        case let .agentOutOfCredits(member, isCurrentUserCreator):
+            AgentLostPowerStatus(
+                agentName: member.profile.displayName,
+                isCreator: isCurrentUserCreator,
+                onUpgrade: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
-        case let .assistantJoinStatus(status, requesterName, _):
-            AssistantJoinStatusView(
+
+        case let .agentJoinStatus(status, requesterName, _):
+            AgentJoinStatusView(
                 status: status,
                 requesterName: requesterName,
-                onRetry: onRetryAssistantJoin
+                onRetry: onRetryAgentJoin
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
-        case let .assistantPresentInfo(agent, inviterName):
-            assistantPresentRow(agent: agent, inviterName: inviterName)
+
+        case let .agentPresentInfo(agent, inviterName):
+            agentPresentView(agent: agent, inviterName: inviterName)
+
+        case let .connectionEvent(_, summary, _):
+            ConnectionEventSummaryView(summary: summary)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
+        case let .capabilityConnect(_, prompt, agentName, _):
+            CapabilityConnectPromptView(
+                prompt: prompt,
+                agentName: agentName,
+                onTap: { onTapCapabilityConnect(prompt) }
+            )
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+
+        case .agentBuilderSummary(let content):
+            AgentBuilderSummaryView(content: content)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .typingIndicator:
             EmptyView()
         }
     }
 
     @ViewBuilder
-    private func updateRow(update: ConversationUpdate) -> some View {
-        let memberTap: (() -> Void)? = update.profileMember.map { member in
-            { onTapUpdateMember(member) }
-        }
+    private func updateView(for update: ConversationUpdate) -> some View {
         VStack(spacing: 0) {
             TextTitleContentView(
                 title: update.summary,
                 profile: update.profile,
                 agentVerification: update.profileMember?.agentVerification ?? .unverified,
-                onTap: memberTap
+                onTap: update.profileMember.map { member in
+                    { onTapUpdateMember(member) }
+                }
             )
-                .padding(.vertical, DesignConstants.Spacing.stepX)
-            if update.addedVerifiedAssistant {
-                AssistantJoinedInfoView()
-            }
+            .padding(.vertical, DesignConstants.Spacing.stepX)
         }
     }
 
     @ViewBuilder
-    private func assistantPresentRow(agent: ConversationMember, inviterName: String?) -> some View {
+    private func agentPresentView(agent: ConversationMember, inviterName: String?) -> some View {
         let isVerified = agent.agentVerification.isVerified
-        let label = isVerified ? "Assistant" : "Agent"
+        let label = isVerified ? "Agent" : "Agent"
         let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
         VStack(spacing: 0) {
             TextTitleContentView(
@@ -156,12 +180,8 @@ struct MessagesListView: View {
                 profile: agent.profile,
                 agentVerification: agent.agentVerification
             )
-                .padding(.vertical, DesignConstants.Spacing.step4x)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if isVerified {
-                AssistantJoinedInfoView()
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
     }
 
@@ -173,6 +193,8 @@ struct MessagesListView: View {
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
+            onTapReadReceipts: onTapReadReceipts,
+            onTapThinkingIndicator: onTapThinkingIndicator,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onReply: onReply,

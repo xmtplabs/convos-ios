@@ -114,6 +114,19 @@ CREATE TABLE IF NOT EXISTS perf_measurements (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
+-- Screenshots captured during test execution. Paths are relative to the
+-- run's artifact directory (qa/artifacts/run-<run_id>/) so the directory
+-- stays portable. Rendered as the carousel in the HTML run artifact.
+CREATE TABLE IF NOT EXISTS screenshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    test_id TEXT,
+    step_id TEXT,
+    caption TEXT,
+    path TEXT NOT NULL,
+    taken_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- App events captured from [EVENT] log lines during test execution
 CREATE TABLE IF NOT EXISTS app_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,3 +147,4 @@ CREATE INDEX IF NOT EXISTS idx_log_entries_errors ON log_entries(run_id, is_app_
 CREATE INDEX IF NOT EXISTS idx_perf_measurements_run ON perf_measurements(run_id);
 CREATE INDEX IF NOT EXISTS idx_app_events_run ON app_events(run_id, test_id);
 CREATE INDEX IF NOT EXISTS idx_app_events_name ON app_events(run_id, event_name);
+CREATE INDEX IF NOT EXISTS idx_screenshots_run ON screenshots(run_id, test_id);

@@ -74,16 +74,31 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var isAvatarEncrypted: Bool {
-        avatarSalt?.count == 32 && avatarNonce?.count == 12
+        // All three of salt (32), nonce (12), and key (32) must be present
+        // for the cache's encrypted-fetch branch to actually decrypt the
+        // avatar. `ImageCache.fetchEncryptedImageInline` silently returns
+        // `nil` when the key is missing, so a partial state here would
+        // surface as a vanished avatar.
+        avatarSalt?.count == 32 && avatarNonce?.count == 12 && avatarKey?.count == 32
     }
 
     public var displayName: String {
         if let name, !name.isEmpty { return name }
-        return "Somebody"
+        return isAgent ? "Agent" : "Somebody"
     }
 
     public var profileEmoji: String? {
         metadata?[Constant.emojiMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// Free-form description an agent agent writes into its own profile
+    /// metadata to describe what it's set up to do — surfaced on the
+    /// `AgentContactCard` once the agent has decided.
+    public var agentDescription: String? {
+        metadata?[Constant.agentDescriptionMetadataKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
@@ -107,7 +122,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             return .unverified
         }
         Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
@@ -132,14 +147,14 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata (cached path) — keys: \(metadata?.keys.sorted() ?? [])")
             return .unverified
         }
-        let result = AssistantAttestationVerifier.verifyCached(
+        let result = AgentAttestationVerifier.verifyCached(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
             kid: keyId,
             keyset: keyset
         )
-        Log.info("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
+        Log.debug("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
         return result
     }
 
@@ -149,18 +164,6 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             return .unverified
         }
         return verifyCachedAgentAttestation(keyset: keyset)
-    }
-
-    public var isOutOfCredits: Bool {
-        guard let credits = metadata?["credits"] else { return false }
-        switch credits {
-        case .number(let value):
-            return value <= 0
-        case .bool(let value):
-            return !value
-        case .string:
-            return false
-        }
     }
 
     public func with(inboxId: String) -> Profile {
@@ -202,6 +205,82 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     private enum Constant {
         static let emojiMetadataKey: String = "emoji"
+        static let agentDescriptionMetadataKey: String = "description"
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+        static let instanceIdKey: String = "instanceId"
+        static let emailKey: String = "email"
+    }
+}
+
+// MARK: - Agent template metadata
+
+extension Profile {
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from, read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Chat action (spawn a fresh
+    /// instance of the same template). nil for human members and for
+    /// legacy agents that do not carry a template. The metadata key must
+    /// match the agent runtime's profile builder; see the matching
+    /// accessor on `DBMemberProfile`.
+    ///
+    /// Empty / whitespace-only values are coerced to nil so downstream
+    /// guards like `contact.agentTemplateId != nil` cannot pass for a
+    /// value the API would reject. Mirrors `profileEmoji` and
+    /// `agentDescription` above; the runtime occasionally writes an
+    /// empty string when its template lookup hasn't resolved yet.
+    public var agentTemplateId: String? {
+        metadata?[Constant.templateIdKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The shareable web URL for a template-backed agent (the backend's
+    /// `publishedUrl`), read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Share button. nil for human
+    /// members and for legacy agents that do not carry a template. The
+    /// metadata key must match the agent runtime's profile builder; see
+    /// the matching accessor on `DBMemberProfile`.
+    public var agentTemplatePublishedURL: String? {
+        metadata?[Constant.publishedURLKey]?.stringValue
+    }
+
+    /// The agent runtime's `instanceId` for this provisioned agent
+    /// (one templateId spawns N instances, each with its own inboxId).
+    /// Surfaced on the contact card behind an internal-build gate for
+    /// log correlation.
+    public var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
+    }
+
+    /// The agent's email address, read from the agent's per-conversation
+    /// profile metadata. The runtime assigns an address when the agent is
+    /// created; nil for human members and for older agents created before
+    /// addresses were assigned. Drives the contact card's Contact Info
+    /// section. Empty / whitespace-only values are coerced to nil, mirroring
+    /// `agentTemplateId` above.
+    public var agentEmail: String? {
+        metadata?[Constant.emailKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The Ed25519 attestation signature this agent published in its
+    /// per-conversation profile metadata. `nil` when the agent joined
+    /// without attaching attestation (it then reads as unverified). The
+    /// metadata key matches the verification guard in
+    /// `verifyCachedAgentAttestation`. Surfaced on the contact card behind a
+    /// debug-build gate for diagnosing agent verification.
+    public var agentAttestation: String? {
+        metadata?["attestation"]?.stringValue
+    }
+
+    /// The key id (`kid`) the attestation was signed with, matched against
+    /// the published agent keyset. `nil` when no attestation is present.
+    public var agentAttestationKid: String? {
+        metadata?["attestation_kid"]?.stringValue
     }
 }
 
@@ -209,19 +288,62 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
 public extension Array where Element == Profile {
     var formattedNamesString: String {
-        let namedProfiles = filter { $0.name != nil && $0.name?.isEmpty == false }
-            .map { $0.displayName }
-            .sorted()
-        let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
-        let totalCount = namedProfiles.count + anonymousCount
+        formattedNamesString(memberNameOverride: { _ in nil })
+    }
+
+    /// `formattedNamesString` with an inbox → contact-name override that
+    /// **wins** over the per-conversation profile name when present. The
+    /// contact name is the user's deliberate choice from the contacts list
+    /// and should appear consistently across every surface that renders a
+    /// member, regardless of what the per-conversation profile snapshot
+    /// happens to say. The per-conversation profile name is the next
+    /// fallback, and the "Agent / Agents" or "Somebody / Somebodies"
+    /// bucketing (keyed on `profile.isAgent`) remains the final fallback
+    /// for nameless members. Pass `{ _ in nil }` for the legacy behavior
+    /// (no override).
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        let resolved: [(name: String?, isAgent: Bool)] = map { profile in
+            if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+                return (overridden, profile.isAgent)
+            }
+            if let name = profile.name, !name.isEmpty {
+                return (name, profile.isAgent)
+            }
+            return (nil, profile.isAgent)
+        }
+        let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+        let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+        let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
+        let anonymousCount: Int = anonymousAgentCount + anonymousHumanCount
+        let totalCount: Int = namedProfiles.count + anonymousCount
+
+        // Anonymous bucket labels, agents before humans so "Agent & Somebody"
+        // reads naturally. Pluralized independently: a group with two unnamed
+        // agents and one unnamed human reads "Agents & Somebody".
+        var anonymousLabels: [String] = []
+        if anonymousAgentCount == 1 {
+            anonymousLabels.append("Agent")
+        } else if anonymousAgentCount > 1 {
+            anonymousLabels.append("Agents")
+        }
+        if anonymousHumanCount == 1 {
+            anonymousLabels.append("Somebody")
+        } else if anonymousHumanCount > 1 {
+            anonymousLabels.append("Somebodies")
+        }
 
         if namedProfiles.isEmpty {
-            if anonymousCount == 0 {
+            switch anonymousLabels.count {
+            case 0:
                 return ""
-            } else if anonymousCount == 1 {
-                return "Somebody"
-            } else {
-                return "Somebodies"
+            case 1:
+                return anonymousLabels[0]
+            case 2:
+                return anonymousLabels.joined(separator: " & ")
+            default:
+                return anonymousLabels.joined(separator: ", ")
             }
         }
 
@@ -229,11 +351,7 @@ public extension Array where Element == Profile {
 
         if totalCount <= maxNames {
             var allNames = namedProfiles
-            if anonymousCount > 1 {
-                allNames.append("Somebodies")
-            } else if anonymousCount == 1 {
-                allNames.append("Somebody")
-            }
+            allNames.append(contentsOf: anonymousLabels)
 
             switch allNames.count {
             case 1:

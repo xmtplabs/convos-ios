@@ -17,18 +17,34 @@ struct MessageBubble: View {
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
+            bubbleText
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.vertical, 10.0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(profile.displayName): \(message)")
+    }
+
+    /// Only messages that actually contain a link pay for the TextKit-backed
+    /// `LinkDetectingTextView`; everything else renders as plain `Text`,
+    /// which is far cheaper to build and measure when a conversation opens
+    /// or scrolls.
+    @ViewBuilder
+    private var bubbleText: some View {
+        if TextLinkPresence.containsLinks(message) {
             LinkDetectingTextView(
                 message,
                 linkColor: textColor,
                 foregroundColor: textColor,
                 font: .preferredFont(forTextStyle: .callout)
             )
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, 10.0)
+        } else {
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(textColor)
+                .textSelection(.enabled)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(profile.displayName): \(message)")
     }
 }
 

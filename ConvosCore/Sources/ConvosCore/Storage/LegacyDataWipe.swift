@@ -45,6 +45,12 @@ enum LegacyDataWipe {
     /// both the local and the iCloud-synced copies of each get removed.
     private static let identityKeychainServices: [String] = [
         "org.convos.ios.KeychainIdentityStore.v3",
+        // Synced backup slot: holds one item per identity. Sweeping it
+        // with kSecAttrSynchronizableAny propagates through iCloud
+        // Keychain and removes every identity's recovery backup on every
+        // device on the account -- acceptable only because a generation
+        // bump is a deliberate total reset.
+        "org.convos.ios.KeychainIdentityStore.v3-synced-backup",
         "org.convos.ios.KeychainIdentityStore.v4-local",
         "org.convos.ios.KeychainIdentityStore.v2",
         "org.convos.ios.KeychainIdentityStore.v1"
@@ -59,9 +65,15 @@ enum LegacyDataWipe {
         "hasRegisteredDevice_",
         "lastRegisteredDevicePushToken_"
     ]
+    /// `GACAppCheckDebugToken` is deliberately not wiped here. It is a
+    /// build-time constant that `FirebaseHelperCore.configure` re-pins on
+    /// every launch, and that pin happens *before* this wipe runs in the
+    /// launch sequence. Wiping it deletes the freshly pinned token on the
+    /// first launch of a fresh install, so App Check falls back to an
+    /// unregistered random UUID until the next launch -- the exact
+    /// "force-quit-and-relaunch to recognize the debug token" bug.
     private static let standardDefaultsKeys: [String] = [
-        "convos_fallback_device_id",
-        "GACAppCheckDebugToken"
+        "convos_fallback_device_id"
     ]
 
     /// Checks whether a wipe is needed for the current install and runs it before

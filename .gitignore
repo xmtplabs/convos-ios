@@ -14,6 +14,7 @@
 ## Claude Code local settings
 .claude/settings.local.json
 .convos-task
+.convos-stack
 
 ## User settings
 xcuserdata/
@@ -60,6 +61,10 @@ playground.xcworkspace
 # .swiftpm
 
 .build/
+
+# SwiftLint local cache, used by `swiftlint --cache-path .swiftlint-cache`
+# and the GitHub Actions cache.
+.swiftlint-cache/
 
 # CocoaPods
 # We recommend against adding the Pods directory to your .gitignore. However
@@ -130,10 +135,13 @@ claude-code-resources/
 # Claude Code local files
 .claude/.simulator_id
 .derivedData/
+.derivedData-device/
+**/.build/
 .claude/task-simulator.json
 *.profraw
 .simulator-setup.log
 qa/reports/
+qa/artifacts/
 qa/cxdb/qa.sqlite
 qa/cxdb/qa.sqlite-wal
 qa/cxdb/qa.sqlite-shm
@@ -148,3 +156,10 @@ qa/cxdb/qa.sqlite-shm
 .direnv
 .direnv/**
 **/.direnv/**
+
+# codex
+.agents
+.agents/**
+.codex
+.codex/**
+AGENTS.md

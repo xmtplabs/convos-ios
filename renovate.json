@@ -2,6 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "labels": ["dependencies"],
+  "enabledManagers": ["custom.regex"],
   "customManagers": [
     {
       "customType": "regex",
@@ -30,14 +31,13 @@
     {
       "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
       "groupName": "libxmtp",
-      "branchName": "renovate/libxmtp",
+      "branchTopic": "libxmtp",
       "prConcurrentLimit": 1,
       "prCreation": "immediate",
       "rebaseWhen": "behind-base-branch",
       "allowedVersions": "/^ios-\\d+\\.\\d+\\.\\d+-nightly\\.\\d{8}\\.[a-f0-9]+$/",
       "commitMessageTopic": "libxmtp",
-      "commitMessageExtra": "to {{newValue}}",
-      "prTitle": "chore(deps): update libxmtp to {{newValue}}"
+      "commitMessageExtra": "to {{newValue}}"
     }
   ]
 }

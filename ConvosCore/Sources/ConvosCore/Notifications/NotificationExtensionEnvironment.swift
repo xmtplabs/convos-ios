@@ -36,12 +36,17 @@ public struct NotificationExtensionEnvironment {
 
         Log.info("Creating CachedPushNotificationHandler with environment: \(environment.name)")
 
+        // NSE runs in its own process with no PostHog SDK or session — no
+        // user-driven actions originate here, so the explicit no-op is the
+        // correct sink rather than threading the app's real `CoreActions`
+        // across the process boundary.
         CachedPushNotificationHandler.initialize(
             databaseReader: databaseManager.dbReader,
             databaseWriter: databaseManager.dbWriter,
             environment: environment,
             identityStore: identityStore,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            coreActions: NoOpCoreActions()
         )
         return CachedPushNotificationHandler.shared
     }

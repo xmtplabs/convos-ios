@@ -10,8 +10,21 @@ public protocol MessageSender {
     func sendStreamingText(_ payload: StreamingText) async throws
     func sendStreamingClear(_ payload: StreamingClear) async throws
     func prepare(text: String) async throws -> String
+    func prepare(joinRequest: JoinRequestContent) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
+    /// Variants that stage the message in the local store without queueing a
+    /// libxmtp send intent (`prepareMessage(noSend: true)`). A queued intent
+    /// is flushed by any subsequent publish or group sync on the conversation
+    /// in queue order, which destroys a caller-controlled publish order;
+    /// these leave publication entirely to `publishMessage(messageId:)`. The
+    /// agent-builder bundle uses them so the manifest actually reaches the
+    /// network before the brief messages it hides.
+    func prepareForManualPublish(text: String) async throws -> String
+    func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
+    func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
@@ -75,6 +88,16 @@ public protocol ConversationsProvider {
 
     func findOrCreateDm(with peerInboxId: String) async throws -> Dm
 
+    /// Same as `findOrCreateDm(with:)` but applies the given disappearing-
+    /// messages settings on create (passed through to libxmtp's
+    /// `findOrCreateDm(with:disappearingMessageSettings:)`). Use the basic
+    /// overload by default; callers that need a TTL on the conversation
+    /// (e.g. pairing) reach for this one.
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> Dm
+
     func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
 
     func sync() async throws
@@ -107,6 +130,7 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo]
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -139,6 +163,11 @@ extension XMTPiOS.Conversations: ConversationsProvider {
         try await findOrCreateDm(with: peerInboxId, disappearingMessageSettings: nil)
     }
 }
+
+// libxmtp's `findOrCreateDm(with:disappearingMessageSettings:)` is the
+// underlying API the no-arg overload calls. It already satisfies the
+// new protocol method via the same name + argument labels, so no
+// additional bridging shim is needed here.
 
 extension XMTPiOS.Client: XMTPClientProvider {
     public var conversationsProvider: any ConversationsProvider {
@@ -210,6 +239,11 @@ extension XMTPiOS.Client: XMTPClientProvider {
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
     }
+
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        let state = try await inboxState(refreshFromNetwork: refreshFromNetwork)
+        return state.installations.map { InstallationInfo(id: $0.id, createdAt: $0.createdAt) }
+    }
 }
 
 extension XMTPiOS.Conversation: MessageSender {
@@ -241,14 +275,14 @@ extension XMTPiOS.Conversation: MessageSender {
         Log.info("InviteJoinError message sent successfully")
     }
 
-    public func sendAssistantJoinRequest(_ request: AssistantJoinRequest) async throws {
-        Log.info("Sending AssistantJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
-        let codec = AssistantJoinRequestCodec()
+    public func sendAgentJoinRequest(_ request: AgentJoinRequest) async throws {
+        Log.info("Sending AgentJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
+        let codec = AgentJoinRequestCodec()
         try await send(
             content: request,
             options: .init(contentType: codec.contentType)
         )
-        Log.info("AssistantJoinRequest message sent successfully")
+        Log.info("AgentJoinRequest message sent successfully")
     }
 
     public func sendTypingIndicator(isTyping: Bool) async throws {
@@ -287,6 +321,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(content: text)
     }
 
+    public func prepare(joinRequest: JoinRequestContent) async throws -> String {
+        return try await prepareMessage(
+            content: joinRequest,
+            options: .init(contentType: JoinRequestCodec().contentType)
+        )
+    }
+
     public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
         return try await prepareMessage(
             content: remoteAttachment,
@@ -294,10 +335,44 @@ extension XMTPiOS.Conversation: MessageSender {
         )
     }
 
+    public func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
+        )
+    }
+
     public func prepare(reply: Reply) async throws -> String {
         return try await prepareMessage(
             content: reply,
             options: .init(contentType: ContentTypeReply)
+        )
+    }
+
+    public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType)
+        )
+    }
+
+    public func prepareForManualPublish(text: String) async throws -> String {
+        return try await prepareMessage(content: text, noSend: true)
+    }
+
+    public func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
+            noSend: true
+        )
+    }
+
+    public func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType),
+            noSend: true
         )
     }
 

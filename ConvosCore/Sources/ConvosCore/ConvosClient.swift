@@ -32,12 +32,15 @@ public final class ConvosClient {
     public static func testClient(platformProviders: PlatformProviders = .mock) -> ConvosClient {
         let databaseManager = MockDatabaseManager.shared
         let identityStore = MockKeychainIdentityStore()
+        // Tests don't initialize the metrics SDK; an explicit no-op is the
+        // right sink rather than relying on a hidden default.
         let sessionManager = SessionManager(
             databaseWriter: databaseManager.dbWriter,
             databaseReader: databaseManager.dbReader,
             environment: .tests,
             identityStore: identityStore,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            coreActions: NoOpCoreActions()
         )
         return .init(
             sessionManager: sessionManager,

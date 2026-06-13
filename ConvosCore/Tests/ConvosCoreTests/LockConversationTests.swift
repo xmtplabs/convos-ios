@@ -6,7 +6,6 @@ import XMTPiOS
 
 @Suite("Lock Conversation Tests", .serialized, .timeLimit(.minutes(2)))
 struct LockConversationTests {
-
     // MARK: - Integration Tests (Real XMTP)
 
     @Test("Old invites cannot be used after group is locked")
@@ -169,7 +168,7 @@ struct LockConversationTests {
 
             try DBConversation(
                 id: conversationId,
-                                clientConversationId: conversationId,
+                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -189,7 +188,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
@@ -260,7 +259,7 @@ struct LockConversationTests {
 
             try DBConversation(
                 id: conversationId,
-                                clientConversationId: conversationId,
+                clientConversationId: conversationId,
                 inviteTag: inviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -280,7 +279,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
@@ -428,7 +427,7 @@ struct LockConversationTests {
 
             try DBConversation(
                 id: conversationId,
-                                clientConversationId: conversationId,
+                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -448,7 +447,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
@@ -550,7 +549,7 @@ struct LockConversationTests {
 
             try DBConversation(
                 id: conversationId,
-                                clientConversationId: conversationId,
+                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -570,7 +569,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
 
             // Create the member record with superAdmin role (this is what the UI reads)
@@ -891,6 +890,7 @@ struct LockConversationTests {
 // MARK: - Mock Invite Writer
 
 final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
+    // swiftlint:disable:next large_tuple
     var generatedInvites: [(conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool)] = []
     var updatedInvites: [String] = []
     var deletedConversationIds: [String] = []

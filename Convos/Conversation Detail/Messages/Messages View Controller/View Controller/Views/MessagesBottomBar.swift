@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName, voiceMemoRecording, sideConvoName
+    case message, displayName, conversationName, voiceMemoRecording, sideConvoName, thingsSearchBar, agentBuilder
 }
 
 private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
@@ -45,12 +45,18 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteIsEditable: Bool = true
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
     @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingAgentShareName: String?
+    var pendingAgentShareEmoji: String?
+    var pendingAgentShareSummary: String?
+    var isShowingAgentShareChip: Bool = false
+    var onClearAgentShare: (() -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -72,6 +78,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
+    /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
+    /// in production); the testtube button stays hidden in any other case.
+    var onDebugAttachmentTap: (() -> Void)?
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -109,6 +118,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             }
             .onChange(of: focusCoordinator.currentFocus) { _, newValue in
                 handleFocusChanged(to: newValue)
+            }
+            .onChange(of: focusCoordinator.refocusNonce) { _, _ in
+                // A same-value re-focus request (e.g. reply/attachment asking for
+                // `.message` when the coordinator already holds it) doesn't change
+                // `currentFocus`, so re-run the expand/collapse logic here too or
+                // the bar would stay collapsed.
+                handleFocusChanged(to: focusCoordinator.currentFocus)
             }
             .onChange(of: messageText) { _, _ in
                 handleMessageTextChanged()
@@ -403,7 +419,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     },
                     isMediaCapacityFull: mediaButtonsDisabled,
                     isVoiceMemoDisabled: voiceMemoDisabled,
-                    isSideConvoDisabled: sideConvoDisabled
+                    isSideConvoDisabled: sideConvoDisabled,
+                    onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)
@@ -422,12 +439,17 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteIsEditable: pendingInviteIsEditable,
                 pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteConvoName: $pendingInviteConvoName,
                 pendingInviteImage: $pendingInviteImage,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                pendingAgentShareName: pendingAgentShareName,
+                pendingAgentShareEmoji: pendingAgentShareEmoji,
+                pendingAgentShareSummary: pendingAgentShareSummary,
+                isShowingAgentShareChip: isShowingAgentShareChip,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
@@ -437,6 +459,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
+                onClearAgentShare: onClearAgentShare,
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment
             )
@@ -513,27 +536,29 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onReaction: { _, _ in },
             onToggleReaction: { _, _ in },
             onTapReactions: { _ in },
+            onTapReadReceipts: { _ in },
+            onTapThinkingIndicator: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAgentOutOfCredits: {},
+            creditsDepleted: false,
             onTapUpdateMember: { _ in },
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
-            onRetryAssistantJoin: {},
+            onRetryAgentJoin: {},
             onCopyInviteLink: {},
             onConvoCode: {},
-            onInviteAssistant: {},
+            onInviteAgent: {},
             onRetryTranscript: { _ in },
-            hasAssistant: false,
-            isAssistantJoinPending: false,
-            isAssistantEnabled: true,
+            profileSheetForMember: { _ in AnyView(EmptyView()) },
+            memberContactOverride: { _ in nil },
+            isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
-            onBottomOverscrollChanged: { _ in },
-            onBottomOverscrollReleased: { _ in },
-            scrollToBottomTrigger: { _ in }
+            scrollToBottomTrigger: { _ in },
+            messageInputFocusTrigger: { _ in }
         )
         .ignoresSafeArea()
     }

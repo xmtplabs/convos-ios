@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+source "${SRCROOT}/Scripts/secrets-utils.sh"
+
 # Part 1: Generate Secrets.swift for App Clip (Local and Dev builds)
 if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
     echo "🔧 $CONFIGURATION build detected - generating App Clip secrets from .env"
@@ -8,19 +10,19 @@ if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
     SECRETS_FILE="${SRCROOT}/ConvosAppClip/Config/Secrets.swift"
     mkdir -p "${SRCROOT}/ConvosAppClip/Config"
 
-    # Read Firebase debug token from .env
-    FIREBASE_TOKEN=""
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
     CONVOS_API_BASE_URL=""
+    POSTHOG_API_KEY=""
     if [ -f "${SRCROOT}/.env" ]; then
-        FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
-
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
-        echo "✅ Found Firebase debug token in .env"
+        echo "✅ Resolved Firebase debug token (1Password or .env cache)"
     else
-        echo "⚠️  No Firebase debug token in .env"
+        echo "⚠️  No Firebase debug token from 1Password or .env"
     fi
     
     cat > "$SECRETS_FILE" << EOF
@@ -38,6 +40,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST = ""
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
+    static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
 }
 

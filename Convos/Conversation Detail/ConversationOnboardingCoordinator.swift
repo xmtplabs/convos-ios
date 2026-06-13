@@ -64,6 +64,10 @@ enum ConversationOnboardingState: Equatable {
     /// Autodismissed success state after saving first Profile
     case savedProfileSuccess
 
+    /// One-time paywall step shown after the first profile setup.
+    /// User must subscribe or claim the 7-day trial to proceed.
+    case presentingPaywall
+
     /// Ask user to allow notifications (undetermined state)
     case requestNotifications
 
@@ -99,7 +103,7 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
-    private var profileSettingsViewModel: ProfileSettingsViewModel = .shared
+    private let profileSettingsViewModel: ProfileSettingsViewModel
 
     var isSettingUpProfile: Bool {
         switch state {
@@ -130,24 +134,50 @@ final class ConversationOnboardingCoordinator {
     private var pendingConversationId: String?
     private var currentConversationId: String?
     private var isConversationCreator: Bool = false
+    /// Re-entrancy guard for `handleDisplayNameEndedEditing`. The `state` check alone
+    /// passes synchronously while `saveAndAwait()` is in flight, so a second tap could
+    /// kick off a concurrent save (and a duplicate `profile_saved` QAEvent). The class
+    /// is `@MainActor`, so a plain Bool is sufficient.
+    private var isSavingProfile: Bool = false
 
     // MARK: - Persistence
 
     private static let hasShownProfileEditorKey: String = "hasShownProfileEditor"
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetProfilePrefix: String = "hasSetProfileForConversation_"
+    /// Prior name of `hasSetProfilePrefix` from the Quickname era. Read-only fallback
+    /// during the user's first launch on the renamed flow so users who already completed
+    /// setup before the rename don't get a redundant profile prompt.
+    private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
+    private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+    }
+
+    /// Marks the global onboarding flags as completed so the in-conversation
+    /// "set up your name / pic" prompts are skipped. Used by the pairing
+    /// flow on the joiner side — the joiner just adopted the initiator's
+    /// fully-onboarded identity, so they shouldn't be asked to set up a
+    /// profile again. Per-conversation flags (the `hasSetProfilePrefix`
+    /// keys) are intentionally left alone — those track whether the user
+    /// has chosen *what* profile to expose in a specific conversation,
+    /// which is a separate decision from "have I ever set a profile."
+    static func markCompletedForPairedDevice() {
+        UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+        UserDefaults.standard.set(true, forKey: hasCompletedOnboardingKey)
+        UserDefaults.standard.set(true, forKey: hasSeenAddAsProfileKey)
     }
 
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasShownProfileEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
+        UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) {
+        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -164,8 +194,30 @@ final class ConversationOnboardingCoordinator {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedOnboardingKey) }
     }
 
+    private var hasShownNUXPaywall: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownNUXPaywallKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownNUXPaywallKey) }
+    }
+
+    private var shouldShowNUXPaywall: Bool {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+        return !hasShownNUXPaywall
+    }
+
     private func hasSetProfile(for conversationId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasSetProfilePrefix + conversationId)
+        let defaults = UserDefaults.standard
+        let key = Self.hasSetProfilePrefix + conversationId
+        if defaults.bool(forKey: key) { return true }
+        // Lazy migration: if the user completed setup under the legacy Quickname key,
+        // promote it to the new key on first read so subsequent calls hit the fast path
+        // and a single-key reset (e.g. account deletion) clears it cleanly.
+        let legacyKey = Self.legacyHasSetQuicknamePrefix + conversationId
+        if defaults.bool(forKey: legacyKey) {
+            defaults.set(true, forKey: key)
+            defaults.removeObject(forKey: legacyKey)
+            return true
+        }
+        return false
     }
 
     private func setHasSetProfile(_ value: Bool, for conversationId: String) {
@@ -183,12 +235,18 @@ final class ConversationOnboardingCoordinator {
         hasSeenAddAsProfile = false
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
     }
 
     // MARK: - Dependencies
 
     private let notificationCenter: NotificationCenterProtocol
     private let autodismissDurationOverride: CGFloat?
+    /// How long `startProfileSetupFlow` waits for the global profile to load
+    /// before giving up. On timeout the coordinator goes quiet rather than
+    /// guess: prompting an already-onboarded user is worse than prompting a
+    /// new user one conversation-open late.
+    private let profileLoadTimeout: TimeInterval
     @ObservationIgnored
     private var appLifecycleTask: Task<Void, Never>?
     @ObservationIgnored
@@ -196,10 +254,14 @@ final class ConversationOnboardingCoordinator {
 
     init(
         notificationCenter: NotificationCenterProtocol = SystemNotificationCenter(),
-        autodismissDurationOverride: CGFloat? = nil
+        autodismissDurationOverride: CGFloat? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
+        profileLoadTimeout: TimeInterval = 10
     ) {
         self.notificationCenter = notificationCenter
         self.autodismissDurationOverride = autodismissDurationOverride
+        self.profileSettingsViewModel = profileSettingsViewModel
+        self.profileLoadTimeout = profileLoadTimeout
         observeAppLifecycle()
     }
 
@@ -346,27 +408,48 @@ final class ConversationOnboardingCoordinator {
 
     /// Start or continue the profile onboarding flow
     private func startProfileSetupFlow(for conversationId: String) async {
+        // Don't decide on an unloaded snapshot: at cold launch (and right
+        // after pairing adoption) the shared profile view model still holds
+        // default values even for a fully-onboarded user, because the global
+        // profile only arrives once the inbox is ready. `.started` renders
+        // nothing, so waiting here shows no UI either way.
+        let profileLoaded = await profileSettingsViewModel.waitForProfileLoad(timeout: profileLoadTimeout)
+        guard profileLoaded else {
+            QAEvent.emit(.onboarding, "profile_load_timeout")
+            state = .idle
+            handleStateChange()
+            return
+        }
+
         let hasSetProfileForConversation = hasSetProfile(for: conversationId)
 
         let profileSettings = profileSettingsViewModel.profileSettings
 
-        if !hasShownProfileEditor {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "first_time"])
-            handleStateChange()
-        } else if profileSettings.isDefault && !hasSetProfileForConversation {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "no_profile"])
-            handleStateChange()
-        } else {
+        if !profileSettings.isDefault {
+            // A profile already exists, so never prompt — regardless of the
+            // device-local editor flag, which can lag the profile (e.g. it is
+            // set asynchronously on a freshly paired device). Backfill it so
+            // related gates (like the input bar's "Chat as Somebody") agree.
+            hasShownProfileEditor = true
             if !hasSetProfileForConversation {
                 setHasSetProfile(true, for: conversationId)
                 QAEvent.emit(.onboarding, "profile_auto_applied", ["name": profileSettings.profile.displayName])
             } else {
                 QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
             }
+            await transitionAfterProfileSetup()
+        } else if !hasShownProfileEditor {
+            shouldAnimateAvatarForProfileSetup = true
+            state = .setupProfile
+            QAEvent.emit(.onboarding, "setup_profile", ["reason": "first_time"])
+            handleStateChange()
+        } else if !hasSetProfileForConversation {
+            shouldAnimateAvatarForProfileSetup = true
+            state = .setupProfile
+            QAEvent.emit(.onboarding, "setup_profile", ["reason": "no_profile"])
+            handleStateChange()
+        } else {
+            QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
             await transitionAfterProfileSetup()
         }
     }
@@ -410,15 +493,38 @@ final class ConversationOnboardingCoordinator {
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsProfile: Whether the user is saving this as their profile
     func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        let profileSettings = profileSettingsViewModel.profileSettings
-        guard state == .settingUpProfile, profileSettings.isDefault else { return }
+        // We deliberately only gate on `state == .settingUpProfile` here. Once the
+        // setup flow is active, the user is explicitly replacing their profile, so
+        // checking `profileSettings.isDefault` would block legitimate retries after a
+        // failed save (the first attempt mutates editingDisplayName and flips
+        // isDefault to false even though persistence didn't land).
+        guard state == .settingUpProfile, !isSavingProfile else { return }
+        isSavingProfile = true
 
-        profileSettingsViewModel.editingDisplayName = displayName
-        profileSettingsViewModel.profileImage = profileImage
-        profileSettingsViewModel.save()
-        QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
-        state = .savedProfileSuccess
-        handleStateChange()
+        let conversationId = currentConversationId
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isSavingProfile = false }
+            // Mutating inside the Task means a failed save leaves the previous
+            // editing state intact for the SwiftUI binding to repaint, and the next
+            // tap re-enters with whatever the user just typed.
+            self.profileSettingsViewModel.editingDisplayName = displayName
+            self.profileSettingsViewModel.profileImage = profileImage
+            do {
+                try await self.profileSettingsViewModel.saveAndAwait()
+                QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
+                if let conversationId {
+                    self.setHasSetProfile(true, for: conversationId)
+                }
+                self.state = .savedProfileSuccess
+                self.handleStateChange()
+            } catch {
+                Log.error("Failed saving onboarding profile: \(error.localizedDescription)")
+                // Stay in `.settingUpProfile` so the user can retry; emit a QA event so
+                // the failure path is observable.
+                QAEvent.emit(.onboarding, "profile_save_failed", ["error": error.localizedDescription])
+            }
+        }
     }
 
     /// Request notification permission from the user
@@ -478,10 +584,20 @@ final class ConversationOnboardingCoordinator {
         await transitionToNotificationState()
     }
 
+    /// Called by the NUX paywall view after the user either subscribes or
+    /// claims the 7-day trial. Idempotent — extra calls after the state
+    /// already moved on are no-ops.
+    func userDidCompleteNUXPaywall() async {
+        guard case .presentingPaywall = state else { return }
+        hasShownNUXPaywall = true
+        await transitionToNotificationState()
+    }
+
     /// Reset onboarding state (useful for testing)
     func reset(conversationId: String? = nil) {
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
         state = .idle
 
         // If conversationId provided, clear that specific conversation's profile flag

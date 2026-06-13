@@ -1,4 +1,6 @@
+import ConvosConnections
 import ConvosInvites
+import ConvosMetrics
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -14,6 +16,23 @@ public protocol SyncingManagerProtocol: Actor {
     func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
+
+    /// Temporary diagnostic for agents timing out while joining (suspected
+    /// silent message-stream death). Polls for unprocessed join-request DMs
+    /// for a bounded window after an agents/join call, processing anything
+    /// the stream missed. Remove once the stream issue is confirmed and
+    /// fixed. See `SyncingManager.startAgentJoinRequestPolling`.
+    func startAgentJoinRequestPolling() async
+
+    /// Drain the backlog of activity since `cursor` in one batched transaction,
+    /// before streams resume. Runs the message-side `BatchCatchUp` and the
+    /// invite-side `InviteJoinRequestsManager.processJoinRequestOutcomes`
+    /// sequentially, both keyed off the same cursor.
+    ///
+    /// Returns silently on best-effort failure — the stream path that follows
+    /// is the safety net (per-event handlers still pick up anything the batch
+    /// missed).
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async
 }
 
 /// Wrapper for client and API client parameters used in state transitions
@@ -97,7 +116,7 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Properties
 
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let streamProcessor: any StreamProcessorProtocol
+    let streamProcessor: any StreamProcessorProtocol
     // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
     // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
     private let maxStreamRetries: Int = 10
@@ -106,6 +125,22 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
+    /// Temporary diagnostic state for the agent-join poll. The task is the
+    /// bounded polling loop; the date stamps the last message the stream
+    /// actually delivered, so poll logs can report how stale the stream is.
+    private var agentJoinPollTask: Task<Void, Never>?
+    private var lastMessageStreamEventDate: Date?
+
+    /// Reconciles conversation consent against contact-block state (the
+    /// source of truth for feed visibility). Reconstructed per session
+    /// start because it captures the live XMTP client.
+    private var consentReconciler: ConversationConsentReconciler?
+
+    /// Populates the agent-template read-through cache for template-backed
+    /// agent contacts. Reconstructed per start because it captures the
+    /// live API client.
+    private var agentTemplateCacheCoordinator: AgentTemplateCacheCoordinator?
+
     private var activeConversationId: String?
 
     // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
@@ -113,7 +148,7 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamReadyContinuation: AsyncStream<Void>.Continuation?
 
     // State machine
-    private var _state: State = .idle
+    var _state: State = .idle
     private var actionQueue: [Action] = []
 
     var isSyncReady: Bool {
@@ -126,35 +161,65 @@ actor SyncingManager: SyncingManagerProtocol {
     // Notification handling
     // Safe to use nonisolated(unsafe) because the array is only mutated during actor-isolated
     // setup, and deinit only runs after all actor tasks complete (no concurrent access possible).
-    nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
+    nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
     private var notificationTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
     private let databaseReader: any DatabaseReader
+    /// Held for foreground batch catch-up construction; not used elsewhere
+    /// since the stream path's writers live inside `streamProcessor`.
+    private let databaseWriter: any DatabaseWriter
+    /// Threaded into the writers constructed both at init (the stream
+    /// processor's `ConversationWriter`) and per-call inside the foreground
+    /// batch catch-up path so metrics-emitting writes have a real sink.
+    private let coreActions: any CoreActions
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-         notificationCenter: any UserNotificationCenterProtocol) {
+         notificationCenter: any UserNotificationCenterProtocol,
+         deviceConnections: DeviceConnectionsBundle = .none,
+         coreActions: any CoreActions) {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
+        self.coreActions = coreActions
+        let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+        // The GRDB-backed subscription store is a Core-side type that doesn't
+        // pull HealthKit; safe to construct unconditionally. The HKHealthStore-
+        // backed gateway/reader/registrar come in via `deviceConnections.health`
+        // when the host links the `ConvosConnectionsHealth` product.
+        let healthSubscriptionStore = GRDBHealthBackgroundSubscriptionStore(
+            dbWriter: databaseWriter,
+            dbReader: databaseReader
+        )
+        let invocationRuntime = makeInvocationRuntime(
+            enablementStore: enablementStore,
+            healthSubscriptionStore: healthSubscriptionStore,
+            deviceConnections: deviceConnections
+        )
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
-            notificationCenter: notificationCenter
+            notificationCenter: notificationCenter,
+            invocationRuntime: invocationRuntime,
+            coreActions: coreActions
         )
     }
 
     deinit {
         // Clean up tasks
+        consentReconciler?.stop()
+        agentTemplateCacheCoordinator?.stop()
         syncTask?.cancel()
         notificationTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        agentJoinPollTask?.cancel()
         currentTask?.cancel()
 
         // Remove observers
@@ -191,6 +256,58 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func resume() async {
         enqueueAction(.resume)
+    }
+
+    /// `nonisolated` so the call doesn't enter the actor's isolation domain
+    /// — the only state it touches is the immutable `let identityStore` and
+    /// `let databaseWriter`, both safely shareable. This avoids strict-
+    /// concurrency tripping on the non-Sendable `AnyClientProvider` being
+    /// passed to BatchCatchUp / InviteJoinRequestsManager from inside an
+    /// actor. The stream-resume that follows is unaffected because it goes
+    /// through the actor's normal `enqueueAction(.resume)` path.
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
+        await runMessageBatch(client: client, since: since)
+        await runInviteBatch(client: client, since: since)
+    }
+
+    private nonisolated func runMessageBatch(client: AnyClientProvider, since: Date?) async {
+        do {
+            guard let identity = try await identityStore.load() else {
+                Log.debug("catchup.batch.messages: no identity, skipping")
+                return
+            }
+            let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
+            let conversationWriter = ConversationWriter(
+                identityStore: identityStore,
+                databaseWriter: databaseWriter,
+                messageWriter: messageWriter,
+                coreActions: coreActions
+            )
+            let batch = BatchCatchUp(
+                conversationWriter: conversationWriter,
+                messageWriter: messageWriter,
+                databaseWriter: databaseWriter
+            )
+            _ = try await batch.run(
+                client: client,
+                inboxId: identity.inboxId,
+                since: since,
+                activeConversationId: await activeConversationId
+            )
+        } catch {
+            Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated func runInviteBatch(client: AnyClientProvider, since: Date?) async {
+        let started = CFAbsoluteTimeGetCurrent()
+        let manager = InviteJoinRequestsManager(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let outcomes = await manager.processJoinRequestOutcomes(since: since, client: client)
+        let elapsed = CFAbsoluteTimeGetCurrent() - started
+        Log.info("[PERF] catchup.batch.invites: \(Int(elapsed * 1000))ms outcomes=\(outcomes.count)")
     }
 
     // MARK: - State Machine
@@ -337,6 +454,9 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        restartConsentReconciler(client: client)
+        restartAgentTemplateCacheCoordinator(apiClient: apiClient)
+
         // Wait for streams to enter their async iteration loops before proceeding.
         // This ensures streams are actually subscribed to the XMTP network before
         // we signal isSyncReady, preventing race conditions where messages sent
@@ -372,6 +492,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
         if pauseOnComplete {
+            // Mirror handlePause: tear down the session-scoped observers (consent
+            // reconciler + agent-template cache coordinator) before pausing, so
+            // they don't keep observing while the inbox is paused.
+            stopSessionScopedObservers()
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
 
@@ -408,7 +532,15 @@ actor SyncingManager: SyncingManagerProtocol {
     /// missing groups that the conversation stream failed to deliver (e.g., stream timeout,
     /// inbox paused during approval, app backgrounded). This method provides a fallback
     /// by listing all groups and storing any that aren't already in the DB.
-    private func discoverNewConversations(params: SyncClientParams) async {
+    ///
+    /// Returns the count of conversations actually processed and written. The count is
+    /// load-bearing for `requestDiscovery`'s D3 gate: when the join-poll fires every 3
+    /// seconds while waiting for a welcome that hasn't arrived yet, count==0 short-circuits
+    /// the downstream push reconcile so the device stops flooding `/v2/notifications/subscribe`.
+    /// A best-effort listing failure returns 0 (treat "I couldn't tell" as "nothing new"
+    /// so we don't reconcile on a partial signal).
+    @discardableResult
+    private func discoverNewConversations(params: SyncClientParams) async -> Int {
         do {
             let groups = try params.client.conversationsProvider.listGroups(
                 createdAfterNs: nil,
@@ -447,8 +579,10 @@ actor SyncingManager: SyncingManagerProtocol {
             if discoveredCount > 0 {
                 Log.info("Discovered \(discoveredCount) new conversations after sync")
             }
+            return discoveredCount
         } catch {
             Log.error("Failed to discover new conversations: \(error)")
+            return 0
         }
     }
 
@@ -543,6 +677,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
         Log.info("Pausing sync...")
 
+        stopSessionScopedObservers()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
@@ -584,6 +719,9 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        restartConsentReconciler(client: params.client)
+        restartAgentTemplateCacheCoordinator(apiClient: params.apiClient)
+
         // Wait for streams to subscribe before transitioning to ready
         Log.debug("Waiting for streams to subscribe after resume...")
         await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
@@ -610,6 +748,23 @@ actor SyncingManager: SyncingManagerProtocol {
         )
     }
 
+    // D3: ConversationStateMachine.joinFlow polls requestDiscovery every 3s
+    // while waiting for the joined group. Before this gate, every tick fired
+    // a full /v2/notifications/subscribe (topicCount: 50 in Datadog). Now we
+    // only reconcile when discoverNewConversations actually wrote a new row.
+    // Token rotation is brought through by the .convosPushTokenDidChange
+    // listener (D14), not through here.
+    /// Force-drop the iOS-side push topic hash cache. Exposed for sign-out /
+    /// "Delete all data" paths AND for tests that need a deterministic
+    /// cache-miss without going through the global PushNotificationRegistrar
+    /// singleton (which other test suites mutate via resetForTesting and
+    /// would race against). Production callers should NOT invoke this on
+    /// every resume — the cache key partitioning handles routine state
+    /// changes naturally.
+    func clearPushSubscriptionCache() async {
+        await streamProcessor.clearPushSubscriptionCache()
+    }
+
     func requestDiscovery() async {
         guard case .ready(let params) = _state else {
             Log.debug("requestDiscovery ignored - not in ready state (\(_state))")
@@ -620,7 +775,11 @@ actor SyncingManager: SyncingManagerProtocol {
             _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
-            await discoverNewConversations(params: params)
+            let discoveredCount = await discoverNewConversations(params: params)
+            guard discoveredCount > 0 else {
+                Log.debug("requestDiscovery: no new conversations, skipping push topic reconcile")
+                return
+            }
             await streamProcessor.reconcilePushSubscriptions(
                 params: params,
                 context: "after requested discovery"
@@ -647,9 +806,11 @@ actor SyncingManager: SyncingManagerProtocol {
     }
 
     private func cancelAndAwaitTasks() async {
+        stopSessionScopedObservers()
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        agentJoinPollTask?.cancel()
 
         if let task = syncTask {
             _ = await task.value
@@ -662,6 +823,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = agentJoinPollTask {
+            _ = await task.value
+            agentJoinPollTask = nil
         }
     }
 
@@ -700,6 +865,10 @@ actor SyncingManager: SyncingManagerProtocol {
                 for try await message in stream {
                     // Check cancellation
                     try Task.checkCancellation()
+
+                    // Diagnostic stamp for the agent-join poll: how recently
+                    // the message stream actually delivered anything.
+                    lastMessageStreamEventDate = Date()
 
                     // Reset retry count after first successful message (stream is healthy)
                     if isFirstMessage {
@@ -802,9 +971,11 @@ actor SyncingManager: SyncingManagerProtocol {
             enqueueAction(.streamFailed)
         }
     }
+}
 
-    // MARK: - Mutation
+// MARK: - Mutation
 
+extension SyncingManager {
     func setActiveConversationId(_ conversationId: String?) {
         // Update the active conversation
         activeConversationId = conversationId
@@ -817,10 +988,119 @@ actor SyncingManager: SyncingManagerProtocol {
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
         await streamProcessor.setTypingIndicatorHandler(handler)
     }
+}
 
+// MARK: - Agent Join Request Polling (temporary diagnostic)
+
+extension SyncingManager {
+    /// Bounded polling fallback for agent join requests. Agents join by
+    /// sending a join-request DM to the conversation creator; that DM is
+    /// normally picked up by the message stream. When the stream dies
+    /// silently the request is never processed and the agent backend gives
+    /// up after about two minutes. While we diagnose the stream issue, this
+    /// polls the network for a short window after each agents/join call and
+    /// processes anything the stream missed, logging loudly when that
+    /// happens so stream death is observable in the logs.
+    ///
+    /// Re-processing a request the stream already handled is safe: the
+    /// coordinator returns `.alreadyMember` (no re-add, no duplicate
+    /// snapshot), which also keeps the "stream missed it" log signal free
+    /// of false positives.
+    func startAgentJoinRequestPolling() {
+        agentJoinPollTask?.cancel()
+        let startedAt = Date()
+        Log.info("[agent-join-poll] starting: every \(Int(Constant.agentJoinPollInterval))s for \(Int(Constant.agentJoinPollWindow))s")
+        agentJoinPollTask = Task { [weak self] in
+            await self?.runAgentJoinRequestPolling(startedAt: startedAt)
+        }
+    }
+
+    private func runAgentJoinRequestPolling(startedAt: Date) async {
+        var cursor = startedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
+        let deadline = startedAt.addingTimeInterval(Constant.agentJoinPollWindow)
+        var tick = 0
+        while !Task.isCancelled && Date() < deadline {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(Constant.agentJoinPollInterval * 1_000_000_000))
+            } catch {
+                break
+            }
+            tick += 1
+            guard case .ready(let params) = _state else {
+                Log.debug("[agent-join-poll] tick \(tick) skipped - sync not ready (\(_state))")
+                continue
+            }
+            let tickStartedAt = Date()
+            do {
+                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            } catch {
+                Log.warning("[agent-join-poll] tick \(tick): syncAllConversations failed, will retry: \(error)")
+                continue
+            }
+            let acceptedCount = await runAgentJoinPollBatch(params: params, since: cursor)
+            if acceptedCount > 0 {
+                let streamAgeSecs: Float = lastMessageStreamEventDate.map { Float(Date().timeIntervalSince($0)) } ?? -1
+                let lastStreamEvent: String = streamAgeSecs >= 0 ? "\(Int(streamAgeSecs))s ago" : "never"
+                Log.warning(
+                    "[agent-join-poll] tick \(tick): accepted \(acceptedCount) join request(s) the message stream had not processed" +
+                    " (last stream message: \(lastStreamEvent)) - message stream is likely dead"
+                )
+                await coreActions.assistantJoinRescuedByPolling(streamAgeSecs: streamAgeSecs, pollTick: tick)
+            } else {
+                Log.debug("[agent-join-poll] tick \(tick): no unprocessed join requests")
+            }
+            cursor = tickStartedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
+        }
+        Log.info("[agent-join-poll] finished after \(tick) tick(s)")
+    }
+
+    /// Processes join-request DMs since `since`, then pulls the message-side
+    /// backlog so the resulting membership change (group_updated) lands in
+    /// the local database even while the stream is down. Returns the number
+    /// of join requests this pass actually accepted - requests another path
+    /// already handled surface as `.alreadyMember` and don't count, so a
+    /// healthy stream keeps this at zero.
+    ///
+    /// `nonisolated` for the same reason as `runBatchCatchUp`: the only
+    /// state it touches is the immutable `identityStore` / `databaseWriter`,
+    /// and it keeps the non-Sendable client out of the actor's isolation
+    /// domain.
+    private nonisolated func runAgentJoinPollBatch(params: SyncClientParams, since: Date?) async -> Int {
+        let client = params.client
+        let manager = InviteJoinRequestsManager(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let outcomes = await manager.processJoinRequestOutcomes(since: since, client: client)
+        var acceptedCount = 0
+        for outcome in outcomes {
+            if case .accepted = outcome {
+                acceptedCount += 1
+            }
+        }
+        await runMessageBatch(client: client, since: since)
+        return acceptedCount
+    }
+
+    private enum Constant {
+        /// How often the temporary agent-join poll checks for unprocessed
+        /// join requests.
+        static let agentJoinPollInterval: TimeInterval = 5
+        /// How long the poll keeps checking after an agents/join call. The
+        /// agent backend gives up after about two minutes; poll a bit past
+        /// that so the tail end of the window is still observable.
+        static let agentJoinPollWindow: TimeInterval = 150
+        /// Back-overlap applied when advancing the poll cursor so messages
+        /// that land while a sync pass is in flight aren't skipped by the
+        /// next tick.
+        static let agentJoinPollCursorOverlap: TimeInterval = 5
+    }
+}
+
+extension SyncingManager {
     // MARK: - Notification Observers
 
-    private func setupNotificationObservers() {
+    fileprivate func setupNotificationObservers() {
         let activeConversationObserver = NotificationCenter.default.addObserver(
             forName: .activeConversationChanged,
             object: nil,
@@ -832,5 +1112,66 @@ actor SyncingManager: SyncingManagerProtocol {
             }
         }
         notificationObservers.append(activeConversationObserver)
+        installPushTokenObserver()
     }
+
+    /// Stop and clear the session-scoped observers (consent reconciler and
+    /// agent-template cache coordinator) on pause / teardown.
+    fileprivate func stopSessionScopedObservers() {
+        consentReconciler?.stop()
+        consentReconciler = nil
+        agentTemplateCacheCoordinator?.stop()
+        agentTemplateCacheCoordinator = nil
+    }
+
+    /// (Re)start the consent reconciler with the live client. Safe to call
+    /// on every start / resume - the previous instance is stopped first.
+    fileprivate func restartConsentReconciler(client: AnyClientProvider) {
+        consentReconciler?.stop()
+        let reconciler = ConversationConsentReconciler(
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            client: client
+        )
+        reconciler.start()
+        consentReconciler = reconciler
+    }
+
+    /// (Re)start the agent-template cache coordinator with the live API
+    /// client. Safe to call on every start / resume - the previous instance
+    /// is stopped first.
+    fileprivate func restartAgentTemplateCacheCoordinator(apiClient: any ConvosAPIClientProtocol) {
+        agentTemplateCacheCoordinator?.stop()
+        let coordinator = AgentTemplateCacheCoordinator(
+            databaseReader: databaseReader,
+            apiClient: apiClient,
+            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
+        )
+        coordinator.start()
+        agentTemplateCacheCoordinator = coordinator
+    }
+}
+
+private func makeInvocationRuntime(
+    enablementStore: any EnablementStore,
+    healthSubscriptionStore: any HealthBackgroundSubscriptionStore,
+    deviceConnections: DeviceConnectionsBundle
+) -> ConnectionInvocationRuntime {
+    if let health = deviceConnections.health {
+        return ConnectionInvocationRuntime(
+            store: enablementStore,
+            dataSources: deviceConnections.dataSources,
+            dataSinks: deviceConnections.dataSinks,
+            healthSubscriptionStore: healthSubscriptionStore,
+            healthGateway: health.backgroundDeliveryGateway,
+            healthBackfillReader: health.backfillReader,
+            healthDeltaReader: health.deltaReader,
+            healthRegistrar: health.observerRegistrar
+        )
+    }
+    return ConnectionInvocationRuntime(
+        store: enablementStore,
+        dataSources: deviceConnections.dataSources,
+        dataSinks: deviceConnections.dataSinks
+    )
 }

@@ -1,3 +1,4 @@
+import ConvosMetrics
 import Foundation
 import GRDB
 
@@ -36,19 +37,22 @@ public struct PushNotificationServiceFactory: PushNotificationServiceFactoryProt
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private let platformProviders: PlatformProviders
+    private let coreActions: any CoreActions
 
     public init(
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        coreActions: any CoreActions
     ) {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
         self.identityStore = identityStore
         self.platformProviders = platformProviders
+        self.coreActions = coreActions
     }
 
     public func makeService(
@@ -65,7 +69,8 @@ public struct PushNotificationServiceFactory: PushNotificationServiceFactoryProt
             identityStore: identityStore,
             startsStreamingServices: false,
             overrideJWTToken: overrideJWTToken,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            coreActions: coreActions
         )
     }
 }

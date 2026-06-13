@@ -30,7 +30,9 @@ struct MessageGestureModifier: ViewModifier {
     @State private var isPressed: Bool = false
     @State private var hasAppeared: Bool = false
     @State private var interactiveExclusionFrames: [CGRect] = []
+    @State private var mediaContentFrame: CGRect?
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
+    @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
     private var isSourceBubble: Bool {
         !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
@@ -41,8 +43,46 @@ struct MessageGestureModifier: ViewModifier {
         return uniqueEmoji.count == 1 ? uniqueEmoji.first ?? "❤️" : "❤️"
     }
 
+    func body(content: Content) -> some View {
+        content
+            .coordinateSpace(name: MessageMediaContentFrameKey.coordinateSpaceName)
+            .environment(\.messagePressed, isPressed)
+            .scaleEffect(
+                isPressed && hasAppeared ? 1.03 : 1.0,
+                anchor: message.sender.isCurrentUser ? .trailing : .leading
+            )
+            .opacity(isSourceBubble ? 0 : 1)
+            .onAppear { hasAppeared = true }
+            .background { sourceBubbleFrameTracker }
+            .onPreferenceChange(SourceFrameKey.self) { frame in
+                if isSourceBubble, let frame {
+                    contextMenuState.currentSourceFrame = bubbleFrame(within: frame)
+                }
+            }
+            .onPreferenceChange(MessageMediaContentFrameKey.self) { frame in
+                mediaContentFrame = frame
+            }
+            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
+                interactiveExclusionFrames = frames
+            }
+            .animation(.easeInOut(duration: 0.25), value: isPressed)
+            .offset(x: swipeOffset)
+            .background(alignment: .leading) { swipeReplyIndicator }
+            .overlay { gestureOverlay }
+            .accessibilityActions {
+                if !isReadOnly {
+                    Button("React") {
+                        onToggleReaction(doubleTapEmoji, message.messageId)
+                    }
+                    Button("Reply") {
+                        onReply(message)
+                    }
+                }
+            }
+    }
+
     @ViewBuilder
-    private func sourceFrameBackground() -> some View {
+    private var sourceBubbleFrameTracker: some View {
         if isSourceBubble {
             GeometryReader { geo in
                 Color.clear
@@ -52,7 +92,7 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     @ViewBuilder
-    private func swipeReplyIndicator() -> some View {
+    private var swipeReplyIndicator: some View {
         if swipeOffset > 0 {
             let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
             Image(systemName: "arrowshape.turn.up.left.fill")
@@ -64,41 +104,17 @@ struct MessageGestureModifier: ViewModifier {
         }
     }
 
-    private func gestureOverlay() -> some View {
+    private var gestureOverlay: some View {
         GeometryReader { geometry in
             GestureOverlayView(
                 contextMenuState: contextMenuState,
                 hasSingleTap: onSingleTap != nil,
                 excludedFrames: interactiveExclusionFrames,
                 onSingleTap: { onSingleTap?() },
-                onDoubleTap: {
-                    if let onDoubleTap {
-                        onDoubleTap()
-                    } else {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onToggleReaction(doubleTapEmoji, message.messageId)
-                    }
-                },
-                onLongPress: {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    let frame = geometry.frame(in: .global)
-                    contextMenuState.present(
-                        message: message,
-                        bubbleFrame: frame,
-                        bubbleStyle: bubbleStyle
-                    )
-                },
-                onSwipeOffsetChanged: { offset in
-                    swipeOffset = offset
-                    externalSwipeOffset?.wrappedValue = offset
-                },
-                onSwipeEnded: { triggered in
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                        swipeOffset = 0
-                        externalSwipeOffset?.wrappedValue = 0
-                    }
-                    if triggered { onReply(message) }
-                },
+                onDoubleTap: handleDoubleTap,
+                onLongPress: { handleLongPress(geometry: geometry) },
+                onSwipeOffsetChanged: handleSwipeOffsetChanged,
+                onSwipeEnded: handleSwipeEnded,
                 onPressChanged: { pressed in
                     isPressed = pressed
                 }
@@ -106,34 +122,47 @@ struct MessageGestureModifier: ViewModifier {
         }
     }
 
-    func body(content: Content) -> some View {
-        content
-            .environment(\.messagePressed, isPressed)
-            .scaleEffect(
-                isPressed && hasAppeared ? 1.03 : 1.0,
-                anchor: message.sender.isCurrentUser ? .trailing : .leading
-            )
-            .opacity(isSourceBubble ? 0 : 1)
-            .onAppear { hasAppeared = true }
-            .background { sourceFrameBackground() }
-            .onPreferenceChange(SourceFrameKey.self) { frame in
-                if isSourceBubble, let frame {
-                    contextMenuState.currentSourceFrame = frame
-                }
-            }
-            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
-                interactiveExclusionFrames = frames
-            }
-            .animation(.easeInOut(duration: 0.25), value: isPressed)
-            .offset(x: swipeOffset)
-            .background(alignment: .leading) { swipeReplyIndicator() }
-            .overlay { gestureOverlay() }
-            .accessibilityAction(named: "React") {
-                onToggleReaction(doubleTapEmoji, message.messageId)
-            }
-            .accessibilityAction(named: "Reply") {
-                onReply(message)
-            }
+    private func handleDoubleTap() {
+        if isReadOnly { return }
+        if let onDoubleTap {
+            onDoubleTap()
+        } else {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onToggleReaction(doubleTapEmoji, message.messageId)
+        }
+    }
+
+    private func handleLongPress(geometry: GeometryProxy) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let frame = bubbleFrame(within: geometry.frame(in: .global))
+        contextMenuState.present(
+            message: message,
+            bubbleFrame: frame,
+            bubbleStyle: bubbleStyle
+        )
+    }
+
+    /// Media attachments expand to the full row width while the visible photo
+    /// can be narrower (e.g. capped at a max width on iPad). When a media
+    /// frame is reported, offset it into the row's global frame so the
+    /// context menu anchors on the photo instead of the row.
+    private func bubbleFrame(within contentFrame: CGRect) -> CGRect {
+        guard let mediaContentFrame else { return contentFrame }
+        return mediaContentFrame.offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
+    }
+
+    private func handleSwipeOffsetChanged(_ offset: CGFloat) {
+        if isReadOnly { return }
+        swipeOffset = offset
+        externalSwipeOffset?.wrappedValue = offset
+    }
+
+    private func handleSwipeEnded(_ triggered: Bool) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            swipeOffset = 0
+            externalSwipeOffset?.wrappedValue = 0
+        }
+        if triggered && !isReadOnly { onReply(message) }
     }
 
     private enum Constant {
@@ -146,6 +175,19 @@ struct MessageGestureExclusionFrameKey: PreferenceKey {
 
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
         value.append(contentsOf: nextValue())
+    }
+}
+
+/// Reports the visible media content frame, relative to the message gesture
+/// coordinate space, so the context menu can anchor on the photo rather than
+/// the full-width attachment row. Measured in the named space (anchored below
+/// the press scale effect) to stay in pure layout coordinates.
+struct MessageMediaContentFrameKey: PreferenceKey {
+    static let coordinateSpaceName: String = "messageGestureContent"
+    static let defaultValue: CGRect? = nil
+
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
     }
 }
 

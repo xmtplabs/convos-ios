@@ -1,14 +1,15 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 /// A view that displays the appropriate onboarding content based on the coordinator's state
 struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
-    let scrollOverscrollAmount: CGFloat
     let onTapSetupProfile: () -> Void
     let onUseProfile: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
+    let coreActions: any CoreActions
 
     private var permissionState: NotificationPermissionState? {
         switch coordinator.state {
@@ -32,7 +33,7 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpProfile, .presentingProfileSettings:
+            case .idle, .started, .settingUpProfile, .presentingProfileSettings, .presentingPaywall:
                 EmptyView()
 
             case .setupProfile:
@@ -70,6 +71,48 @@ struct ConversationOnboardingView: View {
         }
         .transition(.blurReplace)
         .animation(.spring(duration: 0.4, bounce: 0.2), value: coordinator.state)
+        .sheet(isPresented: nuxPaywallPresented) {
+            nuxPaywallSheetContent
+        }
+    }
+
+    private var nuxPaywallPresented: Binding<Bool> {
+        Binding(
+            get: { coordinator.state == .presentingPaywall },
+            set: { newValue in
+                // External dismissal (close X or swipe-down): advance the
+                // coordinator so the NUX sheet doesn't re-present on the next
+                // conversation. No trial granted on this path — the user has
+                // to tap the explicit Skip-to-trial button to claim it.
+                if !newValue, coordinator.state == .presentingPaywall {
+                    Task { await coordinator.userDidCompleteNUXPaywall() }
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var nuxPaywallSheetContent: some View {
+        let paywallViewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            paywallSource: .onboarding,
+            coreActions: coreActions
+        )
+        let onPurchaseSucceeded: () -> Void = {
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        let nuxSkipAction = {
+            // Mock trial grant. When the backend `POST /v2/credits/me/redeem-trial`
+            // route lands, replace this with the real HTTP call.
+            MockCreditsService.shared.setPreset(.trialActive)
+            MockSubscriptionService.shared.setPreset(.trialActive)
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        PaywallView(
+            viewModel: paywallViewModel,
+            onSkip: nuxSkipAction,
+            onPurchaseSucceeded: onPurchaseSucceeded
+        )
     }
 }
 
@@ -116,10 +159,10 @@ struct ConversationOnboardingView: View {
         ConversationOnboardingView(
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
-            scrollOverscrollAmount: 0,
             onTapSetupProfile: {},
             onUseProfile: { _, _ in },
-            onPresentProfileSettings: {}
+            onPresentProfileSettings: {},
+            coreActions: NoOpCoreActions()
         )
         .onAppear {
             coordinator.state = .setupProfile
@@ -134,11 +177,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .setupProfile
@@ -152,11 +194,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .setupProfile
@@ -170,11 +211,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .requestNotifications
@@ -188,11 +228,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsEnabled
@@ -206,11 +245,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsDenied
@@ -224,11 +262,10 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupProfile: {},
+        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
         onUseProfile: { _, _ in },
-        onPresentProfileSettings: {}
+        onPresentProfileSettings: {},
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.isWaitingForInviteAcceptance = true

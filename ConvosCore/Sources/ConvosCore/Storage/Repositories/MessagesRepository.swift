@@ -15,12 +15,27 @@ public struct MemberProfileInfo: Sendable {
     public let conversationId: String
     public let name: String?
     public let avatar: String?
+    public let isAgent: Bool
+    public let agentVerification: AgentVerification
 
-    public init(inboxId: String, conversationId: String, name: String?, avatar: String?) {
+    public var isVerifiedConvosAgent: Bool {
+        agentVerification.isConvosAgent
+    }
+
+    public init(
+        inboxId: String,
+        conversationId: String,
+        name: String?,
+        avatar: String?,
+        isAgent: Bool = false,
+        agentVerification: AgentVerification = .unverified
+    ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
+        self.isAgent = isAgent
+        self.agentVerification = agentVerification
     }
 }
 
@@ -123,7 +138,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
     /// is harmless.
     static func currentInboxId(from dbReader: any DatabaseReader) -> String {
         (try? dbReader.read { db in
-            try DBInbox.fetchAll(db).first?.inboxId
+            try DBInbox.currentInboxId(db)
         }) ?? ""
     }
 
@@ -402,7 +417,9 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 inboxId: row.inboxId,
                 conversationId: conversationId,
                 name: row.name,
-                avatar: row.avatar
+                avatar: row.avatar,
+                isAgent: row.isAgent,
+                agentVerification: row.agentVerification
             )
         }
         return result
@@ -416,6 +433,8 @@ extension Array where Element == DBMessage {
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
+                         capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+                         latestPendingCapabilityRequestId: String? = nil,
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -442,85 +461,14 @@ extension Array where Element == DBMessage {
 
             switch dbMessage.messageType {
             case .original:
-                let messageContent: MessageContent
-                switch dbMessage.contentType {
-                case .text:
-                    messageContent = .text(dbMessage.text ?? "")
-                case .invite:
-                    guard let invite = dbMessage.invite else {
-                        Log.error("Invite message type is missing invite object")
-                        return nil
-                    }
-                    messageContent = .invite(invite)
-                case .linkPreview:
-                    guard let preview = dbMessage.linkPreview else {
-                        messageContent = .text(dbMessage.text ?? "")
-                        break
-                    }
-                    messageContent = .linkPreview(preview)
-                case .attachments:
-                    let hydratedAttachments = dbMessage.attachmentUrls.map { key in
-                        hydrateAttachment(key: key, localState: attachmentLocalStates[key])
-                    }
-                    messageContent = .attachments(hydratedAttachments)
-                case .emoji:
-                    messageContent = .emoji(dbMessage.emoji ?? "")
-                case .update:
-                    guard let update = dbMessage.update,
-                          let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId) else {
-                        Log.error("Update message type is missing update object")
-                        return nil
-                    }
-                    let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
-                    let removedMembers = update.removedInboxIds.map { inboxId in
-                        memberProfileCache.member(for: inboxId)
-                            ?? ConversationMember(
-                                profile: .empty(inboxId: inboxId),
-                                role: .member,
-                                isCurrentUser: !currentInboxId.isEmpty && inboxId == currentInboxId
-                            )
-                    }
-                    var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
-                        .map {
-                            .init(
-                                field: .init(rawValue: $0.field) ?? .unknown,
-                                oldValue: $0.oldValue,
-                                newValue: $0.newValue
-                            )
-                        }
-                    if let expiresAt = update.expiresAt {
-                        let originalDuration = ExplosionDurationFormatter.format(
-                            from: dbMessage.date,
-                            until: expiresAt
-                        )
-                        metadataChanges.append(.init(
-                            field: .expiresAt,
-                            oldValue: originalDuration,
-                            newValue: expiresAt.ISO8601Format()
-                        ))
-                    }
-                    messageContent = .update(
-                        .init(
-                            creator: initiatedByMember,
-                            addedMembers: addedMembers,
-                            removedMembers: removedMembers,
-                            metadataChanges: metadataChanges
-                        )
-                    )
-                case .assistantJoinRequest:
-                    let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
-                    messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
-                case .connectionGrantRequest:
-                    if let jsonText = dbMessage.text,
-                       let data = jsonText.data(using: .utf8),
-                       let request = try? JSONDecoder().decode(ConnectionGrantRequest.self, from: data) {
-                        messageContent = .connectionGrantRequest(request)
-                    } else {
-                        messageContent = .text("")
-                    }
-                case .focusModeControl, .streamingText, .streamingClear:
-                    return nil
-                }
+                guard let messageContent = Self.resolveOriginalContent(
+                    for: dbMessage,
+                    currentInboxId: currentInboxId,
+                    memberProfileCache: memberProfileCache,
+                    attachmentLocalStates: attachmentLocalStates,
+                    capabilityResultsByRequestId: capabilityResultsByRequestId,
+                    latestPendingCapabilityRequestId: latestPendingCapabilityRequestId
+                ) else { return nil }
 
                 let message = Message(
                     id: dbMessage.clientMessageId,
@@ -546,6 +494,152 @@ extension Array where Element == DBMessage {
         }
 
         return (messages, updatedSeenIds)
+    }
+
+    private static func resolveOriginalContent(
+        for dbMessage: DBMessage,
+        currentInboxId: String,
+        memberProfileCache: MemberProfileCache,
+        attachmentLocalStates: [String: AttachmentLocalState],
+        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+        latestPendingCapabilityRequestId: String? = nil
+    ) -> MessageContent? {
+        switch dbMessage.contentType {
+        case .text:
+            return .text(dbMessage.text ?? "")
+        case .invite:
+            guard let invite = dbMessage.invite else {
+                Log.error("Invite message type is missing invite object")
+                return nil
+            }
+            return .invite(invite)
+        case .agentShare:
+            guard let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) else {
+                return .text(dbMessage.text ?? "")
+            }
+            return .agentShare(agentShare)
+        case .linkPreview:
+            guard let preview = dbMessage.linkPreview else {
+                return .text(dbMessage.text ?? "")
+            }
+            return .linkPreview(preview)
+        case .attachments:
+            return .attachments(dbMessage.attachmentUrls.map { key in
+                hydrateAttachment(key: key, localState: attachmentLocalStates[key])
+            })
+        case .emoji:
+            return .emoji(dbMessage.emoji ?? "")
+        case .update:
+            return resolveUpdateContent(for: dbMessage, currentInboxId: currentInboxId, memberProfileCache: memberProfileCache)
+        case .assistantJoinRequest:
+            let status = AgentJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
+            return .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
+        case .connectionGrantRequest:
+            if let jsonText = dbMessage.text,
+               let request = try? JSONDecoder().decode(CloudConnectionGrantRequest.self, from: Data(jsonText.utf8)) {
+                return .connectionGrantRequest(request)
+            }
+            return .text("")
+        case .capabilityRequest:
+            return resolveCapabilityConnectContent(
+                jsonText: dbMessage.text,
+                resultsByRequestId: capabilityResultsByRequestId,
+                latestPendingRequestId: latestPendingCapabilityRequestId
+            )
+        case .capabilityRequestResult:
+            // Results render indirectly: they flip the request row's pill state via
+            // the compose-time join, and approvals emit their own connection_event.
+            return nil
+        case .connectionEvent:
+            return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionEvent(summary: $0) } ?? .text("")
+        case .connectionInvocation:
+            return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionInvocation(summary: $0) } ?? .text("")
+        case .connectionInvocationResult:
+            return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionInvocationResult(summary: $0) } ?? .text("")
+        case .connectionPayload:
+            return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionPayload(summary: $0) } ?? .text("")
+        case .focusModeControl, .streamingText, .streamingClear:
+            return nil
+        }
+    }
+
+    private static func decodeConnectionSummary(jsonText: String?) -> ConnectionEventSummary? {
+        guard let jsonText else { return nil }
+        return try? JSONDecoder().decode(ConnectionEventSummary.self, from: Data(jsonText.utf8))
+    }
+
+    private static func resolveCapabilityConnectContent(
+        jsonText: String?,
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        latestPendingRequestId: String?
+    ) -> MessageContent? {
+        guard let jsonText,
+              let request = try? JSONDecoder().decode(CapabilityRequest.self, from: Data(jsonText.utf8)) else {
+            return nil
+        }
+        let prompt = CapabilityConnectPrompt.make(
+            request: request,
+            results: resultsByRequestId[request.requestId] ?? [],
+            isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
+        )
+        return .capabilityConnect(prompt: prompt)
+    }
+
+    private static func resolveUpdateContent(
+        for dbMessage: DBMessage,
+        currentInboxId: String,
+        memberProfileCache: MemberProfileCache
+    ) -> MessageContent? {
+        guard let update = dbMessage.update else {
+            Log.error("Update message type is missing update object")
+            return nil
+        }
+        // Fall back to a synthesized member when the initiator's profile isn't cached
+        // (e.g. they left before this update was decoded). Mirrors the placeholder used
+        // for `removedMembers` below so the update still renders rather than being
+        // silently dropped — the inboxId is enough for the view to show a generic actor.
+        let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId)
+            ?? ConversationMember(
+                profile: .empty(inboxId: update.initiatedByInboxId),
+                role: .member,
+                isCurrentUser: !currentInboxId.isEmpty && update.initiatedByInboxId == currentInboxId
+            )
+        let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
+        let removedMembers = update.removedInboxIds.map { inboxId in
+            memberProfileCache.member(for: inboxId)
+                ?? ConversationMember(
+                    profile: .empty(inboxId: inboxId),
+                    role: .member,
+                    isCurrentUser: !currentInboxId.isEmpty && inboxId == currentInboxId
+                )
+        }
+        var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
+            .map {
+                .init(
+                    field: .init(rawValue: $0.field) ?? .unknown,
+                    oldValue: $0.oldValue,
+                    newValue: $0.newValue
+                )
+            }
+        if let expiresAt = update.expiresAt {
+            let originalDuration = ExplosionDurationFormatter.format(
+                from: dbMessage.date,
+                until: expiresAt
+            )
+            metadataChanges.append(.init(
+                field: .expiresAt,
+                oldValue: originalDuration,
+                newValue: expiresAt.ISO8601Format()
+            ))
+        }
+        return .update(
+            .init(
+                creator: initiatedByMember,
+                addedMembers: addedMembers,
+                removedMembers: removedMembers,
+                metadataChanges: metadataChanges
+            )
+        )
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -575,14 +669,29 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
+        case .agentShare:
+            if let text = dbMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                replyContent = .agentShare(agentShare)
+            } else {
+                replyContent = .text(dbMessage.text ?? "")
+            }
         case .linkPreview:
             if let preview = dbMessage.linkPreview {
                 replyContent = .linkPreview(preview)
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest,
-             .focusModeControl, .streamingText, .streamingClear:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult,
+             .connectionEvent,
+             .focusModeControl,
+             .streamingText,
+             .streamingClear:
+            return nil
+        case .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             return nil
         }
 
@@ -613,15 +722,39 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text("[Invite]")
             }
+        case .agentShare:
+            if let text = sourceDBMessage.text, let agentShare = MessageAgentShare.from(text: text) {
+                parentContent = .agentShare(agentShare)
+            } else {
+                parentContent = .text(sourceDBMessage.text ?? "")
+            }
         case .linkPreview:
             if let preview = sourceDBMessage.linkPreview {
                 parentContent = .linkPreview(preview)
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest,
-             .focusModeControl, .streamingText, .streamingClear:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult,
+             .focusModeControl,
+             .streamingText,
+             .streamingClear:
             parentContent = .text("[Update]")
+        case .connectionEvent:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionEvent(summary: $0) } ?? .text("")
+        case .connectionInvocation:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionInvocation(summary: $0) } ?? .text("")
+        case .connectionInvocationResult:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionInvocationResult(summary: $0) } ?? .text("")
+        case .connectionPayload:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionPayload(summary: $0) } ?? .text("")
         }
 
         let parentMessage = Message(
@@ -726,6 +859,7 @@ fileprivate extension Database {
                     .including(optional: DBConversationMember.memberProfile)
             )
             .including(required: DBConversation.localState)
+            .including(optional: DBConversation.agentBuilderSummary)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
@@ -752,6 +886,7 @@ private struct LightweightConversationDetails: Codable, FetchableRecord, Hashabl
     let conversationCreator: LightweightCreatorDetails?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLocalState: ConversationLocalState
+    let conversationAgentBuilderSummary: DBAgentBuilderSummary?
 }
 
 private extension LightweightConversationDetails {
@@ -806,6 +941,8 @@ private extension LightweightConversationDetails {
             isUnread: conversationLocalState.isUnread,
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
+            hidesInviteCard: conversationLocalState.hidesInviteCard,
+            wasRemoved: conversationLocalState.wasRemoved,
             lastMessage: nil,
             imageURL: imageURL,
             imageSalt: conversation.imageSalt,
@@ -818,8 +955,9 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
         )
     }
 }
@@ -899,6 +1037,35 @@ fileprivate extension Database {
             }
         }
 
+        // Correlate capability_request_result rows to the request rows in the
+        // window by requestId (mirrors the reaction join on sourceMessageId).
+        // Results are fetched conversation-wide because the correlation key
+        // lives in the JSON payload, not in sourceMessageId; the rows are rare.
+        // Skipping the query when no request row is visible is safe for the
+        // ValueObservation: the main message query already tracks the table,
+        // so a late-arriving result row still re-fires composition.
+        //
+        // First decision wins, in message-time order: one capability request
+        // is one connection ask for the whole conversation — the earliest
+        // validated (non-asker) result flips the pill for every member; the
+        // agent re-requests under a new requestId if it needs more. Both the
+        // resolution rule and the latest-pending computation are shared with
+        // CapabilityRequestRepository (the tap path), so a pill rendered
+        // `.pending` is always the request the approval sheet would open for.
+        var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        var latestPendingCapabilityRequestId: String?
+        if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
+            capabilityResultsByRequestId = try CapabilityRequestRepository.resultRecordsByRequestId(
+                conversationId: conversationId,
+                db: self
+            )
+            latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: self,
+                resultsByRequestId: capabilityResultsByRequestId
+            )?.requestId
+        }
+
         let localStates: [AttachmentLocalState]
         if let prefetchedLocalStates {
             localStates = prefetchedLocalStates
@@ -923,6 +1090,8 @@ fileprivate extension Database {
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
+            capabilityResultsByRequestId: capabilityResultsByRequestId,
+            latestPendingCapabilityRequestId: latestPendingCapabilityRequestId,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating
