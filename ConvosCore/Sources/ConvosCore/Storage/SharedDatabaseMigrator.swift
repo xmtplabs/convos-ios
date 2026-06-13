@@ -188,13 +188,7 @@ extension SharedDatabaseMigrator {
         // ids, leaving the brief visible. A stray row for an absent conversation
         // matches nothing and is harmless. Teardown clears the table explicitly
         // in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
-            }
-        }
+        migrator.registerMigration("createBuilderBundleHiddenMessage", migrate: Self.createBuilderBundleHiddenMessage)
 
         migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
                                    migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
@@ -209,38 +203,7 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
 
-        migrator.registerMigration("createFocusSessions") { db in
-            try db.create(table: "focusSession") { t in
-                t.column("sessionId", .text).notNull().primaryKey()
-                t.column("conversationId", .text).notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("focusedInboxId", .text)
-                t.column("state", .text).notNull()
-                t.column("startedAt", .datetime).notNull()
-                t.column("stoppedAt", .datetime)
-            }
-
-            try db.create(table: "liveBubble") { t in
-                t.column("sessionId", .text).notNull()
-                    .references("focusSession", onDelete: .cascade)
-                t.column("senderInboxId", .text).notNull()
-                t.column("text", .text).notNull().defaults(to: "")
-                t.column("revision", .integer).notNull().defaults(to: 0)
-                t.column("updatedAt", .datetime).notNull()
-                t.primaryKey(["sessionId", "senderInboxId"])
-            }
-
-            try db.create(
-                index: "focusSession_conversationId",
-                on: "focusSession",
-                columns: ["conversationId"]
-            )
-            try db.create(
-                index: "liveBubble_sessionId",
-                on: "liveBubble",
-                columns: ["sessionId"]
-            )
-        }
+        migrator.registerMigration("createFocusSessions", migrate: Self.createFocusSessions)
         return migrator
     }
 
@@ -257,6 +220,47 @@ extension SharedDatabaseMigrator {
             index: "handledJoinRequest_handledAt",
             on: "handledJoinRequest",
             columns: ["handledAt"]
+        )
+    }
+
+    private static func createBuilderBundleHiddenMessage(_ db: Database) throws {
+        try db.create(table: "builder_bundle_hidden_message") { t in
+            t.column("conversationId", .text).notNull()
+            t.column("messageId", .text).notNull()
+            t.primaryKey(["conversationId", "messageId"])
+        }
+    }
+
+    private static func createFocusSessions(_ db: Database) throws {
+        try db.create(table: "focusSession") { t in
+            t.column("sessionId", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("focusedInboxId", .text)
+            t.column("state", .text).notNull()
+            t.column("startedAt", .datetime).notNull()
+            t.column("stoppedAt", .datetime)
+        }
+
+        try db.create(table: "liveBubble") { t in
+            t.column("sessionId", .text).notNull()
+                .references("focusSession", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("text", .text).notNull().defaults(to: "")
+            t.column("revision", .integer).notNull().defaults(to: 0)
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["sessionId", "senderInboxId"])
+        }
+
+        try db.create(
+            index: "focusSession_conversationId",
+            on: "focusSession",
+            columns: ["conversationId"]
+        )
+        try db.create(
+            index: "liveBubble_sessionId",
+            on: "liveBubble",
+            columns: ["sessionId"]
         )
     }
 

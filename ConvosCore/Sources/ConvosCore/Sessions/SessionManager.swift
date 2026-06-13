@@ -630,10 +630,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         DatabaseInviteMembershipResolver(databaseReader: databaseReader)
     }
 
-    public func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol {
-        FocusSessionRepository(databaseReader: databaseReader)
-    }
-
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         ConversationRepository(
             conversationId: conversationId,
@@ -1133,5 +1129,9 @@ public extension SessionManager {
 extension SessionManager {
     public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
         BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
+    }
+
+    public func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol {
+        FocusSessionRepository(databaseReader: databaseReader)
     }
 }

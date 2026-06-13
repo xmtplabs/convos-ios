@@ -80,7 +80,7 @@ struct LiveBubble: View {
         case .user:
             return .colorBubble
         case .focusedMember:
-            return agentVerification.isConvosAssistant
+            return agentVerification.isConvosAgent
                 ? .colorLava
                 : .colorBubbleIncoming
         case .otherMember:
@@ -137,7 +137,7 @@ struct LiveBubble: View {
         case .user:
             return .colorTextPrimaryInverted
         case .focusedMember:
-            return agentVerification.isConvosAssistant ? .colorTextPrimaryInverted : .colorTextPrimary
+            return agentVerification.isConvosAgent ? .colorTextPrimaryInverted : .colorTextPrimary
         case .otherMember:
             return .colorTextPrimary
         }

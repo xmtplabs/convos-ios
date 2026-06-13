@@ -301,15 +301,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
                     guard explodeSettings == nil else { return }
 
-                    if await processProfileMessage(message, conversationId: conversation.id) {
-                        return
-                    }
-
-                    if await processThinking(message, conversationId: conversation.id, params: params) {
-                        return
-                    }
-
-                    if await processFocusModeMessage(message, conversationId: conversation.id) {
+                    if await processSupplementalGroupMessage(message, conversationId: conversation.id, params: params) {
                         return
                     }
 
@@ -440,71 +432,6 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         onTypingIndicator?(conversationId, message.senderInboxId, content.isTyping)
         return true
-    }
-
-    private func processFocusModeMessage(
-        _ message: DecodedMessage,
-        conversationId: String
-    ) async -> Bool {
-        guard let contentType = try? message.encodedContent.type else { return false }
-
-        if contentType.authorityID == ContentTypeFocusModeControl.authorityID
-            && contentType.typeID == ContentTypeFocusModeControl.typeID {
-            guard let control = try? FocusModeControlCodec().decode(content: message.encodedContent) else {
-                Log.warning("Failed to decode FocusModeControl from message \(message.id)")
-                return true
-            }
-            do {
-                try await focusSessionWriter.applyFocusModeControl(control, conversationId: conversationId)
-            } catch {
-                Log.warning("Failed applying FocusModeControl: \(error.localizedDescription)")
-            }
-            return true
-        }
-
-        if contentType.authorityID == ContentTypeStreamingText.authorityID
-            && contentType.typeID == ContentTypeStreamingText.typeID {
-            guard let payload = try? StreamingTextCodec().decode(content: message.encodedContent) else {
-                Log.warning("Failed to decode StreamingText from message \(message.id)")
-                return true
-            }
-            do {
-                try await focusSessionWriter.applyStreamingText(payload)
-            } catch {
-                Log.warning("Failed applying StreamingText: \(error.localizedDescription)")
-            }
-            return true
-        }
-
-        if contentType.authorityID == ContentTypeStreamingClear.authorityID
-            && contentType.typeID == ContentTypeStreamingClear.typeID {
-            guard let payload = try? StreamingClearCodec().decode(content: message.encodedContent) else {
-                Log.warning("Failed to decode StreamingClear from message \(message.id)")
-                return true
-            }
-            do {
-                try await focusSessionWriter.applyStreamingClear(payload)
-            } catch {
-                Log.warning("Failed applying StreamingClear: \(error.localizedDescription)")
-            }
-            return true
-        }
-
-        if contentType.authorityID == ContentTypeConversationSnapshot.authorityID
-            && contentType.typeID == ContentTypeConversationSnapshot.typeID {
-            guard let snapshot = try? ConversationSnapshotCodec().decode(content: message.encodedContent) else {
-                Log.warning("Failed to decode ConversationSnapshot from message \(message.id)")
-                return true
-            }
-            do {
-                try await focusSessionWriter.applyConversationSnapshot(snapshot, conversationId: conversationId)
-            } catch {
-                Log.warning("Failed applying ConversationSnapshot: \(error.localizedDescription)")
-            }
-            return true
-        }
-
-        return false
     }
 
     private func processThinking(
@@ -1024,5 +951,88 @@ extension StreamProcessor {
             userInfo: ["revokedInstallationId": removal.revokedInstallationId]
         )
         return true
+    }
+}
+
+// MARK: - Focus-mode supplementals (Honk prototype)
+
+extension StreamProcessor {
+    /// Routes profile, thinking, and focus-mode supplementals, which are
+    /// handled by dedicated writers and never stored as chat rows. Returns
+    /// true when the message was consumed.
+    private func processSupplementalGroupMessage(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        if await processProfileMessage(message, conversationId: conversationId) { return true }
+        if await processThinking(message, conversationId: conversationId, params: params) { return true }
+        if await processFocusModeMessage(message, conversationId: conversationId) { return true }
+        return false
+    }
+
+    private func processFocusModeMessage(
+        _ message: DecodedMessage,
+        conversationId: String
+    ) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else { return false }
+
+        if contentType.authorityID == ContentTypeFocusModeControl.authorityID
+            && contentType.typeID == ContentTypeFocusModeControl.typeID {
+            guard let control = try? FocusModeControlCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode FocusModeControl from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyFocusModeControl(control, conversationId: conversationId)
+            } catch {
+                Log.warning("Failed applying FocusModeControl: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        if contentType.authorityID == ContentTypeStreamingText.authorityID
+            && contentType.typeID == ContentTypeStreamingText.typeID {
+            guard let payload = try? StreamingTextCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode StreamingText from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyStreamingText(payload)
+            } catch {
+                Log.warning("Failed applying StreamingText: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        if contentType.authorityID == ContentTypeStreamingClear.authorityID
+            && contentType.typeID == ContentTypeStreamingClear.typeID {
+            guard let payload = try? StreamingClearCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode StreamingClear from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyStreamingClear(payload)
+            } catch {
+                Log.warning("Failed applying StreamingClear: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        if contentType.authorityID == ContentTypeConversationSnapshot.authorityID
+            && contentType.typeID == ContentTypeConversationSnapshot.typeID {
+            guard let snapshot = try? ConversationSnapshotCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode ConversationSnapshot from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyConversationSnapshot(snapshot, conversationId: conversationId)
+            } catch {
+                Log.warning("Failed applying ConversationSnapshot: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        return false
     }
 }

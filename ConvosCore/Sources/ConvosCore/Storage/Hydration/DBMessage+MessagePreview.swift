@@ -84,9 +84,7 @@ extension DBLastMessageWithSource {
                  .connectionGrantRequest,
                  .capabilityRequest,
                  .capabilityRequestResult,
-                 .focusModeControl,
-                 .streamingText,
-                 .streamingClear:
+                 .focusModeControl, .streamingText, .streamingClear:
                 text = ""
             case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
                 text = connectionEventSummaryText
@@ -131,9 +129,7 @@ extension DBLastMessageWithSource {
                  .connectionGrantRequest,
                  .capabilityRequest,
                  .capabilityRequestResult,
-                 .focusModeControl,
-                 .streamingText,
-                 .streamingClear:
+                 .focusModeControl, .streamingText, .streamingClear:
                 text = ""
             case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
                 text = connectionEventSummaryText
