@@ -187,6 +187,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func sendStreamingClear(_ payload: StreamingClear, for conversationId: String) async throws {
+    }
 
     public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
     }
