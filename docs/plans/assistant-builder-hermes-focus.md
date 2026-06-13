@@ -1,11 +1,32 @@
 # Assistant Builder: focus-mode streaming from the local assistants backend
 
 Wire the convos-assistants runtime (Hermes) into the Honk-style focus mode so
-that, during the build-template phase, the assistant streams its replies into a
-live bubble (`StreamingText` snapshots) instead of narrating progress through
-the `thinking` content type. The iOS side already speaks the protocol (branch
+that, during the build-template phase, the agent conducts the interview as a
+live, co-typing conversation. The iOS side already speaks the protocol (branch
 `jarod/assistant-builder-prototypes`, resurrected on top of dev); this plan
 covers the backend half.
+
+**This is not a transport swap.** The naive version -- take whatever the agent
+would have said and re-route it from the `thinking` badge into `StreamingText`
+snapshots -- is wrong. It leaves the agent oblivious: same multi-paragraph
+chatbot output, just painted into a live bubble. Focus mode is a *medium* with
+its own conversational grammar (short single-thought bubbles, one question at a
+time, you can watch the other person type, nothing is permanent until it's
+committed). The agent has to **know it is in focus mode** and **change how it
+communicates** because of it. So the runtime work is three things, not one:
+
+1. **Awareness** -- surface the focus session and the peer's live typing into
+   the agent's context, so it reasons over "they're typing: '...'" not just a
+   finished message.
+2. **A focus-mode communication policy** -- prompt/skill guidance that tells the
+   agent how to behave in this medium.
+3. **Deliberate outbound actions** -- the agent decides when to speak, clear,
+   wait, and end the session, rather than a wrapper transcoding its prose.
+
+The transport substrate (codecs in convos-cli, herald endpoints with
+server-side revision allocation + coalescing, inbound webhook events) is still
+exactly as in Phases 1-2 below -- that's just how the bytes move. The rethink
+is entirely in Phase 3.
 
 ## Where the seams are
 
@@ -103,47 +124,98 @@ Same shape as hermes' `_drain_progress` loop, just one layer down.
 
 ## Phase 3 — hermes runtime behavior
 
-**Session tracking.** New `FocusSessionState` on the channel
-(`runtime/hermes/src/convos/channel.py`): `{sessionId, focusedInboxId, state}`
-updated from the new webhook events, with the same upsert rule as iOS's
-`FocusSessionWriter` (stale `start(null)` never overwrites a known focus).
-"We are focused" == `focusedInboxId == our inboxId` and `state == started`.
+The goal: when focused in the build-template phase, the agent *runs the
+interview as a live conversation it understands it's having*. Four pieces.
 
-**Gating.** Focus streaming replaces thinking **only when** (a) a focus session
-is live, (b) we are the focused member, and (c) the conversation is still in
-the build-template phase — i.e. the agent-builder kickoff was injected and the
-post-activation arc has not fired (`_post_activation_arc_armed` /
-`_first_impression_arc_fired` in channel.py). Outside that window, behavior is
-unchanged (thinking badge + regular text sends).
+### 3a. Session state + the upsert rule
 
-**Reply path.** Add a `FocusStreamWriter` to the herald client wrapper
-(`runtime/hermes/src/convos/herald/client.py`) with
-`stream(text_snapshot)`, `clear()`, `stop()`. In the channel's reply flow,
-when gated in:
+New `FocusSessionState` on the channel
+(`runtime/hermes/src/convos/channel.py`): `{sessionId, focusedInboxId, state,
+peerLiveText, peerLastRevision, peerLastChangeAt}`, updated from the new webhook
+events (Phase 2), with the same upsert rule as iOS's `FocusSessionWriter`
+(stale `start(null)` never overwrites a known focus). "We are focused" ==
+`focusedInboxId == our inboxId` and `state == started`. The peer fields track
+the *other* member's live bubble as their `streaming_text` revisions arrive --
+this is what makes awareness possible.
 
-1. Suppress the thinking badge — claim the badge arbiter with a `focus` owner
-   that swallows ambient phrases (the affordance is now the live bubble, the
-   badge would double-signal).
-2. Stream the reply. v1 cadence: chunk the composed reply on
-   word/clause boundaries and emit cumulative snapshots every ~100–200 ms
-   (herald coalesces; iOS renders keystroke-style). This works with today's
-   buffered-completion agent loop — no LLM plumbing change. v2 (optional):
-   where the runtime has incremental token callbacks, push raw cumulative
-   text and let herald's coalescer set the pace.
-3. End-of-thought: `clear()` after a hold (~3.5 s, matching the prototype's
-   transcript pacing), then either stream the next bubble or wait.
-4. Wait-for-rest: before replying to live typing, wait until the user's
-   bubble has had no new `streaming_text` revision for ~2 s, or they sent a
-   regular message (the prototype treats committed messages as definitive).
-5. Phase exit: when the template pins (`templateId` metadata patch) and the
-   post-activation arc fires, send `focus_mode_control(stop)` (or let iOS own
-   the stop — see open questions), fall back to normal messaging, and send the
-   first-impression message as a regular persisted text message.
+### 3b. Gating
 
-**Persistence note:** streamed bubbles are ephemeral by design (iOS never
-stores them as chat rows). Anything that must survive — the final template
-summary, the "what I built" message — goes out as a normal text send after the
-clear.
+Focus behavior engages **only when** (a) a session is live, (b) we are the
+focused member, and (c) the conversation is still in the build-template phase
+(agent-builder kickoff injected, post-activation arc not yet fired --
+`_post_activation_arc_armed` / `_first_impression_arc_fired`). Outside that
+window nothing changes: normal thinking badge + committed text sends. Focus is
+a phase, not a global mode.
+
+### 3c. Awareness — focus mode enters the agent's context
+
+This is the half the naive plan skipped. When gated in, the runtime augments
+the agent's context for that turn:
+
+- **A focus-mode system/skill addendum** (a prompt block, active only while
+  focused) telling the agent the medium and its grammar -- see 3d. This is the
+  mechanism by which the agent "knows it's in focus mode."
+- **The peer's live typing as a first-class observation.** Instead of only
+  handing the agent a finished user message, the turn carries the forming
+  bubble: e.g. system note "The person is typing live; their bubble currently
+  reads: '<peerLiveText>' (still going)" vs. "...they paused after: '<text>'".
+  The agent can reason over an in-progress thought -- acknowledge, wait, or
+  start forming a reply before they finish.
+- **Turn-taking on rest, not on every keystroke.** The runtime must *not* wake
+  the LLM on each inbound `streaming_text` revision. Coalesce: treat a thought
+  as "ready to answer" when the peer's bubble has had no new revision for ~2 s
+  (`peerLastChangeAt`), or they committed a real message, or they cleared.
+  Sub-rest revisions only update `peerLiveText` for context. (v2: let the agent
+  opt into reacting mid-typing for richer behavior; v1 is rest-driven.)
+
+### 3d. Communication policy — how the agent behaves in the medium
+
+A focus-mode addendum to the agent-builder skill prompt, in effect only while
+focused. Roughly: *You're in a live focus session -- the person sees you type
+in real time, one bubble at a time, and you see them type back. Communicate
+like a live chat, not an essay: short single-thought bubbles, one question at a
+time, react to what they're typing. Bubbles are ephemeral -- they vanish when
+you clear and aren't saved to the transcript, so don't dump anything important
+here; save the summary for when you finish. Drive the build interview as a
+back-and-forth: greet, ask what they want, watch them answer, follow up, and
+when you have enough, wrap up and hand off.* The exact wording is for the
+prompt-tuning pass; the point is the agent's *output shape and pacing* come
+from it, not from a transcoder downstream.
+
+### 3e. Deliberate outbound actions
+
+Expose focus communication as explicit actions the agent invokes, not an
+automatic wrapper around its prose. Add a thin `FocusChannel` over the herald
+client (`runtime/hermes/src/convos/herald/client.py`):
+
+- `say(text)` -- stream one bubble (herald handles snapshot pacing +
+  revisions), hold briefly, then `clear()`. One call == one spoken bubble.
+- `wait_for_rest()` -- block until 3c's rest signal (used between turns).
+- `end_focus()` -- pin the template, send `focus_mode_control(stop)`, and fall
+  back to normal messaging.
+
+The agent loop, while focused, emits a sequence of `say()` turns interleaved
+with `wait_for_rest()` rather than one `send_text`. How the agent chooses to
+break its thoughts into bubbles is driven by 3d. The thinking badge is **not**
+used while focused -- the live bubble is the presence indicator; a badge would
+double-signal. (Internally the runtime can still "think"; it just doesn't emit
+the badge content type.)
+
+v1 cadence inside `say()`: chunk the bubble's text on word/clause boundaries and
+emit cumulative snapshots every ~100-200 ms (herald coalesces; iOS renders
+keystroke-style). Works with today's buffered-completion loop -- no token-stream
+plumbing required. v2: where incremental token callbacks exist, push raw
+cumulative text and let herald's coalescer set the pace.
+
+### 3f. Phase exit and persistence
+
+When the agent calls `end_focus()` (it has enough to build the template) or iOS
+sends `focus_mode_control(stop)` (user left the builder), the agent reverts to
+normal messaging mid-conversation. Streamed bubbles are ephemeral by design
+(iOS never stores them as chat rows), so anything that must survive -- the
+template summary, the "here's what I built" first-impression message -- goes out
+as a **normal committed text send** after focus ends, exactly as today. Stop is
+idempotent; either side may send it.
 
 ## Phase 4 — iOS follow-ups (small)
 
@@ -170,9 +242,16 @@ MinIO :9100/:9101 — see its `stack.env`). It shares nothing with the default
    monotonic revisions, clear-shares-counter, stop semantics.
 3. End-to-end: iOS sim on the Local scheme pointed at the honk stack
    (`make -C dev/local-stack ios-config IOS=<this worktree>`), run the
-   agent-builder flow, verify: live bubble paints during the interview, no
-   thinking badge while focused, bubble clears ~600 ms after the agent's
-   clear, transcript shows only the committed messages afterward.
+   agent-builder flow, verify both the *mechanics* and the *behavior*:
+   - Mechanics: live bubble paints during the interview, no thinking badge
+     while focused, bubble clears ~600 ms after the agent's clear, transcript
+     shows only the committed messages afterward.
+   - Behavior: the agent communicates in short single-thought bubbles (not
+     dumped paragraphs), asks one thing at a time, waits for the user to stop
+     typing before replying, and reacts to what the user is typing -- i.e. it
+     reads as a live conversation, not a chatbot painted into a bubble. This is
+     the acceptance bar the rethink exists for; eyeball it against the
+     prototype's `--focus` test transcript in `docs/plans/assistant-builder-cli-integration.md`.
 
 ## Open questions / risks
 
@@ -188,3 +267,18 @@ MinIO :9100/:9101 — see its `stack.env`). It shares nothing with the default
 - **Old clients:** unknown content types are silently dropped by clients
   without the codecs, and `shouldPush=false` keeps notifications quiet, so the
   rollout is backward-compatible by construction.
+- **LLM wakeups vs. live typing (3c):** the inbound `streaming_text` stream is
+  high-frequency; waking the agent loop per revision would be both expensive
+  and behaviorally wrong (it'd reply mid-thought). Rest-coalescing is load-
+  bearing, not an optimization. Get the rest window right (~2 s feels live
+  without interrupting) and make sub-rest revisions context-only.
+- **Prompt-tuning is real work (3d):** "the agent communicates well in focus
+  mode" is a prompt/eval task, not just plumbing. Budget a tuning pass with the
+  evals harness; the communication policy wording will need iteration against
+  real transcripts. The mechanical pieces (3a/3b/3e) can land first and be
+  exercised via the CLI peer while 3d is tuned.
+- **Does the agent over-narrate?** Today it leans on the thinking badge to show
+  progress. With the badge gone in focus, make sure the policy doesn't push it
+  to narrate its process into bubbles ("Let me think about that...") -- the
+  bubble should carry the actual reply, not status. Worth an explicit prompt
+  rule and an eval check.
