@@ -429,6 +429,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let currentInboxId = inboxReady.client.inboxId
         try await databaseWriter.write { db in
             for memberInboxId in memberInboxIds {
+                // A directly-added inbox (e.g. a freshly provisioned agent) may
+                // never have been seen locally, so the member parent row the
+                // membership row references doesn't exist yet — create it
+                // first. Members arriving via the stream get theirs from the
+                // welcome/profile path instead.
+                try DBMember(inboxId: memberInboxId).save(db, onConflict: .ignore)
                 let conversationMember = DBConversationMember(
                     conversationId: conversationId,
                     inboxId: memberInboxId,

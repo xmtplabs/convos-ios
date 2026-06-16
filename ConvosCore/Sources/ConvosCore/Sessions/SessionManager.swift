@@ -596,28 +596,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func requestAgentJoin(
-        slug: String,
-        templateId: String? = nil,
-        options: ConvosAPI.AgentJoinOptions? = nil,
-        forceErrorCode: Int? = nil
-    ) async throws -> ConvosAPI.AgentJoinResponse {
-        let response = try await apiClient.requestAgentJoin(
-            slug: slug,
-            templateId: templateId,
-            options: options,
-            forceErrorCode: forceErrorCode
-        )
-        // Temporary diagnostic: the agent now sends a join-request DM that
-        // the message stream is expected to deliver. Poll for it for a
-        // bounded window in case the stream has died, so the agent doesn't
-        // time out and stream death shows up in the logs. Covers every
-        // agents/join entry point (add agent, contacts picker, compose,
-        // agent builder) since they all route through here.
-        await messagingService().sessionStateManager.startAgentJoinRequestPolling()
-        return response
-    }
-
     public func agentShareResolver() -> any AgentShareResolving {
         ApiAgentShareResolver(
             apiClient: apiClient,
@@ -1129,5 +1107,153 @@ public extension SessionManager {
 extension SessionManager {
     public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
         BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
+    }
+}
+
+// MARK: - Direct-add agent join
+
+extension SessionManager {
+    /// How long to keep polling for the agent's inboxId when registration
+    /// outlasts the backend's synchronous wait budget.
+    private static var agentRegistrationDeadline: TimeInterval { 30 }
+    private static var agentRegistrationPollInterval: TimeInterval { 1 }
+    /// Bounded retries of the local member add for an already-provisioned
+    /// agent. The add can fail transiently (MLS commit race, key package not
+    /// yet propagated to this device, network blip); we retry the *same*
+    /// inboxId rather than re-provisioning.
+    private static var agentAddMaxAttempts: Int { 3 }
+    private static var agentAddRetryDelay: TimeInterval { 1 }
+
+    public func addAgentToConversation(
+        conversationId: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        // 1. Provision the agent and wait until its XMTP inbox is registered.
+        //    Extracted to a helper that touches only the API client (no
+        //    messaging service) so the poll loop and its terminal/timeout/
+        //    unknown branches are unit-testable — see DirectAddProvisionPollTests.
+        let resolved = try await Self.awaitProvisionedAgentInbox(
+            requestJoin: {
+                try await self.apiClient.requestAgentJoin(
+                    slug: nil,
+                    conversationId: conversationId.lowercased(),
+                    templateId: templateId,
+                    options: options,
+                    forceErrorCode: forceErrorCode
+                )
+            },
+            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0) }
+        )
+        let instanceId = resolved.instanceId
+        let agentInboxId = resolved.inboxId
+
+        // 2. Add: a plain member add by this device — synchronous, no DM
+        //    round-trip, no online-accepter dependency. The add durably
+        //    publishes a group welcome for the agent's inbox; the runtime
+        //    observes it and attaches, so the agent boots even if this app is
+        //    killed on the next line.
+        //
+        //    On failure we retry the add for the *same* inboxId; we never
+        //    re-provision here. Re-provisioning would spawn a second instance
+        //    (the backend does not dedupe by conversationId) and orphan the
+        //    first, risking two agents in one conversation. An add that
+        //    exhausts its retries leaves a provisioned-but-unadded instance,
+        //    which the runtime reaps on its own attach timeout; we log the
+        //    instanceId/inboxId on every failure so it can be correlated.
+        var lastError: Error?
+        for attempt in 1...Self.agentAddMaxAttempts {
+            do {
+                try await messagingService().conversationMetadataWriter()
+                    .addMembers([agentInboxId], to: conversationId)
+                return resolved.response
+            } catch {
+                lastError = error
+                Log.error(
+                    "Direct-add: addMembers failed (attempt \(attempt)/\(Self.agentAddMaxAttempts)) "
+                        + "for agent inbox \(agentInboxId), instance \(instanceId), "
+                        + "conversation \(conversationId): \(error.localizedDescription)"
+                )
+                if attempt < Self.agentAddMaxAttempts {
+                    try await Task.sleep(nanoseconds: UInt64(Self.agentAddRetryDelay * 1_000_000_000))
+                }
+            }
+        }
+        throw lastError ?? APIError.invalidResponse
+    }
+
+    /// A provisioned agent whose XMTP inbox has registered and is ready to add.
+    struct ProvisionedAgent {
+        let response: ConvosAPI.AgentJoinResponse
+        let instanceId: String
+        let inboxId: String
+    }
+
+    /// Provisions an agent (`POST /v2/agents/join`) and polls
+    /// `GET /v2/agents/join/:instanceId` until its XMTP inbox is registered,
+    /// the backend reports a terminal status, or the deadline elapses.
+    ///
+    /// Touches only the two injected API operations — no messaging service —
+    /// so the loop is unit-testable with plain closures, and `now`/`sleep` are
+    /// injectable so deadline and poll timing can be driven without real waits.
+    ///
+    /// `inboxId` presence is the readiness signal: the backend (`pollUntilRegistered`)
+    /// populates it only once the agent's identity is registered and key
+    /// packages are published, so the caller's subsequent `addMembers` has key
+    /// packages to consume. In direct-add the status legitimately stays
+    /// `.starting` while the inbox is already present (the agent has not
+    /// *joined* yet — that happens after the add), so the inbox check, not the
+    /// status, is what ends the wait.
+    static func awaitProvisionedAgentInbox(
+        deadline: TimeInterval = agentRegistrationDeadline,
+        pollInterval: TimeInterval = agentRegistrationPollInterval,
+        now: @Sendable () -> Date = { Date() },
+        sleep: @Sendable (TimeInterval) async throws -> Void = {
+            try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+        },
+        requestJoin: @Sendable () async throws -> ConvosAPI.AgentJoinResponse,
+        fetchStatus: @Sendable (_ instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
+    ) async throws -> ProvisionedAgent {
+        let response = try await requestJoin()
+        guard let instanceId = response.instanceId else {
+            throw APIError.agentProvisionFailed
+        }
+
+        // Fast path: registration completed within the provision call itself.
+        if let inboxId = response.inboxId {
+            return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
+        }
+
+        let deadlineDate = now().addingTimeInterval(deadline)
+        while now() < deadlineDate {
+            try await sleep(pollInterval)
+            let status = try await fetchStatus(instanceId)
+
+            switch status.provisionStatus {
+            case .failed:
+                Log.error(
+                    "Direct-add: provision failed for instance \(instanceId): "
+                        + "\(status.joinFailureReason ?? "no reason given")"
+                )
+                throw APIError.agentProvisionFailed
+            case .noAgentsAvailable:
+                Log.error("Direct-add: no agents available for instance \(instanceId)")
+                throw APIError.noAgentsAvailable
+            case .starting, .joined, .ready, .pendingAcceptance:
+                break  // still registering; readiness is signaled by inboxId
+            case .unknown(let raw):
+                // A status this build doesn't model — not treated as ready or
+                // as failure. Logged (so it isn't silently missed) while the
+                // deadline bounds the wait.
+                Log.warning("Direct-add: unexpected join status \"\(raw)\" for instance \(instanceId)")
+            }
+
+            if let inboxId = status.inboxId {
+                return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
+            }
+        }
+        Log.error("Direct-add: timed out awaiting agent inbox for instance \(instanceId)")
+        throw APIError.agentPoolTimeout
     }
 }

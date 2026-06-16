@@ -36,12 +36,33 @@ extension ConvosAPIClientProtocol {
     /// `requestAgentJoin` specifically should still override this on
     /// their fixture.
     func requestAgentJoin(
-        slug: String,
+        slug: String?,
+        conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        ConvosAPI.AgentJoinResponse(success: true, joined: true)
+        ConvosAPI.AgentJoinResponse(
+            success: true,
+            joined: true,
+            instanceId: "test-instance",
+            inboxId: "test-agent-inbox"
+        )
+    }
+
+    /// Default for the direct-add status poll so pre-existing stubs don't
+    /// re-stub it. A coherent terminal state — joined ⇒ inbox present — so
+    /// unrelated tests don't iterate the poll loop. Tests that exercise the
+    /// poll specifically program their own status sequence (see
+    /// DirectAddProvisionPollTests).
+    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+        ConvosAPI.AgentJoinStatusResponse(
+            success: true,
+            instanceId: instanceId,
+            joinStatus: "joined",
+            joined: true,
+            inboxId: "test-agent-inbox"
+        )
     }
 
     /// Default for the public agent-template detail fetch used by the
