@@ -566,7 +566,19 @@ final class AgentBuilderViewModel: Identifiable {
         emitBuiltAgentMetric(text: textToSend, isSuccess: true)
 
         if targetsExistingConversation {
-            commitToExistingConversation(text: textToSend)
+            if isDirectBuilderEnabled {
+                // Route the in-chat maker variant through the same direct
+                // generation -> poll -> invite pipeline as the home flow. The
+                // inner conversation VM is already in `.existingConversation`
+                // mode, so `startDirectGeneration` reads the existing group's id
+                // + slug and hands them to the repository. No visibility commit
+                // or morph (the conversation is already visible); the view
+                // dismisses back to the chat (`dismissesOnCommit`). `discard()`
+                // already never tears down an existing group.
+                startDirectGeneration(prompt: textToSend)
+            } else {
+                commitToExistingConversation(text: textToSend)
+            }
             return
         }
 
