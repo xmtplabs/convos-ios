@@ -821,7 +821,13 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
         let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
-        let request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET")
+        var request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET")
+        // Bound a single poll: without this a hung GET stalls the caller's
+        // registration loop indefinitely, since the loop's own deadline is
+        // only checked between iterations and can't interrupt an in-flight
+        // request. Kept well under the loop's overall deadline so a stuck
+        // request fails fast and the next iteration's deadline check fires.
+        request.timeoutInterval = 10
         return try await performRequest(request)
     }
 

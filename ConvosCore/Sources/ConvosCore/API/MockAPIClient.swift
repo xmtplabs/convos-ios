@@ -106,11 +106,14 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+        // A registered, joined agent — a coherent terminal state (joined ⇒
+        // inbox present), not "starting" paired with an inbox, which masks the
+        // poll loop and can't be told apart from a real in-flight state.
         .init(
             success: true,
             instanceId: instanceId,
-            joinStatus: "starting",
-            joined: false,
+            joinStatus: "joined",
+            joined: true,
             inboxId: "mock-agent-inbox"
         )
     }

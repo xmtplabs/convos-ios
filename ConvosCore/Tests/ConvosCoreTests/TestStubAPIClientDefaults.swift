@@ -51,14 +51,16 @@ extension ConvosAPIClientProtocol {
     }
 
     /// Default for the direct-add status poll so pre-existing stubs don't
-    /// re-stub it. Tests that exercise the direct-add flow specifically
-    /// should override this on their fixture.
+    /// re-stub it. A coherent terminal state — joined ⇒ inbox present — so
+    /// unrelated tests don't iterate the poll loop. Tests that exercise the
+    /// poll specifically program their own status sequence (see
+    /// DirectAddProvisionPollTests).
     func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
         ConvosAPI.AgentJoinStatusResponse(
             success: true,
             instanceId: instanceId,
-            joinStatus: "starting",
-            joined: false,
+            joinStatus: "joined",
+            joined: true,
             inboxId: "test-agent-inbox"
         )
     }

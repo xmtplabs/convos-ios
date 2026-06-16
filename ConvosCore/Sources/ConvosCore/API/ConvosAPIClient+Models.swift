@@ -255,6 +255,13 @@ public enum ConvosAPI {
             self.conversationId = conversationId
             self.joinFailureReason = joinFailureReason
         }
+
+        /// Typed view of the wire `joinStatus`. Switch over this (not the
+        /// raw string) so a terminal backend status can't be silently
+        /// missed at the call site.
+        public var provisionStatus: AgentProvisionStatus {
+            AgentProvisionStatus(wire: joinStatus)
+        }
     }
 
     // MARK: - v2/agent-templates/:id
