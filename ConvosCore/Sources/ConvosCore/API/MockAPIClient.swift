@@ -140,6 +140,21 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return .init(data: templates, hasMore: false, nextCursor: nil)
     }
 
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: UUID().uuidString, status: .pending, templateId: nil, error: nil)
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: generationId, status: .done, templateId: UUID().uuidString, error: nil)
+    }
+
     // MARK: - Connections
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {

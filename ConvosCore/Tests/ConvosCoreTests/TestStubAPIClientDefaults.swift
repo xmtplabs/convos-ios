@@ -184,4 +184,29 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     ) async throws -> Int {
         0
     }
+
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: UUID().uuidString,
+            status: .pending,
+            templateId: nil,
+            error: nil
+        )
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: generationId,
+            status: .done,
+            templateId: UUID().uuidString,
+            error: nil
+        )
+    }
 }

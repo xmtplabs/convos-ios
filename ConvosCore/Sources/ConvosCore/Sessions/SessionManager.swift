@@ -58,6 +58,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
     private let unusedConversationCache: any UnusedConversationCacheProtocol
+    private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
     /// serializes every construction path — any sync or async caller that
@@ -117,8 +118,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             identityStore: identityStore
         )
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
+        self.agentTemplateRepositoryInstance = Self.makeAgentTemplateRepository(apiClient: apiClient, databaseWriter: databaseWriter, databaseReader: databaseReader)
 
         observe()
+        wireAgentTemplateRepository()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -1255,5 +1258,37 @@ extension SessionManager {
         }
         Log.error("Direct-add: timed out awaiting agent inbox for instance \(instanceId)")
         throw APIError.agentPoolTimeout
+    }
+}
+
+// MARK: - Agent-template repository factory
+
+extension SessionManager {
+    public func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol {
+        agentTemplateRepositoryInstance
+    }
+
+    static func makeAgentTemplateRepository(
+        apiClient: any ConvosAPIClientProtocol,
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader
+    ) -> any AgentTemplateRepositoryProtocol {
+        AgentTemplateRepository(
+            apiClient: apiClient,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            source: "ios-app",
+            clientDeviceId: DeviceInfo.deviceIdentifier
+        )
+    }
+
+    /// Route the repository's agent-join through the session so the direct-add
+    /// provision/add runs, then resume any in-flight generations persisted
+    /// across a relaunch.
+    func wireAgentTemplateRepository() {
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId in
+            _ = try await self?.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil)
+        }
+        agentTemplateRepositoryInstance.resumePendingGenerations()
     }
 }

@@ -115,6 +115,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
+    /// Owns the direct agent-builder generation lifecycle (submit -> poll ->
+    /// invite). Session-scoped so the poll loop survives the builder sheet.
+    func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol
+
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
     func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol
@@ -238,6 +242,13 @@ extension SessionManagerProtocol {
 
     public func addAgentToConversation(conversationId: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await addAgentToConversation(conversationId: conversationId, templateId: nil, options: nil, forceErrorCode: nil)
+    }
+
+    /// Default agent-template repository. Returns the no-op until the real
+    /// repository is wired in `SessionManager`, so test mocks conform without
+    /// bespoke wiring.
+    public func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol {
+        NoOpAgentTemplateRepository()
     }
 
     public func addAgentToConversation(

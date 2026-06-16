@@ -135,6 +135,12 @@ final class AgentBuilderViewModel: Identifiable {
     /// `true` when this builder targets an existing conversation.
     private var targetsExistingConversation: Bool { existingConversationId != nil }
 
+    /// Captured at init: routes Make through the direct agent-templates
+    /// generation API (submit -> poll -> invite via `AgentTemplateRepository`)
+    /// instead of the legacy conversation-as-transport bundle send. Read once
+    /// so flipping the flag mid-build can't split behavior across the commit.
+    let isDirectBuilderEnabled: Bool
+
     let newConversationViewModel: NewConversationViewModel
 
     var composerText: String = ""
@@ -206,6 +212,13 @@ final class AgentBuilderViewModel: Identifiable {
     private var agentJoinTask: Task<Void, Never>?
     @ObservationIgnored
     private var didRequestAgentJoin: Bool = false
+    /// Direct-builder only: prompt captured at Make, held until the inner
+    /// conversation is ready enough to expose an invite slug, then handed to
+    /// the repository. Cleared once the generation has been kicked off.
+    @ObservationIgnored
+    private var pendingDirectPrompt: String?
+    @ObservationIgnored
+    private var didStartDirectGeneration: Bool = false
     @ObservationIgnored
     private(set) var didDiscard: Bool = false
     /// Whether the composer text field was focused at the moment the user
@@ -238,6 +251,7 @@ final class AgentBuilderViewModel: Identifiable {
         self.coreActions = coreActions
         self.entryMode = entryMode
         self.existingConversationId = existingConversationId
+        self.isDirectBuilderEnabled = FeatureFlags.shared.isDirectAgentBuilderEnabled
         let mode: NewConversationMode = existingConversationId
             .map { .existingConversation(conversationId: $0) } ?? .newAgent
         self.newConversationViewModel = NewConversationViewModel(
@@ -257,13 +271,23 @@ final class AgentBuilderViewModel: Identifiable {
         // both the placeholder VM and its real replacement stay suppressed.
         self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
-            self?.drainInitialAttachmentsIfNeeded()
+            guard let self else { return }
+            self.drainInitialAttachmentsIfNeeded()
             // The home flow joins the agent the instant the draft is ready so
             // it's present by the time the user taps Make. The existing-
             // conversation flow defers the join to `commit()` so we only add
             // the agent once the user confirms by tapping Make.
-            guard self?.targetsExistingConversation == false else { return }
-            self?.requestAgentJoinIfNeeded()
+            guard self.targetsExistingConversation == false else { return }
+            // Direct builder defers the agent join until the generation
+            // finishes (the repository invites the resulting template), so it
+            // never eagerly provisions an agent. It only needs to start the
+            // generation once the conversation has an invite slug, in case Make
+            // was tapped before the conversation was ready.
+            if self.isDirectBuilderEnabled {
+                self.startDirectGenerationIfReady()
+            } else {
+                self.requestAgentJoinIfNeeded()
+            }
         }
         cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
             .receive(on: DispatchQueue.main)
@@ -546,7 +570,15 @@ final class AgentBuilderViewModel: Identifiable {
             return
         }
 
-        if let innerVM = newConversationViewModel.conversationViewModel {
+        if isDirectBuilderEnabled {
+            // Direct path: no XMTP bundle send and no eager agent. Hand the
+            // prompt to the session-scoped repository, which submits the
+            // generation, polls it, and invites the resulting template into
+            // this conversation. The reveal/visibility tail below still runs so
+            // the chat animates in and the agent's contact card appears once it
+            // joins.
+            startDirectGeneration(prompt: textToSend)
+        } else if let innerVM = newConversationViewModel.conversationViewModel {
             let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
             if let recorded = recordedVoiceMemo {
                 voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
@@ -998,6 +1030,41 @@ final class AgentBuilderViewModel: Identifiable {
                 Log.error("AgentBuilderViewModel: addAgentToConversation failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: - Direct builder
+
+    /// Capture the prompt and start the generation as soon as the conversation
+    /// has an invite slug. If Make was tapped before the conversation was
+    /// ready, `onReachedReady` re-invokes `startDirectGenerationIfReady()`.
+    private func startDirectGeneration(prompt: String) {
+        pendingDirectPrompt = prompt
+        startDirectGenerationIfReady()
+    }
+
+    /// Hand the captured prompt to the session-scoped repository once a slug is
+    /// available. Idempotent via `didStartDirectGeneration` so the
+    /// `onReachedReady` re-entry can't double-submit.
+    private func startDirectGenerationIfReady() {
+        guard !didStartDirectGeneration else { return }
+        guard let prompt = pendingDirectPrompt else { return }
+        guard let conversation = newConversationViewModel.conversationViewModel?.conversation else {
+            Log.warning("AgentBuilder(direct): no conversation available yet; deferring generation start")
+            return
+        }
+        let slug = conversation.invite?.urlSlug ?? ""
+        guard !slug.isEmpty else {
+            Log.warning("AgentBuilder(direct): invite slug empty; deferring generation start")
+            return
+        }
+        didStartDirectGeneration = true
+        pendingDirectPrompt = nil
+        Log.info("AgentBuilder(direct): Make committed; handing prompt to AgentTemplateRepository for conversation \(conversation.id)")
+        session.agentTemplateRepository().startGeneration(
+            prompt: prompt,
+            conversationId: conversation.id,
+            slug: slug
+        )
     }
 
     private func emitBuiltAgentMetric(text: String, isSuccess: Bool) {

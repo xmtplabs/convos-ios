@@ -115,6 +115,23 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// serves them to anonymous callers (mirrors `getAgentTemplate`).
     func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
 
+    /// Submits an async template generation (`POST /v2/agent-templates/generations`).
+    /// Returns 202 with `status: pending` by default; the caller polls
+    /// `getAgentTemplateGeneration` for the terminal state. `idempotencyKey`
+    /// must be a UUID and is reused across retries of the same submit.
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
+
+    /// Polls a generation's status (`GET /v2/agent-templates/generations/:id`).
+    /// The generation id is the capability, so no extra auth is required.
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
+
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse
@@ -190,6 +207,24 @@ extension ConvosAPIClientProtocol {
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, conversationId: nil, templateId: templateId, options: nil, forceErrorCode: nil)
+    }
+
+    /// Default so bespoke test doubles that don't exercise the builder don't
+    /// have to stub these. The real `ConvosAPIClient` and `MockAPIClient`
+    /// override both.
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        throw APIError.invalidRequest
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        throw APIError.invalidRequest
     }
 }
 
@@ -855,6 +890,57 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
         let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
+    }
+
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        var request = try authenticatedRequest(for: "v2/agent-templates/generations", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentTemplateGenerationRequest(
+                source: source,
+                inputs: .init(text: text),
+                clientDeviceId: clientDeviceId
+            )
+        )
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        let encoded = generationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? generationId
+        let request = try authenticatedRequest(for: "v2/agent-templates/generations/\(encoded)")
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
+    }
+
+    private func decodeGenerationResponse(
+        data: Data,
+        httpResponse: HTTPURLResponse
+    ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
+        case 400:
+            throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
+        case 404:
+            throw AgentGenerationError.notFound
+        case 409:
+            throw AgentGenerationError.conflict
+        case 413:
+            throw AgentGenerationError.payloadTooLarge
+        case 422:
+            throw AgentGenerationError.moderationBlocked(parseErrorMessage(from: data))
+        default:
+            throw AgentGenerationError.server(parseErrorMessage(from: data))
+        }
     }
 
     // MARK: - Connections
