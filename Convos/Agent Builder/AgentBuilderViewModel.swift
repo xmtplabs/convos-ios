@@ -1071,11 +1071,39 @@ final class AgentBuilderViewModel: Identifiable {
         }
         didStartDirectGeneration = true
         pendingDirectPrompt = nil
+        let conversationId = conversation.id
         session.agentTemplateRepository().startGeneration(
             prompt: prompt,
-            conversationId: conversation.id,
+            conversationId: conversationId,
             slug: slug
         )
+        persistCreationPromptCard(prompt: prompt, conversationId: conversationId)
+    }
+
+    /// Persist an `AgentBuilderSummary` so the existing summary-card rendering
+    /// shows the creator's prompt at the top of the chat while the agent
+    /// builds (reuses `MessagesListProcessor`'s pending-card path). Text-only
+    /// for now: no attachments/connections (Phase 5) and no `bundledMessageIds`
+    /// (the direct flow sends no XMTP messages, so there's nothing to hide).
+    /// The card renders for `MessagesListProcessor.pendingCardDisplayWindow`
+    /// (180s) on this path. Set on the inner VM synchronously for the home-flow
+    /// morph / no first-frame flash, and persisted so it survives relaunch and
+    /// reaches the existing-conversation on-screen VM via its summary publisher.
+    private func persistCreationPromptCard(prompt: String, conversationId: String) {
+        let summary = AgentBuilderSummary(
+            prompt: prompt,
+            attachments: [],
+            cutoffDate: Date(),
+            existingConversation: targetsExistingConversation
+        )
+        newConversationViewModel.conversationViewModel?.agentBuilderSummary = summary
+        Task { [session] in
+            do {
+                try await session.agentBuilderSummaryWriter().save(summary, for: conversationId)
+            } catch {
+                Log.error("AgentBuilder(direct): failed to persist creation prompt summary: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func emitBuiltAgentMetric(text: String, isSuccess: Bool) {
