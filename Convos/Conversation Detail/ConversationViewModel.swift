@@ -191,15 +191,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     /// Latest direct-builder generation for this conversation, observed from
     /// `AgentTemplateRepository`. Drives the pending-agent placeholder while a
-    /// build is in flight and the failure banner if it fails. `nil` for
-    /// conversations that weren't created by the direct builder flow.
+    /// build is in flight. `nil` for conversations that weren't created by the
+    /// direct builder flow.
     var directBuildGeneration: AgentTemplateGeneration?
-
-    /// `true` while a direct-builder generation is submitting / polling /
-    /// awaiting invite (i.e. the agent hasn't been asked to join yet).
-    var directBuildInProgress: Bool {
-        directBuildGeneration?.status.isInProgress == true
-    }
 
     /// `true` while a direct build is active and hasn't failed and the agent
     /// hasn't joined the conversation yet — covering submit through invite up
@@ -220,13 +214,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// legacy summary flow.
     private var directBuildAgentJoined: Bool {
         conversation.members.contains { !$0.isCurrentUser }
-    }
-
-    /// Non-nil when the most recent direct build failed; drives the inline
-    /// failure banner so the user isn't left on a silent empty chat.
-    var directBuildFailureMessage: String? {
-        guard directBuildGeneration?.status == .failed else { return nil }
-        return directBuildGeneration?.errorMessage ?? "Couldn't build the agent"
     }
 
     /// Flips true once the post-commit agent-builder placeholder window
@@ -586,13 +573,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// appears in `conversation.members`, at which point the regular
     /// member-driven avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgentBuilder: Bool {
-        // Direct builder: keep the generic "New Agent" placeholder up from
-        // submit through the invite until the agent actually joins the
-        // conversation (`directBuildAwaitingAgent` clears on membership). There
-        // is no AgentBuilderSummary on this path, so this is gated on the live
-        // generation state instead.
-        if directBuildAwaitingAgent {
-            return true
+        // Direct builder owns its own pending lifecycle. No AgentBuilderSummary
+        // is ever written on this path, so once a generation row exists the
+        // live generation state is authoritative -- return it and bypass the
+        // legacy summary-based gating below, which would otherwise pin the
+        // placeholder forever (here `isInAgentBuilderFlow` is true but
+        // `agentBuilderSummary` is always nil, so the pre-commit branch never
+        // releases). `directBuildAwaitingAgent` already clears on membership
+        // and on failure.
+        if directBuildGeneration != nil {
+            return directBuildAwaitingAgent
         }
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
         // Pre-commit: while drafting in the builder (no summary yet), always

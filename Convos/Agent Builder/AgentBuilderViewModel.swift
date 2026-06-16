@@ -1059,7 +1059,6 @@ final class AgentBuilderViewModel: Identifiable {
         }
         didStartDirectGeneration = true
         pendingDirectPrompt = nil
-        Log.info("AgentBuilder(direct): Make committed; handing prompt to AgentTemplateRepository for conversation \(conversation.id)")
         session.agentTemplateRepository().startGeneration(
             prompt: prompt,
             conversationId: conversation.id,

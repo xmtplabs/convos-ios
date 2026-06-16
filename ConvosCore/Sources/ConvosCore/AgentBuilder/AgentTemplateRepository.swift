@@ -14,17 +14,6 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
         case done
         case invited
         case failed
-
-        /// Non-terminal states where the builder should show a pending /
-        /// "working" affordance.
-        public var isInProgress: Bool {
-            switch self {
-            case .submitting, .pending, .running, .done:
-                return true
-            case .invited, .failed:
-                return false
-            }
-        }
     }
 
     public let conversationId: String
@@ -120,7 +109,6 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             createdAt: now,
             updatedAt: now
         )
-        Log.info("AgentTemplateRepository: direct build starting for conversation \(conversationId) (idempotencyKey \(idempotencyKey))")
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -214,7 +202,6 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     clientDeviceId: clientDeviceId,
                     idempotencyKey: row.idempotencyKey
                 )
-                Log.info("AgentTemplateRepository: submitted generation \(response.generationId) status=\(response.status.rawValue)")
                 return await applyResponse(response, to: row.idempotencyKey)
             } catch let error as AgentGenerationError {
                 switch error {
@@ -255,7 +242,6 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 let response = try await apiClient.getAgentTemplateGeneration(generationId: generationId)
                 let updated = await applyResponse(response, to: row.idempotencyKey)
                 if let updated, updated.statusValue == .done || updated.statusValue == .failed {
-                    Log.info("AgentTemplateRepository: generation \(generationId) reached \(updated.status) (templateId \(updated.templateId ?? "nil"))")
                     return updated
                 }
             } catch let error as AgentGenerationError {
@@ -300,7 +286,6 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                         forceErrorCode: nil
                     )
                 }
-                Log.info("AgentTemplateRepository: template \(templateId) invited; awaiting agent join")
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
                 return
             } catch let error as APIError {
