@@ -941,7 +941,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             // DEBUG(direct-builder): confirm the real #309 poll shape — whether
             // `preview`/`progressPhrases` are present and that our model decodes
             // them. Remove once verified.
-            Log.info("AgentGeneration poll [\(httpResponse.statusCode)] status=\(decoded.status.rawValue) preview=\(decoded.preview != nil) phrases=\(decoded.progressPhrases?.count ?? 0) raw=\(String(data: data, encoding: .utf8) ?? "nil")")
+            let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+            let phraseCount = decoded.progressPhrases?.count ?? 0
+            Log.info(
+                "AgentGeneration poll [\(httpResponse.statusCode)] status=\(decoded.status.rawValue) "
+                    + "preview=\(decoded.preview != nil) phrases=\(phraseCount) raw=\(rawBody)"
+            )
             return decoded
         case 400:
             throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
