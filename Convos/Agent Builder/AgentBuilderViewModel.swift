@@ -1072,10 +1072,7 @@ final class AgentBuilderViewModel: Identifiable {
         didStartDirectGeneration = true
         pendingDirectPrompt = nil
         let conversationId = conversation.id
-        let repository = session.agentTemplateRepository()
-        // Stub preview/progress for the UI until backend PR #309 ships (flag).
-        repository.configureStubProgress(FeatureFlags.shared.isStubbedAgentGenerationProgressEnabled)
-        repository.startGeneration(
+        session.agentTemplateRepository().startGeneration(
             prompt: prompt,
             conversationId: conversationId,
             slug: slug

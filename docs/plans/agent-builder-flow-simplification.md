@@ -80,8 +80,9 @@ Detail: `agent-builder-flow-simplification-phase-1.md`.
 Detail: `agent-builder-flow-simplification-phase-2.md`.
 
 - `preview` (agentName/emoji/description) + `progressPhrases` modeled
-  end-to-end (API -> domain -> persisted columns -> publisher), behind a
-  removable stub until backend PR #309 deploys.
+  end-to-end (API -> domain -> persisted columns -> publisher), driven by the
+  real backend PR #309 responses (the temporary stub + flag were removed once
+  #309 deployed to Dev).
 - **Creation-prompt card** preserved at the top of the chat (reuses
   `AgentBuilderSummary`), shown for both home and in-chat flows.
 - **Progressive "activating" card** (new `MessagesListItemType.agentActivating`

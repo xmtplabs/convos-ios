@@ -906,13 +906,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         var request = try authenticatedRequest(for: "v2/agent-templates/generations", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
-        request.httpBody = try JSONEncoder().encode(
+        let body = try JSONEncoder().encode(
             ConvosAPI.AgentTemplateGenerationRequest(
                 source: source,
                 inputs: .init(text: text),
                 clientDeviceId: clientDeviceId
             )
         )
+        request.httpBody = body
+        // DEBUG(direct-builder): confirm the exact submit request for the backend
+        // dev -- method, URL, idempotency key, and the JSON body we send. Remove
+        // once verified.
+        Log.info("AgentGeneration submit \(request.httpMethod ?? "POST") \(request.url?.absoluteString ?? "nil") idempotencyKey=\(idempotencyKey) body=\(String(data: body, encoding: .utf8) ?? "nil")")
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
         return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
     }
@@ -932,7 +937,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
         switch httpResponse.statusCode {
         case 200...299:
-            return try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
+            // DEBUG(direct-builder): confirm the real #309 poll shape — whether
+            // `preview`/`progressPhrases` are present and that our model decodes
+            // them. Remove once verified.
+            Log.info("AgentGeneration poll [\(httpResponse.statusCode)] status=\(decoded.status.rawValue) preview=\(decoded.preview != nil) phrases=\(decoded.progressPhrases?.count ?? 0) raw=\(String(data: data, encoding: .utf8) ?? "nil")")
+            return decoded
         case 400:
             throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
         case 404:

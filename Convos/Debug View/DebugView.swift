@@ -75,8 +75,6 @@ struct DebugViewSection: View {
 
             Toggle("Direct agent builder (new API)", isOn: Bindable(FeatureFlags.shared).isDirectAgentBuilderEnabled)
 
-            Toggle("Stub agent build progress (pre-#309)", isOn: Bindable(FeatureFlags.shared).isStubbedAgentGenerationProgressEnabled)
-
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
                 Text("Show Agents Info Sheet")

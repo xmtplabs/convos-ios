@@ -5,9 +5,13 @@ agent identity) and `progressPhrases` (build narration) shown after Make while
 the generation runs, plus the two creator-facing cards in the chat (the
 preserved creation prompt and the progressive "activating" card).
 
-**Status: implemented behind feature flags**, with a local stub standing in for
-backend PR **#309** until it merges + deploys. When #309 lands, flip the stub
-flag off and delete the stub — the same UI binds to the real fields unchanged.
+**Status: implemented and using the real API.** Backend PR **#309** is
+deployed on Dev, so the temporary stub (and its feature flag) has been
+**removed** — the activating card is now driven entirely by the real
+`preview`/`progressPhrases` poll responses. The direct builder always shows the
+in-progress card during a build (gated only on `directBuildGeneration` existing
+and no verified agent having joined yet). The direct-builder flag
+(`isDirectAgentBuilderEnabled`) still gates the whole flow.
 
 Context and later phases live in `agent-builder-flow-simplification.md`; the
 text/home-flow groundwork is in `agent-builder-flow-simplification-phase-1.md`.
@@ -73,26 +77,15 @@ Persistence (`DBAgentTemplateGeneration` + migration
 Persisting (not in-memory) so an in-progress card survives backgrounding /
 relaunch, consistent with Phase 1.
 
-## The stub (removable, gated — delete with #309)
+## Stub removed (#309 is live)
 
-`FeatureFlags.isStubbedAgentGenerationProgressEnabled` (dev-only, hard-off in
-production; Debug toggle "Stub agent build progress (pre-#309)"). The app sets
-it on the repository via `configureStubProgress(_:)` before `startGeneration`.
-
-In `AgentTemplateRepository.applyResponse`, when stubbing is on, the backend
-sent no preview, and the row is **`running`**, it synthesizes the whole set
-**once** (mirrors #309's single distill write so the card paces identically to
-prod — see "single write" below):
-
-- `previewAgentName = "Agent Name"`, `previewEmoji = "🤖"`.
-- `previewDescription = "A custom agent built from your idea."` — a fixed
-  generic line, intentionally **not** derived from the prompt (echoing the
-  prompt looked like a wrong-field reuse in the demo).
-- `progressPhrases = stubPhrases` (full canned list at once).
-
-All stub code is tagged `DEBUG(direct-builder #309 stub)`. Removal when #309
-ships: flip the flag off, confirm real `preview`/`progressPhrases` flow, then
-delete the stub helpers + the flag.
+The temporary stub, its `FeatureFlags` toggle, the `configureStubProgress`
+plumbing, and the canned preview/phrases have all been **deleted** now that #309
+is deployed on Dev. The card is driven entirely by the real
+`preview`/`progressPhrases` from `applyResponse`. Before the backend writes the
+preview (during `pending` and the very start of `running`), the fields are
+`nil`/empty and the card shows its generic placeholder; once the real preview
+lands at `running`, it fills in.
 
 ### Why "single write at running" matters
 
@@ -101,8 +94,7 @@ content is **stable for the whole `running` window**. The client relies on that:
 the activating card's reveal/cycling animation is driven by a view-owned timer,
 and stable content means the message-list cell isn't reloaded by polls (the
 repo's `agentActivating` `didSet` guards equal content, so no reprocess), so the
-timer isn't reset. The stub matches this so behavior is identical with the stub
-on or with real #309.
+timer isn't reset.
 
 ## UI 1 — preserve the creation prompt (implemented)
 
@@ -199,7 +191,8 @@ auto-publish-into-a-group question is tracked in the main plan doc.
 ## Resolved decisions
 
 - Persist `preview`/`progressPhrases` (not in-memory) — survives relaunch.
-- Stub gated by a dedicated `FeatureFlags` toggle (explicit, single removal).
+- The build-progress stub + its `FeatureFlags` toggle were removed once #309
+  deployed; the card now runs on the real poll responses.
 - Preview is **emoji, not avatar** — emoji is the pending visual; the real photo
   arrives post-join from the template.
 - Activating card = a **new `MessagesListItemType` case**, not an extension of
@@ -221,17 +214,16 @@ auto-publish-into-a-group question is tracked in the main plan doc.
 
 ## Acceptance checks
 
-1. Stub on: after Make the activating card appears, reveals name → emoji →
-   description over `running`, cycles phrases, and hands off to the contact card
-   on join.
+1. After Make the activating card appears immediately (generic placeholder),
+   then — once the real `running` poll returns `preview` — reveals name → emoji
+   → description, cycles `progressPhrases`, and hands off to the contact card on
+   join.
 2. The prompt card ("You made a little agent") shows for the 180s window in both
    home and in-chat flows.
 3. Data survives backgrounding / relaunch mid-build (persisted columns).
-4. Stub off + #309 not deployed: builds still complete; the card shows a generic
-   (no-identity) version and degrades cleanly.
-5. #309 deployed (stub off): the same fields populate from the real response
-   with no client change beyond the flag.
-6. No regression to terminal handling or to the legacy maker (flag off).
+4. If the backend ever returns no preview (e.g. distill best-effort failure),
+   the card stays on its generic version and the build still completes.
+5. No regression to terminal handling or to the legacy maker (flag off).
 
 ## Still out of scope (later phases)
 
