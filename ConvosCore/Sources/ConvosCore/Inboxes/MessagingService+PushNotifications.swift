@@ -473,11 +473,26 @@ extension MessagingService {
         currentInboxId: String
     ) async throws -> Int {
         try await databaseReader.read { db in
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                .filter(DBMemberProfile.Columns.inboxId != currentInboxId)
-                .fetchCount(db)
+            try Self.otherMemberCount(
+                db: db,
+                conversationId: conversationId,
+                currentInboxId: currentInboxId
+            )
         }
+    }
+
+    /// Counts the conversation's current members excluding the current user,
+    /// gated on `DBConversationMember` so a removed member's orphaned profile
+    /// no longer inflates the count that drives sender-name prefixing.
+    static func otherMemberCount(
+        db: Database,
+        conversationId: String,
+        currentInboxId: String
+    ) throws -> Int {
+        try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .filter(DBConversationMember.Columns.inboxId != currentInboxId)
+            .fetchCount(db)
     }
 
     private func buildNotificationBody(
@@ -999,60 +1014,89 @@ extension MessagingService {
         currentInboxId: String
     ) async throws -> String {
         try await databaseReader.read { db in
-            guard let conversation = try DBConversation.fetchOne(db, key: conversationId) else {
-                return "Untitled"
-            }
-
-            if let name = conversation.name, !name.isEmpty {
-                return name
-            }
-
-            let memberProfiles = try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                .filter(DBMemberProfile.Columns.inboxId != currentInboxId)
-                .fetchAll(db)
-
-            if memberProfiles.isEmpty {
-                return "New Convo"
-            }
-
-            // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
-            // the contact's display name (the user's global profile snapshot
-            // for this inbox) wins over the per-conversation profile name.
-            // Unnamed members are bucketed by agent vs. human so the rendered
-            // title matches: anonymous agents read as "Agent" / "Agents",
-            // anonymous humans as "Somebody" / "Somebodies".
-            let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
-                if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
-                    return (contactName, profile.isAgent)
-                }
-                if let name = profile.name, !name.isEmpty {
-                    return (name, profile.isAgent)
-                }
-                return (nil, profile.isAgent)
-            }
-            let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
-            let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
-            let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
-
-            var allNames = namedProfiles
-            if anonymousAgentCount == 1 {
-                allNames.append("Agent")
-            } else if anonymousAgentCount > 1 {
-                allNames.append("Agents")
-            }
-            if anonymousHumanCount == 1 {
-                allNames.append("Somebody")
-            } else if anonymousHumanCount > 1 {
-                allNames.append("Somebodies")
-            }
-
-            if allNames.isEmpty {
-                return "Untitled"
-            }
-
-            return allNames.joined(separator: ", ")
+            try Self.computedDisplayName(
+                db: db,
+                conversationId: conversationId,
+                currentInboxId: currentInboxId
+            )
         }
+    }
+
+    /// Builds the group notification title from the conversation's current
+    /// members. Current membership is read through `DBConversationMember` so a
+    /// removed member's orphaned `DBMemberProfile` row no longer feeds the
+    /// title; this mirrors the in-app header, which hydrates from
+    /// `DBConversationMember` as well. Per-member name resolution still goes
+    /// through `ContactsRepository` then the per-conversation profile name.
+    static func computedDisplayName(
+        db: Database,
+        conversationId: String,
+        currentInboxId: String
+    ) throws -> String {
+        guard let conversation = try DBConversation.fetchOne(db, key: conversationId) else {
+            return "Untitled"
+        }
+
+        if let name = conversation.name, !name.isEmpty {
+            return name
+        }
+
+        let currentMemberInboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .filter(DBConversationMember.Columns.inboxId != currentInboxId)
+            .fetchAll(db)
+            .map(\.inboxId)
+
+        if currentMemberInboxIds.isEmpty {
+            return "New Convo"
+        }
+
+        let memberProfiles = try DBMemberProfile.fetchAll(
+            db,
+            conversationId: conversationId,
+            inboxIds: currentMemberInboxIds
+        )
+
+        if memberProfiles.isEmpty {
+            return "New Convo"
+        }
+
+        // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
+        // the contact's display name (the user's global profile snapshot
+        // for this inbox) wins over the per-conversation profile name.
+        // Unnamed members are bucketed by agent vs. human so the rendered
+        // title matches: anonymous agents read as "Agent" / "Agents",
+        // anonymous humans as "Somebody" / "Somebodies".
+        let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
+            if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
+                return (contactName, profile.isAgent)
+            }
+            if let name = profile.name, !name.isEmpty {
+                return (name, profile.isAgent)
+            }
+            return (nil, profile.isAgent)
+        }
+        let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+        let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+        let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
+
+        var allNames = namedProfiles
+        if anonymousAgentCount == 1 {
+            allNames.append("Agent")
+        } else if anonymousAgentCount > 1 {
+            allNames.append("Agents")
+        }
+        if anonymousHumanCount == 1 {
+            allNames.append("Somebody")
+        } else if anonymousHumanCount > 1 {
+            allNames.append("Somebodies")
+        }
+
+        if allNames.isEmpty {
+            return "Untitled"
+        }
+
+        return allNames.joined(separator: ", ")
     }
 
     private func getMemberDisplayName(
