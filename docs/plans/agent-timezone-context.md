@@ -39,15 +39,60 @@ Privacy framing: a time zone is low-sensitivity but it is coarse location
 prompt; this is a deliberate, documented product decision. See section 5.
 
 
-## 2. Recommended invisible channel + exact client insertion point
+## 2. Two-channel design: join-request default + per-sender ProfileUpdate
 
-### The channel: the per-sender ProfileUpdate.metadata map
+The design uses two complementary channels for different purposes:
 
-The cleanest invisible channel is not the agents/join provision body and not a
-new ConversationCustomMetadata field. It is the existing per-sender
-`ProfileUpdate.metadata` map -- a `map<string, MetadataValue>` that the client
-already publishes per conversation and that the server-side agent/runtime can
-read per sender.
+  - **Channel A -- agents/join request body (new):** the conversation creator's
+    IANA timezone is included in the HTTP join request. The agent runtime uses
+    this as its default timezone from the moment the agent joins, replacing the
+    hardcoded Eastern fallback. One-shot at join time; covers the common case
+    immediately.
+  - **Channel B -- per-sender ProfileUpdate.metadata (existing pattern):** each
+    member's timezone is kept current via the existing per-sender profile
+    publish. This handles ongoing updates: travel, DST, per-member differences
+    in group conversations, and any republish after the initial join.
+
+Both channels carry the same IANA identifier string. The join-request value
+seeds the default; the ProfileUpdate values are the ongoing source of truth per
+sender.
+
+
+### Channel A: agents/join request body (creator default timezone)
+
+The join request body is `ConvosAPI.AgentJoinRequest`:
+    ConvosCore/Sources/ConvosCore/API/ConvosAPIClient+Models.swift:170-180
+        slug: String, templateId: String?, options: AgentJoinOptions?
+Construction choke point (single place to add a field):
+    ConvosCore/Sources/ConvosCore/API/ConvosAPIClient.swift:760-781
+
+Add a `creatorTimezone` field (or `timezone`) to `AgentJoinRequest`:
+    public let creatorTimezone: String?
+populated at the call site with `TimeZone.current.identifier`. This requires a
+coordinated backend change: the `v2/agents/join` endpoint must accept the new
+field and the agent runtime must use it as the initial default instead of the
+hardcoded `USER_TIMEZONE` / `"America/New_York"` value
+(agent_runner.py:52-57, see section 7).
+
+Rationale: the join endpoint is the agent's first contact with the conversation.
+Getting the creator's timezone at join time means the agent answers correctly
+from the very first turn, even before the ProfileUpdate channel has delivered
+a per-sender value. This replaces a hardcoded Eastern default with a real value
+for most conversations (where the creator is the primary user). The creator's
+timezone is the right default because the creator is also the one who invites
+the agent and typically the primary participant.
+
+One-shot constraint: the join-request value is set once at join time. It does
+not update for DST or travel -- that is Channel B's job. The runtime should
+prefer a per-sender ProfileUpdate value when present, and fall back to the
+join-request default when the per-sender map has no timezone key yet.
+
+
+### Channel B: per-sender ProfileUpdate.metadata map (ongoing per-member)
+
+The cleanest ongoing channel is the existing per-sender `ProfileUpdate.metadata`
+map -- a `map<string, MetadataValue>` that the client already publishes per
+conversation and that the server-side agent/runtime can read per sender.
 
 Evidence:
   - Proto definition (arbitrary string keys):
@@ -78,7 +123,7 @@ Evidence:
 So a timezone is just one more key in the same per-sender map:
     metadata["timezone"] = .string("Europe/Paris")
 
-### Exact client insertion point
+### Exact client insertion point (Channel B)
 
 The publish primitive already exists and is the single choke point:
 
@@ -107,10 +152,10 @@ refresh rules below.
 
 ### Scope: agent conversations only (decision: Q1)
 
-Publish the timezone only in conversations that contain an agent member. Do not
-publish it in human-only conversations: a time zone has no purpose for human
-peers and should not leak to them. The agent-join sites are the natural place to
-detect "this conversation has an agent":
+Publish the timezone (Channel B) only in conversations that contain an agent
+member. Do not publish it in human-only conversations: a time zone has no
+purpose for human peers and should not leak to them. The agent-join sites are
+the natural place to detect "this conversation has an agent":
   - In-conversation / Agent Builder join:
       Convos/Agent Builder/AgentBuilderViewModel.swift:784 and :996
       (calls session.requestAgentJoin(...))
@@ -126,52 +171,40 @@ are never touched.
 
 ### Refresh: republish opportunistically and on agent-join, foreground main app only (decision: Q2)
 
-Republish the timezone in two situations, so travel and DST changes stay
-current:
+Republish the timezone (Channel B) in two situations, so travel and DST changes
+stay current:
   - when an agent joins a conversation (the initial publish above), and
   - opportunistically, e.g. on app foreground / first interaction of a session,
     for conversations that already contain an agent.
 
-Critical constraint -- single writer to avoid clobbering the map: the
-`ProfileUpdate.metadata` map is per-sender, but a publish rewrites the whole
-merged map for that sender (read existing -> merge key -> publish). If two
-execution contexts publish concurrently -- e.g. the main app and the
-Notification Service Extension, or a background task -- they can read-modify-write
-the same map and one can clobber the other's keys (including `connections`). To
-keep exactly one writer:
+Critical constraint -- single serialized writer to avoid clobbering the map:
+the `ProfileUpdate.metadata` map is per-sender, but a publish rewrites the
+whole merged map for that sender (read existing -> merge key -> publish). Two
+async tasks in the same app process can interleave on this read-merge-write
+sequence: a timezone publish and a `connections` publish in
+`CloudConnectionGrantWriter` both perform a non-atomic read-merge-write against
+the same `DBMemberProfile`. If they overlap, the later write overwrites the
+earlier with a stale copy of the key the other task just set -- silent data
+loss. To prevent this, all metadata map writes for the same sender/conversation
+must be serialized through a single actor or serial queue (not just the
+cross-process process-level constraint below).
+
+In addition, to keep writes to the foreground main app:
 
   - Publish the timezone only from the foregrounded main app.
   - Never publish it from the Notification Service Extension.
   - Never publish it from a background task / background refresh.
 
-Foreground-main-app-only is the race-avoidance strategy: a single writer means
-there is no concurrent read-modify-write on the per-sender metadata map, so a
-timezone publish can never race with (and clobber) a `connections` publish or
-vice versa. The cost is only that a timezone change made while the app is
-backgrounded is picked up on the next foreground interaction rather than
-instantly -- acceptable, since the IANA identifier already lets the agent handle
-DST without any client update, and travel is reflected the next time the user
-opens the app.
+The foreground-only constraint prevents cross-process races (NSE vs. main app).
+The actor/serial-queue constraint prevents intra-process races between the
+timezone writer and the connections writer running concurrently in the same app.
+The cost is only that a timezone change made while the app is backgrounded is
+picked up on the next foreground interaction rather than instantly -- acceptable,
+since the IANA identifier already lets the agent handle DST without any client
+update, and travel is reflected the next time the user opens the app.
 
 
-### Alternatives considered, and why they lose
-
-ALT A -- new field on the agents/join provision body.
-    POST v2/agents/join body is ConvosAPI.AgentJoinRequest:
-      ConvosCore/Sources/ConvosCore/API/ConvosAPIClient+Models.swift:170-180
-        slug: String, templateId: String?, options: AgentJoinOptions?
-    Construction choke point (single place to add a field):
-      ConvosCore/Sources/ConvosCore/API/ConvosAPIClient.swift:760-781
-    Why it loses:
-      - The body is validated strictly server-side; unknown keys are rejected
-        (Models.swift:165-168). A prior `instructions` field was deliberately
-        removed (ConversationViewModel.swift:3575 doc comment). So this cannot
-        ship from iOS alone -- it needs a coordinated backend change and it is a
-        one-shot value at join time (no DST refresh, no update when the user
-        travels). The ProfileUpdate channel updates naturally on every publish.
-      - It is an HTTP control call, not part of the conversation the agent reads;
-        the backend would have to plumb the value from the join endpoint into the
-        agent's runtime context separately.
+### Other alternatives considered
 
 ALT B -- a typed field on ConversationCustomMetadata.
     Proto: ConvosAppData/Sources/ConvosAppData/Proto/conversation_custom_metadata.proto:15-25
@@ -202,46 +235,88 @@ Reality check: iOS can only send. The agent runtime is server-side (the
 convos-assistants repo: Herald + the Hermes runtime), not in this repo, so the
 agent must be taught to consume the value. The two halves:
 
-(a) What iOS can do alone (ships independently, no backend change):
-    - Read TimeZone.current.identifier.
-    - Publish it as metadata["timezone"] on the per-sender ProfileUpdate via
+(a) What iOS can do alone (ships independently, after the backend accepts the
+    new join field):
+    - Channel B: Read TimeZone.current.identifier and publish it as
+      metadata["timezone"] on the per-sender ProfileUpdate via
       MyProfileWriter.updateAndPublish, scoped to agent conversations and
       written only from the foreground main app (sections above). This rides the
       existing ProfileUpdate channel, so the data physically reaches the runtime
       with no new endpoint or schema. It is also stored locally on
       DBMemberProfile so it is durable and refreshable.
-    - This means the bytes arrive even before the backend does anything; the
-      agent simply ignores an unknown key until taught.
+    - This means the bytes arrive even before the backend does anything with them;
+      the agent simply ignores an unknown key until taught.
 
-(b) What requires an agents / backend contract change (the required server-side
-    half -- iOS alone cannot make the agent reason in the user's time zone):
-    - The agent runtime must read metadata["timezone"] for the human member and
-      fold it into its context / system prompt (e.g. "The user's time zone is
-      Europe/Paris; interpret relative times accordingly"). Concrete proposal in
-      section 7.
-    - This is the only required cross-boundary change. It is additive (a new
-      optional key in the per-member metadata map), so it does not break
-      existing readers.
+(b) What requires backend contract changes:
+    - Channel A: The `v2/agents/join` endpoint must accept a `creatorTimezone`
+      (or `timezone`) field in the request body. The agent runtime must store
+      this value and use it as the per-conversation default timezone instead of
+      the hardcoded `"America/New_York"` / `USER_TIMEZONE` env value
+      (agent_runner.py:52-57). This is a required coordinated change -- the iOS
+      side can add the field to `AgentJoinRequest` but the value has no effect
+      until the backend reads it.
+    - Channel B: The agent runtime must read metadata["timezone"] for the human
+      member and fold it into its context / system prompt (e.g. "The user's time
+      zone is Europe/Paris; interpret relative times accordingly"). Concrete
+      proposal in section 7.
+    - Both changes are additive and do not break existing readers.
 
 Minimal contract (write it down once, both sides agree):
+
+  Join-request field (Channel A):
+    Field:    "creatorTimezone" (or "timezone") in AgentJoinRequest JSON body
+    Value:    IANA tz database identifier, e.g. "Europe/Paris". Optional; absent
+              means the backend falls back to its existing default.
+    Semantics: used by the agent runtime as the conversation's initial default
+              timezone. Superseded per-turn by any ProfileUpdate value present
+              for the message sender (Channel B).
+    Backend:  store per-conversation (e.g. alongside agent slug / templateId);
+              feed into agent context at join and on each turn as the fallback.
+
+  Per-sender metadata (Channel B):
     Channel:  per-sender ProfileUpdate.metadata map (XMTP), key "timezone".
     Key:      "timezone"   (string)
     Value:    IANA tz database identifier, e.g. "Europe/Paris". Required when
               present; no companion keys.
-    Semantics: latest ProfileUpdate wins; absence = unknown, agent must not assume.
-    Writer:   the foreground main app only; never the NSE or a background task.
+    Semantics: latest ProfileUpdate wins; absence = unknown, agent falls back to
+              join-request default (Channel A), then UTC.
+    Writer:   the foreground main app only; never the NSE or a background task;
+              serialized through a single actor/queue to prevent concurrent
+              read-merge-write races with other metadata writers (e.g. connections).
     Agent behavior: parse the IANA id with its own tz library; do not trust any
               offset for future dates (recompute from the identifier so DST is
               correct). On a malformed/unknown id, degrade gracefully (treat as
-              unknown / default to UTC).
+              unknown / fall back to join-request default or UTC).
 
 
 ## 4. Minimal client-side implementation sketch
+
+### Channel A (join request)
+
+Add `creatorTimezone: String?` to `ConvosAPI.AgentJoinRequest`
+(ConvosCore/Sources/ConvosCore/API/ConvosAPIClient+Models.swift:170) and
+populate it at the construction choke point
+(ConvosAPIClient.swift:775-780):
+
+    ConvosAPI.AgentJoinRequest(
+        slug: slug,
+        templateId: templateId,
+        options: options,
+        creatorTimezone: TimeZone.current.identifier
+    )
+
+This is a single-line addition at the one construction site. The field is
+optional / nil-omitted by Codable, so existing callers and tests need no change
+and the wire format stays backward-compatible until the backend reads the field.
+
+### Channel B (per-sender ProfileUpdate)
 
 Add a small writer that mirrors the connections pattern. Pseudocode (not
 committed):
 
     // ConvosCore, alongside CloudConnectionGrantWriter / MyProfileWriter usage.
+    // Must be called on a serial queue / actor shared with CloudConnectionGrantWriter
+    // to prevent concurrent read-merge-write races on the per-sender metadata map.
     func publishTimezone(conversationId: String) async throws {
         let existing = try await databaseReader.read { db in
             try DBMemberProfile.fetchOne(db, conversationId: conversationId,
@@ -261,6 +336,9 @@ an agent. Gate every call on:
   - the conversation contains an agent member (scope, Q1), and
   - the caller is the foreground main app (single-writer, Q2) -- do not wire this
     into the Notification Service Extension or any background path.
+  - all metadata map writes for a given sender/conversation go through a single
+    actor or serial queue shared with `CloudConnectionGrantWriter` to prevent
+    read-merge-write clobbering (see section 2 "Refresh").
 Keep it best-effort (log on failure; do not block the join).
 TimeZone.current must be read on the main actor or captured into a value before
 hopping to a background context (it is a cheap synchronous read).
@@ -296,18 +374,25 @@ Note: ProfileMetadataValue currently supports .string / .number / .bool only
      section 2 "Scope" and section 5.)
   2. Refresh + race avoidance -- RESOLVED. Republish opportunistically (app
      foreground / first interaction of a session) and when an agent joins. To
-     avoid concurrent edits clobbering the per-sender metadata map, do the
-     publish only from the foregrounded main app -- never from the Notification
-     Service Extension and never from a background task. The map is per-sender
-     but a publish rewrites the whole merged map, so a single foreground writer
-     is how we guarantee no read-modify-write race against `connections` or any
-     other key. (Folded into section 2 "Refresh".)
+     avoid concurrent edits clobbering the per-sender metadata map:
+     (a) write only from the foregrounded main app (cross-process constraint:
+         never from the Notification Service Extension or a background task);
+     (b) serialize all metadata map writes for a given sender/conversation
+         through a single actor or serial queue shared with
+         CloudConnectionGrantWriter (intra-process constraint: prevents a
+         timezone publish and a connections publish from racing on the
+         non-atomic read-merge-write sequence). The foreground-only constraint
+         alone is not sufficient -- two async tasks in the same foreground app
+         can still interleave. (Folded into section 2 "Refresh".)
   3. Backend ownership / agent contract -- RESOLVED with a concrete proposal.
-     This lives in the convos-assistants repo. iOS can only transmit the key; the
-     runtime owns reading metadata["timezone"] for the human member and folding
-     it into the agent context. See section 7 for the proposed read site,
-     validation, injection point, absence handling, and per-turn re-read. Confirm
-     the key name and semantics with the agents team before the iOS side ships.
+     Two halves: (a) join-request default: the `v2/agents/join` endpoint accepts
+     a `creatorTimezone` field; the runtime uses it as the per-conversation
+     default instead of the hardcoded `"America/New_York"`. (b) per-sender read:
+     the runtime reads metadata["timezone"] for the human member and folds it
+     into the agent context. See section 7 for the proposed read site,
+     validation, injection point, absence handling, and per-turn re-read.
+     Confirm the key name and semantics with the agents team before the iOS side
+     ships.
   4. Payload / companion keys -- RESOLVED. Send only the IANA identifier (e.g.
      "Europe/Paris"). Drop the optional UTC offset / tzOffsetSeconds /
      local-time-at-send and locale -- the agent derives anything else it needs
@@ -324,9 +409,11 @@ Note: ProfileMetadataValue currently supports .string / .number / .bool only
 
 ## 7. Agent runtime handling (convos-assistants)
 
-This section is the required server-side half (Q3). It is a suggestion -- paths
-plus approach, not a prescriptive diff. iOS can only put the bytes on the wire;
-without this, adding metadata["timezone"] on iOS has no observable effect.
+This section is the required server-side half (Q3). It covers both the
+join-request default (Channel A) and the per-sender per-turn read (Channel B).
+It is a suggestion -- paths plus approach, not a prescriptive diff. iOS can
+only put the bytes on the wire; without this, adding metadata["timezone"] on
+iOS has no observable effect.
 
 The agent runtime lives in the convos-assistants repo (a TypeScript pnpm
 monorepo for the workers/webhooks; the agent reasoning runtime "Hermes" is
@@ -348,7 +435,28 @@ Python under runtime/hermes/). Read-only investigation; nothing modified.
         _format_envelope(...)          ~lines 892-919  (builds the per-message
                                        header string the model sees)
 
-### Where per-sender profile metadata lives today (the read surface)
+### The existing hardcoded timezone default (Channel A target)
+
+The runtime currently hardcodes a default zone at process start:
+    runtime/hermes/src/server/agent_runner.py:52-57
+        _tz_name = os.environ.get("USER_TIMEZONE", "America/New_York")
+        try:
+            _USER_TZ = ZoneInfo(_tz_name)
+        except KeyError:
+            logger.warning("Unknown timezone %r - falling back to UTC", _tz_name)
+            _USER_TZ = timezone.utc
+`_USER_TZ` is consumed in `_format_envelope` (agent_runner.py:909-910) to
+render the current time and message timestamp into the header the model sees
+("[Current time: Thu, Mar 20, 2026, 10:30 AM EDT]").
+
+Channel A change: when the `v2/agents/join` request includes `creatorTimezone`,
+the runtime stores it per-conversation and uses it as the default `ZoneInfo`
+in `_format_envelope` for that conversation, replacing the process-wide
+`_USER_TZ`. This means the agent answers with the right timezone from the very
+first turn, before any ProfileUpdate has been delivered. The existing
+`ZoneInfo(name)` + `except` -> UTC fallback already doubles as IANA validation.
+
+### Where per-sender profile metadata lives today (Channel B read surface)
 
 A correction to the optimistic phrasing in
 XMTPGroup+CustomMetadata.swift:89: in this runtime, the inbound webhook's
@@ -396,46 +504,38 @@ the `get_own_profile_metadata` extraction at runtime.py:780-783), then, for the
 human sender of the current message, look up
 `member_profile.metadata.get("timezone")`.
 
-### Where the timezone gets injected into the agent context
+### Where the timezone gets injected into the agent context (both channels)
 
-The runtime already reasons about time and already has a single chokepoint for
-the user's zone:
-  - runtime/hermes/src/server/agent_runner.py:52-57 defines a process-wide
-    default zone:
-        _tz_name = os.environ.get("USER_TIMEZONE", "America/New_York")
-        try:
-            _USER_TZ = ZoneInfo(_tz_name)
-        except KeyError:
-            logger.warning("Unknown timezone %r - falling back to UTC", _tz_name)
-            _USER_TZ = timezone.utc
-  - `_USER_TZ` is consumed in `_format_envelope` (agent_runner.py:909-910) to
-    render the current time and the message timestamp into the header the model
-    sees ("[Current time: Thu, Mar 20, 2026, 10:30 AM EDT]").
+At message-format time in `_format_envelope` (agent_runner.py:892-919),
+resolve the timezone in priority order:
 
-This is the ideal injection point. Proposed approach:
-  - Plumb the human sender's `metadata["timezone"]` into `_format_envelope` (or
-    resolve it just before the call) and use it to build a per-message
-    `ZoneInfo` instead of the process-wide `_USER_TZ`. The existing
-    `ZoneInfo(name)` construction plus the `except` -> UTC fallback already
-    doubles as IANA validation: a plausible IANA id parses; a malformed one
-    raises and is caught, satisfying Q5's "degrade gracefully" requirement with
-    no new validation code.
-  - Additionally, add an explicit line to the agent context / system prompt so
-    the model reasons about relative times correctly, e.g.
-        "[User timezone: Europe/Paris]"
-    appended in the same header `_format_envelope` builds, or folded into the
-    platform system prompt assembled per turn (the platform prompt is reloaded
-    each turn at agent_runner.py around line 1091, so a per-turn value is
-    naturally honored).
+  1. Per-sender ProfileUpdate value (Channel B): look up the human sender's
+     `member_profile.metadata.get("timezone")`. If present and a valid IANA id,
+     use it. This is the per-turn, per-member source of truth; it reflects travel
+     and DST updates.
+  2. Join-request default (Channel A): if no per-sender value is present, use
+     the `creatorTimezone` value stored at join time for this conversation.
+  3. Process-wide fallback: if neither is present, use the existing `_USER_TZ`
+     (the `USER_TIMEZONE` env var, defaulting to UTC).
+
+Build a per-message `ZoneInfo` from whichever value wins (reusing the existing
+`ZoneInfo(name)` + `except` -> UTC fallback at agent_runner.py:52-57). Add an
+explicit line to the agent context / system prompt so the model reasons about
+relative times correctly, e.g.:
+    "[User timezone: Europe/Paris]"
+appended in the same header `_format_envelope` builds, or folded into the
+platform system prompt assembled per turn (the platform prompt is reloaded
+each turn at agent_runner.py around line 1091, so a per-turn value is
+naturally honored).
 
 ### Absence and validation handling
 
-  - Absent key: omit the "[User timezone: ...]" line and fall back to the
-    existing default (the `USER_TIMEZONE` env default, ultimately UTC). The agent
+  - Absent key (both channels): omit the "[User timezone: ...]" line and fall
+    back to the next priority level (Channel A default, then UTC). The agent
     must not assume a zone when none is present.
   - Malformed / non-IANA value: caught by the existing `ZoneInfo(...)` ->
-    `except` -> UTC fallback; treat as unknown. No enum or wire validation is
-    expected from iOS (Q5).
+    `except` -> UTC fallback; treat as unknown and fall back to the next
+    priority level. No enum or wire validation is expected from iOS (Q5).
 
 ### Re-read on each turn (travel / DST)
 
@@ -445,19 +545,32 @@ republished on foreground) is picked up mid-conversation. The metadata refresh
 already has a TTL (`_refresh_metadata_if_stale`, runtime.py:309-313); resolving
 the timezone from the (refreshed) per-member cache at envelope-format time means
 each turn uses the latest published value. The IANA identifier means DST is
-handled by `ZoneInfo` without any further client publish.
+handled by `ZoneInfo` without any further client publish. The join-request
+default (Channel A) is immutable once set -- it does not change when the user
+travels; the per-sender ProfileUpdate (Channel B) supersedes it when present.
 
-### Summary of the server-side change
+### Summary of the server-side changes
 
+  Channel A (join-request default):
+  1. Accept `creatorTimezone` (optional string) in the `v2/agents/join` request
+     body. Store it per-conversation in the agent's context store.
+  2. In `_format_envelope` (agent_runner.py:892-919), use the stored
+     `creatorTimezone` as the fallback zone when no per-sender metadata value is
+     present (replacing the process-wide `_USER_TZ` for conversations where a
+     creator timezone was supplied).
+
+  Channel B (per-sender metadata):
   1. In `_refresh_metadata_if_stale` (runtime.py:329-332), copy each resolved
      member's metadata fields into `MemberProfile.metadata` (pattern:
      get_own_profile_metadata, runtime.py:780-783).
-  2. At message-format time (agent_runner.py `_format_envelope`, :892-919),
-     resolve the human sender's `metadata["timezone"]`, build a per-message
-     `ZoneInfo` from it (reusing the existing parse + UTC fallback at :52-57),
-     and add a "[User timezone: <IANA>]" line to the header / system context.
-  3. Handle absence (omit / default to UTC) and malformed ids (existing fallback).
+  2. At message-format time (`_format_envelope`, agent_runner.py:892-919),
+     resolve the human sender's `metadata["timezone"]` first; if present, use it
+     as the per-message `ZoneInfo` (takes priority over the join-request default).
+     Add a "[User timezone: <IANA>]" line to the header / system context.
+  3. Handle absence (fall through priority chain) and malformed ids (existing
+     `ZoneInfo` fallback).
   4. Resolve per turn so republished travel/DST values are honored.
 
-This is additive and optional end-to-end: until steps 1-2 land, an iOS-published
-`timezone` key is simply ignored.
+Both changes are additive and optional end-to-end: until Channel A lands on
+the backend, iOS sends the field and the backend ignores it. Until Channel B
+lands, an iOS-published `timezone` key in ProfileUpdate is simply ignored.
