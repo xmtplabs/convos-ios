@@ -103,8 +103,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
-    /// agent-share card/chip resolver. Unauthenticated: the backend serves
-    /// published templates to anonymous callers.
+    /// agent-share card/chip resolver. Authenticated: the backend serves
+    /// published templates to anonymous callers, but drafts are only returned to authenticated owners.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
     /// Lists featured (curated) published agent templates, cursor-paginated.
@@ -869,11 +869,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     // MARK: - Agent templates
 
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
-        // Public, unauthenticated GET -- the detail endpoint serves published
-        // templates to anonymous callers. `request(for:)` builds a bare GET
-        // (no auth header) and `performRequest` maps 404 -> APIError.notFound.
+        // Authenticated GET. Published templates are visible to anyone, but a
+        // `draft` template (every builder-flow template lands as a draft) is
+        // only returned to its owner -- the backend matches `res.locals.accountId`
+        // against the template's owner, so an anonymous request 404s on a draft
+        // the caller actually owns. Attaching the JWT lets the owner resolve
+        // their own drafts (e.g. the `AgentTemplateCacheCoordinator` populating
+        // the canonical identity cache for agents the user just built); it is a
+        // no-op for published templates fetched via share links.
         let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
-        let request = try request(for: "v2/agent-templates/\(encoded)")
+        let request = try authenticatedRequest(for: "v2/agent-templates/\(encoded)")
         return try await performRequest(request)
     }
 

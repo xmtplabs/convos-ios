@@ -23,6 +23,10 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         static let templateId: Column = Column(CodingKeys.templateId)
         static let prompt: Column = Column(CodingKeys.prompt)
         static let errorMessage: Column = Column(CodingKeys.errorMessage)
+        static let previewAgentName: Column = Column(CodingKeys.previewAgentName)
+        static let previewEmoji: Column = Column(CodingKeys.previewEmoji)
+        static let previewDescription: Column = Column(CodingKeys.previewDescription)
+        static let progressPhrases: Column = Column(CodingKeys.progressPhrases)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -54,6 +58,13 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     var templateId: String?
     let prompt: String
     var errorMessage: String?
+    /// In-progress draft identity (PR #309), persisted so a pending card
+    /// survives relaunch. `nil` until a preview lands.
+    var previewAgentName: String?
+    var previewEmoji: String?
+    var previewDescription: String?
+    /// JSON-encoded `[String]` of in-progress narration lines (PR #309).
+    var progressPhrases: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -61,6 +72,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         case idempotencyKey, generationId, conversationId, slug, status
         case templateId, prompt
         case errorMessage = "error"
+        case previewAgentName, previewEmoji, previewDescription, progressPhrases
         case createdAt, updatedAt
     }
 
@@ -73,6 +85,10 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         templateId: String?,
         prompt: String,
         errorMessage: String?,
+        previewAgentName: String? = nil,
+        previewEmoji: String? = nil,
+        previewDescription: String? = nil,
+        progressPhrases: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -84,6 +100,10 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         self.templateId = templateId
         self.prompt = prompt
         self.errorMessage = errorMessage
+        self.previewAgentName = previewAgentName
+        self.previewEmoji = previewEmoji
+        self.previewDescription = previewDescription
+        self.progressPhrases = progressPhrases
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

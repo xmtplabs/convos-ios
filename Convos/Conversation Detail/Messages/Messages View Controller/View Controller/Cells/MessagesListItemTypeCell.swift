@@ -153,6 +153,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
+                case .agentActivating(let content):
+                    AgentActivatingCardView(content: content)
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+
                 case .typingIndicator:
                     EmptyView()
                 }

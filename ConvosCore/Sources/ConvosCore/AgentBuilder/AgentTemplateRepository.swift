@@ -20,12 +20,25 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
     public let status: Status
     public let templateId: String?
     public let errorMessage: String?
+    /// In-progress draft identity (PR #309); `nil` until the first preview.
+    public let preview: ConvosAPI.AgentPreview?
+    /// In-progress build-narration lines (PR #309); `[]` when none.
+    public let progressPhrases: [String]
 
-    public init(conversationId: String, status: Status, templateId: String?, errorMessage: String?) {
+    public init(
+        conversationId: String,
+        status: Status,
+        templateId: String?,
+        errorMessage: String?,
+        preview: ConvosAPI.AgentPreview? = nil,
+        progressPhrases: [String] = []
+    ) {
         self.conversationId = conversationId
         self.status = status
         self.templateId = templateId
         self.errorMessage = errorMessage
+        self.preview = preview
+        self.progressPhrases = progressPhrases
     }
 }
 
@@ -52,6 +65,11 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// the invite step uses it instead of the raw API client so the join
     /// polling runs.
     func configureJoinHandler(_ handler: @escaping AgentTemplateJoinHandler)
+
+    /// Toggle the local stub that synthesizes `preview` + `progressPhrases`
+    /// while a build runs, for building/testing the progress UI before backend
+    /// PR #309 is deployed. Set from the app's feature flag. Remove with #309.
+    func configureStubProgress(_ enabled: Bool)
 }
 
 /// Owns the direct agent-builder generation lifecycle: submit the prompt to
@@ -74,6 +92,11 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     /// API client when unset (e.g. in tests).
     private let joinHandler: OSAllocatedUnfairLock<AgentTemplateJoinHandler?> = .init(initialState: nil)
 
+    /// DEBUG(direct-builder #309 stub): when true, synthesize `preview` +
+    /// `progressPhrases` while a build runs so the progress UI is exercisable
+    /// before PR #309 ships. Set from the app feature flag; remove with #309.
+    private let stubProgress: OSAllocatedUnfairLock<Bool> = .init(initialState: false)
+
     public init(
         apiClient: any ConvosAPIClientProtocol,
         databaseWriter: any DatabaseWriter,
@@ -92,6 +115,10 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 
     public func configureJoinHandler(_ handler: @escaping AgentTemplateJoinHandler) {
         joinHandler.withLock { $0 = handler }
+    }
+
+    public func configureStubProgress(_ enabled: Bool) {
+        stubProgress.withLock { $0 = enabled }
     }
 
     public func startGeneration(prompt: String, conversationId: String, slug: String) {
@@ -138,11 +165,24 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     conversationId: record.conversationId,
                     status: AgentTemplateGeneration.Status(rawValue: record.status) ?? .pending,
                     templateId: record.templateId,
-                    errorMessage: record.errorMessage
+                    errorMessage: record.errorMessage,
+                    preview: Self.preview(from: record),
+                    progressPhrases: Self.decodePhrases(record.progressPhrases)
                 )
             }
             .replaceError(with: nil)
             .eraseToAnyPublisher()
+    }
+
+    private static func preview(from record: DBAgentTemplateGeneration) -> ConvosAPI.AgentPreview? {
+        guard record.previewAgentName != nil || record.previewEmoji != nil || record.previewDescription != nil else {
+            return nil
+        }
+        return ConvosAPI.AgentPreview(
+            agentName: record.previewAgentName,
+            emoji: record.previewEmoji,
+            description: record.previewDescription
+        )
     }
 
     public func resumePendingGenerations() {
@@ -317,7 +357,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         _ response: ConvosAPI.AgentTemplateGenerationResponse,
         to idempotencyKey: String
     ) async -> DBAgentTemplateGeneration? {
-        await updateRow(idempotencyKey: idempotencyKey) { row in
+        let stubEnabled: Bool = stubProgress.withLock { $0 }
+        return await updateRow(idempotencyKey: idempotencyKey) { row in
             row.generationId = response.generationId
             row.templateId = response.templateId ?? row.templateId
             switch response.status {
@@ -333,7 +374,64 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             case .unknown:
                 break
             }
+            // Real preview / progress (PR #309), when present.
+            if let preview = response.preview {
+                row.previewAgentName = preview.agentName ?? row.previewAgentName
+                row.previewEmoji = preview.emoji ?? row.previewEmoji
+                row.previewDescription = preview.description ?? row.previewDescription
+            }
+            if let phrases = response.progressPhrases, !phrases.isEmpty {
+                row.progressPhrases = Self.encodePhrases(phrases)
+            }
+            // DEBUG(direct-builder #309 stub): synthesize preview + the full
+            // progress phrase list once, while `running`, when the backend
+            // hasn't sent them. Mirrors #309's single distill write during
+            // `running` so the client paces the reveal identically to prod.
+            let backendSentProgress: Bool = response.preview != nil || (response.progressPhrases?.isEmpty == false)
+            if stubEnabled, !backendSentProgress, row.statusValue == .running {
+                Self.applyStubProgress(to: &row)
+            }
         }
+    }
+
+    // MARK: - Stub progress (remove with PR #309)
+
+    private static let stubPhrases: [String] = [
+        "Reading your idea…",
+        "Sketching a personality…",
+        "Choosing a name…",
+        "Picking an emoji…",
+        "Writing a welcome…",
+        "Almost ready…",
+    ]
+
+    private static func applyStubProgress(to row: inout DBAgentTemplateGeneration) {
+        // Write once (the first `running` poll), the full set -- like #309's
+        // single distill write. Subsequent polls see the fields already set
+        // and no-op, so the content stays stable for the card's animation.
+        guard row.previewAgentName == nil else { return }
+        row.previewAgentName = "Agent Name"
+        row.previewEmoji = "🤖"
+        row.previewDescription = Self.stubDescription
+        row.progressPhrases = encodePhrases(stubPhrases)
+    }
+
+    /// Generic stand-in shown only while stubbing (pre-#309). Intentionally not
+    /// derived from the prompt so the demo doesn't look like it's reusing the
+    /// prompt field; #309's real distilled `preview.description` replaces it.
+    private static let stubDescription: String = "A custom agent built from your idea."
+
+    private static func encodePhrases(_ phrases: [String]) -> String? {
+        guard let data = try? JSONEncoder().encode(phrases) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodePhrases(_ json: String?) -> [String] {
+        guard let data = json?.data(using: .utf8),
+              let phrases = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return phrases
     }
 
     private func markFailed(idempotencyKey: String, message: String) async -> DBAgentTemplateGeneration? {
@@ -406,4 +504,6 @@ public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol 
     public func resumePendingGenerations() {}
 
     public func configureJoinHandler(_ handler: @escaping AgentTemplateJoinHandler) {}
+
+    public func configureStubProgress(_ enabled: Bool) {}
 }

@@ -212,6 +212,18 @@ extension SharedDatabaseMigrator {
         return migrator
     }
 
+    /// In-progress preview identity + narration columns on the direct-builder
+    /// generation row (PR #309). Nullable + additive; preview/`progressPhrases`
+    /// only populate while a build runs and are absent once terminal.
+    private static func addAgentTemplateGenerationPreview(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "previewAgentName", .text)
+            t.add(column: "previewEmoji", .text)
+            t.add(column: "previewDescription", .text)
+            t.add(column: "progressPhrases", .text)
+        }
+    }
+
     /// Registers the join-request ledger and the direct-builder generation
     /// table, in this order. Grouped into a helper to keep `makeMigrator`
     /// under the function-length budget; the registration position (last,
@@ -219,6 +231,7 @@ extension SharedDatabaseMigrator {
     private static func registerJoinAndGenerationMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
         migrator.registerMigration("createAgentTemplateGeneration", migrate: Self.createAgentTemplateGeneration)
+        migrator.registerMigration("addAgentTemplateGenerationPreview", migrate: Self.addAgentTemplateGenerationPreview)
     }
 
     /// In-flight (or finished) agent-template generation kicked off by the

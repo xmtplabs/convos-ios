@@ -35,6 +35,21 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default — when on, the direct agent builder synthesizes a local
+    /// `preview` + `progressPhrases` while a build runs, so the progress UI can
+    /// be exercised before backend PR #309 ships. Remove once #309 is deployed.
+    /// Toggle from App Settings → Debug. Hard-locked off in production.
+    var isStubbedAgentGenerationProgressEnabled: Bool {
+        get {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.stubbedAgentGenerationProgressKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            UserDefaults.standard.set(newValue, forKey: Constant.stubbedAgentGenerationProgressKey)
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -52,5 +67,6 @@ final class FeatureFlags {
         static let debugInjectorEnabledKey: String = "featureFlags.debugInjectorEnabled"
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let directAgentBuilderEnabledKey: String = "featureFlags.directAgentBuilderEnabled"
+        static let stubbedAgentGenerationProgressKey: String = "featureFlags.stubbedAgentGenerationProgress"
     }
 }

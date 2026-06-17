@@ -46,25 +46,47 @@ public extension ConvosAPI {
         }
     }
 
+    /// In-progress draft identity shown while a build runs (PR #309). Identity
+    /// only — `emoji`, not an avatar URL (the real photo arrives post-join).
+    struct AgentPreview: Codable, Sendable, Equatable {
+        public let agentName: String?
+        public let emoji: String?
+        public let description: String?
+
+        public init(agentName: String?, emoji: String?, description: String?) {
+            self.agentName = agentName
+            self.emoji = emoji
+            self.description = description
+        }
+    }
+
     /// Response from both the submit (`POST`) and poll (`GET`) endpoints.
-    /// Extra keys (`reply`, `createdAt`, `updatedAt`) are ignored by the
-    /// default decoder.
+    /// `preview` + `progressPhrases` ride only the in-progress (`202`)
+    /// responses and are absent on the terminal (`200`); both decode to
+    /// `nil`/empty when absent (e.g. before PR #309 is deployed). Extra keys
+    /// (`reply`, `createdAt`, `updatedAt`) are ignored by the default decoder.
     struct AgentTemplateGenerationResponse: Codable, Sendable {
         public let generationId: String
         public let status: AgentGenerationStatus
         public let templateId: String?
         public let error: String?
+        public let preview: AgentPreview?
+        public let progressPhrases: [String]?
 
         public init(
             generationId: String,
             status: AgentGenerationStatus,
             templateId: String?,
-            error: String?
+            error: String?,
+            preview: AgentPreview? = nil,
+            progressPhrases: [String]? = nil
         ) {
             self.generationId = generationId
             self.status = status
             self.templateId = templateId
             self.error = error
+            self.preview = preview
+            self.progressPhrases = progressPhrases
         }
     }
 }

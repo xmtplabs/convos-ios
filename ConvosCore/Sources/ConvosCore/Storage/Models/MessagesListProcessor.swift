@@ -19,6 +19,7 @@ public final class MessagesListProcessor: Sendable {
         previousReadByMembers: [ConversationMember] = [],
         verifiedAgent: ConversationMember? = nil,
         agentBuilderSummary: AgentBuilderSummary? = nil,
+        agentActivating: AgentActivatingCardContent? = nil,
         hiddenBundleMessageIds: Set<String> = [],
         isInAgentBuilderFlow: Bool = false
     ) -> [MessagesListItemType] {
@@ -50,6 +51,7 @@ public final class MessagesListProcessor: Sendable {
             buildMessageIds: buildMessageIds,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
+            agentActivating: agentActivating,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )
     }
@@ -254,6 +256,7 @@ public final class MessagesListProcessor: Sendable {
         buildMessageIds: Set<String>,
         verifiedAgent: ConversationMember?,
         agentBuilderSummary: AgentBuilderSummary?,
+        agentActivating: AgentActivatingCardContent? = nil,
         isInAgentBuilderFlow: Bool
     ) -> [MessagesListItemType] {
         var items: [MessagesListItemType] = baseItems
@@ -316,6 +319,12 @@ public final class MessagesListProcessor: Sendable {
 
         if let agent = verifiedAgent {
             items = insertingContactCard(in: items, agent: agent)
+        } else if let agentActivating {
+            // Direct builder, pending the agent's join: append the progressive
+            // "activating" card (avatar + name + description + progress)
+            // beneath the prompt summary. Dropped the moment a verified agent
+            // joins (the branch above takes over with the real contact card).
+            items.append(.agentActivating(agentActivating))
         }
 
         items = reconcilingFullBleedAdjacency(in: items)
@@ -337,7 +346,7 @@ public final class MessagesListProcessor: Sendable {
                 for later in items[(index + 1)...] {
                     if case .date = later { break }
                     switch later {
-                    case .messages, .update, .connectionEvent, .agentBuilderSummary:
+                    case .messages, .update, .connectionEvent, .agentBuilderSummary, .agentActivating:
                         hasFollowingAnchor = true
                     default:
                         break

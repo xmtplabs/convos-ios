@@ -543,6 +543,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
+        // Direct builder with a live preview (PR #309 / the local stub): paint
+        // the draft identity (name + emoji) into the header while awaiting the
+        // agent. `showsContactCard` stays false -- the body card is the
+        // dedicated `.agentActivating` cell, so this only drives the header.
+        if directBuildAwaitingAgent, !hasRealVerifiedAgent, let preview = directBuildGeneration?.preview {
+            return PendingAgentPresentation(
+                name: preview.agentName,
+                emoji: preview.emoji,
+                avatarURL: nil,
+                agentDescription: preview.description,
+                showsContactCard: false
+            )
+        }
         if shouldRenderAsPendingAgentBuilder {
             return PendingAgentPresentation(
                 name: nil,
@@ -651,6 +664,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         if shouldRenderAsPendingAgent {
+            // Surface the latest build-narration line (PR #309 / stub) while a
+            // direct build runs; fall back to the generic "Joining..." copy.
+            if let phrase = directBuildGeneration?.progressPhrases.last, !phrase.isEmpty {
+                return phrase
+            }
             return "Joining..."
         }
         if isWaitingForInviteAcceptance {
@@ -1428,7 +1446,39 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] generation in
                 self?.directBuildGeneration = generation
+                self?.syncDirectActivatingCard()
             }
+    }
+
+    /// Mirror the live generation into the message list's "activating agent"
+    /// card. The processor only inserts it while no verified agent has joined,
+    /// so it's cleared automatically on join; here we just keep the content
+    /// (preview identity + progress phrases) current and drop it on failure.
+    private func syncDirectActivatingCard() {
+        guard let generation = directBuildGeneration, generation.status != .failed else {
+            messagesListRepository.agentActivating = nil
+            return
+        }
+        let phase: AgentActivatingCardContent.Phase
+        switch generation.status {
+        case .submitting, .pending:
+            phase = .preparing
+        case .running:
+            phase = .generating
+        case .done, .invited:
+            phase = .finishing
+        case .failed:
+            messagesListRepository.agentActivating = nil
+            return
+        }
+        messagesListRepository.agentActivating = AgentActivatingCardContent(
+            id: conversation.id,
+            phase: phase,
+            agentName: generation.preview?.agentName,
+            emoji: generation.preview?.emoji,
+            agentDescription: generation.preview?.description,
+            progressPhrases: generation.progressPhrases
+        )
     }
 
     /// Subscribe to the GRDB-backed thinking session feed for this

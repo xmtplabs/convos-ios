@@ -56,49 +56,73 @@ Built behind a feature flag as an alternative engine alongside the legacy
 path, with an identical first screen, so we can flip it on and delete the
 old path once parity is proven.
 
-### Phase 1 — text-based agent creation (complete + robust)
+### Phase 1 — text-based agent creation — DONE
 
-- `AgentBuilderEngine` protocol with `LegacyConversationBuilderEngine` +
-  `DirectTemplateBuilderEngine`; a feature flag picks one at construction
-  time. Same composer UI either way.
+Detail: `agent-builder-flow-simplification-phase-1.md`.
+
+- Flag-gated direct path in `AgentBuilderViewModel` alongside the legacy
+  bundle path; same composer UI either way.
 - Text-only happy path: claim a pre-warmed conversation -> `POST
   /v2/agent-templates/generations` (202) -> poll -> `requestAgentJoin(slug,
   templateId)` -> agent joins -> commit conversation visibility.
-- `AgentTemplateRepository` owns the poll loop (survives the view). New
+- `AgentTemplateRepository` owns the poll loop (survives the view); the
   persistent `DBAgentTemplateGeneration` table is the state source of truth
   so a build survives dismissal/restart and resumes.
-- Complete: full error handling + lifecycle state machine, nothing
-  important deferred silently.
-- Out of scope: media, connections, in-chat variant, real poll-driven
-  name/photo/thinking (uses fake/local pending UI for now).
+- Full error handling + lifecycle state machine.
+- The **in-chat "New Agent" variant shipped here too** — it was a one-branch
+  change (route the existing-conversation commit through the same core), not
+  a separate phase.
+- Used a generic local pending placeholder (no real identity yet — that's
+  Phase 2).
 
-### Phase 2 — media inputs via the presigned-URL uploader (skip encryption)
+### Phase 2 — progress updates + creator-facing cards — DONE (pending backend PR #309)
 
-- Reuse the app's existing presigned uploader; upload plaintext the app
-  already holds; send an array of attachment refs instead of base64.
+Detail: `agent-builder-flow-simplification-phase-2.md`.
+
+- `preview` (agentName/emoji/description) + `progressPhrases` modeled
+  end-to-end (API -> domain -> persisted columns -> publisher), behind a
+  removable stub until backend PR #309 deploys.
+- **Creation-prompt card** preserved at the top of the chat (reuses
+  `AgentBuilderSummary`), shown for both home and in-chat flows.
+- **Progressive "activating" card** (new `MessagesListItemType.agentActivating`
+  cell): client-paced reveal name -> emoji -> description + cycling phrases +
+  progress bar, mapped to `pending -> running -> done -> join`, then hands off
+  to the real agent contact card.
+- Related fix: `getAgentTemplate` now authenticated so owners resolve their
+  own `draft` templates (was a 404 in the template cache).
+
+### Phase 3 — media inputs (image / file / voice) via the presigned uploader
+
+- Reuse the app's existing presigned uploader; upload the plaintext the app
+  already holds; send an array of attachment refs (`inputs.attachments[]`)
+  instead of base64. Includes the voice-memo entry mode.
 - Requires a private bucket + backend-side presigned GET (don't park
-  E2E-decrypted content at a public URL). Backend: array schema, coalescer,
-  multi-part generator, caps, attachment moderation (CON-527).
+  E2E-decrypted content at a public URL). Backend (PR #310 / CON-533): array
+  schema, coalescer, multi-part generator, caps, attachment moderation.
+- The prompt card + `AgentBuilderSummary` already model attachments, so they
+  render once populated.
 
-### Phase 3 — in-chat "New Agent" (existing-conversation) variant
+### Phase 4 — connections integration
 
-- Second entry point: build into a conversation the user is already in.
-- Same generation/poll/invite core; reuses the Phase 1 "conversation
-  target" parameter. Adds: reuse existing slug, no visibility commit, never
-  tear down the group, pending UI rendered into an existing chat.
+- `connections[]` input + the `GET /connections/services` catalog
+  (PR #311 / CON-532): the generated prompt/welcome lean on the service and
+  the template records it.
+- Post-join grants need a **new driver** keyed off the
+  `AgentTemplateRepository` / generation state — the legacy
+  `AgentBuilderConnectionGrantReplayer` keys off the XMTP `AgentBuilderSummary`
+  the direct flow never writes.
 
 ### Remaining (before retiring the flag)
 
-- Connections + post-join grants (new driver; legacy keyed off the XMTP
-  summary).
-- Poll-driven agent name / profile photo / thinking UI + pending->real
-  handoff; profile-screen gating.
-- Voice-memo entry mode; error/edge parity; discard/cancel; background vs
-  foreground polling.
+- Error/edge UX parity (moderation/failed/expired), discard/cancel,
+  background vs foreground polling.
 - Metrics + analytics parity, verification/attestation, no
   credit/entitlement regression.
-- Tests (engine, repository, idempotency, QA suites); staged flag rollout
+- Tests (engine, repository, idempotency, QA suites); staged flag rollout,
   then delete the legacy engine.
-- Backend dependencies: uploaded media beyond inline base64, poll-response
-  fields for name/photo/thinking, connections via API vs client grant,
-  conversationId on the generation call.
+- Deferred polish from Phase 2: prompt-card lifetime beyond the 180s window,
+  networking the prompt card to other members, a precise existing-chat
+  "this agent joined" signal.
+- Backend dependencies: #309 (preview/progress), #310 (uploaded media),
+  #311 (connections).
+
