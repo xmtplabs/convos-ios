@@ -185,6 +185,23 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
         0
     }
 
+    /// Declared on the base class (not just the protocol-extension default) so
+    /// the direct agent-builder repository's fixtures can `override` it.
+    func requestAgentJoin(
+        slug: String?,
+        conversationId: String?,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        ConvosAPI.AgentJoinResponse(
+            success: true,
+            joined: true,
+            instanceId: "test-instance",
+            inboxId: "test-agent-inbox"
+        )
+    }
+
     func createAgentTemplateGeneration(
         text: String,
         source: String,
