@@ -344,10 +344,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             let count: Int = try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == convoId)
                 .fetchCount(db)
-            let hasAgent: Bool = try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == convoId)
-                .filter(DBMemberProfile.Columns.memberKind != nil)
-                .fetchCount(db) > 0
+            let hasAgent: Bool = try Self.hasCurrentAgentMember(db: db, conversationId: convoId)
             return (count, hasAgent)
         }) ?? (0, false)
         await actions.sentMessage(
