@@ -66,7 +66,7 @@ The join request body is `ConvosAPI.AgentJoinRequest`:
 Construction choke point (single place to add a field):
     ConvosCore/Sources/ConvosCore/API/ConvosAPIClient.swift:760-781
 
-Add a `creatorTimezone` field (or `timezone`) to `AgentJoinRequest`:
+Add a `creatorTimezone` field to `AgentJoinRequest`:
     public let creatorTimezone: String?
 populated at the call site with `TimeZone.current.identifier`. This requires a
 coordinated backend change: the `v2/agents/join` endpoint must accept the new
@@ -174,8 +174,21 @@ are never touched.
 Republish the timezone (Channel B) in two situations, so travel and DST changes
 stay current:
   - when an agent joins a conversation (the initial publish above), and
-  - opportunistically, e.g. on app foreground / first interaction of a session,
-    for conversations that already contain an agent.
+  - opportunistically on app foreground, for conversations that already contain
+    an agent.
+
+Concrete trigger and throttle for opportunistic republish:
+  - Trigger: in `SceneDelegate.sceneDidBecomeActive(_:)`, enqueue a
+    low-priority `Task` that iterates all agent conversations and republishes
+    after a short delay (e.g. 5 seconds) to let the app settle first.
+  - Throttle: only republish for a given conversation if
+    `TimeZone.current.identifier` differs from the last published value for
+    that conversation. Persist the last-published identifier in `UserDefaults`
+    (or an `@AppStorage`-backed property) keyed by conversation ID, so the
+    check survives session restarts.
+  - Session state: track a per-session boolean flag (`hasRepublishedTimezone`)
+    so the app republishes at most once per foreground session even if the
+    user background-foregrounds the app repeatedly.
 
 Critical constraint -- single serialized writer to avoid clobbering the map:
 the `ProfileUpdate.metadata` map is per-sender, but a publish rewrites the
@@ -186,8 +199,20 @@ sequence: a timezone publish and a `connections` publish in
 the same `DBMemberProfile`. If they overlap, the later write overwrites the
 earlier with a stale copy of the key the other task just set -- silent data
 loss. To prevent this, all metadata map writes for the same sender/conversation
-must be serialized through a single actor or serial queue (not just the
-cross-process process-level constraint below).
+must be serialized through a single shared `ProfileMetadataWriter` actor (not
+just the cross-process process-level constraint below).
+
+The implementation approach: introduce `ProfileMetadataWriter` as a
+`@MainActor public final class` in
+`ConvosCore/Sources/ConvosCore/Storage/Writers/ProfileMetadataWriter.swift`.
+It owns the single choke point: read existing metadata, apply a caller-supplied
+closure that mutates the map, then call `myProfileWriter.updateAndPublish`.
+Both the existing connections code (`CloudConnectionGrantWriter`) and the new
+timezone code must go through this shared instance -- they must not call
+`myProfileWriter.updateAndPublish` directly. Because the class is
+`@MainActor`-bound, all reads and writes are serialized on the main actor;
+concurrent callers queue behind each other automatically. See section 4 for
+the concrete actor pattern and both call sites.
 
 In addition, to keep writes to the foreground main app:
 
@@ -249,7 +274,7 @@ agent must be taught to consume the value. The two halves:
 
 (b) What requires backend contract changes:
     - Channel A: The `v2/agents/join` endpoint must accept a `creatorTimezone`
-      (or `timezone`) field in the request body. The agent runtime must store
+      field in the request body. The agent runtime must store
       this value and use it as the per-conversation default timezone instead of
       the hardcoded `"America/New_York"` / `USER_TIMEZONE` env value
       (agent_runner.py:52-57). This is a required coordinated change -- the iOS
@@ -263,8 +288,15 @@ agent must be taught to consume the value. The two halves:
 
 Minimal contract (write it down once, both sides agree):
 
+Note on field name vs. metadata key: the join-request field is named
+`creatorTimezone` (it carries the creator's timezone and is unambiguously
+creator-scoped). The per-sender ProfileUpdate metadata map key is `"timezone"`
+(it is a map key, not a struct field; it is keyed per sender, so there is no
+ambiguity about whose timezone it is). These are two different names for two
+different channels -- do not conflate them.
+
   Join-request field (Channel A):
-    Field:    "creatorTimezone" (or "timezone") in AgentJoinRequest JSON body
+    Field:    "creatorTimezone" in AgentJoinRequest JSON body
     Value:    IANA tz database identifier, e.g. "Europe/Paris". Optional; absent
               means the backend falls back to its existing default.
     Semantics: used by the agent runtime as the conversation's initial default
@@ -281,8 +313,9 @@ Minimal contract (write it down once, both sides agree):
     Semantics: latest ProfileUpdate wins; absence = unknown, agent falls back to
               join-request default (Channel A), then UTC.
     Writer:   the foreground main app only; never the NSE or a background task;
-              serialized through a single actor/queue to prevent concurrent
-              read-merge-write races with other metadata writers (e.g. connections).
+              all writes go through the shared `ProfileMetadataWriter` actor to
+              prevent concurrent read-merge-write races with other metadata
+              writers (e.g. connections).
     Agent behavior: parse the IANA id with its own tz library; do not trust any
               offset for future dates (recompute from the identifier so DST is
               correct). On a malformed/unknown id, degrade gracefully (treat as
@@ -311,37 +344,86 @@ and the wire format stays backward-compatible until the backend reads the field.
 
 ### Channel B (per-sender ProfileUpdate)
 
-Add a small writer that mirrors the connections pattern. Pseudocode (not
-committed):
+The race-safe implementation requires a shared actor that serializes all
+metadata map writes. Introduce `ProfileMetadataWriter` as the single choke
+point. Both the existing connections code and the new timezone code must use
+it -- neither should call `myProfileWriter.updateAndPublish` directly.
 
-    // ConvosCore, alongside CloudConnectionGrantWriter / MyProfileWriter usage.
-    // Must be called on a serial queue / actor shared with CloudConnectionGrantWriter
-    // to prevent concurrent read-merge-write races on the per-sender metadata map.
-    func publishTimezone(conversationId: String) async throws {
-        let existing = try await databaseReader.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: conversationId,
-                                         inboxId: myInboxId)?.metadata
+Sketch (not committed; file path and type signatures are illustrative):
+
+    // ConvosCore/Sources/ConvosCore/Storage/Writers/ProfileMetadataWriter.swift
+    @MainActor
+    public final class ProfileMetadataWriter {
+        private let myProfileWriter: MyProfileWriter
+        private let databaseReader: DatabaseReaderProtocol
+
+        // Single choke point for all metadata map writes.
+        // @MainActor serializes concurrent callers; the closure makes
+        // read-modify-write atomic from each caller's perspective.
+        public func updateMetadata(
+            conversationId: String,
+            inboxId: String,
+            update: @escaping (inout ProfileMetadata) -> Void
+        ) async throws {
+            let existing = try await databaseReader.read { db in
+                try DBMemberProfile.fetchOne(
+                    db, conversationId: conversationId, inboxId: inboxId
+                )?.metadata
+            }
+            var merged: ProfileMetadata = existing ?? [:]
+            update(&merged)
+            try await myProfileWriter.updateAndPublish(
+                metadata: merged.isEmpty ? nil : merged,
+                conversationId: conversationId
+            )
         }
-        var merged: ProfileMetadata = existing ?? [:]
-        merged["timezone"] = .string(TimeZone.current.identifier)
-        try await myProfileWriter.updateAndPublish(
-            metadata: merged.isEmpty ? nil : merged,
-            conversationId: conversationId
-        )
     }
 
-Call it right after a successful agent join, at the join sites in section 2,
-and on opportunistic foreground refresh for conversations that already contain
-an agent. Gate every call on:
+Connections caller (CloudConnectionGrantWriter refactored to use the actor):
+
+    // Replaces the direct myProfileWriter.updateAndPublish call at
+    // CloudConnectionGrantWriter.swift:472-495.
+    try await profileMetadataWriter.updateMetadata(
+        conversationId: conversationId,
+        inboxId: senderId
+    ) { metadata in
+        if let grantsJson {
+            metadata[Constant.connectionsKey] = .string(grantsJson)
+        } else {
+            metadata.removeValue(forKey: Constant.connectionsKey)
+        }
+    }
+
+Timezone caller (new timezone publish code):
+
+    // Capture TimeZone.current.identifier on the main actor before any async
+    // hop, then pass the captured value into the closure.
+    @MainActor let currentTimezone = TimeZone.current.identifier
+    try await profileMetadataWriter.updateMetadata(
+        conversationId: conversationId,
+        inboxId: myInboxId
+    ) { metadata in
+        metadata["timezone"] = .string(currentTimezone)
+    }
+
+Why this works:
+  - `@MainActor` on `ProfileMetadataWriter` means every `updateMetadata` call
+    runs on the main actor. Concurrent callers are queued behind each other by
+    the Swift concurrency runtime -- no two read-merge-write sequences can
+    interleave.
+  - The closure-based API makes the read-modify-write atomic from each caller's
+    perspective: the caller only describes what key(s) to set; the actor owns
+    the read and the publish.
+  - Both the `connections` key and the `timezone` key funnel through one choke
+    point, so a connections publish and a timezone publish cannot race.
+
+Call the timezone variant right after a successful agent join, at the join
+sites in section 2, and on opportunistic foreground refresh for conversations
+that already contain an agent. Gate every call on:
   - the conversation contains an agent member (scope, Q1), and
-  - the caller is the foreground main app (single-writer, Q2) -- do not wire this
-    into the Notification Service Extension or any background path.
-  - all metadata map writes for a given sender/conversation go through a single
-    actor or serial queue shared with `CloudConnectionGrantWriter` to prevent
-    read-merge-write clobbering (see section 2 "Refresh").
+  - the caller is the foreground main app (single-writer, Q2) -- do not wire
+    this into the Notification Service Extension or any background path.
 Keep it best-effort (log on failure; do not block the join).
-TimeZone.current must be read on the main actor or captured into a value before
-hopping to a background context (it is a cheap synchronous read).
 
 Note: ProfileMetadataValue currently supports .string / .number / .bool only
 (ProfileMessageHelpers.swift:63-84) -- the IANA id as .string fits cleanly.
@@ -373,17 +455,21 @@ Note: ProfileMetadataValue currently supports .string / .number / .bool only
      agent-join sites (section 2) are the trigger / detection point. (Folded into
      section 2 "Scope" and section 5.)
   2. Refresh + race avoidance -- RESOLVED. Republish opportunistically (app
-     foreground / first interaction of a session) and when an agent joins. To
-     avoid concurrent edits clobbering the per-sender metadata map:
+     foreground via `sceneDidBecomeActive`, throttled by last-published value in
+     UserDefaults and a per-session flag) and when an agent joins. To avoid
+     concurrent edits clobbering the per-sender metadata map:
      (a) write only from the foregrounded main app (cross-process constraint:
          never from the Notification Service Extension or a background task);
-     (b) serialize all metadata map writes for a given sender/conversation
-         through a single actor or serial queue shared with
-         CloudConnectionGrantWriter (intra-process constraint: prevents a
-         timezone publish and a connections publish from racing on the
-         non-atomic read-merge-write sequence). The foreground-only constraint
+     (b) route all metadata map writes for a given sender/conversation through
+         a single shared `ProfileMetadataWriter` `@MainActor` actor (intra-
+         process constraint: prevents a timezone publish and a connections
+         publish from racing on the non-atomic read-merge-write sequence).
+         A shared `ProfileMetadataWriter` instance is the required mechanism --
+         not just "any actor or serial queue." `CloudConnectionGrantWriter` must
+         be refactored to use it for the `connections` key, and the timezone
+         code must use it for the `timezone` key. The foreground-only constraint
          alone is not sufficient -- two async tasks in the same foreground app
-         can still interleave. (Folded into section 2 "Refresh".)
+         can still interleave. (Folded into section 2 "Refresh" and section 4.)
   3. Backend ownership / agent contract -- RESOLVED with a concrete proposal.
      Two halves: (a) join-request default: the `v2/agents/join` endpoint accepts
      a `creatorTimezone` field; the runtime uses it as the per-conversation
@@ -449,12 +535,13 @@ The runtime currently hardcodes a default zone at process start:
 render the current time and message timestamp into the header the model sees
 ("[Current time: Thu, Mar 20, 2026, 10:30 AM EDT]").
 
-Channel A change: when the `v2/agents/join` request includes `creatorTimezone`,
-the runtime stores it per-conversation and uses it as the default `ZoneInfo`
-in `_format_envelope` for that conversation, replacing the process-wide
-`_USER_TZ`. This means the agent answers with the right timezone from the very
-first turn, before any ProfileUpdate has been delivered. The existing
-`ZoneInfo(name)` + `except` -> UTC fallback already doubles as IANA validation.
+Channel A change: when the `v2/agents/join` request includes `creatorTimezone`
+(an IANA identifier string, e.g. `"Europe/Paris"`), the runtime stores it
+per-conversation and uses it as the default `ZoneInfo` in `_format_envelope`
+for that conversation, replacing the process-wide `_USER_TZ`. This means the
+agent answers with the right timezone from the very first turn, before any
+ProfileUpdate has been delivered. The existing `ZoneInfo(name)` + `except` ->
+UTC fallback already doubles as IANA validation.
 
 ### Where per-sender profile metadata lives today (Channel B read surface)
 
@@ -514,7 +601,8 @@ resolve the timezone in priority order:
      use it. This is the per-turn, per-member source of truth; it reflects travel
      and DST updates.
   2. Join-request default (Channel A): if no per-sender value is present, use
-     the `creatorTimezone` value stored at join time for this conversation.
+     the `creatorTimezone` value stored at join time for this conversation (the
+     `creatorTimezone` field sent in the `v2/agents/join` request body).
   3. Process-wide fallback: if neither is present, use the existing `_USER_TZ`
      (the `USER_TIMEZONE` env var, defaulting to UTC).
 
@@ -552,8 +640,9 @@ travels; the per-sender ProfileUpdate (Channel B) supersedes it when present.
 ### Summary of the server-side changes
 
   Channel A (join-request default):
-  1. Accept `creatorTimezone` (optional string) in the `v2/agents/join` request
-     body. Store it per-conversation in the agent's context store.
+  1. Accept `creatorTimezone` (optional IANA identifier string) in the
+     `v2/agents/join` request body. Store it per-conversation in the agent's
+     context store.
   2. In `_format_envelope` (agent_runner.py:892-919), use the stored
      `creatorTimezone` as the fallback zone when no per-sender metadata value is
      present (replacing the process-wide `_USER_TZ` for conversations where a
