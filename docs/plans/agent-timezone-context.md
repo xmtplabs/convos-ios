@@ -66,13 +66,22 @@ The join request body is `ConvosAPI.AgentJoinRequest`:
 Construction choke point (single place to add a field):
     ConvosCore/Sources/ConvosCore/API/ConvosAPIClient.swift:760-781
 
-Add a `creatorTimezone` field to `AgentJoinRequest`:
-    public let creatorTimezone: String?
+Add a `timezone` field to `AgentJoinRequest`:
+    public let timezone: String?
 populated at the call site with `TimeZone.current.identifier`. This requires a
 coordinated backend change: the `v2/agents/join` endpoint must accept the new
 field and the agent runtime must use it as the initial default instead of the
 hardcoded `USER_TIMEZONE` / `"America/New_York"` value
 (agent_runner.py:52-57, see section 7).
+
+Note: this join-request `timezone` carries the conversation creator's device tz
+and is used as the agent's baseline/default. It is distinct from the per-sender
+`timezone` key in each member's ProfileUpdate.metadata (Channel B), which
+reflects each individual member's own device tz. The distinction is preserved in
+documentation and comments, not in the field name: a source-agnostic wire name
+(`timezone`) is preferred over `creatorTimezone` because the assistant only
+needs the value (a baseline IANA identifier); the fact that it comes from the
+creator's device is an iOS-side sourcing detail, not a wire contract concern.
 
 Rationale: the join endpoint is the agent's first contact with the conversation.
 Getting the creator's timezone at join time means the agent answers correctly
@@ -273,13 +282,13 @@ agent must be taught to consume the value. The two halves:
       the agent simply ignores an unknown key until taught.
 
 (b) What requires backend contract changes:
-    - Channel A: The `v2/agents/join` endpoint must accept a `creatorTimezone`
-      field in the request body. The agent runtime must store
-      this value and use it as the per-conversation default timezone instead of
-      the hardcoded `"America/New_York"` / `USER_TIMEZONE` env value
-      (agent_runner.py:52-57). This is a required coordinated change -- the iOS
-      side can add the field to `AgentJoinRequest` but the value has no effect
-      until the backend reads it.
+    - Channel A: The `v2/agents/join` endpoint must accept a `timezone` field
+      in the request body (carrying the creator's device tz as the agent's
+      baseline). The agent runtime must store this value and use it as the
+      per-conversation default timezone instead of the hardcoded
+      `"America/New_York"` / `USER_TIMEZONE` env value (agent_runner.py:52-57).
+      This is a required coordinated change -- the iOS side can add the field to
+      `AgentJoinRequest` but the value has no effect until the backend reads it.
     - Channel B: The agent runtime must read metadata["timezone"] for the human
       member and fold it into its context / system prompt (e.g. "The user's time
       zone is Europe/Paris; interpret relative times accordingly"). Concrete
@@ -288,20 +297,25 @@ agent must be taught to consume the value. The two halves:
 
 Minimal contract (write it down once, both sides agree):
 
-Note on field name vs. metadata key: the join-request field is named
-`creatorTimezone` (it carries the creator's timezone and is unambiguously
-creator-scoped). The per-sender ProfileUpdate metadata map key is `"timezone"`
-(it is a map key, not a struct field; it is keyed per sender, so there is no
-ambiguity about whose timezone it is). These are two different names for two
-different channels -- do not conflate them.
+Note on channel disambiguation: both the join-request field (Channel A) and the
+per-sender ProfileUpdate metadata key (Channel B) use the wire name `"timezone"`.
+They are distinct: the join-request `timezone` is the creator's device tz used
+as the agent's baseline/default (set once at join time); the per-sender
+`timezone` in ProfileUpdate.metadata is each member's own current device tz
+(updated continuously). Comments in code should make this distinction explicit
+rather than encoding it in the field name. The name `creatorTimezone` was
+considered and rejected: it over-specifies the source on the wire; the assistant
+only cares about the value (a baseline IANA identifier), and "it comes from the
+creator's device" is an iOS-side sourcing detail.
 
   Join-request field (Channel A):
-    Field:    "creatorTimezone" in AgentJoinRequest JSON body
+    Field:    "timezone" in AgentJoinRequest JSON body
     Value:    IANA tz database identifier, e.g. "Europe/Paris". Optional; absent
               means the backend falls back to its existing default.
-    Semantics: used by the agent runtime as the conversation's initial default
-              timezone. Superseded per-turn by any ProfileUpdate value present
-              for the message sender (Channel B).
+    Semantics: the creator's device tz, used by the agent runtime as the
+              conversation's initial default/baseline timezone. Superseded
+              per-turn by any ProfileUpdate value present for the message
+              sender (Channel B).
     Backend:  store per-conversation (e.g. alongside agent slug / templateId);
               feed into agent context at join and on each turn as the fallback.
 
@@ -326,7 +340,7 @@ different channels -- do not conflate them.
 
 ### Channel A (join request)
 
-Add `creatorTimezone: String?` to `ConvosAPI.AgentJoinRequest`
+Add `timezone: String?` to `ConvosAPI.AgentJoinRequest`
 (ConvosCore/Sources/ConvosCore/API/ConvosAPIClient+Models.swift:170) and
 populate it at the construction choke point
 (ConvosAPIClient.swift:775-780):
@@ -335,8 +349,14 @@ populate it at the construction choke point
         slug: slug,
         templateId: templateId,
         options: options,
-        creatorTimezone: TimeZone.current.identifier
+        timezone: TimeZone.current.identifier
     )
+
+Note: this `timezone` field carries the conversation creator's device tz as the
+agent's baseline. It is distinct from the per-sender `timezone` key in
+ProfileUpdate.metadata (Channel B), which each member keeps current with their
+own device tz. The same wire name is used for both; comments at each call site
+clarify which role the value plays.
 
 This is a single-line addition at the one construction site. The field is
 optional / nil-omitted by Codable, so existing callers and tests need no change
@@ -472,7 +492,7 @@ Note: ProfileMetadataValue currently supports .string / .number / .bool only
          can still interleave. (Folded into section 2 "Refresh" and section 4.)
   3. Backend ownership / agent contract -- RESOLVED with a concrete proposal.
      Two halves: (a) join-request default: the `v2/agents/join` endpoint accepts
-     a `creatorTimezone` field; the runtime uses it as the per-conversation
+     a `timezone` field; the runtime uses it as the per-conversation baseline
      default instead of the hardcoded `"America/New_York"`. (b) per-sender read:
      the runtime reads metadata["timezone"] for the human member and folds it
      into the agent context. See section 7 for the proposed read site,
@@ -491,6 +511,16 @@ Note: ProfileMetadataValue currently supports .string / .number / .bool only
   6. Consent surface -- RESOLVED. No explicit user-facing toggle / opt-in. The
      timezone is shared silently in agent conversations; the share is documented
      in privacy copy but there is no opt-in control. (Folded into section 5.)
+  7. Cron / scheduled-message timezone -- RESOLVED. Crons use the **requesting
+     sender's timezone** when the cron is tied to a specific sender's
+     request/approval; when there is **no sender-specific context** (e.g. a
+     recurring morning check-in with no triggering sender), use the
+     **creator/global baseline** timezone (the Channel A baseline). The assistant
+     side currently uses sender-zone only (an absolute cron defaults its tz to the
+     requesting sender's stored zone, with no fallback when no sender is present),
+     so the change is to ADD the creator/global baseline fallback for non-sender
+     crons. Stated as a product decision. (Server-side; tracked in the cross-repo
+     integration doc, M4.)
 
 
 ## 7. Agent runtime handling (convos-assistants)
@@ -535,13 +565,31 @@ The runtime currently hardcodes a default zone at process start:
 render the current time and message timestamp into the header the model sees
 ("[Current time: Thu, Mar 20, 2026, 10:30 AM EDT]").
 
-Channel A change: when the `v2/agents/join` request includes `creatorTimezone`
+Channel A change: when the `v2/agents/join` request includes a `timezone` field
 (an IANA identifier string, e.g. `"Europe/Paris"`), the runtime stores it
 per-conversation and uses it as the default `ZoneInfo` in `_format_envelope`
 for that conversation, replacing the process-wide `_USER_TZ`. This means the
 agent answers with the right timezone from the very first turn, before any
 ProfileUpdate has been delivered. The existing `ZoneInfo(name)` + `except` ->
 UTC fallback already doubles as IANA validation.
+
+Channel A delivery mechanism (RESOLVED — per-instance env var, not assemble vars):
+the product runs **one agent per instance**, so "per-conversation" baseline ==
+"per-instance" baseline. The baseline must NOT be carried via the assembler's
+`vars.timezone` -> `config.yaml timezone:` route: `config.yaml` is rendered once at
+Docker BUILD time and symlinked read-only into every instance (and the start script
+deletes any per-instance copy before symlinking), so that route is image-wide and
+cannot carry a per-join value. Instead, the backend forwards the join `timezone`
+field into the **per-instance Hermes container env** (`buildHermesEnv` in
+`workers/assistant/src/durable-objects/assistant/hermes-env.ts`, keyed by
+`instanceId`), and the runtime baseline resolver reads that env var ahead of
+`config.yaml` -- this is exactly the per-instance `USER_TIMEZONE` env path the
+runtime used before the assistant-side PR (#2191) replaced it with a config-file-only
+read. The required assistant work is therefore: (1) `buildHermesEnv` sets a
+per-instance baseline-tz env var from the backend-supplied value, and (2) the
+baseline resolver reads it ahead of the symlinked `config.yaml` (restoring the env
+precedence #2191 removed). See the cross-repo integration doc, M3, for the
+file:line evidence.
 
 ### Where per-sender profile metadata lives today (Channel B read surface)
 
@@ -601,8 +649,9 @@ resolve the timezone in priority order:
      use it. This is the per-turn, per-member source of truth; it reflects travel
      and DST updates.
   2. Join-request default (Channel A): if no per-sender value is present, use
-     the `creatorTimezone` value stored at join time for this conversation (the
-     `creatorTimezone` field sent in the `v2/agents/join` request body).
+     the `timezone` value stored at join time for this conversation (the
+     `timezone` field sent in the `v2/agents/join` request body, carrying the
+     creator's device tz as the agent's baseline).
   3. Process-wide fallback: if neither is present, use the existing `_USER_TZ`
      (the `USER_TIMEZONE` env var, defaulting to UTC).
 
@@ -640,13 +689,13 @@ travels; the per-sender ProfileUpdate (Channel B) supersedes it when present.
 ### Summary of the server-side changes
 
   Channel A (join-request default):
-  1. Accept `creatorTimezone` (optional IANA identifier string) in the
-     `v2/agents/join` request body. Store it per-conversation in the agent's
-     context store.
-  2. In `_format_envelope` (agent_runner.py:892-919), use the stored
-     `creatorTimezone` as the fallback zone when no per-sender metadata value is
+  1. Accept `timezone` (optional IANA identifier string) in the
+     `v2/agents/join` request body. This carries the creator's device tz as the
+     agent's baseline. Store it per-conversation in the agent's context store.
+  2. In `_format_envelope` (agent_runner.py:892-919), use the stored join-time
+     `timezone` as the fallback zone when no per-sender metadata value is
      present (replacing the process-wide `_USER_TZ` for conversations where a
-     creator timezone was supplied).
+     join-time timezone was supplied).
 
   Channel B (per-sender metadata):
   1. In `_refresh_metadata_if_stale` (runtime.py:329-332), copy each resolved
