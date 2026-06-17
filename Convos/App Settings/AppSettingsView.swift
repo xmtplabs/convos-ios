@@ -64,6 +64,10 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var navState: AppSettingsNavigatorImpl = .init()
     @State private var navigator: AppSettingsCollector?
+    @State private var versionTapCount: Int = 0
+    @State private var lastVersionTapAt: Date?
+    @State private var showingEnableDebugConfirmation: Bool = false
+    @State private var prodDebugMenuEnabled: Bool = DebugMenuGate.showsProdDebugMenu(for: ConfigManager.shared.currentEnvironment)
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -320,16 +324,34 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var linksSection: some View {
+        let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
+        let showsFullMenu: Bool = DebugMenuGate.showsFullDebugMenu(for: environment)
         Section {
             privacyTermsRow
             sendFeedbackRow
-            if !ConfigManager.shared.currentEnvironment.isProduction {
+            if showsFullMenu {
                 debugRow
+            } else if prodDebugMenuEnabled {
+                prodDebugRow
             }
         } footer: {
             linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
+        .confirmationDialog(
+            "Enable debug menu?",
+            isPresented: $showingEnableDebugConfirmation,
+            titleVisibility: .visible
+        ) {
+            let enableAction = {
+                DebugMenuFlagStore.enable()
+                prodDebugMenuEnabled = true
+            }
+            Button("Enable", action: enableAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Reveals on-device diagnostics for this account. You can turn it off any time from the debug menu.")
+        }
     }
 
     @ViewBuilder
@@ -363,14 +385,47 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
+    private var prodDebugRow: some View {
+        NavigationLink {
+            ProdDebugMenuView(environment: ConfigManager.shared.currentEnvironment, session: session)
+        } label: {
+            Text("Debug menu")
+        }
+        .foregroundStyle(.colorTextPrimary)
+        .accessibilityIdentifier("prod-debug-menu-row")
+    }
+
+    @ViewBuilder
     private var linksFooter: some View {
         HStack {
             Text("Made in the open by XMTP Labs")
             Spacer()
-            Text("v\(Bundle.appVersion)")
-                .foregroundStyle(.colorTextTertiary)
+            let versionTapAction = { handleVersionTapped() }
+            Button(action: versionTapAction) {
+                Text("v\(Bundle.appVersion)")
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-version-label")
         }
         .foregroundStyle(.colorTextSecondary)
+    }
+
+    private func handleVersionTapped() {
+        let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
+        // Non-production already shows the full debug menu, so the easter-egg
+        // gesture only matters in production where the curated menu is opt-in.
+        guard environment.isProduction, !prodDebugMenuEnabled else { return }
+        let now = Date()
+        if let lastTap = lastVersionTapAt, now.timeIntervalSince(lastTap) > Constant.versionTapWindow {
+            versionTapCount = 0
+        }
+        lastVersionTapAt = now
+        versionTapCount += 1
+        if versionTapCount >= Constant.versionTapThreshold {
+            versionTapCount = 0
+            showingEnableDebugConfirmation = true
+        }
     }
 
     @ViewBuilder
@@ -419,6 +474,11 @@ struct AppSettingsView: View {
     private func openExternalURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         openURL(url)
+    }
+
+    private enum Constant {
+        static let versionTapThreshold: Int = 7
+        static let versionTapWindow: TimeInterval = 3
     }
 }
 
