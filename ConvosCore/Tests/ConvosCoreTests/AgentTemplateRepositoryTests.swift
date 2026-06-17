@@ -157,6 +157,7 @@ private final class HappyStubAPIClient: TestStubAPIClient {
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock {
@@ -190,6 +191,7 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock { joinCallCount += 1 }
@@ -236,6 +238,7 @@ private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock { joinCallCount += 1 }

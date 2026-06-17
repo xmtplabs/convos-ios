@@ -1133,6 +1133,12 @@ extension SessionManager {
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
+        // Capture the creator's device timezone on the main actor before any
+        // async hop. This seeds the agent's baseline/default zone (Channel A);
+        // it is distinct from the per-sender "timezone" ProfileUpdate metadata
+        // key published below, which tracks each member's own current device tz.
+        let creatorTimezone: String = await MainActor.run { TimeZone.current.identifier }
+
         // 1. Provision the agent and wait until its XMTP inbox is registered.
         //    Extracted to a helper that touches only the API client (no
         //    messaging service) so the poll loop and its terminal/timeout/
@@ -1144,6 +1150,7 @@ extension SessionManager {
                     conversationId: conversationId.lowercased(),
                     templateId: templateId,
                     options: options,
+                    timezone: creatorTimezone,
                     forceErrorCode: forceErrorCode
                 )
             },
@@ -1170,6 +1177,10 @@ extension SessionManager {
             do {
                 try await messagingService().conversationMetadataWriter()
                     .addMembers([agentInboxId], to: conversationId)
+                // The conversation now has an agent member. Publish this user's
+                // own device timezone into the per-sender ProfileUpdate metadata
+                // (Channel B). Best-effort: a failure must not fail the join.
+                await publishTimezoneForAgentConversation(conversationId: conversationId)
                 return resolved.response
             } catch {
                 lastError = error
@@ -1184,6 +1195,34 @@ extension SessionManager {
             }
         }
         throw lastError ?? APIError.invalidResponse
+    }
+
+    /// Best-effort per-sender timezone publish (agent-timezone Channel B) for a
+    /// single conversation. The publisher gates on the conversation actually
+    /// containing an agent member, so this is safe to call on any add path.
+    private func publishTimezoneForAgentConversation(conversationId: String) async {
+        do {
+            let publisher = try await messagingService().agentTimezonePublisher()
+            await publisher.publishTimezoneIfAgentConversation(conversationId: conversationId)
+        } catch {
+            Log.warning("Skipped timezone publish for \(conversationId); inbox not ready: \(error.localizedDescription)")
+        }
+    }
+
+    /// Opportunistic foreground republish of the user's timezone across every
+    /// agent conversation (agent-timezone Channel B refresh). Throttled inside
+    /// the publisher so a conversation is only republished when the device
+    /// timezone changed since the last published value. Best-effort.
+    ///
+    /// Call only from the foregrounded main app -- never from the Notification
+    /// Service Extension or a background task.
+    public func republishAgentTimezones() async {
+        do {
+            let publisher = try await messagingService().agentTimezonePublisher()
+            await publisher.republishTimezoneForAgentConversations()
+        } catch {
+            Log.warning("Skipped agent timezone republish; inbox not ready: \(error.localizedDescription)")
+        }
     }
 
     /// A provisioned agent whose XMTP inbox has registered and is ready to add.

@@ -109,6 +109,8 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         return .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")
     }
 
+    public func republishAgentTimezones() async {}
+
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }

@@ -88,11 +88,14 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// `inboxId`; the caller adds that inbox to the declared group with
     /// addMembers and the runtime attaches when it observes the resulting
     /// group welcome — no further calls.
+    /// `timezone` is the creator's device IANA timezone identifier, forwarded
+    /// to the agent runtime as the conversation's baseline/default zone.
     func requestAgentJoin(
         slug: String?,
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
@@ -215,21 +218,27 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
 extension ConvosAPIClientProtocol {
     func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: nil, options: nil, forceErrorCode: nil)
+        try await requestAgentJoin(
+            slug: slug, conversationId: nil, templateId: nil, options: nil, timezone: nil, forceErrorCode: nil
+        )
     }
 
     func requestAgentJoin(
         slug: String,
         options: ConvosAPI.AgentJoinOptions?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: nil, options: options, forceErrorCode: nil)
+        try await requestAgentJoin(
+            slug: slug, conversationId: nil, templateId: nil, options: options, timezone: nil, forceErrorCode: nil
+        )
     }
 
     func requestAgentJoin(
         slug: String,
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, conversationId: nil, templateId: templateId, options: nil, forceErrorCode: nil)
+        try await requestAgentJoin(
+            slug: slug, conversationId: nil, templateId: templateId, options: nil, timezone: nil, forceErrorCode: nil
+        )
     }
 
     /// Default so bespoke test doubles that don't exercise the builder don't
@@ -847,6 +856,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         conversationId: String? = nil,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
+        timezone: String? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
         var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
@@ -858,12 +868,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             request.setValue("\(forceErrorCode)", forHTTPHeaderField: "X-Force-Error")
         }
 
+        // `timezone` is the creator's device IANA timezone, captured on the main
+        // actor by the caller. It seeds the agent's baseline/default zone and is
+        // distinct from the per-sender ProfileUpdate "timezone" metadata key.
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
                 conversationId: conversationId,
                 templateId: templateId,
-                options: options
+                options: options,
+                timezone: timezone
             )
         )
 

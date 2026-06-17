@@ -178,17 +178,28 @@ public enum ConvosAPI {
         public let conversationId: String?
         public let templateId: String?
         public let options: AgentJoinOptions?
+        /// IANA timezone identifier (e.g. "Europe/Paris") carrying the
+        /// conversation creator's device timezone, used by the agent runtime as
+        /// the conversation's baseline/default. Distinct from the per-sender
+        /// "timezone" key in ProfileUpdate.metadata, which reflects each
+        /// member's own current device timezone: this one is set once at join
+        /// time and does not track travel or DST. Optional and nil-omitted by
+        /// Codable, so the wire format stays backward-compatible until the
+        /// backend reads it.
+        public let timezone: String?
 
         public init(
             slug: String? = nil,
             conversationId: String? = nil,
             templateId: String? = nil,
-            options: AgentJoinOptions? = nil
+            options: AgentJoinOptions? = nil,
+            timezone: String? = nil
         ) {
             self.slug = slug
             self.conversationId = conversationId
             self.templateId = templateId
             self.options = options
+            self.timezone = timezone
         }
     }
 

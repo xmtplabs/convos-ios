@@ -15,6 +15,11 @@ struct ConvosApp: App {
     let coreActions: any CoreActions
     let conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel = .shared
+    /// Guards the opportunistic agent-timezone republish to once per foreground
+    /// session, so background-foregrounding the app repeatedly does not re-run
+    /// it. A reference type so the flag survives across `onChange` invocations
+    /// of the value-type App.
+    private let timezoneForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard()
 
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
@@ -181,16 +186,63 @@ struct ConvosApp: App {
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
             .onChange(of: scenePhase) { _, newPhase in
-                guard newPhase == .active else { return }
-                // Foreground refresh — TTL-debounced inside both services, so
-                // this is a cheap no-op if we were just active. Catches the
-                // case where credits changed server-side while the app was
-                // backgrounded (agent runtime consume, Apple webhook, manual op).
-                Task {
-                    await CreditsServices.shared.refresh()
-                    await SubscriptionServices.shared.refresh()
+                switch newPhase {
+                case .active:
+                    handleScenePhaseActive()
+                case .background:
+                    // Re-arm the once-per-foreground guard so the next time the
+                    // app comes back to the foreground it republishes again.
+                    timezoneForegroundGuard.reset()
+                default:
+                    break
                 }
             }
         }
+    }
+
+    private func handleScenePhaseActive() {
+        // Foreground refresh — TTL-debounced inside both services, so this is a
+        // cheap no-op if we were just active. Catches the case where credits
+        // changed server-side while the app was backgrounded (agent runtime
+        // consume, Apple webhook, manual op).
+        Task {
+            await CreditsServices.shared.refresh()
+            await SubscriptionServices.shared.refresh()
+        }
+
+        // Opportunistic agent-timezone republish (agent-timezone Channel B).
+        // Once per foreground session, after a short settle delay, the session
+        // republishes the device timezone for every agent conversation whose
+        // last-published value differs from the current one. Throttling and
+        // agent-scope gating live inside the session/publisher; this only
+        // schedules the work from the foregrounded main app.
+        guard timezoneForegroundGuard.tryConsume() else { return }
+        let session = convos.session
+        Task(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
+            await session.republishAgentTimezones()
+        }
+    }
+}
+
+/// Single-shot guard for the once-per-foreground-session timezone republish.
+/// `tryConsume()` returns true exactly once until `reset()` re-arms it on the
+/// next background transition.
+private final class ForegroundOnceGuard: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var consumed: Bool = false
+
+    func tryConsume() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !consumed else { return false }
+        consumed = true
+        return true
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        consumed = false
     }
 }

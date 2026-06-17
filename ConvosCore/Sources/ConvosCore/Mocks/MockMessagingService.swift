@@ -129,8 +129,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
+    public func profileMetadataWriter() -> any ProfileMetadataWriterProtocol {
+        MockProfileMetadataWriter()
+    }
+
     public func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         MockConnectionGrantWriter()
+    }
+
+    public func agentTimezonePublisher() async throws -> any AgentTimezonePublishing {
+        MockAgentTimezonePublisher()
     }
 
     public func connectionServicesStore() -> any ConnectionServicesStoreProtocol {
