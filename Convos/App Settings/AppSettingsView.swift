@@ -367,7 +367,7 @@ struct AppSettingsView: View {
         HStack {
             Text("Made in the open by XMTP Labs")
             Spacer()
-            Text("V\(Bundle.appVersion)")
+            Text("v\(Bundle.appVersion)")
                 .foregroundStyle(.colorTextTertiary)
         }
         .foregroundStyle(.colorTextSecondary)
