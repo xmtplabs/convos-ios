@@ -34,6 +34,10 @@ struct AgentBuilderSummaryView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
+            Text(footerText)
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
             // `GlassEffectContainer` gives iOS a stable scope to coordinate
             // the card's backdrop-sampling pipeline. Standalone `.glassEffect`
             // inside a `UIHostingConfiguration` cell renders as opaque grey
@@ -45,10 +49,6 @@ struct AgentBuilderSummaryView: View {
             GlassEffectContainer {
                 card
             }
-            Text(footerText)
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.center)
         }
     }
 

@@ -261,22 +261,6 @@ public final class MessagesListProcessor: Sendable {
     ) -> [MessagesListItemType] {
         var items: [MessagesListItemType] = baseItems
 
-        // Suppress the legacy "Agent joined" update row while the builder UI is
-        // on screen (home flow): pre-Make it sits under the builder overlay, and
-        // during the post-Make morph the summary + contact card already announce
-        // arrival, so the row would only flash through the fade-out. Recipients
-        // and the dismissed existing-conversation builder are never
-        // `isInAgentBuilderFlow`, so they keep the join row as a real event and
-        // as the contact-card anchor. Gates on `addedAgent` (not
-        // `addedVerifiedAgent`): attestation lands after the member-added event,
-        // and the flash window is before verification completes.
-        if isInAgentBuilderFlow {
-            items = items.filter { item in
-                guard case .update(_, let update, _) = item else { return true }
-                return !update.addedAgent
-            }
-        }
-
         if !buildMessageIds.isEmpty {
             items = reconstructBuilderCards(
                 in: items,
@@ -309,10 +293,15 @@ public final class MessagesListProcessor: Sendable {
             let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
             let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
             if rowsLanded || (withinWindow && !awaitingHistory) {
+                let messageDates: [String: Date] = Dictionary(
+                    rawMessages.map { ($0.messageId, $0.date) },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 insertSummaryCard(
                     .agentBuilderSummary(makePendingCardContent(summary: summary)),
                     into: &items,
-                    cutoffDate: summary.cutoffDate
+                    cutoffDate: summary.cutoffDate,
+                    messageDates: messageDates
                 )
             }
         }
@@ -1018,29 +1007,46 @@ private extension MessagesListProcessor {
     private static func insertSummaryCard(
         _ card: MessagesListItemType,
         into items: inout [MessagesListItemType],
-        cutoffDate: Date
+        cutoffDate: Date,
+        messageDates: [String: Date]
     ) {
-        var firstNewerGroupIndex: Int = items.count
+        var firstNewerIndex: Int = items.count
         for (index, item) in items.enumerated().reversed() {
-            guard case .messages(let group) = item,
-                  let firstDate = group.messages.first?.date,
-                  let lastDate = group.messages.last?.date else { continue }
-            if lastDate <= cutoffDate {
-                items.insert(card, at: index + 1)
-                return
+            switch item {
+            case .messages(let group):
+                guard let firstDate = group.messages.first?.date,
+                      let lastDate = group.messages.last?.date else { continue }
+                if lastDate <= cutoffDate {
+                    items.insert(card, at: index + 1)
+                    return
+                }
+                if firstDate <= cutoffDate {
+                    let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
+                    let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
+                    guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
+                    let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
+                    let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
+                    items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
+                    return
+                }
+                firstNewerIndex = index
+            case .update(let id, _, _):
+                // Update rows carry their date via the raw message lookup, not
+                // the item itself. Honor it so a post-Make membership update
+                // (e.g. the agent joining) sorts below the card instead of
+                // floating above it just because the next *message* group is
+                // newer than the update.
+                guard let date = messageDates[id] else { continue }
+                if date <= cutoffDate {
+                    items.insert(card, at: index + 1)
+                    return
+                }
+                firstNewerIndex = index
+            default:
+                continue
             }
-            if firstDate <= cutoffDate {
-                let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
-                let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
-                guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
-                let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
-                let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
-                items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
-                return
-            }
-            firstNewerGroupIndex = index
         }
-        items.insert(card, at: firstNewerGroupIndex)
+        items.insert(card, at: firstNewerIndex)
     }
 
     /// Card content built from the summary alone, for the window between Make

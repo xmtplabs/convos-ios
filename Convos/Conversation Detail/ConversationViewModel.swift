@@ -514,7 +514,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
     var untitledConversationPlaceholder: String {
         if let presentation = pendingAgentPresentation {
-            return presentation.name ?? "Agent"
+            return presentation.name ?? "New Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
@@ -543,19 +543,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
-        // Direct builder with a live preview (PR #309 / the local stub): paint
-        // the draft identity (name + emoji) into the header while awaiting the
-        // agent. `showsContactCard` stays false -- the body card is the
-        // dedicated `.agentActivating` cell, so this only drives the header.
-        if directBuildAwaitingAgent, !hasRealVerifiedAgent, let preview = directBuildGeneration?.preview {
-            return PendingAgentPresentation(
-                name: preview.agentName,
-                emoji: preview.emoji,
-                avatarURL: nil,
-                agentDescription: preview.description,
-                showsContactCard: false
-            )
-        }
+        // Direct builder: the header intentionally stays generic ("Agent" title
+        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
+        // The draft preview identity is revealed progressively by the dedicated
+        // `.agentActivating` card, not the header; the header only adopts the
+        // real name/emoji once the verified agent actually joins. So fall
+        // through to the generic no-identity pending case below.
         if shouldRenderAsPendingAgentBuilder {
             return PendingAgentPresentation(
                 name: nil,
@@ -664,12 +657,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         if shouldRenderAsPendingAgent {
-            // Surface the latest build-narration line (PR #309 / stub) while a
-            // direct build runs; fall back to the generic "Joining..." copy.
-            if let phrase = directBuildGeneration?.progressPhrases.last, !phrase.isEmpty {
-                return phrase
-            }
-            return "Joining..."
+            // Static copy for the whole build; the header subtitle intentionally
+            // does not cycle the build-narration phrases. It flips to the member
+            // count once the agent joins (shouldRenderAsPendingAgent == false).
+            return "Making agent..."
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString

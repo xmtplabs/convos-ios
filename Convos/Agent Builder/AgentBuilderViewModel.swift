@@ -1100,6 +1100,10 @@ final class AgentBuilderViewModel: Identifiable {
         for (connection, cloudConnectionId) in capturedCloudConnectionIds {
             cloudConnectionIds[connection.rawValue] = cloudConnectionId
         }
+        // Pre-allocate the prompt's client message id so the creation-prompt
+        // card represents it (bundled by id) instead of a bare bubble, matching
+        // the legacy flow. nil for an attachment-only build (empty prompt).
+        let promptMessageId: String? = prompt.isEmpty ? nil : UUID().uuidString
         session.agentTemplateRepository().startGeneration(
             prompt: prompt,
             conversationId: conversationId,
@@ -1111,7 +1115,8 @@ final class AgentBuilderViewModel: Identifiable {
             prompt: prompt,
             conversationId: conversationId,
             attachments: summaryAttachments,
-            cloudConnectionIds: cloudConnectionIds
+            cloudConnectionIds: cloudConnectionIds,
+            bundledMessageIds: promptMessageId.map { Set([$0]) } ?? []
         )
         // The direct flow has copied the attachment bytes into the repository,
         // so clear the composer's staged attachments (the legacy bundle path
@@ -1121,6 +1126,23 @@ final class AgentBuilderViewModel: Identifiable {
         newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
         if recordedVoiceMemo != nil {
             cancelRecordedVoiceMemo()
+        }
+        // Legacy parity: also send the prompt into the conversation as a real
+        // message so the agent receives it once it joins and it persists across
+        // relaunch. Reuses the legacy `sendBuilderBundle` text path (gated on the
+        // agent joining). Text-only -- the direct flow uploads attachments via
+        // the generation API, not as XMTP messages, and the staged attachments
+        // were just cleared, so the bundle ships only the prompt.
+        if let promptMessageId, let innerVM = newConversationViewModel.conversationViewModel {
+            Task {
+                await innerVM.sendBuilderBundle(
+                    text: prompt,
+                    voiceMemo: nil,
+                    textMessageId: promptMessageId,
+                    bundleMessageId: nil,
+                    awaitsAgentJoin: true
+                )
+            }
         }
     }
 
@@ -1163,22 +1185,27 @@ final class AgentBuilderViewModel: Identifiable {
     /// shows the creator's prompt at the top of the chat while the agent
     /// builds (reuses `MessagesListProcessor`'s pending-card path), and so the
     /// `AgentBuilderConnectionGrantReplayer` can fire post-join grants from its
-    /// `.connection` attachments + `cloudConnectionIds`. No `bundledMessageIds`
-    /// (the direct flow sends no XMTP messages, so there's nothing to hide).
-    /// The card renders for `MessagesListProcessor.pendingCardDisplayWindow`
-    /// (180s) on this path. Set on the inner VM synchronously for the home-flow
-    /// morph / no first-frame flash, and persisted so it survives relaunch and
-    /// reaches the existing-conversation on-screen VM via its summary publisher.
+    /// `.connection` attachments + `cloudConnectionIds`. `bundledMessageIds`
+    /// carries the prompt's client message id (when the prompt is non-empty) so
+    /// the card represents that sent message instead of a bare bubble, matching
+    /// the legacy flow; the attachments still ride the generation API, not XMTP.
+    /// Once the prompt message lands, `reconstructBuilderCards` anchors the card
+    /// to it, so it persists past the 180s pending window and across relaunch.
+    /// Set on the inner VM synchronously for the home-flow morph / no first-frame
+    /// flash, and persisted so it survives relaunch and reaches the
+    /// existing-conversation on-screen VM via its summary publisher.
     private func persistCreationPromptCard(
         prompt: String,
         conversationId: String,
         attachments: [AgentBuilderSummaryAttachment],
-        cloudConnectionIds: [String: String]
+        cloudConnectionIds: [String: String],
+        bundledMessageIds: Set<String>
     ) {
         let summary = AgentBuilderSummary(
             prompt: prompt,
             attachments: attachments,
             cutoffDate: Date(),
+            bundledMessageIds: bundledMessageIds,
             cloudConnectionIds: cloudConnectionIds,
             existingConversation: targetsExistingConversation
         )

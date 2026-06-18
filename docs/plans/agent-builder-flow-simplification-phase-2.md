@@ -225,6 +225,120 @@ auto-publish-into-a-group question is tracked in the main plan doc.
    the card stays on its generic version and the build still completes.
 5. No regression to terminal handling or to the legacy maker (flag off).
 
+## UI feedback checklist
+
+Running list of UI feedback on the in-progress build screen, checked off as
+resolved.
+
+- [x] **Header subtitle copy + behavior.** Initial title `Agent` is fine, but the
+  subtitle should read `Making agent...` (not `Joining...`) and stay static for
+  the whole build instead of cycling the progress phrases. It flips to the member
+  count (`2 members`) once the agent joins. Resolved in
+  `ConversationViewModel.conversationInfoSubtitle` (static `Making agent...` while
+  `shouldRenderAsPendingAgent`).
+- [x] **Activating card chrome + fixed height.** The in-progress card had no
+  visible border, so it read like a flat message rather than a card. Give it the
+  same border/shadow as the finished contact card, and a fixed height so the
+  description has reserved whitespace before it reveals (no layout jump).
+  Resolved in `AgentActivatingCardView`: wrapped in `GlassEffectContainer` +
+  `.glassEffect(.regular.interactive(), in: .rect(cornerRadius:))` to match
+  `AgentContactCardView`. Fixed height uses a **hidden sizer** in a `ZStack`
+  (an empty `Text` collapses even with `reservesSpace`, so the sizer holds a
+  ~140-char wrappable placeholder at `descriptionLineCount = 4` lines) with the
+  real description overlaid on top — the card height never changes when the
+  description reveals. `descriptionLineCount` is adjustable.
+
+- [x] **Match the agent color (not orange).** The activating card used a generic
+  `Color.orange` accent (avatar circle, progress bar, caption). Switch it to the
+  verified-Convos-agent color `.colorLava` (`#fc4f38`) so it matches the avatar
+  background + name color of the finished `AgentContactCardView` (via
+  `AgentVerification.avatarBackgroundColor`). Resolved in
+  `AgentActivatingCardView.Constant.accent` — the single accent token drives all
+  three usages.
+
+- [x] **Move "You created an agent" above the prompt.** The creation-prompt card
+  showed the prompt with the "You created an agent" / "<name> created an agent"
+  caption *below* it; move that caption *above* the prompt card. Resolved by
+  reordering the `VStack` in `AgentBuilderSummaryView` (footer text first, card
+  second). Note: this view is shared with the legacy maker, so the reorder
+  applies to both flows.
+
+- [x] **Reveal order: emoji → name → description.** The staggered reveal was
+  name → emoji → description; change to emoji → name → description (description
+  last, unchanged). Resolved in `AgentActivatingCardView` by swapping the
+  `revealStage` thresholds (`showsEmoji >= 1`, `hasName`/`title >= 2`).
+
+- [x] **Caption rotation rules.** Instead of cycling every API phrase, alternate:
+  start with an API progress phrase, then every other message is the reassurance
+  line ("Agent will join soon", or "<name> will join soon" once the name is
+  revealed); and once the progress bar plateaus near the end, stop alternating
+  and hold "<name> will join soon". Resolved in `AgentActivatingCardView.caption`
+  (even ticks = API phrase, odd ticks = `joinSoonText`; pinned to `joinSoonText`
+  when `progressFraction >= generatingMax`). Note: "near the end" uses the
+  progress-bar plateau as a proxy because `estimatedDurationMs` isn't wired into
+  the client yet — wiring it would make this precise.
+
+- [x] **Header stays generic during the build (no preview in header).** The header
+  used to flip to the preview name + emoji the instant the response arrived, out
+  of sync with the card's progressive reveal. Decision: keep the header constant
+  — title "Agent", add-agent glyph, subtitle "Making agent..." — for the whole
+  build, and only adopt the real name/emoji when the agent joins. The
+  progressive reveal lives solely on the `.agentActivating` card. Resolved by
+  removing the direct-builder preview branch in
+  `ConversationViewModel.pendingAgentPresentation` so it falls through to the
+  generic no-identity pending case. Default title is "New Agent" (matches the
+  conversation list) via `untitledConversationPlaceholder`. (Considered a header
+  reveal synced to the
+  card, but the card's reveal is a view-local timer with deliberately stable
+  content, so syncing would need a parallel reveal clock + header gating;
+  not worth it for this.)
+
+- [x] **"Agent joined" row: keep it showing (suppression removed).** Originally
+  the builder flow hid the "X joined" row (which also caused a brief flash since
+  the gate only fired after agent attestation). Decision reversed: we want the
+  join row to always show. Removed the `isInAgentBuilderFlow` suppression filter
+  in `MessagesListProcessor` entirely, so the row renders in every flow. The
+  flash is moot (the row no longer appears-then-vanishes; it just stays), and the
+  ordering fix below keeps it correctly positioned below the creation card.
+  (`isInAgentBuilderFlow` is now an unused param, left in place to avoid churning
+  the public `process` signature + callers/tests.)
+
+- [x] **"Agent joined" row sorted above the creation card.** After leave/rejoin
+  the "<agent> joined - Invited by You" row appeared above the "You created an
+  agent" card and the messages. A timestamp diagnostic confirmed the join's
+  `sentAt` is actually correct (after Make) -- so this was a positioning bug, not
+  a bad timestamp: `insertSummaryCard` placed the card relative to `.messages`
+  groups only and ignored `.update` rows, so a post-Make membership update that
+  preceded the next message group floated above the card. Fix: `insertSummaryCard`
+  now also honors `.update` row dates (looked up from the raw messages, since the
+  `.update` item doesn't carry its date), so post-Make joins sort below the card.
+  Verified it preserves the "summary stays above the contact card" invariant for
+  the pre-Make-join case.
+
+- [x] **Caption color by type.** The "<name> will join soon" reassurance line
+  keeps the lava accent (`.colorLava`); the dynamic API progress phrases now use
+  the grayish secondary color. Resolved in `AgentActivatingCardView` via
+  `captionColor` (grayish for `captionIsProgressPhrase`, lava otherwise). Used
+  `.colorTextSecondary` for the grayish tone (matches the card's description
+  text) -- swap to a specific accent token if that's what "first accent color"
+  meant.
+
+- [x] **Send the prompt as a message (legacy parity).** The direct flow only
+  sent the prompt to the generation API; now it also sends it into the
+  conversation as a real message, like the legacy flow. Confirmed the legacy
+  send path exists and is reusable: `OutgoingMessageWriter.sendBuilderBundle`
+  cleanly ships text-only when the attachment bundle is empty (manifest =
+  `[textMessageId]`, gated on the agent joining). Wired in
+  `AgentBuilderViewModel.startDirectGenerationIfReady`: pre-allocate a prompt
+  client message id (nil for an attachment-only build), put it in the summary's
+  `bundledMessageIds` so the creation-prompt card represents the sent message
+  (and persists past the 180s window / across relaunch via
+  `reconstructBuilderCards`), then call `innerVM.sendBuilderBundle(text:…,
+  awaitsAgentJoin: true)` after the staged attachments are cleared (so it ships
+  prompt-only; attachments still go via the generation API). Note: the agent now
+  receives the prompt both via the API build and as a chat message on join --
+  expected for legacy parity.
+
 ## Still out of scope (later phases)
 
 - `inputs.attachments[]` + presigned upload (PR #310) — Phase 5 (media); the

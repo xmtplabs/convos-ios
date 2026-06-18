@@ -7,8 +7,8 @@ import SwiftUI
 ///
 /// The backend (PR #309) writes the whole `preview` + `progressPhrases` set in
 /// one shot when the generation reaches `running`, so this view paces the
-/// reveal client-side to fill the ~30s build: the name appears first, then the
-/// emoji, then the description (a few seconds apart), while the caption cycles
+/// reveal client-side to fill the ~30s build: the emoji appears first, then the
+/// name, then the description (a few seconds apart), while the caption cycles
 /// through the build-narration phrases. Because the content is stable within a
 /// phase, the view's timer isn't reset by polls. Handed off to the real agent
 /// contact card once the agent joins (the processor drops this card then).
@@ -23,7 +23,7 @@ struct AgentActivatingCardView: View {
         .publish(every: Constant.tickSeconds, on: .main, in: .common)
         .autoconnect()
 
-    /// 0 = nothing, 1 = name, 2 = name + emoji, 3 = name + emoji + description.
+    /// 0 = nothing, 1 = emoji, 2 = emoji + name, 3 = emoji + name + description.
     private var revealStage: Int {
         switch content.phase {
         case .preparing:
@@ -31,25 +31,25 @@ struct AgentActivatingCardView: View {
         case .finishing:
             return 3
         case .generating:
-            // Hold the placeholder for a beat before revealing the name, then
-            // name -> emoji -> description, ~`tickSeconds` apart.
+            // Hold the placeholder for a beat before the first reveal, then
+            // emoji -> name -> description, ~`tickSeconds` apart.
             return min(tick, 3)
         }
     }
 
     private var title: String {
-        if revealStage >= 1, let name = content.agentName, !name.isEmpty {
+        if revealStage >= 2, let name = content.agentName, !name.isEmpty {
             return name
         }
         return "Activating agent"
     }
 
     private var hasName: Bool {
-        revealStage >= 1 && content.agentName?.isEmpty == false
+        revealStage >= 2 && content.agentName?.isEmpty == false
     }
 
     private var showsEmoji: Bool {
-        revealStage >= 2 && content.emoji?.isEmpty == false
+        revealStage >= 1 && content.emoji?.isEmpty == false
     }
 
     private var resolvedDescription: String? {
@@ -59,18 +59,52 @@ struct AgentActivatingCardView: View {
         return description
     }
 
+    /// The reassurance line shown between API phrases (and at the tail). Uses
+    /// the agent's name once it has been revealed, else the generic copy.
+    private var joinSoonText: String {
+        if hasName, let name = content.agentName, !name.isEmpty {
+            return "\(name) will join soon"
+        }
+        return "Agent will join soon"
+    }
+
+    /// True only when the caption is currently showing a dynamic API progress
+    /// phrase (vs the "<name> will join soon" reassurance line). Mirrors the
+    /// `caption` branches so the color can differ.
+    private var captionIsProgressPhrase: Bool {
+        guard content.phase == .generating,
+              progressFraction < Constant.generatingMax,
+              !content.progressPhrases.isEmpty else {
+            return false
+        }
+        return tick % 2 == 0
+    }
+
+    /// Progress phrases use the grayish secondary color; the "will join soon"
+    /// reassurance line keeps the lava accent.
+    private var captionColor: Color {
+        captionIsProgressPhrase ? .colorTextSecondary : Constant.accent
+    }
+
     private var caption: String {
         switch content.phase {
-        case .finishing:
-            if let name = content.agentName, !name.isEmpty {
-                return "\(name) will be great in groupchats"
-            }
-            return "Agent will join soon"
-        case .preparing:
-            return "Agent will join soon"
+        case .preparing, .finishing:
+            return joinSoonText
         case .generating:
-            guard !content.progressPhrases.isEmpty else { return "Agent will join soon" }
-            return content.progressPhrases[tick % content.progressPhrases.count]
+            // Once the progress bar plateaus near the end (the client-side proxy
+            // for the end of the estimated build time, since estimatedDurationMs
+            // isn't wired in yet), stop alternating with API phrases and hold the
+            // reassurance line.
+            if progressFraction >= Constant.generatingMax {
+                return joinSoonText
+            }
+            guard !content.progressPhrases.isEmpty else { return joinSoonText }
+            // Alternate, starting with an API phrase: even ticks show the next
+            // API progress phrase, odd ticks show the reassurance line.
+            if tick % 2 == 1 {
+                return joinSoonText
+            }
+            return content.progressPhrases[(tick / 2) % content.progressPhrases.count]
         }
     }
 
@@ -87,10 +121,12 @@ struct AgentActivatingCardView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            card
+            GlassEffectContainer {
+                card
+            }
             Text(caption)
                 .font(.footnote.weight(.medium))
-                .foregroundStyle(Constant.accent)
+                .foregroundStyle(captionColor)
                 .multilineTextAlignment(.center)
                 .transition(.blurReplace)
                 .id("agent-activating-caption-\(caption)")
@@ -112,13 +148,7 @@ struct AgentActivatingCardView: View {
                     .foregroundStyle(hasName ? .colorTextPrimary : .colorTextSecondary)
                     .transition(.blurReplace)
                     .id("agent-activating-title-\(title)")
-                if let description = resolvedDescription {
-                    Text(description)
-                        .font(.body)
-                        .foregroundStyle(.colorTextSecondary)
-                        .transition(.blurReplace)
-                        .id("agent-activating-description")
-                }
+                descriptionArea
             }
             ProgressView(value: progressFraction)
                 .tint(Constant.accent)
@@ -126,6 +156,32 @@ struct AgentActivatingCardView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(DesignConstants.Spacing.step8x)
         .background(.colorBackgroundRaised, in: .rect(cornerRadius: Constant.cornerRadius))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Constant.cornerRadius))
+    }
+
+    /// Fixed-height description slot. A hidden sizer reserves a constant
+    /// `descriptionLineCount`-line block from the moment the card appears
+    /// (an empty `Text` collapses even with `reservesSpace`, so the sizer holds
+    /// real placeholder content instead), and the real description is overlaid
+    /// on top. The card's height therefore never changes when the description
+    /// blur-fades in.
+    private var descriptionArea: some View {
+        ZStack(alignment: .topLeading) {
+            Text(Constant.descriptionPlaceholder)
+                .font(.body)
+                .lineLimit(Constant.descriptionLineCount, reservesSpace: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .hidden()
+            if let description = resolvedDescription {
+                Text(description)
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(Constant.descriptionLineCount)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .transition(.blurReplace)
+                    .id("agent-activating-description")
+            }
+        }
     }
 
     private var avatar: some View {
@@ -152,9 +208,20 @@ struct AgentActivatingCardView: View {
     }
 
     private enum Constant {
-        static let accent: Color = .orange
+        /// The verified-Convos-agent color (`#fc4f38`), matching the avatar
+        /// background + name color of `AgentContactCardView` /
+        /// `AgentVerification.avatarBackgroundColor` so the activating card and
+        /// the finished card read as the same agent.
+        static let accent: Color = .colorLava
         static let cornerRadius: CGFloat = 24
         static let avatarSize: CGFloat = 64
+        /// Lines reserved for the description so the card holds a fixed height
+        /// before the text reveals (generated descriptions cap at ~140 chars).
+        static let descriptionLineCount: Int = 4
+        /// Non-empty filler for the hidden description sizer. ~140 chars of
+        /// wrappable text guarantees the slot fills `descriptionLineCount`
+        /// lines regardless of `reservesSpace` quirks with empty strings.
+        static let descriptionPlaceholder: String = String(repeating: "reserved ", count: 18)
         /// Seconds between reveal/phrase steps. ~2.5s comfortably fills a ~30s
         /// build and finishes the reveal in the first ~5s of `running`.
         static let tickSeconds: TimeInterval = 2.5
