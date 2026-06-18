@@ -380,7 +380,28 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try profile.save(db)
         }
 
+        // Repair member avatars that were stored with a reference but no
+        // decryption key (a profile message processed before this conversation's
+        // imageEncryptionKey was known - e.g. pre-fix rows, or a race during
+        // initial sync). Member avatars are encrypted with the group key, so
+        // stamping it makes them decryptable; without this they render blank.
+        if let key = prepared.dbConversation.imageEncryptionKey {
+            try Self.backfillKeylessMemberAvatars(conversationId: prepared.dbConversation.id, key: key, in: db)
+        }
+
         return saveResult
+    }
+
+    /// Stamps `key` onto member profiles in `conversationId` that have an
+    /// encrypted-avatar reference (url + salt + nonce) but no `avatarKey`.
+    static func backfillKeylessMemberAvatars(conversationId: String, key: Data, in db: Database) throws {
+        try DBMemberProfile
+            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+            .filter(DBMemberProfile.Columns.avatar != nil)
+            .filter(DBMemberProfile.Columns.avatarSalt != nil)
+            .filter(DBMemberProfile.Columns.avatarNonce != nil)
+            .filter(DBMemberProfile.Columns.avatarKey == nil)
+            .updateAll(db, DBMemberProfile.Columns.avatarKey.set(to: key))
     }
 
     /// Clears a persisted removed marker once a synced member list proves the
@@ -1054,8 +1075,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let conversationId = conversation.id
             let encryptionKey = try? conversation.imageEncryptionKey
 
-            var latestUpdates: [String: ProfileUpdate] = [:]
-            var latestSnapshot: ProfileSnapshot?
+            var latestUpdates: [String: (update: ProfileUpdate, sentAt: Date)] = [:]
+            var latestSnapshot: (snapshot: ProfileSnapshot, sentAt: Date)?
 
             for message in messages {
                 guard let contentType = try? message.encodedContent.type else { continue }
@@ -1064,9 +1085,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                     guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
                     let inboxId = message.senderInboxId
                     guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
-                    latestUpdates[inboxId] = update
+                    latestUpdates[inboxId] = (update, message.sentAt)
                 } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
-                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                    if let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) {
+                        latestSnapshot = (snapshot, message.sentAt)
+                    }
                 }
             }
 
@@ -1074,7 +1097,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let resolvedSnapshot = latestSnapshot
 
             try await databaseWriter.write { db in
-                for (inboxId, update) in resolvedUpdates {
+                for (inboxId, entry) in resolvedUpdates {
+                    let update = entry.update
                     let profileMetadata = update.profileMetadata
                     try Self.applyProfileData(
                         db: db, conversationId: conversationId, inboxId: inboxId,
@@ -1082,17 +1106,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                         encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
                         memberKind: update.memberKind.dbMemberKind,
                         metadata: profileMetadata.isEmpty ? nil : profileMetadata,
-                        fallbackEncryptionKey: encryptionKey
+                        fallbackEncryptionKey: encryptionKey,
+                        sentAt: entry.sentAt
                     )
                 }
 
-                if let snapshot = resolvedSnapshot {
-                    for memberProfile in snapshot.profiles {
+                if let snapshotEntry = resolvedSnapshot {
+                    for memberProfile in snapshotEntry.snapshot.profiles {
                         let inboxId = memberProfile.inboxIdString
                         guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
-
-                        let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-                        guard existing?.name == nil, existing?.avatar == nil else { continue }
 
                         let snapshotMetadata = memberProfile.profileMetadata
                         try Self.applyProfileData(
@@ -1101,13 +1123,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                             encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
                             memberKind: memberProfile.memberKind.dbMemberKind,
                             metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
-                            fallbackEncryptionKey: encryptionKey
+                            fallbackEncryptionKey: encryptionKey,
+                            sentAt: snapshotEntry.sentAt
                         )
                     }
                 }
             }
 
-            let profileCount = latestUpdates.count + (latestSnapshot?.profiles.count ?? 0)
+            let profileCount = latestUpdates.count + (latestSnapshot?.snapshot.profiles.count ?? 0)
             if profileCount > 0 {
                 Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
             }
@@ -1124,7 +1147,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         encryptedImage: EncryptedProfileImageRef?,
         memberKind: DBMemberKind?,
         metadata: ProfileMetadata? = nil,
-        fallbackEncryptionKey: Data?
+        fallbackEncryptionKey: Data?,
+        sentAt: Date
     ) throws {
         let member = DBMember(inboxId: inboxId)
         try member.save(db)
@@ -1136,9 +1160,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         profile = profile.with(name: name)
 
         if let image = encryptedImage, image.isValid {
-            profile = profile.with(
-                avatar: image.url, salt: image.salt, nonce: image.nonce,
-                key: profile.avatarKey ?? fallbackEncryptionKey
+            profile = profile.applyingEncryptedAvatar(
+                url: image.url, salt: image.salt, nonce: image.nonce,
+                resolvedKey: profile.avatarKey ?? fallbackEncryptionKey
             )
         }
 
@@ -1163,7 +1187,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             profile = profile.with(memberKind: priorMemberKind)
         }
 
-        try profile.save(db)
+        try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: sentAt)
 
         if profile.agentVerification.isConvosAgent,
            let conversation = try DBConversation.fetchOne(db, id: conversationId),

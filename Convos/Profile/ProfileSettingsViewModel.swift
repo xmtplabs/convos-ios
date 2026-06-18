@@ -148,14 +148,21 @@ class ProfileSettingsViewModel {
         }
         let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
-        let imageData = profileImage?.jpegData(compressionQuality: 1.0)
-        let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
-        try await writer.save(
-            name: resolvedName,
-            imageData: imageData,
-            imageAssetIdentifier: assetIdentifier,
-            metadata: nil
-        )
+
+        // Field-preserving writes instead of a full-row replace. The name comes
+        // straight from the text field (never an un-hydrated value), so it always
+        // applies and preserves the stored image + metadata. The image is only
+        // written when we have one in memory, or when the profile is confirmed
+        // loaded and genuinely has none (a real removal) - never speculatively,
+        // so a save during cold-launch/post-pairing load can't wipe the avatar.
+        try await writer.update(name: resolvedName)
+
+        if let profileImage, let imageData = profileImage.jpegData(compressionQuality: 1.0) {
+            try await writer.update(imageData: imageData, imageAssetIdentifier: profileImageAssetIdentifier)
+        } else if profileImage == nil, await waitForProfileLoad(timeout: 2.0) {
+            try await writer.update(imageData: nil, imageAssetIdentifier: nil)
+        }
+
         markProfileEditorShownIfPopulated()
     }
 

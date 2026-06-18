@@ -389,4 +389,39 @@ extension ContactsWriter {
             agentTemplateEmoji: profile.agentTemplateEmoji
         )
     }
+
+    /// Most-recent-wins apply for an inbound member profile (live stream,
+    /// history replay, or push extension). Drops the write when `incomingSentAt`
+    /// is older than the row's stored `profileUpdatedAt`, so a stale or replayed
+    /// message can never clobber newer data. When applied, stamps the row with
+    /// `incomingSentAt`, persists it, and mirrors to `DBContact` in the same
+    /// transaction so the member row and contact row can never diverge.
+    ///
+    /// `incomingSentAt` is the sender's `message.sentAt` (sender clock); this
+    /// accepts sender-clock ordering, identical to the `DBContact` guard in
+    /// `replacingProfile(of:with:)`. Equal-or-newer applies (the equal case is
+    /// the idempotent reprocess of the same message). Returns true when applied,
+    /// false when dropped as stale.
+    @discardableResult
+    static func applyInboundMemberProfileInTransaction(
+        db: Database,
+        profile: DBMemberProfile,
+        incomingSentAt: Date
+    ) throws -> Bool {
+        let stored = try DBMemberProfile.fetchOne(
+            db,
+            conversationId: profile.conversationId,
+            inboxId: profile.inboxId
+        )?.profileUpdatedAt
+        if let stored, incomingSentAt < stored {
+            return false
+        }
+        let stamped = profile.with(profileUpdatedAt: incomingSentAt)
+        try saveMemberProfileAndMirrorToContactInTransaction(
+            db: db,
+            profile: stamped,
+            receivedAt: incomingSentAt
+        )
+        return true
+    }
 }

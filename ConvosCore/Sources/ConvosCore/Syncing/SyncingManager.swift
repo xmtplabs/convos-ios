@@ -136,6 +136,11 @@ actor SyncingManager: SyncingManagerProtocol {
     /// start because it captures the live XMTP client.
     private var consentReconciler: ConversationConsentReconciler?
 
+    /// Re-drives global-profile fan-out so name/avatar edits reliably reach
+    /// every conversation (and retries silently-failed publishes). Reconstructed
+    /// per session start because it captures the live XMTP + API clients.
+    private var profileReconciler: ProfileSyncReconciler?
+
     /// Populates the agent-template read-through cache for template-backed
     /// agent contacts. Reconstructed per start because it captures the
     /// live API client.
@@ -214,6 +219,7 @@ actor SyncingManager: SyncingManagerProtocol {
     deinit {
         // Clean up tasks
         consentReconciler?.stop()
+        profileReconciler?.stop()
         agentTemplateCacheCoordinator?.stop()
         syncTask?.cancel()
         notificationTask?.cancel()
@@ -455,6 +461,7 @@ actor SyncingManager: SyncingManagerProtocol {
         }
 
         restartConsentReconciler(client: client)
+        restartProfileReconciler(client: client, apiClient: apiClient)
         restartAgentTemplateCacheCoordinator(apiClient: apiClient)
 
         // Wait for streams to enter their async iteration loops before proceeding.
@@ -656,19 +663,6 @@ actor SyncingManager: SyncingManagerProtocol {
     }
 
     /// Signals that the message stream has entered its async iteration loop.
-    private func signalMessageStreamReady() {
-        messageStreamReadyContinuation?.yield()
-        messageStreamReadyContinuation?.finish()
-        messageStreamReadyContinuation = nil
-    }
-
-    /// Signals that the conversation stream has entered its async iteration loop.
-    private func signalConversationStreamReady() {
-        conversationStreamReadyContinuation?.yield()
-        conversationStreamReadyContinuation?.finish()
-        conversationStreamReadyContinuation = nil
-    }
-
     private func handlePause() async throws {
         guard case .ready(let params) = _state else {
             Log.warning("Cannot pause - not in ready state")
@@ -720,6 +714,7 @@ actor SyncingManager: SyncingManagerProtocol {
         }
 
         restartConsentReconciler(client: params.client)
+        restartProfileReconciler(client: params.client, apiClient: params.apiClient)
         restartAgentTemplateCacheCoordinator(apiClient: params.apiClient)
 
         // Wait for streams to subscribe before transitioning to ready
@@ -973,6 +968,22 @@ actor SyncingManager: SyncingManagerProtocol {
     }
 }
 
+extension SyncingManager {
+    /// Signals that the message stream has entered its async iteration loop.
+    fileprivate func signalMessageStreamReady() {
+        messageStreamReadyContinuation?.yield()
+        messageStreamReadyContinuation?.finish()
+        messageStreamReadyContinuation = nil
+    }
+
+    /// Signals that the conversation stream has entered its async iteration loop.
+    fileprivate func signalConversationStreamReady() {
+        conversationStreamReadyContinuation?.yield()
+        conversationStreamReadyContinuation?.finish()
+        conversationStreamReadyContinuation = nil
+    }
+}
+
 // MARK: - Mutation
 
 extension SyncingManager {
@@ -1081,20 +1092,6 @@ extension SyncingManager {
         await runMessageBatch(client: client, since: since)
         return acceptedCount
     }
-
-    private enum Constant {
-        /// How often the temporary agent-join poll checks for unprocessed
-        /// join requests.
-        static let agentJoinPollInterval: TimeInterval = 5
-        /// How long the poll keeps checking after an agents/join call. The
-        /// agent backend gives up after about two minutes; poll a bit past
-        /// that so the tail end of the window is still observable.
-        static let agentJoinPollWindow: TimeInterval = 150
-        /// Back-overlap applied when advancing the poll cursor so messages
-        /// that land while a sync pass is in flight aren't skipped by the
-        /// next tick.
-        static let agentJoinPollCursorOverlap: TimeInterval = 5
-    }
 }
 
 extension SyncingManager {
@@ -1114,12 +1111,18 @@ extension SyncingManager {
         notificationObservers.append(activeConversationObserver)
         installPushTokenObserver()
     }
+}
 
-    /// Stop and clear the session-scoped observers (consent reconciler and
-    /// agent-template cache coordinator) on pause / teardown.
+// Session-scoped observer lifecycle (consent + profile reconcilers,
+// agent-template cache). Grouped in an extension to keep the main actor body
+// under the type-length limit.
+extension SyncingManager {
+    /// Stop and clear the session-scoped observers on pause / teardown.
     fileprivate func stopSessionScopedObservers() {
         consentReconciler?.stop()
         consentReconciler = nil
+        profileReconciler?.stop()
+        profileReconciler = nil
         agentTemplateCacheCoordinator?.stop()
         agentTemplateCacheCoordinator = nil
     }
@@ -1128,13 +1131,18 @@ extension SyncingManager {
     /// on every start / resume - the previous instance is stopped first.
     fileprivate func restartConsentReconciler(client: AnyClientProvider) {
         consentReconciler?.stop()
-        let reconciler = ConversationConsentReconciler(
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            client: client
-        )
+        let reconciler = ConversationConsentReconciler(databaseReader: databaseReader, databaseWriter: databaseWriter, client: client)
         reconciler.start()
         consentReconciler = reconciler
+    }
+
+    /// (Re)start the profile-sync reconciler with the live clients. Safe to call
+    /// on every start / resume - the previous instance is stopped first.
+    fileprivate func restartProfileReconciler(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+        profileReconciler?.stop()
+        let reconciler = ProfileSyncReconciler(databaseReader: databaseReader, databaseWriter: databaseWriter, client: client, apiClient: apiClient)
+        reconciler.start()
+        profileReconciler = reconciler
     }
 
     /// (Re)start the agent-template cache coordinator with the live API
@@ -1142,13 +1150,23 @@ extension SyncingManager {
     /// is stopped first.
     fileprivate func restartAgentTemplateCacheCoordinator(apiClient: any ConvosAPIClientProtocol) {
         agentTemplateCacheCoordinator?.stop()
-        let coordinator = AgentTemplateCacheCoordinator(
-            databaseReader: databaseReader,
-            apiClient: apiClient,
-            cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter)
-        )
+        let coordinator = AgentTemplateCacheCoordinator(databaseReader: databaseReader, apiClient: apiClient, cacheWriter: AgentTemplateCacheWriter(databaseWriter: databaseWriter))
         coordinator.start()
         agentTemplateCacheCoordinator = coordinator
+    }
+
+    private enum Constant {
+        /// How often the temporary agent-join poll checks for unprocessed
+        /// join requests.
+        static let agentJoinPollInterval: TimeInterval = 5
+        /// How long the poll keeps checking after an agents/join call. The
+        /// agent backend gives up after about two minutes; poll a bit past
+        /// that so the tail end of the window is still observable.
+        static let agentJoinPollWindow: TimeInterval = 150
+        /// Back-overlap applied when advancing the poll cursor so messages
+        /// that land while a sync pass is in flight aren't skipped by the
+        /// next tick.
+        static let agentJoinPollCursorOverlap: TimeInterval = 5
     }
 }
 

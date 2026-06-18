@@ -179,22 +179,7 @@ extension SharedDatabaseMigrator {
         // schema, so an upgrade migrates in place.
         Self.registerAgentTemplateContactMigrations(on: &migrator)
 
-        // Filter set of agent-builder bundle message ids hidden from every
-        // client's chat. Intentionally no foreign key to `conversation`: a
-        // manifest can be processed before its conversation row is stored (the
-        // stream routes supplementals ahead of `conversationWriter.store`, and
-        // catch-up can deliver a manifest before the initial conversation sync
-        // lands); a FK would make those inserts fail and silently drop the hidden
-        // ids, leaving the brief visible. A stray row for an absent conversation
-        // matches nothing and is harmless. Teardown clears the table explicitly
-        // in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
-            }
-        }
+        migrator.registerMigration("createBuilderBundleHiddenMessage", migrate: Self.createBuilderBundleHiddenMessage)
 
         migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
                                    migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
@@ -209,7 +194,52 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
 
+        migrator.registerMigration("addMemberProfileProfileUpdatedAt", migrate: Self.addMemberProfileProfileUpdatedAt)
+
+        migrator.registerMigration("addMemberProfilePublishedMarkers", migrate: Self.addMemberProfilePublishedMarkers)
+
         return migrator
+    }
+
+    /// Filter set of agent-builder bundle message ids hidden from every
+    /// client's chat. Intentionally no foreign key to `conversation`: a
+    /// manifest can be processed before its conversation row is stored (the
+    /// stream routes supplementals ahead of `conversationWriter.store`, and
+    /// catch-up can deliver a manifest before the initial conversation sync
+    /// lands); a FK would make those inserts fail and silently drop the hidden
+    /// ids, leaving the brief visible. A stray row for an absent conversation
+    /// matches nothing and is harmless. Teardown clears the table explicitly
+    /// in `SessionManager.deleteAllInboxes` (no cascade).
+    private static func createBuilderBundleHiddenMessage(_ db: Database) throws {
+        try db.create(table: "builder_bundle_hidden_message") { t in
+            t.column("conversationId", .text).notNull()
+            t.column("messageId", .text).notNull()
+            t.primaryKey(["conversationId", "messageId"])
+        }
+    }
+
+    /// Most-recent-wins recency guard for per-conversation member profiles,
+    /// mirroring `contact.profileUpdatedAt`. Nullable with no backfill: legacy
+    /// rows start nil (treated as overwritable) and the first inbound profile
+    /// message back-fills the stamp.
+    private static func addMemberProfileProfileUpdatedAt(_ db: Database) throws {
+        try db.alter(table: "memberProfile") { t in
+            t.add(column: "profileUpdatedAt", .datetime)
+        }
+    }
+
+    /// Confirmed-published markers for the local user's own per-conversation
+    /// profile: the name/avatar digests last successfully sent as a
+    /// ProfileUpdate to the group. Activate-sync compares these (not the local
+    /// row, which is written optimistically before the network publish) so a
+    /// failed publish leaves the marker stale and is retried. Nullable with no
+    /// backfill: legacy rows start nil ("never confirmed published"), so the
+    /// first sync after upgrade re-publishes once and heals prior silent drops.
+    private static func addMemberProfilePublishedMarkers(_ db: Database) throws {
+        try db.alter(table: "memberProfile") { t in
+            t.add(column: "publishedNameDigest", .text)
+            t.add(column: "publishedAvatarDigest", .text)
+        }
     }
 
     /// Ledger of join-request message IDs that already admitted their

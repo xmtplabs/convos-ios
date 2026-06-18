@@ -15,6 +15,8 @@ struct DBMemberProfileWithHelpersTests {
         "verified": .bool(true)
     ]
 
+    private static let baseProfileUpdatedAt: Date = Date(timeIntervalSince1970: 2_000)
+
     private static func base() -> DBMemberProfile {
         DBMemberProfile(
             conversationId: "convo-1",
@@ -28,7 +30,8 @@ struct DBMemberProfileWithHelpersTests {
             imageSourceAssetIdentifier: "asset-old",
             imageSourceContentDigest: "digest-old",
             memberKind: nil,
-            metadata: baseMetadata
+            metadata: baseMetadata,
+            profileUpdatedAt: baseProfileUpdatedAt
         )
     }
 
@@ -113,6 +116,44 @@ struct DBMemberProfileWithHelpersTests {
     @Test("with(avatarLastRenewed:) preserves metadata")
     func withAvatarLastRenewedPreservesMetadata() {
         let updated = Self.base().with(avatarLastRenewed: Date(timeIntervalSince1970: 9_999))
+        #expect(updated.metadata == Self.baseMetadata)
+    }
+
+    /// Every field-preserving `with(...)` helper must copy `profileUpdatedAt`
+    /// forward. The recency guard in `ContactsWriter.applyInboundMemberProfileInTransaction`
+    /// relies on this: a helper that dropped the stamp would reset the row to
+    /// "overwritable", reopening the out-of-order clobber the guard prevents.
+    @Test("every with(...) helper preserves profileUpdatedAt")
+    func allWithHelpersPreserveProfileUpdatedAt() {
+        let stamp = Self.baseProfileUpdatedAt
+        #expect(Self.base().with(name: "Bob").profileUpdatedAt == stamp)
+        #expect(Self.base().with(name: nil).profileUpdatedAt == stamp)
+        #expect(Self.base().with(avatar: "https://example.com/x.enc").profileUpdatedAt == stamp)
+        #expect(Self.base().with(
+            avatar: "https://example.com/x.enc",
+            salt: Data(repeating: 0x10, count: 32),
+            nonce: Data(repeating: 0x11, count: 12),
+            key: Data(repeating: 0x12, count: 32)
+        ).profileUpdatedAt == stamp)
+        #expect(Self.base().with(avatarLastRenewed: Date(timeIntervalSince1970: 9_999)).profileUpdatedAt == stamp)
+        #expect(Self.base().with(imageSourceContentDigest: "digest-new").profileUpdatedAt == stamp)
+        #expect(Self.base().with(memberKind: .agent).profileUpdatedAt == stamp)
+        #expect(Self.base().with(metadata: nil).profileUpdatedAt == stamp)
+    }
+
+    @Test("with(profileUpdatedAt:) sets the stamp and preserves other fields")
+    func withProfileUpdatedAtSetsStamp() {
+        let newStamp = Date(timeIntervalSince1970: 5_000)
+        let updated = Self.base().with(profileUpdatedAt: newStamp)
+        #expect(updated.profileUpdatedAt == newStamp)
+        #expect(updated.name == "Alice")
+        #expect(updated.metadata == Self.baseMetadata)
+    }
+
+    @Test("with(profileUpdatedAt: nil) clears the stamp")
+    func withNilProfileUpdatedAtClearsStamp() {
+        let updated = Self.base().with(profileUpdatedAt: nil)
+        #expect(updated.profileUpdatedAt == nil)
         #expect(updated.metadata == Self.baseMetadata)
     }
 }

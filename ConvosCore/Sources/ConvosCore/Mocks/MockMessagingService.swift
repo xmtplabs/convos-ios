@@ -25,12 +25,18 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _reactionWriter: any ReactionWriterProtocol
     private let _readReceiptWriter: any ReadReceiptWriterProtocol
     private let _replyWriter: any ReplyMessageWriterProtocol
+    // Injected so tests can hold the exact global-profile writer/repository the
+    // service hands out (the factory methods otherwise return fresh instances).
+    private let _myGlobalProfileWriter: (any MyGlobalProfileWriterProtocol)?
+    private let _myGlobalProfileRepository: (any MyGlobalProfileRepositoryProtocol)?
 
     // MARK: - Initialization
 
     public init(
         sessionStateManager: (any SessionStateManagerProtocol)? = nil,
         myProfileWriter: (any MyProfileWriterProtocol)? = nil,
+        myGlobalProfileWriter: (any MyGlobalProfileWriterProtocol)? = nil,
+        myGlobalProfileRepository: (any MyGlobalProfileRepositoryProtocol)? = nil,
         conversationStateManager: (any ConversationStateManagerProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
@@ -44,6 +50,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     ) {
         self._sessionStateManager = sessionStateManager ?? MockSessionStateManager()
         self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
+        self._myGlobalProfileWriter = myGlobalProfileWriter
+        self._myGlobalProfileRepository = myGlobalProfileRepository
         self._conversationStateManager = conversationStateManager ?? MockConversationStateManager()
         self._conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self._conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
@@ -75,11 +83,11 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
-        MockMyGlobalProfileWriter()
+        _myGlobalProfileWriter ?? MockMyGlobalProfileWriter()
     }
 
     public func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
-        MockMyGlobalProfileRepository()
+        _myGlobalProfileRepository ?? MockMyGlobalProfileRepository()
     }
 
     public func conversationStateManager() -> any ConversationStateManagerProtocol {

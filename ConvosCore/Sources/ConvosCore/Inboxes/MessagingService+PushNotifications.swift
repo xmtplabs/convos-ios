@@ -828,11 +828,11 @@ extension MessagingService {
                     } else {
                         try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                     }
-                    profile = profile.with(
-                        avatar: update.encryptedImage.url,
+                    profile = profile.applyingEncryptedAvatar(
+                        url: update.encryptedImage.url,
                         salt: update.encryptedImage.salt,
                         nonce: update.encryptedImage.nonce,
-                        key: encryptionKey
+                        resolvedKey: encryptionKey
                     )
                 } else {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
@@ -840,6 +840,9 @@ extension MessagingService {
 
                 let priorMemberKind = profile.memberKind
                 profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+
+                let profileMetadata = update.profileMetadata
+                profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
 
                 if profile.isAgent {
                     let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
@@ -853,7 +856,7 @@ extension MessagingService {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt)
                 try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -889,10 +892,6 @@ extension MessagingService {
                         inboxId: inboxId
                     )
 
-                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
-                        continue
-                    }
-
                     var profile = existingProfile ?? DBMemberProfile(
                         conversationId: conversationId,
                         inboxId: inboxId,
@@ -903,16 +902,19 @@ extension MessagingService {
                     profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
 
                     if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: memberProfile.encryptedImage.url,
+                        profile = profile.applyingEncryptedAvatar(
+                            url: memberProfile.encryptedImage.url,
                             salt: memberProfile.encryptedImage.salt,
                             nonce: memberProfile.encryptedImage.nonce,
-                            key: existingProfile?.avatarKey ?? encryptionKey
+                            resolvedKey: existingProfile?.avatarKey ?? encryptionKey
                         )
                     }
 
                     let priorMemberKind = profile.memberKind
                     profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+
+                    let snapshotMetadata = memberProfile.profileMetadata
+                    profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
 
                     if profile.isAgent {
                         let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
@@ -926,7 +928,7 @@ extension MessagingService {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                    try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt)
                     try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }

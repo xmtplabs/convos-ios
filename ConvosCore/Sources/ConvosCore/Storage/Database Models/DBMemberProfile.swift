@@ -50,6 +50,9 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let imageSourceContentDigest: Column = Column(CodingKeys.imageSourceContentDigest)
         static let memberKind: Column = Column(CodingKeys.memberKind)
         static let metadata: Column = Column(CodingKeys.metadata)
+        static let profileUpdatedAt: Column = Column(CodingKeys.profileUpdatedAt)
+        static let publishedNameDigest: Column = Column(CodingKeys.publishedNameDigest)
+        static let publishedAvatarDigest: Column = Column(CodingKeys.publishedAvatarDigest)
     }
 
     let conversationId: String
@@ -70,6 +73,23 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let imageSourceContentDigest: String?
     let memberKind: DBMemberKind?
     let metadata: ProfileMetadata?
+    /// Recency guard for inbound profile writes: the `sentAt` of the most recent
+    /// profile message applied to this row. Inbound applies are dropped when the
+    /// incoming message is older than this (most-recent-wins, mirroring
+    /// `DBContact.profileUpdatedAt`). nil means no message-sourced stamp yet, so
+    /// any inbound write may apply. Local edits stamp this with the wall clock.
+    let profileUpdatedAt: Date?
+    /// Digest of the display name last successfully published (sent as a
+    /// ProfileUpdate to the group) for the local user's own profile in this
+    /// conversation. Activate-sync compares this against the global profile so a
+    /// failed publish (marker stays stale) is retried. nil for other members and
+    /// for never-published rows.
+    let publishedNameDigest: String?
+    /// Digest of the avatar source last successfully published for the local
+    /// user's own profile in this conversation. Compared against
+    /// `DBMyProfile.imageContentDigest`; nil means no avatar was confirmed
+    /// published (or it was confirmed cleared).
+    let publishedAvatarDigest: String?
 
     var isAgent: Bool {
         memberKind?.isAgent ?? false
@@ -91,7 +111,10 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         imageSourceAssetIdentifier: String? = nil,
         imageSourceContentDigest: String? = nil,
         memberKind: DBMemberKind? = nil,
-        metadata: ProfileMetadata? = nil
+        metadata: ProfileMetadata? = nil,
+        profileUpdatedAt: Date? = nil,
+        publishedNameDigest: String? = nil,
+        publishedAvatarDigest: String? = nil
     ) {
         self.conversationId = conversationId
         self.inboxId = inboxId
@@ -105,6 +128,9 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.imageSourceContentDigest = imageSourceContentDigest
         self.memberKind = memberKind
         self.metadata = metadata
+        self.profileUpdatedAt = profileUpdatedAt
+        self.publishedNameDigest = publishedNameDigest
+        self.publishedAvatarDigest = publishedAvatarDigest
     }
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
@@ -157,7 +183,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -168,7 +197,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -179,7 +211,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -190,7 +225,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -201,7 +239,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -212,7 +253,10 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
     }
 
@@ -223,8 +267,49 @@ extension DBMemberProfile {
             avatarLastRenewed: avatarLastRenewed,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             imageSourceContentDigest: imageSourceContentDigest,
-            memberKind: memberKind, metadata: metadata
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
         )
+    }
+
+    func with(profileUpdatedAt: Date?) -> DBMemberProfile {
+        .init(
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
+        )
+    }
+
+    func with(publishedNameDigest: String?, publishedAvatarDigest: String?) -> DBMemberProfile {
+        .init(
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata,
+            profileUpdatedAt: profileUpdatedAt,
+            publishedNameDigest: publishedNameDigest,
+            publishedAvatarDigest: publishedAvatarDigest
+        )
+    }
+
+    /// Applies an inbound encrypted-avatar reference only when its decryption
+    /// key is resolvable. Persisting the avatar with a nil key would store a row
+    /// the image cache can't decrypt - it renders blank and never self-heals -
+    /// so when the key is missing we leave the existing avatar untouched and let
+    /// a later message (or the conversation-key backfill on sync) supply it.
+    func applyingEncryptedAvatar(url: String, salt: Data, nonce: Data, resolvedKey: Data?) -> DBMemberProfile {
+        guard let resolvedKey else { return self }
+        return with(avatar: url, salt: salt, nonce: nonce, key: resolvedKey)
     }
 
     var hasValidEncryptedAvatar: Bool {

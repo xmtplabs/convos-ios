@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -27,19 +28,31 @@ enum MyProfileWriterError: Error {
 }
 
 final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
-    private let sessionStateManager: any SessionStateManagerProtocol
+    /// Resolves the live XMTP client + API client + inbox id. Default path
+    /// awaits `SessionStateManager`; the background `ProfileSyncReconciler`
+    /// injects a static context built from the session's already-live client
+    /// (it has no `SessionStateManager`).
+    private let resolveInboxReady: @Sendable () async throws -> InboxReadyResult
     private let databaseWriter: any DatabaseWriter
 
     init(
         sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.sessionStateManager = sessionStateManager
+        self.resolveInboxReady = { try await sessionStateManager.waitForInboxReadyResult() }
+        self.databaseWriter = databaseWriter
+    }
+
+    init(
+        databaseWriter: any DatabaseWriter,
+        resolveInboxReady: @escaping @Sendable () async throws -> InboxReadyResult
+    ) {
+        self.resolveInboxReady = resolveInboxReady
         self.databaseWriter = databaseWriter
     }
 
     func update(displayName: String, conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxReady = try await resolveInboxReady()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
@@ -61,7 +74,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
                 inboxId: inboxId,
                 name: name,
                 avatar: nil
-            )).with(name: name)
+            )).with(name: name).with(profileUpdatedAt: Date())
             try profile.save(db)
             return profile
         }
@@ -83,7 +96,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     }
 
     func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxReady = try await resolveInboxReady()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
@@ -97,7 +110,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
                 inboxId: inboxId,
                 name: nil,
                 avatar: nil
-            )).with(metadata: metadata?.isEmpty == true ? nil : metadata)
+            )).with(metadata: metadata?.isEmpty == true ? nil : metadata).with(profileUpdatedAt: Date())
             try profile.save(db)
             return profile
         }
@@ -110,7 +123,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     }
 
     func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxReady = try await resolveInboxReady()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
@@ -139,6 +152,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
             let updatedProfile = profile
                 .with(avatar: nil, salt: nil, nonce: nil, key: nil)
                 .with(imageSourceContentDigest: nil)
+                .with(profileUpdatedAt: Date())
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
@@ -183,6 +197,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
                 key: groupKey
             )
             .with(imageSourceContentDigest: imageSourceContentDigest)
+            .with(profileUpdatedAt: Date())
 
         do {
             try await group.updateProfile(updatedProfile)
@@ -203,7 +218,7 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     }
 
     func syncFromGlobalProfile(conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxReady = try await resolveInboxReady()
         let inboxId = inboxReady.client.inboxId
 
         let global = try await databaseWriter.read { db in
@@ -217,43 +232,46 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
             try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
         }
 
-        // global.name is already trim/clamp/nil-if-empty normalized by MyGlobalProfileWriter,
-        // so it can be compared to member?.name directly without re-normalizing here.
-        if global.name != member?.name {
+        // Gate on the confirmed-published markers, not the local row. The local
+        // row is written optimistically before the network publish, so comparing
+        // it would treat a failed publish as done and never retry. The markers
+        // are stamped only after a successful send (see sendProfileUpdateThrowing),
+        // so a dropped publish leaves them stale and the next sync re-publishes.
+        // global.name is already trim/clamp/nil-if-empty normalized by MyGlobalProfileWriter.
+        let targetNameDigest = Self.nameDigest(global.name)
+        if member?.publishedNameDigest != targetNameDigest {
             try await update(displayName: global.name ?? "", conversationId: conversationId)
         }
 
         if global.imageData == nil {
-            // Global avatar was cleared. Propagate the removal so the per-conversation avatar
-            // doesn't outlive it. Requires the digest to be cleared too: image bytes that are
-            // merely not rehydrated yet (fresh pairing, mid-hydration launch) keep their
-            // digest, and propagating a "removal" the user never made would strip the avatar
-            // for every other member.
-            if global.imageContentDigest == nil, member?.avatar != nil {
+            // Global avatar was cleared vs merely not rehydrated yet (fresh
+            // pairing keeps the digest without the bytes). Only propagate a
+            // genuine removal, and only if we previously published an avatar.
+            if global.imageContentDigest == nil, member?.publishedAvatarDigest != nil {
                 try await update(
                     avatar: nil,
                     imageSourceContentDigest: nil,
                     conversationId: conversationId
                 )
             }
-        } else {
-            let needsAvatarUpload: Bool
-            if member?.avatar == nil {
-                needsAvatarUpload = true
-            } else {
-                // Compare content digests so the decision is reliable regardless of whether the
-                // photos library returned an asset identifier. nil-vs-something on either side
-                // counts as a change and triggers a re-upload.
-                needsAvatarUpload = member?.imageSourceContentDigest != global.imageContentDigest
-            }
-            if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
-                try await update(
-                    avatar: image,
-                    imageSourceContentDigest: global.imageContentDigest,
-                    conversationId: conversationId
-                )
-            }
+        } else if member?.publishedAvatarDigest != global.imageContentDigest,
+                  let imageData = global.imageData,
+                  let image = ImageType(data: imageData) {
+            try await update(
+                avatar: image,
+                imageSourceContentDigest: global.imageContentDigest,
+                conversationId: conversationId
+            )
         }
+    }
+
+    /// Base64 SHA-256 of the display name, or nil for an empty/absent name.
+    /// Used as the published-name marker so activate-sync can compare what was
+    /// published against the global profile without storing the raw name twice.
+    /// Internal so `ProfileSyncReconciler` computes the same target digest.
+    static func nameDigest(_ name: String?) -> String? {
+        guard let name, !name.isEmpty else { return nil }
+        return Data(SHA256.hash(data: Data(name.utf8))).base64EncodedString()
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
@@ -290,10 +308,33 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
         }
 
         do {
-            _ = try await group.send(encodedContent: encoded)
+            try await withExponentialBackoffRetry {
+                _ = try await group.send(encodedContent: encoded)
+            }
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
         } catch {
             throw MyProfileWriterError.profileUpdatePublishFailed(underlying: error)
+        }
+
+        // Confirmed published: stamp the markers for the local user's own row so
+        // activate-sync's gate stops re-publishing this state, while a future
+        // failed publish (markers left stale) is retried. The send carried the
+        // full current profile, so both name and avatar markers reflect exactly
+        // what reached the network.
+        let publishedName = Self.nameDigest(profile.name)
+        let publishedAvatar = profile.imageSourceContentDigest
+        try await databaseWriter.write { db in
+            guard let row = try DBMemberProfile.fetchOne(
+                db,
+                conversationId: profile.conversationId,
+                inboxId: profile.inboxId
+            ) else {
+                return
+            }
+            try row.with(
+                publishedNameDigest: publishedName,
+                publishedAvatarDigest: publishedAvatar
+            ).save(db)
         }
     }
 }

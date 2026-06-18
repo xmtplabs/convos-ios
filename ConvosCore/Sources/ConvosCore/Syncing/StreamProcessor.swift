@@ -502,11 +502,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                     } else {
                         try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                     }
-                    profile = profile.with(
-                        avatar: update.encryptedImage.url,
+                    profile = profile.applyingEncryptedAvatar(
+                        url: update.encryptedImage.url,
                         salt: update.encryptedImage.salt,
                         nonce: update.encryptedImage.nonce,
-                        key: encryptionKey
+                        resolvedKey: encryptionKey
                     )
                 } else {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
@@ -530,7 +530,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt)
                 try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -565,10 +565,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: inboxId
                     )
 
-                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
-                        continue
-                    }
-
                     var profile = existingProfile ?? DBMemberProfile(
                         conversationId: conversationId,
                         inboxId: inboxId,
@@ -579,11 +575,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
 
                     if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: memberProfile.encryptedImage.url,
+                        profile = profile.applyingEncryptedAvatar(
+                            url: memberProfile.encryptedImage.url,
                             salt: memberProfile.encryptedImage.salt,
                             nonce: memberProfile.encryptedImage.nonce,
-                            key: existingProfile?.avatarKey ?? encryptionKey
+                            resolvedKey: existingProfile?.avatarKey ?? encryptionKey
                         )
                     }
 
@@ -605,7 +601,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
+                    try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt)
                     try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }

@@ -1,5 +1,6 @@
 @testable import Convos
 import ConvosCore
+import UIKit
 import XCTest
 
 /// Regression coverage for the race condition where setting a profile in
@@ -64,5 +65,49 @@ final class ProfileSettingsViewModelTests: XCTestCase {
             UserDefaults.standard.bool(forKey: "hasShownProfileEditor"),
             "Whitespace-only names should be treated as empty"
         )
+    }
+
+    /// Regression: editing only the name must not wipe the stored avatar or
+    /// global metadata. The old full-row `save(... metadata: nil)` replaced
+    /// every field, so a name edit dropped the avatar (when unhydrated) and
+    /// always nulled metadata. The field-preserving `update(...)` path keeps them.
+    func testSaveAndAwaitPreservesAvatarAndMetadataOnNameOnlyEdit() async throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let image = renderer.image { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let imageData = try XCTUnwrap(image.jpegData(compressionQuality: 1.0))
+        let metadata: ProfileMetadata = ["emoji": .string("🎯")]
+        let initial = MyProfile(
+            inboxId: "inbox-1",
+            name: "Old Name",
+            imageData: imageData,
+            imageAssetIdentifier: nil,
+            imageContentDigest: nil,
+            metadata: metadata,
+            updatedAt: Date()
+        )
+        let writer = MockMyGlobalProfileWriter(stored: initial)
+        let repository = MockMyGlobalProfileRepository(initial: initial)
+        let session = MockInboxesService(
+            mockMessagingService: MockMessagingService(
+                myGlobalProfileWriter: writer,
+                myGlobalProfileRepository: repository
+            )
+        )
+
+        let viewModel = ProfileSettingsViewModel.shared
+        viewModel.rebind(session: session)
+        // bindInternal's synchronous fast path applies the loaded profile.
+        XCTAssertEqual(viewModel.editingDisplayName, "Old Name")
+        XCTAssertNotNil(viewModel.profileImage)
+
+        viewModel.editingDisplayName = "New Name"
+        try await viewModel.saveAndAwait()
+
+        XCTAssertEqual(writer.stored?.name, "New Name")
+        XCTAssertNotNil(writer.stored?.imageData, "avatar must survive a name-only edit")
+        XCTAssertEqual(writer.stored?.metadata, metadata, "metadata must survive a name-only edit")
     }
 }
