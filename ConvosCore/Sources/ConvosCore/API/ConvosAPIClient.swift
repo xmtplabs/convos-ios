@@ -123,7 +123,9 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
 
     /// Polls a generation's status (`GET /v2/agent-templates/generations/:id`).
@@ -131,6 +133,27 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func getAgentTemplateGeneration(
         generationId: String
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
+
+    /// Mints a presigned PUT for one generation attachment (PR #310).
+    /// `GET /v2/agent-templates/attachments/presigned?contentType=…&contentLength=…`
+    /// returns an opaque `objectKey` (echo it back in `inputs.attachments[]`) and
+    /// the presigned S3 `uploadURL`. Private bucket — no public asset URL is
+    /// minted; `contentType` must be in the backend allowlist and `contentLength`
+    /// (the exact byte count of the upload) is baked into the presigned URL, so
+    /// the subsequent `PUT` body must match it.
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String)
+
+    /// Uploads the raw (unencrypted) bytes of a generation attachment to the
+    /// presigned `uploadURL` with the given `Content-Type`. The backend reads
+    /// the bytes itself, so nothing is encrypted and no XMTP content is built.
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -216,7 +239,9 @@ extension ConvosAPIClientProtocol {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         throw APIError.invalidRequest
     }
@@ -224,6 +249,21 @@ extension ConvosAPIClientProtocol {
     func getAgentTemplateGeneration(
         generationId: String
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        throw APIError.invalidRequest
+    }
+
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        throw APIError.invalidRequest
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {
         throw APIError.invalidRequest
     }
 }
@@ -901,7 +941,9 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         var request = try authenticatedRequest(for: "v2/agent-templates/generations", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -909,15 +951,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let body = try JSONEncoder().encode(
             ConvosAPI.AgentTemplateGenerationRequest(
                 source: source,
-                inputs: .init(text: text),
+                inputs: .init(text: text, attachments: attachments.isEmpty ? nil : attachments),
+                connections: connections.isEmpty ? nil : connections,
                 clientDeviceId: clientDeviceId
             )
         )
         request.httpBody = body
-        // DEBUG(direct-builder): confirm the exact submit request for the backend
-        // dev -- method, URL, idempotency key, and the JSON body we send. Remove
-        // once verified.
-        Log.info("AgentGeneration submit \(request.httpMethod ?? "POST") \(request.url?.absoluteString ?? "nil") idempotencyKey=\(idempotencyKey) body=\(String(data: body, encoding: .utf8) ?? "nil")")
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
         return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
     }
@@ -929,38 +968,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let request = try authenticatedRequest(for: "v2/agent-templates/generations/\(encoded)")
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
         return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
-    }
-
-    private func decodeGenerationResponse(
-        data: Data,
-        httpResponse: HTTPURLResponse
-    ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
-        switch httpResponse.statusCode {
-        case 200...299:
-            let decoded = try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
-            // DEBUG(direct-builder): confirm the real #309 poll shape — whether
-            // `preview`/`progressPhrases` are present and that our model decodes
-            // them. Remove once verified.
-            let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-            let phraseCount = decoded.progressPhrases?.count ?? 0
-            Log.info(
-                "AgentGeneration poll [\(httpResponse.statusCode)] status=\(decoded.status.rawValue) "
-                    + "preview=\(decoded.preview != nil) phrases=\(phraseCount) raw=\(rawBody)"
-            )
-            return decoded
-        case 400:
-            throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
-        case 404:
-            throw AgentGenerationError.notFound
-        case 409:
-            throw AgentGenerationError.conflict
-        case 413:
-            throw AgentGenerationError.payloadTooLarge
-        case 422:
-            throw AgentGenerationError.moderationBlocked(parseErrorMessage(from: data))
-        default:
-            throw AgentGenerationError.server(parseErrorMessage(from: data))
-        }
     }
 
     // MARK: - Connections
@@ -1128,6 +1135,75 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             }
         }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+// MARK: - Agent template generation (split out to keep the class body length in check)
+
+extension ConvosAPIClient {
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        let request = try authenticatedRequest(
+            for: "v2/agent-templates/attachments/presigned",
+            method: "GET",
+            queryParameters: ["contentType": contentType, "contentLength": String(contentLength)]
+        )
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+        struct PresignedResponse: Codable {
+            let objectKey: String
+            let uploadUrl: String
+        }
+        let decoded = try JSONDecoder().decode(PresignedResponse.self, from: data)
+        return (objectKey: decoded.objectKey, uploadURL: decoded.uploadUrl)
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {
+        guard let url = URL(string: uploadURL) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            Log.error("AgentAttachment PUT failed [\(http.statusCode)]: \(String(data: respData, encoding: .utf8) ?? "nil")")
+            throw APIError.serverError(nil)
+        }
+    }
+
+    func decodeGenerationResponse(
+        data: Data,
+        httpResponse: HTTPURLResponse
+    ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
+        case 400:
+            throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
+        case 404:
+            throw AgentGenerationError.notFound
+        case 409:
+            throw AgentGenerationError.conflict
+        case 413:
+            throw AgentGenerationError.payloadTooLarge
+        case 422:
+            throw AgentGenerationError.moderationBlocked(parseErrorMessage(from: data))
+        default:
+            throw AgentGenerationError.server(parseErrorMessage(from: data))
+        }
     }
 }
 

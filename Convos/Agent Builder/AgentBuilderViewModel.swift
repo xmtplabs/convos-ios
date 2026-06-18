@@ -1072,28 +1072,114 @@ final class AgentBuilderViewModel: Identifiable {
         didStartDirectGeneration = true
         pendingDirectPrompt = nil
         let conversationId = conversation.id
+        let photos: [PendingPhotoAttachment] = directBuildPhotos()
+        var attachmentInputs: [AgentBuildAttachmentInput] = photos.compactMap { (photo: PendingPhotoAttachment) -> AgentBuildAttachmentInput? in
+            guard let data = ImageCompression.compressForPhotoAttachment(photo.image) else {
+                Log.error("AgentBuilder(direct): failed to compress photo \(photo.id)")
+                return nil
+            }
+            return AgentBuildAttachmentInput(data: data, mimeType: "image/jpeg", filename: nil)
+        }
+        var summaryAttachments: [AgentBuilderSummaryAttachment] = photos.map { (photo: PendingPhotoAttachment) -> AgentBuilderSummaryAttachment in
+            .photo(id: photo.id, thumbnailData: Self.thumbnailData(for: photo.image))
+        }
+        if let memo = recordedVoiceMemo, let voiceInput = Self.voiceAttachmentInput(url: memo.url) {
+            attachmentInputs.append(voiceInput)
+            summaryAttachments.append(.voiceMemo(id: UUID(), duration: memo.duration, levels: voiceMemoAudioLevels))
+        }
+        // Connections (Phase 4). Generation awareness gets only the cloud
+        // service ids (device kinds like Apple Health aren't catalog services
+        // and would 400). The summary carries every enabled connection +
+        // captured cloud-connection ids so the existing
+        // `AgentBuilderConnectionGrantReplayer` fires the real grants post-join.
+        let connectionServiceIds: [String] = enabledConnections.compactMap { $0.cloudServiceId }
+        for connection in enabledConnections {
+            summaryAttachments.append(.connection(id: UUID(), identifier: connection.rawValue))
+        }
+        var cloudConnectionIds: [String: String] = [:]
+        for (connection, cloudConnectionId) in capturedCloudConnectionIds {
+            cloudConnectionIds[connection.rawValue] = cloudConnectionId
+        }
         session.agentTemplateRepository().startGeneration(
             prompt: prompt,
             conversationId: conversationId,
-            slug: slug
+            slug: slug,
+            attachments: attachmentInputs,
+            connections: connectionServiceIds
         )
-        persistCreationPromptCard(prompt: prompt, conversationId: conversationId)
+        persistCreationPromptCard(
+            prompt: prompt,
+            conversationId: conversationId,
+            attachments: summaryAttachments,
+            cloudConnectionIds: cloudConnectionIds
+        )
+        // The direct flow has copied the attachment bytes into the repository,
+        // so clear the composer's staged attachments (the legacy bundle path
+        // clears them via `cleanupPendingMediaAttachments`; the direct path
+        // otherwise left them lingering in the input bar after Make). The voice
+        // memo lives on the recorder, so reset it separately.
+        newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+        if recordedVoiceMemo != nil {
+            cancelRecordedVoiceMemo()
+        }
+    }
+
+    /// Photos currently staged in the composer (camera + library), the only
+    /// attachment kind wired into the direct build for now. Video is excluded
+    /// (the generation API has no video MIME); files/voice come later.
+    private func directBuildPhotos() -> [PendingPhotoAttachment] {
+        let pending: [PendingMediaAttachment] = newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
+        return pending.compactMap { (attachment: PendingMediaAttachment) -> PendingPhotoAttachment? in
+            guard case .photo(let photo) = attachment else { return nil }
+            return photo
+        }
+    }
+
+    /// Reads the recorded voice memo's m4a bytes for upload. The backend
+    /// transcribes audio to text before generation; `audio/m4a` is in the
+    /// allowlist (the m4a transcription path is still being smoke-tested
+    /// server-side -- see the Phase 3 plan's audio-format risk note).
+    private static func voiceAttachmentInput(url: URL) -> AgentBuildAttachmentInput? {
+        guard let data = try? Data(contentsOf: url) else {
+            Log.error("AgentBuilder(direct): failed to read voice memo at \(url.lastPathComponent)")
+            return nil
+        }
+        return AgentBuildAttachmentInput(data: data, mimeType: "audio/m4a", filename: "voice.m4a")
+    }
+
+    /// Small JPEG thumbnail for the creation-prompt card chip, kept well under
+    /// the full upload size so the persisted summary row stays light.
+    private static func thumbnailData(for image: UIImage) -> Data? {
+        let maxDimension: CGFloat = 240
+        let longestSide: CGFloat = max(image.size.width, image.size.height)
+        let scale: CGFloat = longestSide > maxDimension ? maxDimension / longestSide : 1
+        let target: CGSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer: UIGraphicsImageRenderer = UIGraphicsImageRenderer(size: target)
+        let scaled: UIImage = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+        return scaled.jpegData(compressionQuality: 0.7)
     }
 
     /// Persist an `AgentBuilderSummary` so the existing summary-card rendering
     /// shows the creator's prompt at the top of the chat while the agent
-    /// builds (reuses `MessagesListProcessor`'s pending-card path). Text-only
-    /// for now: no attachments/connections (Phase 5) and no `bundledMessageIds`
+    /// builds (reuses `MessagesListProcessor`'s pending-card path), and so the
+    /// `AgentBuilderConnectionGrantReplayer` can fire post-join grants from its
+    /// `.connection` attachments + `cloudConnectionIds`. No `bundledMessageIds`
     /// (the direct flow sends no XMTP messages, so there's nothing to hide).
     /// The card renders for `MessagesListProcessor.pendingCardDisplayWindow`
     /// (180s) on this path. Set on the inner VM synchronously for the home-flow
     /// morph / no first-frame flash, and persisted so it survives relaunch and
     /// reaches the existing-conversation on-screen VM via its summary publisher.
-    private func persistCreationPromptCard(prompt: String, conversationId: String) {
+    private func persistCreationPromptCard(
+        prompt: String,
+        conversationId: String,
+        attachments: [AgentBuilderSummaryAttachment],
+        cloudConnectionIds: [String: String]
+    ) {
         let summary = AgentBuilderSummary(
             prompt: prompt,
-            attachments: [],
+            attachments: attachments,
             cutoffDate: Date(),
+            cloudConnectionIds: cloudConnectionIds,
             existingConversation: targetsExistingConversation
         )
         newConversationViewModel.conversationViewModel?.agentBuilderSummary = summary

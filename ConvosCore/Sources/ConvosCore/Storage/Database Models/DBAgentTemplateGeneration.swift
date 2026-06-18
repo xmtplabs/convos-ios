@@ -1,6 +1,18 @@
 import Foundation
 import GRDB
 
+/// One persisted generation attachment (Phase 3 media inputs). `objectKey` is
+/// filled once the eager upload to the agent-templates presigned endpoint
+/// completes; `localPath` is a stable copy kept so a resumed build can
+/// re-upload if the object key expires before submit. These are plaintext
+/// references, not XMTP attachments.
+struct StoredGenerationAttachment: Codable, Hashable {
+    var objectKey: String?
+    let mimeType: String
+    let filename: String?
+    let localPath: String
+}
+
 /// Persistent record of an in-flight (or finished) agent-template generation
 /// kicked off by the direct builder flow. The repository owns this row and is
 /// its single writer; persisting it before the network call means a build
@@ -27,6 +39,8 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         static let previewEmoji: Column = Column(CodingKeys.previewEmoji)
         static let previewDescription: Column = Column(CodingKeys.previewDescription)
         static let progressPhrases: Column = Column(CodingKeys.progressPhrases)
+        static let attachments: Column = Column(CodingKeys.attachments)
+        static let connections: Column = Column(CodingKeys.connections)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -65,6 +79,13 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     var previewDescription: String?
     /// JSON-encoded `[String]` of in-progress narration lines (PR #309).
     var progressPhrases: String?
+    /// JSON-encoded `[StoredGenerationAttachment]` of media inputs (Phase 3).
+    /// `nil` for text-only builds.
+    var attachments: String?
+    /// JSON-encoded `[String]` of neutral connection service ids sent in the
+    /// generation request (Phase 4). Persisted so a resumed/retried submit
+    /// sends an identical body and dedupes. `nil` when no connections.
+    var connections: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -73,6 +94,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         case templateId, prompt
         case errorMessage = "error"
         case previewAgentName, previewEmoji, previewDescription, progressPhrases
+        case attachments, connections
         case createdAt, updatedAt
     }
 
@@ -89,6 +111,8 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         previewEmoji: String? = nil,
         previewDescription: String? = nil,
         progressPhrases: String? = nil,
+        attachments: String? = nil,
+        connections: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -104,6 +128,8 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         self.previewEmoji = previewEmoji
         self.previewDescription = previewDescription
         self.progressPhrases = progressPhrases
+        self.attachments = attachments
+        self.connections = connections
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

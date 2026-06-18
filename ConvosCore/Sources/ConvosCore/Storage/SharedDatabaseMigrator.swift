@@ -224,6 +224,24 @@ extension SharedDatabaseMigrator {
         }
     }
 
+    /// Additive, nullable column holding a JSON-encoded
+    /// `[StoredGenerationAttachment]` for media inputs (Phase 3). `nil` for
+    /// text-only builds, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationAttachments(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "attachments", .text)
+        }
+    }
+
+    /// Additive, nullable column holding a JSON-encoded `[String]` of neutral
+    /// connection service ids sent with the generation (Phase 4). `nil` when
+    /// no connections, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationConnections(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "connections", .text)
+        }
+    }
+
     /// Registers the join-request ledger and the direct-builder generation
     /// table, in this order. Grouped into a helper to keep `makeMigrator`
     /// under the function-length budget; the registration position (last,
@@ -232,6 +250,8 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
         migrator.registerMigration("createAgentTemplateGeneration", migrate: Self.createAgentTemplateGeneration)
         migrator.registerMigration("addAgentTemplateGenerationPreview", migrate: Self.addAgentTemplateGenerationPreview)
+        migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
+        migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
     }
 
     /// In-flight (or finished) agent-template generation kicked off by the

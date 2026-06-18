@@ -206,7 +206,9 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         ConvosAPI.AgentTemplateGenerationResponse(
             generationId: UUID().uuidString,

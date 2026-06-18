@@ -94,7 +94,9 @@ private final class HappyStubAPIClient: TestStubAPIClient {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         ConvosAPI.AgentTemplateGenerationResponse(
             generationId: "gen-1",
@@ -141,7 +143,9 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
         text: String,
         source: String,
         clientDeviceId: String?,
-        idempotencyKey: String
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         throw AgentGenerationError.moderationBlocked("not allowed")
     }

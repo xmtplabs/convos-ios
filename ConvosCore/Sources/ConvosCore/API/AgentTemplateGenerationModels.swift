@@ -1,26 +1,54 @@
 import Foundation
 
 public extension ConvosAPI {
-    /// Request body for `POST /v2/agent-templates/generations`. Phase 1 only
-    /// sends text; the attachment array arrives in a later phase. `source`
-    /// identifies the client flow and `clientDeviceId` backs PostHog
+    /// A binary input already uploaded via the agent-templates presigned
+    /// endpoint, referenced by its opaque `objectKey` (PR #310). The bytes live
+    /// in a private bucket the backend reads itself — there is no public URL and
+    /// no XMTP attachment crypto in this path. `mimeType` must be in the backend
+    /// allowlist (image/png, image/jpeg, application/pdf, and the audio set).
+    struct AttachmentRef: Codable, Sendable, Equatable {
+        public let objectKey: String
+        public let mimeType: String
+        public let filename: String?
+
+        public init(objectKey: String, mimeType: String, filename: String? = nil) {
+            self.objectKey = objectKey
+            self.mimeType = mimeType
+            self.filename = filename
+        }
+    }
+
+    /// Request body for `POST /v2/agent-templates/generations`. Carries text
+    /// and/or `attachments` (object-key references uploaded ahead of time).
+    /// `source` identifies the client flow and `clientDeviceId` backs PostHog
     /// attribution for anonymous/unauthenticated analytics.
     struct AgentTemplateGenerationRequest: Codable, Sendable {
         public struct Inputs: Codable, Sendable {
             public let text: String
+            /// Omitted from the encoded body when empty so text-only requests
+            /// are byte-identical to the pre-Phase-3 shape.
+            public let attachments: [AttachmentRef]?
 
-            public init(text: String) {
+            public init(text: String, attachments: [AttachmentRef]? = nil) {
                 self.text = text
+                self.attachments = attachments
             }
         }
 
         public let source: String
         public let inputs: Inputs
+        /// Neutral service ids the agent should use (e.g. `["googlecalendar"]`,
+        /// PR #311). Awareness only -- the generated prompt/welcome lean on the
+        /// capability and `template.connections` records it; no grant is issued
+        /// here. Omitted from the encoded body when empty so connectionless
+        /// builds stay byte-identical and dedupe against a stored `[]`.
+        public let connections: [String]?
         public let clientDeviceId: String?
 
-        public init(source: String, inputs: Inputs, clientDeviceId: String?) {
+        public init(source: String, inputs: Inputs, connections: [String]? = nil, clientDeviceId: String?) {
             self.source = source
             self.inputs = inputs
+            self.connections = connections
             self.clientDeviceId = clientDeviceId
         }
     }

@@ -48,12 +48,28 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
 /// the build targeted.
 public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String) async throws -> Void
 
+/// A local media input for a build, handed to `startGeneration`. The repository
+/// persists a copy, uploads the plaintext bytes to the agent-templates presigned
+/// endpoint, and references the resulting object key in `inputs.attachments[]`.
+public struct AgentBuildAttachmentInput: Sendable {
+    public let data: Data
+    public let mimeType: String
+    public let filename: String?
+
+    public init(data: Data, mimeType: String, filename: String? = nil) {
+        self.data = data
+        self.mimeType = mimeType
+        self.filename = filename
+    }
+}
+
 public protocol AgentTemplateRepositoryProtocol: Sendable {
-    /// Kicks off a text-only generation for `conversationId`. Persists the row
-    /// first, then drives submit -> poll -> invite in the background. Safe to
-    /// call once per build; the persisted row makes it idempotent across
-    /// relaunch.
-    func startGeneration(prompt: String, conversationId: String, slug: String)
+    /// Kicks off a generation for `conversationId`. Persists the row (and a copy
+    /// of any attachments) first, then drives upload -> submit -> poll -> invite
+    /// in the background. Safe to call once per build; the persisted row makes it
+    /// idempotent across relaunch. `connections` are neutral service ids (Phase
+    /// 4) sent for generation awareness; post-join grants are driven separately.
+    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String])
 
     /// Latest generation for a conversation, observed reactively.
     func generationPublisher(conversationId: String) -> AnyPublisher<AgentTemplateGeneration?, Never>
@@ -65,6 +81,13 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// the invite step uses it instead of the raw API client so the join
     /// polling runs.
     func configureJoinHandler(_ handler: @escaping AgentTemplateJoinHandler)
+}
+
+public extension AgentTemplateRepositoryProtocol {
+    /// Text-only convenience for callers with no attachments or connections.
+    func startGeneration(prompt: String, conversationId: String, slug: String) {
+        startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [])
+    }
 }
 
 /// Owns the direct agent-builder generation lifecycle: submit the prompt to
@@ -107,9 +130,16 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         joinHandler.withLock { $0 = handler }
     }
 
-    public func startGeneration(prompt: String, conversationId: String, slug: String) {
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String]) {
         let idempotencyKey: String = UUID().uuidString
         let now: Date = Date()
+        let storedAttachments: [StoredGenerationAttachment]
+        do {
+            storedAttachments = try Self.persistAttachmentFiles(attachments, idempotencyKey: idempotencyKey)
+        } catch {
+            Log.error("AgentTemplateRepository: failed to persist attachment files: \(error.localizedDescription)")
+            return
+        }
         let row = DBAgentTemplateGeneration(
             idempotencyKey: idempotencyKey,
             generationId: nil,
@@ -119,6 +149,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             templateId: nil,
             prompt: prompt,
             errorMessage: nil,
+            attachments: Self.encodeAttachments(storedAttachments),
+            connections: Self.encodeConnections(connections),
             createdAt: now,
             updatedAt: now
         )
@@ -202,6 +234,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         guard var row = await fetchRow(idempotencyKey: idempotencyKey) else { return }
 
         if row.statusValue == .submitting {
+            guard let uploaded = await uploadAttachments(row: row) else { return }
+            row = uploaded
             guard let submitted = await submit(row: row) else { return }
             row = submitted
         }
@@ -226,7 +260,9 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     text: row.prompt,
                     source: source,
                     clientDeviceId: clientDeviceId,
-                    idempotencyKey: row.idempotencyKey
+                    idempotencyKey: row.idempotencyKey,
+                    attachments: Self.attachmentRefs(from: row),
+                    connections: Self.decodeConnections(row.connections)
                 )
                 return await applyResponse(response, to: row.idempotencyKey)
             } catch let error as AgentGenerationError {
@@ -312,6 +348,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                         forceErrorCode: nil
                     )
                 }
+                Self.cleanupAttachments(idempotencyKey: row.idempotencyKey)
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
                 return
             } catch let error as APIError {
@@ -384,8 +421,115 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         return phrases
     }
 
+    // MARK: - Attachments
+
+    /// Uploads any not-yet-uploaded attachments to the agent-templates presigned
+    /// endpoint, persisting each object key as it lands. Returns the updated row,
+    /// or `nil` if a terminal failure was recorded. A row with no pending
+    /// attachments passes straight through.
+    private func uploadAttachments(row: DBAgentTemplateGeneration) async -> DBAgentTemplateGeneration? {
+        var stored = Self.decodeAttachments(row.attachments)
+        guard stored.contains(where: { $0.objectKey == nil }) else { return row }
+        for index in stored.indices where stored[index].objectKey == nil {
+            let descriptor = stored[index]
+            let data: Data
+            do {
+                data = try Data(contentsOf: URL(fileURLWithPath: descriptor.localPath))
+            } catch {
+                Log.error("AgentTemplateRepository: missing attachment file at \(descriptor.localPath): \(error.localizedDescription)")
+                return await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+            }
+            do {
+                let presigned = try await apiClient.getAgentTemplateAttachmentPresignedURL(
+                    contentType: descriptor.mimeType,
+                    contentLength: data.count
+                )
+                try await apiClient.uploadAgentTemplateAttachment(
+                    data: data,
+                    contentType: descriptor.mimeType,
+                    to: presigned.uploadURL
+                )
+                stored[index].objectKey = presigned.objectKey
+            } catch {
+                Log.error("AgentTemplateRepository: attachment upload failed: \(error.localizedDescription)")
+                return await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+            }
+        }
+        let encoded = Self.encodeAttachments(stored)
+        return await updateRow(idempotencyKey: row.idempotencyKey) { $0.attachments = encoded }
+    }
+
+    private static func persistAttachmentFiles(
+        _ inputs: [AgentBuildAttachmentInput],
+        idempotencyKey: String
+    ) throws -> [StoredGenerationAttachment] {
+        guard !inputs.isEmpty else { return [] }
+        let dir = attachmentsDirectory(idempotencyKey: idempotencyKey)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var stored: [StoredGenerationAttachment] = []
+        for input in inputs {
+            let fileURL = dir.appendingPathComponent(UUID().uuidString)
+            try input.data.write(to: fileURL)
+            stored.append(
+                StoredGenerationAttachment(
+                    objectKey: nil,
+                    mimeType: input.mimeType,
+                    filename: input.filename,
+                    localPath: fileURL.path
+                )
+            )
+        }
+        return stored
+    }
+
+    private static func attachmentsDirectory(idempotencyKey: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentBuildAttachments", isDirectory: true)
+            .appendingPathComponent(idempotencyKey, isDirectory: true)
+    }
+
+    private static func encodeAttachments(_ attachments: [StoredGenerationAttachment]) -> String? {
+        guard !attachments.isEmpty,
+              let data = try? JSONEncoder().encode(attachments) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeAttachments(_ json: String?) -> [StoredGenerationAttachment] {
+        guard let data = json?.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([StoredGenerationAttachment].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func attachmentRefs(from row: DBAgentTemplateGeneration) -> [ConvosAPI.AttachmentRef] {
+        decodeAttachments(row.attachments).compactMap { (stored: StoredGenerationAttachment) -> ConvosAPI.AttachmentRef? in
+            guard let objectKey = stored.objectKey else { return nil }
+            return ConvosAPI.AttachmentRef(objectKey: objectKey, mimeType: stored.mimeType, filename: stored.filename)
+        }
+    }
+
+    private static func cleanupAttachments(idempotencyKey: String) {
+        try? FileManager.default.removeItem(at: attachmentsDirectory(idempotencyKey: idempotencyKey))
+    }
+
+    private static func encodeConnections(_ connections: [String]) -> String? {
+        guard !connections.isEmpty,
+              let data = try? JSONEncoder().encode(connections) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeConnections(_ json: String?) -> [String] {
+        guard let data = json?.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
     private func markFailed(idempotencyKey: String, message: String) async -> DBAgentTemplateGeneration? {
-        await updateRow(idempotencyKey: idempotencyKey) { row in
+        Self.cleanupAttachments(idempotencyKey: idempotencyKey)
+        return await updateRow(idempotencyKey: idempotencyKey) { row in
             row.status = DBAgentTemplateGeneration.Status.failed.rawValue
             row.errorMessage = message
         }
@@ -443,9 +587,9 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 /// No-op repository used as the `SessionManagerProtocol` default so test mocks
 /// and non-builder conformers don't need bespoke wiring.
 public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol {
-    public init() {}
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String]) {}
 
-    public func startGeneration(prompt: String, conversationId: String, slug: String) {}
+    public init() {}
 
     public func generationPublisher(conversationId: String) -> AnyPublisher<AgentTemplateGeneration?, Never> {
         Just(nil).eraseToAnyPublisher()

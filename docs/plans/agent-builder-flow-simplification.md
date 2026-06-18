@@ -92,26 +92,50 @@ Detail: `agent-builder-flow-simplification-phase-2.md`.
 - Related fix: `getAgentTemplate` now authenticated so owners resolve their
   own `draft` templates (was a 404 in the template cache).
 
-### Phase 3 — media inputs (image / file / voice) via the presigned uploader
+### Phase 3 — media inputs (image / photo / voice / PDF) via the presigned uploader
 
-- Reuse the app's existing presigned uploader; upload the plaintext the app
-  already holds; send an array of attachment refs (`inputs.attachments[]`)
-  instead of base64. Includes the voice-memo entry mode.
-- Requires a private bucket + backend-side presigned GET (don't park
-  E2E-decrypted content at a public URL). Backend (PR #310 / CON-533): array
-  schema, coalescer, multi-part generator, caps, attachment moderation.
+Detail: `agent-builder-flow-simplification-phase-3.md`.
+
+- Upload the plaintext bytes the app already holds to a **separate**
+  agent-templates presigned endpoint (`GET
+  /v2/agent-templates/attachments/presigned` -> `{ objectKey, uploadUrl }`,
+  private bucket, no public URL), then reference each by `objectKey` in
+  `inputs.attachments[]`. Backend: PR #310 / CON-533.
+- These are **not** XMTP `RemoteAttachment`s and there's no attachment crypto:
+  the backend reads the bytes itself, so we skip `encodeEncrypted` entirely and
+  reuse only the image compression + presigned-`PUT` mechanics. "Unencrypted"
+  is inherent — no shared conversation, no message, just plaintext by key.
+- Allowlist drives scope: image (`image/png`, `image/jpeg` <= 5 MB), PDF
+  (`application/pdf` <= 25 MB), audio (m4a/etc <= 25 MB, transcribed). **No
+  video** -- hidden/rejected for direct builds. Caps: <= 9 files, <= 60 MB
+  aggregate, <= 40 MB body.
+- The builder composer already stages photos/files/voice; wire those into the
+  direct flow, persist them on `DBAgentTemplateGeneration` (so a build survives
+  relaunch), and add a repository upload step before submit. Object keys are
+  part of the idempotency body, so persist + reuse them across retries.
 - The prompt card + `AgentBuilderSummary` already model attachments, so they
   render once populated.
 
 ### Phase 4 — connections integration
 
-- `connections[]` input + the `GET /connections/services` catalog
-  (PR #311 / CON-532): the generated prompt/welcome lean on the service and
-  the template records it.
-- Post-join grants need a **new driver** keyed off the
-  `AgentTemplateRepository` / generation state — the legacy
-  `AgentBuilderConnectionGrantReplayer` keys off the XMTP `AgentBuilderSummary`
-  the direct flow never writes.
+Detail: `agent-builder-flow-simplification-phase-4.md`.
+
+- **Two independent halves.** (1) Generation-time awareness: send
+  `connections[]` (neutral cloud service ids, e.g. `["googlecalendar"]`,
+  validated against `GET /connections/services`) so the generated prompt/welcome
+  lean on the service and `template.connections` records it (PR #311 / CON-532).
+  (2) Post-join grants: the real per-agent authorization, issued after the agent
+  joins.
+- **No new driver needed.** The earlier assumption is out of date: since Phase 2
+  the direct flow **does** write an `AgentBuilderSummary` (the prompt card), and
+  the legacy `AgentBuilderConnectionGrantReplayer` is already started for every
+  session (`SessionManager.swift:157`) and observes all summary rows. Populating
+  the direct flow's summary with `.connection` attachments + `cloudConnectionIds`
+  makes the existing replayer fire device (`EnablementStore`) and cloud
+  (`grantConnection`) grants post-join for free.
+- Device connections (Apple Health) get only the post-join device grant (not a
+  `connections[]` entry — not a catalog service); cloud (Google Calendar) gets
+  both. `connections[]` rides the idempotency body, so persist + reuse on resume.
 
 ### Remaining (before retiring the flag)
 
