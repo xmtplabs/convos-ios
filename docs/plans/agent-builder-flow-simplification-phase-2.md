@@ -472,6 +472,17 @@ resolved.
   dismiss; added `onDismiss: { focusCoordinator.moveFocus(to: nil) }` to that
   sheet so the keyboard stays down there too.
 
+- [x] **Make the direct flow the default; remove the flag + legacy path.**
+  Deleted `FeatureFlags.isDirectAgentBuilderEnabled` (and its key) and the Debug
+  menu toggle. `AgentBuilderViewModel` no longer reads a flag: `onReachedReady`
+  and `commit` always run the direct generation path. Removed the now-dead legacy
+  methods (`commitToExistingConversation`, `buildSummaryAttachments`,
+  `encodedChipThumbnail`, `requestAgentJoinIfNeeded`), the `agentJoinTask` /
+  `didRequestAgentJoin` state + `deinit`, and the unused chip-thumbnail
+  `Constant`s. Deleted the now-unused `AgentBuilderCommitPlanner` (ConvosCore) and
+  its test file. `sendBuilderBundle` stays (the direct flow + unsent-brief
+  replayer still use it). Verified no dangling references remain.
+
 ## Still out of scope (later phases)
 
 - `inputs.attachments[]` + presigned upload (PR #310) — Phase 5 (media); the

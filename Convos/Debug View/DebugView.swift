@@ -73,8 +73,6 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
 
-            Toggle("Direct agent builder (new API)", isOn: Bindable(FeatureFlags.shared).isDirectAgentBuilderEnabled)
-
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
                 Text("Show Agents Info Sheet")
