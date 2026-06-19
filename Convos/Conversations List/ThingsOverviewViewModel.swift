@@ -2,12 +2,16 @@ import Combine
 import ConvosCore
 import Foundation
 
-/// One cell in the cross-conversation Things grid: the most recent
-/// agent-sent HTML attachment in `conversation`, plus enough info to
-/// render the preview thumbnail and the convo's display name + unread
-/// dot under it.
+/// One cell in the cross-conversation Things grid: a single agent-sent
+/// HTML attachment in `conversation`, plus enough info to render the
+/// preview thumbnail and the convo's display name + unread dot under it.
+/// A conversation may contribute several items (one per distinct HTML
+/// thing), so the identity is the message id, not the conversation id.
 struct ThingOverviewItem: Identifiable, Hashable {
     let conversation: Conversation
+    /// Message id of the attachment send; unique per thing so multiple
+    /// things from the same conversation get distinct grid cells.
+    let messageId: String
     /// Inbox id of the agent that sent the attachment, so the detail
     /// view's indicator can open that agent's contact card.
     let senderInboxId: String
@@ -17,7 +21,7 @@ struct ThingOverviewItem: Identifiable, Hashable {
     let thumbnailDataBase64: String?
     let date: Date
 
-    var id: String { conversation.id }
+    var id: String { messageId }
 
     var hydratedAttachment: HydratedAttachment {
         HydratedAttachment(
@@ -31,9 +35,11 @@ struct ThingOverviewItem: Identifiable, Hashable {
 
 /// View model for the Things tab's cross-conversation grid. Subscribes to
 /// the conversations list and, for each conversation, to that convo's
-/// `AgentFilesLinksRepository.filesPublisher` so we can pull out the
-/// latest HTML file. Builds a deduped, date-sorted array of
-/// [[ThingOverviewItem]] for the grid to render.
+/// `AgentFilesLinksRepository.filesPublisher` so we can pull out every
+/// HTML file (the repository already dedupes re-sends of the same
+/// filename). Builds a flat, date-sorted array of [[ThingOverviewItem]]
+/// for the grid to render, so a single conversation can contribute
+/// multiple cells.
 ///
 /// One subscription per conversation is acceptable scale for v1; if list
 /// sizes ever grow past a couple hundred conversations the right next
@@ -49,7 +55,7 @@ final class ThingsOverviewViewModel {
     @ObservationIgnored private var conversationsCancellable: AnyCancellable?
     @ObservationIgnored private var filesCancellables: [String: AnyCancellable] = [:]
     @ObservationIgnored private var conversationsById: [String: Conversation] = [:]
-    @ObservationIgnored private var latestHTMLPerConvo: [String: AgentFile] = [:]
+    @ObservationIgnored private var htmlFilesPerConvo: [String: [AgentFile]] = [:]
     @ObservationIgnored private let conversationsRepository: any ConversationsRepositoryProtocol
 
     init(session: any SessionManagerProtocol) {
@@ -73,7 +79,7 @@ final class ThingsOverviewViewModel {
         let removedIds = Set(filesCancellables.keys).subtracting(activeIds)
         for id in removedIds {
             filesCancellables.removeValue(forKey: id)
-            latestHTMLPerConvo.removeValue(forKey: id)
+            htmlFilesPerConvo.removeValue(forKey: id)
         }
         for convo in convos where filesCancellables[convo.id] == nil {
             subscribeToFiles(for: convo.id)
@@ -87,11 +93,11 @@ final class ThingsOverviewViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] files in
                 guard let self else { return }
-                let htmlFile = files.first { isHTML($0) }
-                if let htmlFile {
-                    self.latestHTMLPerConvo[conversationId] = htmlFile
+                let htmlFiles = files.filter { isHTML($0) }
+                if htmlFiles.isEmpty {
+                    self.htmlFilesPerConvo.removeValue(forKey: conversationId)
                 } else {
-                    self.latestHTMLPerConvo.removeValue(forKey: conversationId)
+                    self.htmlFilesPerConvo[conversationId] = htmlFiles
                 }
                 self.rebuildItems()
             }
@@ -103,17 +109,20 @@ final class ThingsOverviewViewModel {
     }
 
     private func rebuildItems() {
-        items = latestHTMLPerConvo.compactMap { id, file -> ThingOverviewItem? in
-            guard let convo = conversationsById[id] else { return nil }
-            return ThingOverviewItem(
-                conversation: convo,
-                senderInboxId: file.senderInboxId,
-                attachmentKey: file.attachmentKey,
-                filename: file.filename,
-                mimeType: file.mimeType,
-                thumbnailDataBase64: file.thumbnailDataBase64,
-                date: file.date
-            )
+        items = htmlFilesPerConvo.flatMap { id, files -> [ThingOverviewItem] in
+            guard let convo = conversationsById[id] else { return [] }
+            return files.map { (file: AgentFile) -> ThingOverviewItem in
+                ThingOverviewItem(
+                    conversation: convo,
+                    messageId: file.id,
+                    senderInboxId: file.senderInboxId,
+                    attachmentKey: file.attachmentKey,
+                    filename: file.filename,
+                    mimeType: file.mimeType,
+                    thumbnailDataBase64: file.thumbnailDataBase64,
+                    date: file.date
+                )
+            }
         }
         .sorted { $0.date > $1.date }
     }
