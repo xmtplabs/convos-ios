@@ -6,6 +6,7 @@ struct ConversationIndicator<InfoView: View>: View {
     let placeholderName: String
     let untitledConversationPlaceholder: String
     let subtitle: String
+    var subtitleColor: Color = .colorTextSecondary
     let scheduledExplosionDate: Date?
     @Binding var conversationName: String
     @Binding var conversationImage: UIImage?
@@ -48,6 +49,7 @@ struct ConversationIndicator<InfoView: View>: View {
                         conversationName: conversationName,
                         placeholderName: untitledConversationPlaceholder,
                         subtitle: subtitle,
+                        subtitleColor: subtitleColor,
                         scheduledExplosionDate: scheduledExplosionDate,
                         action: onConversationInfoTapped,
                         longPressAction: onConversationInfoLongPressed

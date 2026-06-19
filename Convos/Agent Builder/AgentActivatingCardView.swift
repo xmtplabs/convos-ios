@@ -19,6 +19,14 @@ struct AgentActivatingCardView: View {
     /// staggered reveal, the phrase cycling, and the progress pacing.
     @State private var tick: Int = 0
 
+    /// The caption actually on screen. Updated only on the timer tick (and
+    /// seeded on appear) so each line holds for its full `tickSeconds` slot --
+    /// an off-cadence change (a poll flipping the phase to `.finishing`, or new
+    /// `progressPhrases` landing) can't cut a progress phrase short mid-slot.
+    /// The card is removed outright once the agent joins, so that is the only
+    /// thing that interrupts a phrase early.
+    @State private var displayedCaption: String = ""
+
     private let timer: Publishers.Autoconnect<Timer.TimerPublisher> = Timer
         .publish(every: Constant.tickSeconds, on: .main, in: .common)
         .autoconnect()
@@ -68,22 +76,11 @@ struct AgentActivatingCardView: View {
         return "Agent will join soon"
     }
 
-    /// True only when the caption is currently showing a dynamic API progress
-    /// phrase (vs the "<name> will join soon" reassurance line). Mirrors the
-    /// `caption` branches so the color can differ.
-    private var captionIsProgressPhrase: Bool {
-        guard content.phase == .generating,
-              progressFraction < Constant.generatingMax,
-              !content.progressPhrases.isEmpty else {
-            return false
-        }
-        return tick.isMultiple(of: 2)
-    }
-
     /// Progress phrases use the grayish secondary color; the "will join soon"
-    /// reassurance line keeps the lava accent.
+    /// reassurance line keeps the lava accent. Derived from the text currently
+    /// on screen so the color always matches the displayed caption.
     private var captionColor: Color {
-        captionIsProgressPhrase ? .colorTextSecondary : Constant.accent
+        content.progressPhrases.contains(displayedCaption) ? .colorTextSecondary : Constant.accent
     }
 
     private var caption: String {
@@ -128,32 +125,44 @@ struct AgentActivatingCardView: View {
                 GlassEffectContainer {
                     card
                 }
+                // Trailing inset matches the leading inset so the card is
+                // centered in the view (not just left-aligned with the message
+                // column). On regular-width layouts `bubbleRowWidthCap` still
+                // caps + leading-pins the row like message bubbles.
                 Spacer()
-                    .frame(minWidth: 50.0)
+                    .frame(minWidth: Constant.leadingInset)
                     .layoutPriority(-1)
             }
             .bubbleRowWidthCap(alignment: .leading)
             .padding(.leading, Constant.leadingInset)
-            Text(caption)
-                .font(.footnote.weight(.medium))
+            Text(displayedCaption)
+                .font(.caption)
                 .foregroundStyle(captionColor)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .transition(.blurReplace)
-                .id("agent-activating-caption-\(caption)")
+                .id("agent-activating-caption-\(displayedCaption)")
+        }
+        .onAppear {
+            displayedCaption = caption
         }
         .onReceive(timer) { _ in
             tick += 1
+            // Adopt the current target caption once per slot so each line holds
+            // for the full `tickSeconds` instead of being replaced off-cadence.
+            displayedCaption = caption
         }
         // The card keeps a stable view identity across phase transitions, so
         // `tick` would otherwise carry over from `.preparing` and make the
         // `.generating` reveal jump straight to fully-revealed. Reset it on each
         // phase change so the staggered reveal + progress ramp start from zero.
+        // The displayed caption is left untouched here -- the next tick adopts
+        // the new phase's caption, so the current line keeps its full slot.
         .onChange(of: content.phase) {
             tick = 0
         }
         .animation(.easeInOut(duration: 0.35), value: revealStage)
-        .animation(.easeInOut(duration: 0.35), value: caption)
+        .animation(.easeInOut(duration: 0.35), value: displayedCaption)
         .animation(.easeInOut(duration: 0.5), value: progressFraction)
     }
 
@@ -162,7 +171,7 @@ struct AgentActivatingCardView: View {
             avatar
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
-                    .font(.title2)
+                    .font(.callout)
                     .foregroundStyle(hasName ? .colorTextPrimary : .colorTextSecondary)
                     .transition(.blurReplace)
                     .id("agent-activating-title-\(title)")
@@ -186,13 +195,13 @@ struct AgentActivatingCardView: View {
     private var descriptionArea: some View {
         ZStack(alignment: .topLeading) {
             Text(Constant.descriptionPlaceholder)
-                .font(.body)
+                .font(.caption2)
                 .lineLimit(Constant.descriptionLineCount, reservesSpace: true)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .hidden()
             if let description = resolvedDescription {
                 Text(description)
-                    .font(.body)
+                    .font(.caption2)
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(Constant.descriptionLineCount)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -239,9 +248,9 @@ struct AgentActivatingCardView: View {
         static let leadingInset: CGFloat = DesignConstants.ImageSizes.smallAvatar
             + DesignConstants.Spacing.step2x
         /// Matches the in-chat agent contact card's avatar
-        /// (`AgentContactCardView` `.standard` `standardAvatarSize` = 40), so the
+        /// (`AgentContactCardView` `.standard` `standardAvatarSize` = 56), so the
         /// loading avatar and the finished card's avatar read as the same size.
-        static let avatarSize: CGFloat = 40
+        static let avatarSize: CGFloat = 56
         /// Lines reserved for the description so the card holds a fixed height
         /// before the text reveals (generated descriptions cap at ~140 chars).
         static let descriptionLineCount: Int = 5

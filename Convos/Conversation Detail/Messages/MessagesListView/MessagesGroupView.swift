@@ -320,10 +320,11 @@ struct MessagesGroupView: View {
             }
 
             let cardTap = { onTapSender(displayGroup.sender) }
-            // Mirrors `MessageContainer` so the card caps at the same max
-            // width as text bubbles - natural sizing for short content,
-            // bounded by a 50pt trailing spacer with lower layout priority,
-            // plus the same `maxBubbleRowWidth` cap on regular-width layouts.
+            // Trailing inset matches the card's leading inset (the row's `step4x`
+            // padding + the avatar gutter) so the card is centered in the view
+            // rather than sitting slightly off-center. `bubbleRowWidthCap` still
+            // caps + leading-pins the row on regular-width layouts.
+            let trailingInset: CGFloat = DesignConstants.Spacing.step4x + avatarSize + avatarSpacing
             HStack(alignment: .bottom, spacing: 0.0) {
                 AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
                     .contentShape(Rectangle())
@@ -335,7 +336,7 @@ struct MessagesGroupView: View {
                     }
 
                 Spacer()
-                    .frame(minWidth: 50.0)
+                    .frame(minWidth: trailingInset)
                     .layoutPriority(-1)
             }
             .bubbleRowWidthCap(alignment: .leading)

@@ -687,12 +687,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             // Static copy for the whole build; the header subtitle intentionally
             // does not cycle the build-narration phrases. It flips to the member
             // count once the agent joins (shouldRenderAsPendingAgent == false).
-            return "Making agent..."
+            return "Activating"
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+    }
+    /// The "Activating" pending-agent subtitle uses the lava accent to match the
+    /// rest of the build UI; every other subtitle keeps the secondary text color.
+    var conversationInfoSubtitleColor: Color {
+        shouldRenderAsPendingAgent ? .colorLava : .colorTextSecondary
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"

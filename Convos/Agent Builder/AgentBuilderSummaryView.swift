@@ -39,8 +39,12 @@ struct AgentBuilderSummaryView: View {
             // (which leave room for the sender avatar) rather than the list edge.
             HStack(spacing: 0.0) {
                 cardContent
+                // Trailing inset matches the leading inset so the card is
+                // centered in the view (not just left-aligned with the message
+                // column). On regular-width layouts `bubbleRowWidthCap` still
+                // caps + leading-pins the row like message bubbles.
                 Spacer()
-                    .frame(minWidth: 50.0)
+                    .frame(minWidth: Constant.leadingInset)
                     .layoutPriority(-1)
             }
             .bubbleRowWidthCap(alignment: .leading)
@@ -51,7 +55,7 @@ struct AgentBuilderSummaryView: View {
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             if !content.prompt.isEmpty {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
                     Text(Constant.promptHeader)
                         .font(.caption2)
                         .foregroundStyle(.colorTextSecondary)
