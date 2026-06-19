@@ -206,11 +206,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         return !directBuildAgentJoined
     }
 
-    /// The agent has joined when any member other than the local user is
-    /// present. Membership (not verification) is the "it's here" signal:
-    /// gating the placeholder on `isVerifiedConvosAgent` alone left "Joining..."
-    /// stuck after the agent joined but before it published its verified
-    /// attestation, and the direct path has no time-box backstop like the
+    /// Releases the pending-agent header takeover ("New Agent" title +
+    /// add-agent glyph + "Making agent..." subtitle). That takeover is a
+    /// new-conversation concept -- it stands in for the agent's identity before
+    /// it has one -- so the signal is "the conversation already has another
+    /// member besides me," not specifically "the agent joined":
+    ///   - New agent conversation: the only other member that ever appears is
+    ///     the agent, so this releases exactly when the agent lands.
+    ///   - Existing group (in-chat "New Agent"): other members are already
+    ///     present, so this is true from the start and the header is never
+    ///     hijacked -- the group keeps its own name/avatar/subtitle while the
+    ///     build runs (the in-chat activating card shows progress instead).
+    /// Gating on membership (not `isVerifiedConvosAgent`) also avoids the
+    /// "Joining..." stuck state when an agent joins before publishing its
+    /// verified attestation; the direct path has no time-box backstop like the
     /// legacy summary flow.
     private var directBuildAgentJoined: Bool {
         conversation.members.contains { !$0.isCurrentUser }
