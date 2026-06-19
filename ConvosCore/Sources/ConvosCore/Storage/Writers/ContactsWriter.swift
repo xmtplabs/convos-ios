@@ -391,30 +391,46 @@ extension ContactsWriter {
     }
 
     /// Most-recent-wins apply for an inbound member profile (live stream,
-    /// history replay, or push extension). Drops the write when `incomingSentAt`
-    /// is older than the row's stored `profileUpdatedAt`, so a stale or replayed
-    /// message can never clobber newer data. When applied, stamps the row with
+    /// history replay, or push extension). When applied, stamps the row with
     /// `incomingSentAt`, persists it, and mirrors to `DBContact` in the same
     /// transaction so the member row and contact row can never diverge.
     ///
-    /// `incomingSentAt` is the sender's `message.sentAt` (sender clock); this
-    /// accepts sender-clock ordering, identical to the `DBContact` guard in
-    /// `replacingProfile(of:with:)`. Equal-or-newer applies (the equal case is
-    /// the idempotent reprocess of the same message). Returns true when applied,
-    /// false when dropped as stale.
+    /// The `source` selects how `incomingSentAt` is interpreted:
+    /// - `.authoritativeUpdate` (ProfileUpdate): `incomingSentAt` is the
+    ///   sender's per-member `message.sentAt`, a meaningful recency signal.
+    ///   Drops the write when it is older than the stored `profileUpdatedAt`,
+    ///   so a stale or replayed message can never clobber newer data.
+    ///   Equal-or-newer applies (the equal case is the idempotent reprocess of
+    ///   the same message). This matches the `DBContact` guard in
+    ///   `replacingProfile(of:with:)`.
+    /// - `.snapshotBackfill` (ProfileSnapshot): the snapshot carries a single
+    ///   author-clock `sentAt` for every member, so it is not a valid
+    ///   per-member recency signal. Applies only when the row has no stored
+    ///   `profileUpdatedAt` yet (backfill for a never-seen member); never
+    ///   overwrites a row an authoritative update already stamped.
+    ///
+    /// Returns true when applied, false when dropped.
     @discardableResult
     static func applyInboundMemberProfileInTransaction(
         db: Database,
         profile: DBMemberProfile,
-        incomingSentAt: Date
+        incomingSentAt: Date,
+        source: InboundProfileSource = .authoritativeUpdate
     ) throws -> Bool {
         let stored = try DBMemberProfile.fetchOne(
             db,
             conversationId: profile.conversationId,
             inboxId: profile.inboxId
         )?.profileUpdatedAt
-        if let stored, incomingSentAt < stored {
-            return false
+        switch source {
+        case .authoritativeUpdate:
+            if let stored, incomingSentAt < stored {
+                return false
+            }
+        case .snapshotBackfill:
+            if stored != nil {
+                return false
+            }
         }
         let stamped = profile.with(profileUpdatedAt: incomingSentAt)
         try saveMemberProfileAndMirrorToContactInTransaction(
@@ -424,4 +440,13 @@ extension ContactsWriter {
         )
         return true
     }
+}
+
+/// Distinguishes the wire source of an inbound member profile so the recency
+/// guard can treat a per-member `ProfileUpdate` timestamp as authoritative
+/// while treating a `ProfileSnapshot`'s shared author-clock timestamp as
+/// backfill-only. See `ContactsWriter.applyInboundMemberProfileInTransaction`.
+enum InboundProfileSource {
+    case authoritativeUpdate
+    case snapshotBackfill
 }

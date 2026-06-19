@@ -1124,7 +1124,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                             memberKind: memberProfile.memberKind.dbMemberKind,
                             metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
                             fallbackEncryptionKey: encryptionKey,
-                            sentAt: snapshotEntry.sentAt
+                            sentAt: snapshotEntry.sentAt,
+                            source: .snapshotBackfill
                         )
                     }
                 }
@@ -1148,7 +1149,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         memberKind: DBMemberKind?,
         metadata: ProfileMetadata? = nil,
         fallbackEncryptionKey: Data?,
-        sentAt: Date
+        sentAt: Date,
+        source: InboundProfileSource = .authoritativeUpdate
     ) throws {
         let member = DBMember(inboxId: inboxId)
         try member.save(db)
@@ -1187,7 +1189,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             profile = profile.with(memberKind: priorMemberKind)
         }
 
-        try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: sentAt)
+        try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: sentAt, source: source)
 
         if profile.agentVerification.isConvosAgent,
            let conversation = try DBConversation.fetchOne(db, id: conversationId),

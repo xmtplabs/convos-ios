@@ -72,7 +72,9 @@ final class ProfileSyncReconciler: @unchecked Sendable {
     /// network round-trip (and possibly an avatar upload), so a large mismatch
     /// set (every conversation, on first launch after the markers migration or
     /// after a global-profile edit) is processed with a sliding window rather
-    /// than all at once.
+    /// than all at once. Six keeps the backlog draining promptly while bounding
+    /// simultaneous network/upload and battery pressure; it is a pragmatic cap,
+    /// not a measured optimum, and can be tuned if profiling warrants.
     private static let maxConcurrentSyncs: Int = 6
 
     private func observe() async {

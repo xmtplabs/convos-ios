@@ -164,6 +164,46 @@ struct MemberProfileRecencyTests {
         }
     }
 
+    @Test("snapshot backfill populates a row with no recency stamp")
+    func snapshotBackfillPopulatesUnstamped() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seed(db: db)
+            // Placeholder row with no recency stamp (never received a ProfileUpdate).
+            try DBMemberProfile(conversationId: Self.convoId, inboxId: Self.otherInboxId, name: nil, avatar: nil)
+                .insert(db, onConflict: .ignore)
+
+            let applied = try ContactsWriter.applyInboundMemberProfileInTransaction(
+                db: db, profile: Self.inbound(name: "Snap"), incomingSentAt: Self.t2, source: .snapshotBackfill
+            )
+            #expect(applied)
+            #expect(try Self.memberName(db) == "Snap")
+        }
+    }
+
+    @Test("snapshot backfill does not clobber a row an update already stamped, even when newer")
+    func snapshotBackfillDoesNotClobberStamped() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seed(db: db)
+
+            // An authoritative ProfileUpdate lands first and stamps the row at t1.
+            let update = try ContactsWriter.applyInboundMemberProfileInTransaction(
+                db: db, profile: Self.inbound(name: "Update"), incomingSentAt: Self.t1
+            )
+            #expect(update)
+
+            // A snapshot carries a later author-clock t2, but its per-member data
+            // is not a valid recency signal; it must not overwrite the update.
+            let snapshot = try ContactsWriter.applyInboundMemberProfileInTransaction(
+                db: db, profile: Self.inbound(name: "StaleSnap"), incomingSentAt: Self.t2, source: .snapshotBackfill
+            )
+            #expect(snapshot == false)
+            #expect(try Self.memberName(db) == "Update")
+            #expect(try Self.contactName(db) == "Update")
+        }
+    }
+
     @Test("mirror no-ops when there is no contact row (no auto-add)")
     func noContactRowIsNoOp() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

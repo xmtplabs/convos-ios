@@ -928,7 +928,7 @@ extension MessagingService {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt)
+                    try ContactsWriter.applyInboundMemberProfileInTransaction(db: db, profile: profile, incomingSentAt: receivedAt, source: .snapshotBackfill)
                     try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }

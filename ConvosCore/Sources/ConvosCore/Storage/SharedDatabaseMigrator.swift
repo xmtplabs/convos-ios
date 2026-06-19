@@ -194,7 +194,7 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
 
-        migrator.registerMigration("addMemberProfileProfileUpdatedAt", migrate: Self.addMemberProfileProfileUpdatedAt)
+        migrator.registerMigration("addMemberProfileUpdatedAt", migrate: Self.addMemberProfileUpdatedAt)
 
         migrator.registerMigration("addMemberProfilePublishedMarkers", migrate: Self.addMemberProfilePublishedMarkers)
 
@@ -222,7 +222,7 @@ extension SharedDatabaseMigrator {
     /// mirroring `contact.profileUpdatedAt`. Nullable with no backfill: legacy
     /// rows start nil (treated as overwritable) and the first inbound profile
     /// message back-fills the stamp.
-    private static func addMemberProfileProfileUpdatedAt(_ db: Database) throws {
+    private static func addMemberProfileUpdatedAt(_ db: Database) throws {
         try db.alter(table: "memberProfile") { t in
             t.add(column: "profileUpdatedAt", .datetime)
         }
