@@ -18,17 +18,36 @@ filter_xmtp_logs() {
     grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
 }
 
-# Print a concise summary of Swift Testing failures from a captured run log.
-# Swift Testing marks every failure line with the ✘ glyph (passes use ✔), so
-# this surfaces the failed tests, failed suites, the recorded issues (with
-# file:line + message), and the final run summary -- without scrolling the
-# full ~19k-line output.
+# Print a concise summary of test failures from a captured run log, so CI
+# surfaces what failed without scrolling the full ~19k-line output.
 print_failure_summary() {
     local log="$1"
+    local found=0
     echo ""
     echo "================== FAILED TEST SUMMARY =================="
-    if ! grep -F '✘' "$log"; then
-        echo "(no Swift Testing failure markers found; see full log above)"
+
+    # Graceful Swift Testing failures: every failure line carries the ✘ glyph
+    # (passes use ✔) -- failed tests, failed suites, recorded issues with
+    # file:line + message, and the final run summary.
+    if grep -F '✘' "$log"; then
+        found=1
+    fi
+
+    # A `fatalError`/precondition crash aborts the process before any ✘ lines
+    # are written, so surface the crash message and the tests that were in
+    # flight when it died (the crash suspects).
+    if grep -nE 'Fatal error|fatalError|Crashed|exited abnormally|signal SIG' "$log"; then
+        found=1
+        echo ""
+        echo "--- tests started but never finished (crash suspects) ---"
+        comm -23 \
+            <(grep -oE 'Test "[^"]+" started' "$log" | sort -u) \
+            <(grep -oE 'Test "[^"]+" (passed|failed)' "$log" | sed -E 's/ (passed|failed)$/ started/' | sort -u) \
+            || true
+    fi
+
+    if [[ "$found" -eq 0 ]]; then
+        echo "(no failure markers found; see full log above)"
     fi
     echo "========================================================"
 }

@@ -1278,7 +1278,12 @@ extension SessionManager {
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             source: "ios-app",
-            clientDeviceId: DeviceInfo.deviceIdentifier
+            // Resolved lazily, at generation-submit time, not here at
+            // SessionManager init -- so building a session never forces a
+            // `DeviceInfo` read. By the time a generation is submitted the
+            // platform layer has configured `DeviceInfo`; if not, the existing
+            // fatalError still fires (loudly) at the real point of use.
+            clientDeviceIdProvider: { DeviceInfo.deviceIdentifier }
         )
     }
 

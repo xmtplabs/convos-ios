@@ -117,7 +117,11 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let source: String
-    private let clientDeviceId: String?
+    /// Resolved lazily at submit time (not at init) so constructing the
+    /// repository -- which happens at `SessionManager` init -- never forces a
+    /// `DeviceInfo` read. The id is only needed when a generation is actually
+    /// submitted, by which point the platform layer has configured `DeviceInfo`.
+    private let clientDeviceIdProvider: @Sendable () -> String?
 
     /// Idempotency keys with a pipeline already running in this process, so a
     /// duplicate `startGeneration` / `resume` can't double-drive one row.
@@ -132,13 +136,13 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         source: String,
-        clientDeviceId: String?
+        clientDeviceIdProvider: @escaping @Sendable () -> String?
     ) {
         self.apiClient = apiClient
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.source = source
-        self.clientDeviceId = clientDeviceId
+        self.clientDeviceIdProvider = clientDeviceIdProvider
     }
 
     // MARK: - Public
@@ -291,7 +295,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 let response = try await apiClient.createAgentTemplateGeneration(
                     text: row.prompt,
                     source: source,
-                    clientDeviceId: clientDeviceId,
+                    clientDeviceId: clientDeviceIdProvider(),
                     idempotencyKey: row.idempotencyKey,
                     attachments: Self.attachmentRefs(from: row),
                     connections: Self.decodeConnections(row.connections)

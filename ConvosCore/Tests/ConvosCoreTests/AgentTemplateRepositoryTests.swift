@@ -20,17 +20,22 @@ struct AgentTemplateRepositoryTests {
             databaseWriter: database,
             databaseReader: database,
             source: "test",
-            clientDeviceId: "test-device"
+            clientDeviceIdProvider: { "test-device" }
         )
     }
 
     /// Polls the persisted row until it reaches `target` or the timeout
     /// elapses; returns the latest row either way so assertions can inspect it.
+    /// The pipeline runs in a detached `Task`, so the timeout is generous: these
+    /// are fast in-memory tests, but they run in the integration job alongside
+    /// the full (network-bound) suite, where the cooperative pool can starve the
+    /// detached task for several seconds. It returns the instant `target` is
+    /// reached, so the headroom only costs wall-time on a genuine failure.
     private func waitForStatus(
         _ target: DBAgentTemplateGeneration.Status,
         conversationId: String,
         in database: DatabaseQueue,
-        timeout: TimeInterval = 5
+        timeout: TimeInterval = 20
     ) async throws -> DBAgentTemplateGeneration? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
