@@ -189,6 +189,42 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// Latest direct-builder generation for this conversation, observed from
+    /// `AgentTemplateRepository`. Drives the pending-agent placeholder while a
+    /// build is in flight. `nil` for conversations that weren't created by the
+    /// direct builder flow.
+    var directBuildGeneration: AgentTemplateGeneration?
+
+    /// `true` while a direct build is active and hasn't failed and the agent
+    /// hasn't joined the conversation yet — covering submit through invite up
+    /// to the moment the agent actually appears as a member. Used to keep the
+    /// pending placeholder up without flashing empty, and to clear it the
+    /// instant the agent lands.
+    private var directBuildAwaitingAgent: Bool {
+        guard let generation = directBuildGeneration else { return false }
+        guard generation.status != .failed else { return false }
+        return !directBuildAgentJoined
+    }
+
+    /// Releases the pending-agent header takeover ("New Agent" title +
+    /// add-agent glyph + "Making agent..." subtitle). That takeover is a
+    /// new-conversation concept -- it stands in for the agent's identity before
+    /// it has one -- so the signal is "the conversation already has another
+    /// member besides me," not specifically "the agent joined":
+    ///   - New agent conversation: the only other member that ever appears is
+    ///     the agent, so this releases exactly when the agent lands.
+    ///   - Existing group (in-chat "New Agent"): other members are already
+    ///     present, so this is true from the start and the header is never
+    ///     hijacked -- the group keeps its own name/avatar/subtitle while the
+    ///     build runs (the in-chat activating card shows progress instead).
+    /// Gating on membership (not `isVerifiedConvosAgent`) also avoids the
+    /// "Joining..." stuck state when an agent joins before publishing its
+    /// verified attestation; the direct path has no time-box backstop like the
+    /// legacy summary flow.
+    private var directBuildAgentJoined: Bool {
+        conversation.members.contains { !$0.isCurrentUser }
+    }
+
     /// Flips true once the post-commit agent-builder placeholder window
     /// (`AgentBuilderPlaceholder.displayDuration` past the summary's
     /// `cutoffDate`) elapses without a verified agent joining. Stops the
@@ -333,6 +369,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
     @ObservationIgnored
+    private var directBuildGenerationCancellable: AnyCancellable?
+    /// One-shot backstop: cleared/re-armed as the direct build reaches the
+    /// "agent should be joining" state. Fires if the agent never appears so the
+    /// activating card can't linger forever (e.g. provisioning/attestation
+    /// stalls), which is especially important in an existing group.
+    @ObservationIgnored
+    private var directBuildJoinTimeoutTask: Task<Void, Never>?
+    /// How long to keep the activating card up after the build is done + the
+    /// join issued before giving up on the agent appearing. Matches the legacy
+    /// placeholder window.
+    private static let directBuildJoinTimeout: TimeInterval = 180
+    @ObservationIgnored
+    private var observedDirectBuildConversationId: String?
+    @ObservationIgnored
     private var agentBuilderPlaceholderExpiryTask: Task<Void, Never>?
     @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
@@ -417,6 +467,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             agent = nil
         }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+        // The built agent has joined and verified: clear the persisted
+        // generation so the activating card can't resurrect if the agent is
+        // later removed (membership going back to no-agent would otherwise
+        // re-open the card's "no verified agent" gate on a still-`.invited`
+        // row). Durable across removal + relaunch; no-op once cleared.
+        if realAgent != nil, directBuildGeneration != nil {
+            session.agentTemplateRepository().clearGeneration(conversationId: conversation.id)
+        }
     }
 
     /// Activate the optimistic agent overlay for an agent-template flow.
@@ -483,7 +541,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
     var untitledConversationPlaceholder: String {
         if let presentation = pendingAgentPresentation {
-            return presentation.name ?? "Agent"
+            return presentation.name ?? "New Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
@@ -512,6 +570,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
+        // Direct builder: the header intentionally stays generic ("Agent" title
+        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
+        // The draft preview identity is revealed progressively by the dedicated
+        // `.agentActivating` card, not the header; the header only adopts the
+        // real name/emoji once the verified agent actually joins. So fall
+        // through to the generic no-identity pending case below.
         if shouldRenderAsPendingAgentBuilder {
             return PendingAgentPresentation(
                 name: nil,
@@ -542,6 +606,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// appears in `conversation.members`, at which point the regular
     /// member-driven avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgentBuilder: Bool {
+        // Direct builder owns its own pending lifecycle. No AgentBuilderSummary
+        // is ever written on this path, so once a generation row exists the
+        // live generation state is authoritative -- return it and bypass the
+        // legacy summary-based gating below, which would otherwise pin the
+        // placeholder forever (here `isInAgentBuilderFlow` is true but
+        // `agentBuilderSummary` is always nil, so the pre-commit branch never
+        // releases). `directBuildAwaitingAgent` already clears on membership
+        // and on failure.
+        if directBuildGeneration != nil {
+            return directBuildAwaitingAgent
+        }
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
         // Pre-commit: while drafting in the builder (no summary yet), always
         // show the generic agent placeholder -- even if a verified agent has
@@ -609,12 +684,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         if shouldRenderAsPendingAgent {
-            return "Joining..."
+            // Static copy for the whole build; the header subtitle intentionally
+            // does not cycle the build-narration phrases. It flips to the member
+            // count once the agent joins (shouldRenderAsPendingAgent == false).
+            return "Activating"
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+    }
+    /// The "Activating" pending-agent subtitle uses the lava accent to match the
+    /// rest of the build UI; every other subtitle keeps the secondary text color.
+    var conversationInfoSubtitleColor: Color {
+        shouldRenderAsPendingAgent ? .colorLava : .colorTextSecondary
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -1369,6 +1452,82 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         scheduleAgentBuilderPlaceholderExpiry()
     }
 
+    /// Subscribe to the direct-builder generation row for this conversation so
+    /// the pending-agent placeholder and failure banner react to submit ->
+    /// poll -> invite transitions. No-op for conversations not created by the
+    /// direct builder (the publisher just emits `nil`).
+    private func observeDirectBuildGeneration() {
+        observeDirectBuildGeneration(for: conversation.id)
+    }
+
+    private func observeDirectBuildGeneration(for conversationId: String) {
+        guard conversationId != observedDirectBuildConversationId else { return }
+        observedDirectBuildConversationId = conversationId
+        directBuildGenerationCancellable?.cancel()
+        directBuildGenerationCancellable = session.agentTemplateRepository()
+            .generationPublisher(conversationId: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] generation in
+                self?.directBuildGeneration = generation
+                self?.syncDirectActivatingCard()
+            }
+    }
+
+    /// Mirror the live generation into the message list's "activating agent"
+    /// card. The processor only inserts it while no verified agent has joined,
+    /// so it's cleared automatically on join; here we just keep the content
+    /// (preview identity + progress phrases) current and drop it on failure.
+    private func syncDirectActivatingCard() {
+        guard let generation = directBuildGeneration, generation.status != .failed else {
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        let phase: AgentActivatingCardContent.Phase
+        switch generation.status {
+        case .submitting, .pending:
+            phase = .preparing
+        case .running:
+            phase = .generating
+        case .done, .invited:
+            phase = .finishing
+        case .failed:
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        messagesListRepository.agentActivating = AgentActivatingCardContent(
+            id: conversation.id,
+            phase: phase,
+            agentName: generation.preview?.agentName,
+            emoji: generation.preview?.emoji,
+            agentDescription: generation.preview?.description,
+            progressPhrases: generation.progressPhrases
+        )
+        // The repo bounds submit/poll (those fail -> the card clears above), but
+        // once the join is issued (`done`/`invited`) nothing else verifies the
+        // agent actually appeared. Arm a one-shot timeout so the card can't
+        // linger forever if the agent never joins/verifies.
+        if generation.status == .done || generation.status == .invited {
+            armDirectBuildJoinTimeoutIfNeeded()
+        }
+    }
+
+    private func armDirectBuildJoinTimeoutIfNeeded() {
+        guard directBuildJoinTimeoutTask == nil else { return }
+        directBuildJoinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.directBuildJoinTimeout))
+            guard let self, !Task.isCancelled else { return }
+            let hasVerifiedAgent: Bool = self.conversation.members.contains(where: \.isVerifiedConvosAgent)
+            guard self.directBuildGeneration != nil, !hasVerifiedAgent else { return }
+            Log.warning("AgentBuilder(direct): agent did not join within timeout; clearing activating card for \(self.conversation.id)")
+            self.messagesListRepository.agentActivating = nil
+            self.session.agentTemplateRepository().clearGeneration(conversationId: self.conversation.id)
+        }
+    }
+
     /// Subscribe to the GRDB-backed thinking session feed for this
     /// conversation. The publisher fires whenever the writer inserts or
     /// closes a row, which propagates into `messagesWithThinkingIndicators`
@@ -1394,6 +1553,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         observeThinkingSessions()
+        observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
         CreditsServices.shared.balancePublisher
@@ -1469,6 +1629,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeDirectBuildGeneration(for: conversation.id)
                     self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true

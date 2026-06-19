@@ -254,6 +254,7 @@ struct ConversationIndicatorWrapper: View {
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: placeholderOverride ?? viewModel.untitledConversationPlaceholder,
             subtitle: subtitleOverride ?? viewModel.conversationInfoSubtitle,
+            subtitleColor: subtitleOverride == nil ? viewModel.conversationInfoSubtitleColor : .colorTextSecondary,
             scheduledExplosionDate: viewModel.scheduledExplosionDate,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,

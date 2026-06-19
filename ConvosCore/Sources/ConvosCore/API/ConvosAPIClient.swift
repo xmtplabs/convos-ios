@@ -103,8 +103,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
-    /// agent-share card/chip resolver. Unauthenticated: the backend serves
-    /// published templates to anonymous callers.
+    /// agent-share card/chip resolver. Authenticated: the backend serves
+    /// published templates to anonymous callers, but drafts are only returned to authenticated owners.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
     /// Lists featured (curated) published agent templates, cursor-paginated.
@@ -114,6 +114,46 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// Unauthenticated: featured templates are published, so the backend
     /// serves them to anonymous callers (mirrors `getAgentTemplate`).
     func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
+
+    /// Submits an async template generation (`POST /v2/agent-templates/generations`).
+    /// Returns 202 with `status: pending` by default; the caller polls
+    /// `getAgentTemplateGeneration` for the terminal state. `idempotencyKey`
+    /// must be a UUID and is reused across retries of the same submit.
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
+
+    /// Polls a generation's status (`GET /v2/agent-templates/generations/:id`).
+    /// The generation id is the capability, so no extra auth is required.
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
+
+    /// Mints a presigned PUT for one generation attachment.
+    /// `GET /v2/agent-templates/attachments/presigned?contentType=…&contentLength=…`
+    /// returns an opaque `objectKey` (echo it back in `inputs.attachments[]`) and
+    /// the presigned S3 `uploadURL`. Private bucket — no public asset URL is
+    /// minted; `contentType` must be in the backend allowlist and `contentLength`
+    /// (the exact byte count of the upload) is baked into the presigned URL, so
+    /// the subsequent `PUT` body must match it.
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String)
+
+    /// Uploads the raw (unencrypted) bytes of a generation attachment to the
+    /// presigned `uploadURL` with the given `Content-Type`. The backend reads
+    /// the bytes itself, so nothing is encrypted and no XMTP content is built.
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -190,6 +230,41 @@ extension ConvosAPIClientProtocol {
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, conversationId: nil, templateId: templateId, options: nil, forceErrorCode: nil)
+    }
+
+    /// Default so bespoke test doubles that don't exercise the builder don't
+    /// have to stub these. The real `ConvosAPIClient` and `MockAPIClient`
+    /// override both.
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        throw APIError.invalidRequest
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        throw APIError.invalidRequest
+    }
+
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        throw APIError.invalidRequest
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {
+        throw APIError.invalidRequest
     }
 }
 
@@ -834,11 +909,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     // MARK: - Agent templates
 
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
-        // Public, unauthenticated GET -- the detail endpoint serves published
-        // templates to anonymous callers. `request(for:)` builds a bare GET
-        // (no auth header) and `performRequest` maps 404 -> APIError.notFound.
+        // Authenticated GET. Published templates are visible to anyone, but a
+        // `draft` template (every builder-flow template lands as a draft) is
+        // only returned to its owner -- the backend matches `res.locals.accountId`
+        // against the template's owner, so an anonymous request 404s on a draft
+        // the caller actually owns. Attaching the JWT lets the owner resolve
+        // their own drafts (e.g. the `AgentTemplateCacheCoordinator` populating
+        // the canonical identity cache for agents the user just built); it is a
+        // no-op for published templates fetched via share links.
         let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
-        let request = try request(for: "v2/agent-templates/\(encoded)")
+        let request = try authenticatedRequest(for: "v2/agent-templates/\(encoded)")
         return try await performRequest(request)
     }
 
@@ -855,6 +935,39 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
         let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
+    }
+
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        var request = try authenticatedRequest(for: "v2/agent-templates/generations", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        let body = try JSONEncoder().encode(
+            ConvosAPI.AgentTemplateGenerationRequest(
+                source: source,
+                inputs: .init(text: text, attachments: attachments.isEmpty ? nil : attachments),
+                connections: connections.isEmpty ? nil : connections,
+                clientDeviceId: clientDeviceId
+            )
+        )
+        request.httpBody = body
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        let encoded = generationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? generationId
+        let request = try authenticatedRequest(for: "v2/agent-templates/generations/\(encoded)")
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        return try decodeGenerationResponse(data: data, httpResponse: httpResponse)
     }
 
     // MARK: - Connections
@@ -1022,6 +1135,75 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             }
         }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+// MARK: - Agent template generation (split out to keep the class body length in check)
+
+extension ConvosAPIClient {
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        let request = try authenticatedRequest(
+            for: "v2/agent-templates/attachments/presigned",
+            method: "GET",
+            queryParameters: ["contentType": contentType, "contentLength": String(contentLength)]
+        )
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+        struct PresignedResponse: Codable {
+            let objectKey: String
+            let uploadUrl: String
+        }
+        let decoded = try JSONDecoder().decode(PresignedResponse.self, from: data)
+        return (objectKey: decoded.objectKey, uploadURL: decoded.uploadUrl)
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {
+        guard let url = URL(string: uploadURL) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            Log.error("AgentAttachment PUT failed [\(http.statusCode)]: \(String(data: respData, encoding: .utf8) ?? "nil")")
+            throw APIError.serverError(nil)
+        }
+    }
+
+    func decodeGenerationResponse(
+        data: Data,
+        httpResponse: HTTPURLResponse
+    ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
+        case 400:
+            throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
+        case 404:
+            throw AgentGenerationError.notFound
+        case 409:
+            throw AgentGenerationError.conflict
+        case 413:
+            throw AgentGenerationError.payloadTooLarge
+        case 422:
+            throw AgentGenerationError.moderationBlocked(parseErrorMessage(from: data))
+        default:
+            throw AgentGenerationError.server(parseErrorMessage(from: data))
+        }
     }
 }
 

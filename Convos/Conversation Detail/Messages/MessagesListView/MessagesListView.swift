@@ -149,6 +149,10 @@ var body: some View {
             AgentBuilderSummaryView(content: content)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
+        case .agentActivating(let content):
+            AgentActivatingCardView(content: content)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .typingIndicator:
             EmptyView()
         }

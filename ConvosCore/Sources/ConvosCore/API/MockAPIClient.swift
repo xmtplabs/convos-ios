@@ -140,6 +140,36 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return .init(data: templates, hasMore: false, nextCursor: nil)
     }
 
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: UUID().uuidString, status: .pending, templateId: nil, error: nil)
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: generationId, status: .done, templateId: UUID().uuidString, error: nil)
+    }
+
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        (objectKey: "build/mock-\(UUID().uuidString)", uploadURL: "https://mock.s3.example.com/upload")
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {}
+
     // MARK: - Connections
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {

@@ -207,9 +207,79 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
 
-        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+        Self.registerJoinAndGenerationMigrations(on: &migrator)
 
         return migrator
+    }
+
+    /// In-progress preview identity + narration columns on the direct-builder
+    /// generation row. Nullable + additive; preview/`progressPhrases` only
+    /// populate while a build runs and are absent once terminal.
+    private static func addAgentTemplateGenerationPreview(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "previewAgentName", .text)
+            t.add(column: "previewEmoji", .text)
+            t.add(column: "previewDescription", .text)
+            t.add(column: "progressPhrases", .text)
+        }
+    }
+
+    /// Additive, nullable column holding a JSON-encoded
+    /// `[StoredGenerationAttachment]` for media inputs. `nil` for text-only
+    /// builds, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationAttachments(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "attachments", .text)
+        }
+    }
+
+    /// Additive, nullable column holding a JSON-encoded `[String]` of neutral
+    /// connection service ids sent with the generation. `nil` when no
+    /// connections, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationConnections(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "connections", .text)
+        }
+    }
+
+    /// Registers the join-request ledger and the direct-builder generation
+    /// table, in this order. Grouped into a helper to keep `makeMigrator`
+    /// under the function-length budget; the registration position (last,
+    /// before `return`) is unchanged so the migration order is preserved.
+    private static func registerJoinAndGenerationMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+        migrator.registerMigration("createAgentTemplateGeneration", migrate: Self.createAgentTemplateGeneration)
+        migrator.registerMigration("addAgentTemplateGenerationPreview", migrate: Self.addAgentTemplateGenerationPreview)
+        migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
+        migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
+    }
+
+    /// In-flight (or finished) agent-template generation kicked off by the
+    /// direct builder flow. Persisting it makes a build survive sheet
+    /// dismissal / app restart so the repository can resume polling or
+    /// re-issue the invite. Keyed by the client-generated `idempotencyKey`
+    /// (stable before the server responds, so a crash before the POST returns
+    /// replays safely); the server's `generationId` is filled in after submit.
+    /// The `conversationId` index backs the per-conversation publisher the
+    /// pending UI observes.
+    private static func createAgentTemplateGeneration(_ db: Database) throws {
+        try db.create(table: "agentTemplateGeneration") { t in
+            t.column("idempotencyKey", .text).notNull().primaryKey()
+            t.column("generationId", .text)
+            t.column("conversationId", .text).notNull()
+            t.column("slug", .text).notNull()
+            t.column("status", .text).notNull()
+            t.column("templateId", .text)
+            t.column("prompt", .text).notNull()
+            t.column("error", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+        try db.create(
+            index: "agentTemplateGeneration_conversationId",
+            on: "agentTemplateGeneration",
+            columns: ["conversationId"]
+        )
     }
 
     /// Ledger of join-request message IDs that already admitted their

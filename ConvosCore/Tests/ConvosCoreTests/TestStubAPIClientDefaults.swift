@@ -184,4 +184,63 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     ) async throws -> Int {
         0
     }
+
+    /// Declared on the base class (not just the protocol-extension default) so
+    /// the direct agent-builder repository's fixtures can `override` it.
+    func requestAgentJoin(
+        slug: String?,
+        conversationId: String?,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        ConvosAPI.AgentJoinResponse(
+            success: true,
+            joined: true,
+            instanceId: "test-instance",
+            inboxId: "test-agent-inbox"
+        )
+    }
+
+    func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: UUID().uuidString,
+            status: .pending,
+            templateId: nil,
+            error: nil
+        )
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: generationId,
+            status: .done,
+            templateId: UUID().uuidString,
+            error: nil
+        )
+    }
+
+    // Declared on the base (not left to the protocol-extension default) so
+    // subclasses can `override` them to simulate attachment-upload failures.
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        (objectKey: "build/test-\(UUID().uuidString)", uploadURL: "https://test.example.com/upload")
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {}
 }
