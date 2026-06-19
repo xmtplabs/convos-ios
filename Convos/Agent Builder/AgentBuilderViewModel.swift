@@ -1075,15 +1075,18 @@ extension AgentBuilderViewModel {
         pendingDirectPrompt = nil
         let conversationId = conversation.id
         let photos: [PendingPhotoAttachment] = directBuildPhotos()
-        var attachmentInputs: [AgentBuildAttachmentInput] = photos.compactMap { (photo: PendingPhotoAttachment) -> AgentBuildAttachmentInput? in
+        var attachmentInputs: [AgentBuildAttachmentInput] = []
+        var summaryAttachments: [AgentBuilderSummaryAttachment] = []
+        // Build the upload inputs and the summary chips together so a photo that
+        // fails compression is dropped from both -- otherwise its thumbnail would
+        // render on the card for an attachment that was never sent to the backend.
+        for photo in photos {
             guard let data = ImageCompression.compressForPhotoAttachment(photo.image) else {
-                Log.error("AgentBuilder(direct): failed to compress photo \(photo.id)")
-                return nil
+                Log.error("AgentBuilder(direct): failed to compress photo \(photo.id); excluding from upload and summary")
+                continue
             }
-            return AgentBuildAttachmentInput(data: data, mimeType: "image/jpeg", filename: nil)
-        }
-        var summaryAttachments: [AgentBuilderSummaryAttachment] = photos.map { (photo: PendingPhotoAttachment) -> AgentBuilderSummaryAttachment in
-            .photo(id: photo.id, thumbnailData: Self.thumbnailData(for: photo.image))
+            attachmentInputs.append(AgentBuildAttachmentInput(data: data, mimeType: "image/jpeg", filename: nil))
+            summaryAttachments.append(.photo(id: photo.id, thumbnailData: Self.thumbnailData(for: photo.image)))
         }
         if let memo = recordedVoiceMemo, let voiceInput = Self.voiceAttachmentInput(url: memo.url) {
             attachmentInputs.append(voiceInput)
