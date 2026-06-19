@@ -20,9 +20,9 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
     public let status: Status
     public let templateId: String?
     public let errorMessage: String?
-    /// In-progress draft identity (PR #309); `nil` until the first preview.
+    /// In-progress draft identity; `nil` until the first preview.
     public let preview: ConvosAPI.AgentPreview?
-    /// In-progress build-narration lines (PR #309); `[]` when none.
+    /// In-progress build-narration lines; `[]` when none.
     public let progressPhrases: [String]
 
     public init(
@@ -77,8 +77,8 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// Kicks off a generation for `conversationId`. Persists the row (and a copy
     /// of any attachments) first, then drives upload -> submit -> poll -> invite
     /// in the background. Safe to call once per build; the persisted row makes it
-    /// idempotent across relaunch. `connections` are neutral service ids (Phase
-    /// 4) sent for generation awareness; post-join grants are driven separately.
+    /// idempotent across relaunch. `connections` are neutral service ids sent
+    /// for generation awareness; post-join grants are driven separately.
     func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String])
 
     /// Latest generation for a conversation, observed reactively.
@@ -362,7 +362,6 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
-                Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId)")
                 // Direct-add the template instance into the conversation the
                 // build targeted. The template carries its own generated
                 // identity, so no onboarding hint is needed. Prefer the
@@ -428,7 +427,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             case .unknown:
                 break
             }
-            // Real preview / progress (PR #309), when present.
+            // Real preview / progress, when present.
             if let preview = response.preview {
                 row.previewAgentName = preview.agentName ?? row.previewAgentName
                 row.previewEmoji = preview.emoji ?? row.previewEmoji

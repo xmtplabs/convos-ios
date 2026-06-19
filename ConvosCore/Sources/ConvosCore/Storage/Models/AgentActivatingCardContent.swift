@@ -3,12 +3,12 @@ import Foundation
 /// Render model for the in-chat "activating agent" card shown to the creator
 /// while a direct build runs (the `AgentTemplateRepository` generation is
 /// `pending`/`running`/`done` but the agent hasn't joined yet). Progressively
-/// filled from the poll `preview` + `progressPhrases` (PR #309 / the local
-/// stub). Lives in ConvosCore so it can ride inside `MessagesListItemType`.
+/// filled from the poll `preview` + `progressPhrases`. Lives in ConvosCore so
+/// it can ride inside `MessagesListItemType`.
 ///
 /// Identity-light by design: the avatar is the preview `emoji` (no avatar URL
 /// during the build), and `agentName` / `agentDescription` are `nil` until the
-/// distill preview arrives — the card renders a generic placeholder until then.
+/// preview arrives — the card renders a generic placeholder until then.
 public struct AgentActivatingCardContent: Sendable, Equatable, Hashable, Identifiable {
     /// Coarse lifecycle phase the card maps to its progress + caption. Derived
     /// from the generation status so the content stays stable within a phase

@@ -5,8 +5,8 @@ import SwiftUI
 /// In-chat "activating agent" card shown to the creator while a direct build
 /// runs (driven by `ConversationViewModel.directBuildGeneration`).
 ///
-/// The backend (PR #309) writes the whole `preview` + `progressPhrases` set in
-/// one shot when the generation reaches `running`, so this view paces the
+/// The backend writes the whole `preview` + `progressPhrases` set in one shot
+/// when the generation reaches `running`, so this view paces the
 /// reveal client-side to fill the ~30s build: the emoji appears first, then the
 /// name, then the description (a few seconds apart), while the caption cycles
 /// through the build-narration phrases. Because the content is stable within a
@@ -91,10 +91,9 @@ struct AgentActivatingCardView: View {
         case .preparing, .finishing:
             return joinSoonText
         case .generating:
-            // Once the progress bar plateaus near the end (the client-side proxy
-            // for the end of the estimated build time, since estimatedDurationMs
-            // isn't wired in yet), stop alternating with API phrases and hold the
-            // reassurance line.
+            // Once the progress bar plateaus near the end (a client-side proxy
+            // for the end of the estimated build time), stop alternating with
+            // API phrases and hold the reassurance line.
             if progressFraction >= Constant.generatingMax {
                 return joinSoonText
             }
@@ -145,6 +144,13 @@ struct AgentActivatingCardView: View {
         }
         .onReceive(timer) { _ in
             tick += 1
+        }
+        // The card keeps a stable view identity across phase transitions, so
+        // `tick` would otherwise carry over from `.preparing` and make the
+        // `.generating` reveal jump straight to fully-revealed. Reset it on each
+        // phase change so the staggered reveal + progress ramp start from zero.
+        .onChange(of: content.phase) {
+            tick = 0
         }
         .animation(.easeInOut(duration: 0.35), value: revealStage)
         .animation(.easeInOut(duration: 0.35), value: caption)

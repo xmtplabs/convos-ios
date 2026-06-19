@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// One persisted generation attachment (Phase 3 media inputs). `objectKey` is
+/// One persisted generation media input. `objectKey` is
 /// filled once the eager upload to the agent-templates presigned endpoint
 /// completes; `localPath` is a stable copy kept so a resumed build can
 /// re-upload if the object key expires before submit. These are plaintext
@@ -72,19 +72,19 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     var templateId: String?
     let prompt: String
     var errorMessage: String?
-    /// In-progress draft identity (PR #309), persisted so a pending card
-    /// survives relaunch. `nil` until a preview lands.
+    /// In-progress draft identity, persisted so a pending card survives
+    /// relaunch. `nil` until a preview lands.
     var previewAgentName: String?
     var previewEmoji: String?
     var previewDescription: String?
-    /// JSON-encoded `[String]` of in-progress narration lines (PR #309).
+    /// JSON-encoded `[String]` of in-progress narration lines.
     var progressPhrases: String?
-    /// JSON-encoded `[StoredGenerationAttachment]` of media inputs (Phase 3).
-    /// `nil` for text-only builds.
+    /// JSON-encoded `[StoredGenerationAttachment]` of media inputs. `nil` for
+    /// text-only builds.
     var attachments: String?
     /// JSON-encoded `[String]` of neutral connection service ids sent in the
-    /// generation request (Phase 4). Persisted so a resumed/retried submit
-    /// sends an identical body and dedupes. `nil` when no connections.
+    /// generation request. Persisted so a resumed/retried submit sends an
+    /// identical body and dedupes. `nil` when no connections.
     var connections: String?
     let createdAt: Date
     var updatedAt: Date

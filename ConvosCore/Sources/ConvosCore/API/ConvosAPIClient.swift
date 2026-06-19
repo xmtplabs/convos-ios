@@ -134,7 +134,7 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         generationId: String
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
 
-    /// Mints a presigned PUT for one generation attachment (PR #310).
+    /// Mints a presigned PUT for one generation attachment.
     /// `GET /v2/agent-templates/attachments/presigned?contentType=…&contentLength=…`
     /// returns an opaque `objectKey` (echo it back in `inputs.attachments[]`) and
     /// the presigned S3 `uploadURL`. Private bucket — no public asset URL is

@@ -711,10 +711,9 @@ extension AgentBuilderViewModel {
             attachmentInputs.append(voiceInput)
             summaryAttachments.append(.voiceMemo(id: UUID(), duration: memo.duration, levels: voiceMemoAudioLevels))
         }
-        // Connections (Phase 4). Generation awareness gets only the cloud
-        // service ids (device kinds like Apple Health aren't catalog services
-        // and would 400). The summary carries every enabled connection +
-        // captured cloud-connection ids so the existing
+        // Generation awareness gets only the cloud service ids (device kinds
+        // like Apple Health aren't catalog services and would 400). The summary
+        // carries every enabled connection + captured cloud-connection ids so
         // `AgentBuilderConnectionGrantReplayer` fires the real grants post-join.
         let connectionServiceIds: [String] = enabledConnections.compactMap { $0.cloudServiceId }
         for connection in enabledConnections {
@@ -817,8 +816,7 @@ extension AgentBuilderViewModel {
 
     /// Reads the recorded voice memo's m4a bytes for upload. The backend
     /// transcribes audio to text before generation; `audio/m4a` is in the
-    /// allowlist (the m4a transcription path is still being smoke-tested
-    /// server-side -- see the Phase 3 plan's audio-format risk note).
+    /// allowlist.
     private static func voiceAttachmentInput(url: URL) -> AgentBuildAttachmentInput? {
         guard let data = try? Data(contentsOf: url) else {
             Log.error("AgentBuilder(direct): failed to read voice memo at \(url.lastPathComponent)")

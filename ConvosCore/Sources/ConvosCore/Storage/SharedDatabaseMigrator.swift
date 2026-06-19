@@ -213,8 +213,8 @@ extension SharedDatabaseMigrator {
     }
 
     /// In-progress preview identity + narration columns on the direct-builder
-    /// generation row (PR #309). Nullable + additive; preview/`progressPhrases`
-    /// only populate while a build runs and are absent once terminal.
+    /// generation row. Nullable + additive; preview/`progressPhrases` only
+    /// populate while a build runs and are absent once terminal.
     private static func addAgentTemplateGenerationPreview(_ db: Database) throws {
         try db.alter(table: "agentTemplateGeneration") { t in
             t.add(column: "previewAgentName", .text)
@@ -225,8 +225,8 @@ extension SharedDatabaseMigrator {
     }
 
     /// Additive, nullable column holding a JSON-encoded
-    /// `[StoredGenerationAttachment]` for media inputs (Phase 3). `nil` for
-    /// text-only builds, so existing rows are unaffected.
+    /// `[StoredGenerationAttachment]` for media inputs. `nil` for text-only
+    /// builds, so existing rows are unaffected.
     private static func addAgentTemplateGenerationAttachments(_ db: Database) throws {
         try db.alter(table: "agentTemplateGeneration") { t in
             t.add(column: "attachments", .text)
@@ -234,8 +234,8 @@ extension SharedDatabaseMigrator {
     }
 
     /// Additive, nullable column holding a JSON-encoded `[String]` of neutral
-    /// connection service ids sent with the generation (Phase 4). `nil` when
-    /// no connections, so existing rows are unaffected.
+    /// connection service ids sent with the generation. `nil` when no
+    /// connections, so existing rows are unaffected.
     private static func addAgentTemplateGenerationConnections(_ db: Database) throws {
         try db.alter(table: "agentTemplateGeneration") { t in
             t.add(column: "connections", .text)

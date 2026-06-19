@@ -2,9 +2,9 @@ import Foundation
 
 public extension ConvosAPI {
     /// A binary input already uploaded via the agent-templates presigned
-    /// endpoint, referenced by its opaque `objectKey` (PR #310). The bytes live
-    /// in a private bucket the backend reads itself — there is no public URL and
-    /// no XMTP attachment crypto in this path. `mimeType` must be in the backend
+    /// endpoint, referenced by its opaque `objectKey`. The bytes live in a
+    /// private bucket the backend reads itself — there is no public URL and no
+    /// XMTP attachment crypto in this path. `mimeType` must be in the backend
     /// allowlist (image/png, image/jpeg, application/pdf, and the audio set).
     struct AttachmentRef: Codable, Sendable, Equatable {
         public let objectKey: String
@@ -26,7 +26,7 @@ public extension ConvosAPI {
         public struct Inputs: Codable, Sendable {
             public let text: String
             /// Omitted from the encoded body when empty so text-only requests
-            /// are byte-identical to the pre-Phase-3 shape.
+            /// stay byte-identical to the attachment-free shape.
             public let attachments: [AttachmentRef]?
 
             public init(text: String, attachments: [AttachmentRef]? = nil) {
@@ -37,11 +37,11 @@ public extension ConvosAPI {
 
         public let source: String
         public let inputs: Inputs
-        /// Neutral service ids the agent should use (e.g. `["googlecalendar"]`,
-        /// PR #311). Awareness only -- the generated prompt/welcome lean on the
-        /// capability and `template.connections` records it; no grant is issued
-        /// here. Omitted from the encoded body when empty so connectionless
-        /// builds stay byte-identical and dedupe against a stored `[]`.
+        /// Neutral service ids the agent should use (e.g. `["googlecalendar"]`).
+        /// Awareness only -- the generated prompt/welcome lean on the capability
+        /// and `template.connections` records it; no grant is issued here.
+        /// Omitted from the encoded body when empty so connectionless builds stay
+        /// byte-identical and dedupe against a stored `[]`.
         public let connections: [String]?
         public let clientDeviceId: String?
 
@@ -74,8 +74,8 @@ public extension ConvosAPI {
         }
     }
 
-    /// In-progress draft identity shown while a build runs (PR #309). Identity
-    /// only — `emoji`, not an avatar URL (the real photo arrives post-join).
+    /// In-progress draft identity shown while a build runs. Identity only —
+    /// `emoji`, not an avatar URL (the real photo arrives post-join).
     struct AgentPreview: Codable, Sendable, Equatable {
         public let agentName: String?
         public let emoji: String?
@@ -91,7 +91,7 @@ public extension ConvosAPI {
     /// Response from both the submit (`POST`) and poll (`GET`) endpoints.
     /// `preview` + `progressPhrases` ride only the in-progress (`202`)
     /// responses and are absent on the terminal (`200`); both decode to
-    /// `nil`/empty when absent (e.g. before PR #309 is deployed). Extra keys
+    /// `nil`/empty when absent (e.g. before the backend emits them). Extra keys
     /// (`reply`, `createdAt`, `updatedAt`) are ignored by the default decoder.
     struct AgentTemplateGenerationResponse: Codable, Sendable {
         public let generationId: String
