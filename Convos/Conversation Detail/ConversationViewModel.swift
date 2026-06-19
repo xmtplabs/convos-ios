@@ -1615,6 +1615,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeDirectBuildGeneration(for: conversation.id)
                     self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
