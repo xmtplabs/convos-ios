@@ -169,6 +169,7 @@ public final class MessagesListProcessor: Sendable {
             attachments: attachments,
             creatorIsCurrentUser: creator?.isCurrentUser ?? true,
             creatorDisplayName: creator?.profile.displayName ?? "",
+            creatorProfile: creator?.profile,
             connectionIdentifiers: connectionIdentifiers,
             existingConversation: existingConversation,
             transitionEligible: transitionEligible
@@ -297,8 +298,16 @@ public final class MessagesListProcessor: Sendable {
                     rawMessages.map { ($0.messageId, $0.date) },
                     uniquingKeysWith: { first, _ in first }
                 )
+                // The creator is the current user; resolve their profile (for the
+                // footer avatar) from the build messages' sender once landed, or
+                // any current-user message during the pending window. Nil only in
+                // a brand-new chat with no messages yet -- the avatar fills in on
+                // the next emission.
+                let creatorProfile: Profile? = rawMessages
+                    .first { summaryIds.contains($0.messageId) }?.sender.profile
+                    ?? rawMessages.first { $0.sender.isCurrentUser }?.sender.profile
                 insertSummaryCard(
-                    .agentBuilderSummary(makePendingCardContent(summary: summary)),
+                    .agentBuilderSummary(makePendingCardContent(summary: summary, creatorProfile: creatorProfile)),
                     into: &items,
                     cutoffDate: summary.cutoffDate,
                     messageDates: messageDates
@@ -1054,7 +1063,10 @@ private extension MessagesListProcessor {
     /// summary's stored snapshots standing in for the not-yet-persisted
     /// messages; the anchor reuses the first bundled id so the cell identity
     /// is stable when the real run-anchored card takes over.
-    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+    private static func makePendingCardContent(
+        summary: AgentBuilderSummary,
+        creatorProfile: Profile?
+    ) -> AgentBuilderCardContent {
         let anchor: String = summary.bundledMessageIds.min() ?? summary.id.uuidString
         let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
             switch attachment {
@@ -1095,6 +1107,7 @@ private extension MessagesListProcessor {
             attachments: attachments,
             creatorIsCurrentUser: true,
             creatorDisplayName: "",
+            creatorProfile: creatorProfile,
             connectionIdentifiers: builderConnectionIdentifiers(from: summary),
             existingConversation: summary.existingConversation,
             transitionEligible: !summary.existingConversation

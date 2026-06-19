@@ -1,12 +1,15 @@
 import AVFoundation
 import ConvosCore
 import SwiftUI
+import UIKit
 
-/// The "summary card" cell shown where the user tapped Make. Reproduces the
-/// AgentDraftComposer's rounded-rect liquid-glass styling (no bottom buttons, no
-/// Make button) and the same attachment chips minus their X buttons. The footer
-/// reads "You created an agent" / "<name> created an agent" in the group-update
-/// text style.
+/// The "summary card" cell shown where the user tapped Make. Renders the prompt
+/// in a bordered, no-fill box matching the reply-reference preview style (a 1pt
+/// `.colorBorderSubtle` rounded rect, no liquid glass), with the attachment chips
+/// minus their X buttons. The footer reads "You made an agent" / "<name> created
+/// an agent", each followed by "· They'll join soon", with the creator's avatar
+/// in front (the same `TextTitleContentView` used by the "Agent is present"
+/// row).
 ///
 /// The content is reconstructed by `MessagesListProcessor` from the build's own
 /// messages (the prompt + attachment bundle every member receives), so the card
@@ -14,18 +17,12 @@ import SwiftUI
 /// pinned to the top from a creator-only local summary.
 struct AgentBuilderSummaryView: View {
     let content: AgentBuilderCardContent
-    /// Namespace owned by `AgentBuilderView`. When non-nil the card pairs with
-    /// the composer's glass rect via `glassEffectID +
-    /// glassEffectTransition(.matchedGeometry)`, producing the morph on Make.
-    /// Nil for recipients and the "returning later" case where the card simply
-    /// renders in-place without an entry animation.
-    var transitionNamespace: Namespace.ID?
 
     private var footerText: String {
         if content.creatorIsCurrentUser || content.creatorDisplayName.isEmpty {
-            return "You created an agent"
+            return "You made an agent · They'll join soon"
         }
-        return "\(content.creatorDisplayName) created an agent"
+        return "\(content.creatorDisplayName) created an agent · They'll join soon"
     }
 
     private var hasChips: Bool {
@@ -34,41 +31,36 @@ struct AgentBuilderSummaryView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            Text(footerText)
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.center)
-            // `GlassEffectContainer` gives iOS a stable scope to coordinate
-            // the card's backdrop-sampling pipeline. Standalone `.glassEffect`
-            // inside a `UIHostingConfiguration` cell renders as opaque grey
-            // on first mount because the cell is typically laid out off-screen
-            // before being scrolled into view — the sampling layer has no
-            // backdrop until the cell attaches to the window. The container
-            // also scopes the matched-geometry transition cleanly to the
-            // morph from the composer.
-            GlassEffectContainer {
-                card
+            TextTitleContentView(title: footerText, profile: content.creatorProfile)
+                .frame(maxWidth: .infinity)
+            // Cap the card at the message-bubble width (50pt trailing spacer +
+            // `bubbleRowWidthCap`), and inset the leading edge by the avatar
+            // gutter + row padding so it lines up with incoming message bubbles
+            // (which leave room for the sender avatar) rather than the list edge.
+            HStack(spacing: 0.0) {
+                cardContent
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
             }
-        }
-    }
-
-    @ViewBuilder private var card: some View {
-        if let transitionNamespace {
-            cardContent
-                .glassEffectID(AgentBuilderTransition.glassEffectId, in: transitionNamespace)
-                .glassEffectTransition(.matchedGeometry)
-        } else {
-            cardContent
+            .bubbleRowWidthCap(alignment: .leading)
+            .padding(.leading, Constant.leadingInset)
         }
     }
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             if !content.prompt.isEmpty {
-                Text(content.prompt)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                    Text(Constant.promptHeader)
+                        .font(.caption2)
+                        .foregroundStyle(.colorTextSecondary)
+                    Text(content.prompt)
+                        .font(.caption)
+                        .lineSpacing(Constant.promptLineSpacing)
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             if hasChips {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -88,9 +80,24 @@ struct AgentBuilderSummaryView: View {
         }
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.colorBackgroundRaised, in: .rect(cornerRadius: 24))
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
-        .clipShape(.rect(cornerRadius: 24))
+        .background(
+            RoundedRectangle(cornerRadius: Constant.cornerRadius)
+                .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
+        )
+        .contextMenu { promptContextMenu }
+    }
+
+    /// Long-press menu for the card. The card isn't a real message (its prompt
+    /// is reconstructed from the bundle, not rendered as a bubble), so it has no
+    /// standard message actions -- offer a Copy for the prompt text. Empty for
+    /// an attachment-only build with no prompt.
+    @ViewBuilder private var promptContextMenu: some View {
+        if !content.prompt.isEmpty {
+            let copyAction = { UIPasteboard.general.string = content.prompt }
+            Button(action: copyAction) {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+        }
     }
 
     @ViewBuilder
@@ -198,6 +205,21 @@ struct AgentBuilderSummaryView: View {
     }
 
     private let chipSize: CGFloat = 80
+
+    private enum Constant {
+        static let promptHeader: String = "What needs done?"
+        /// Matches the reply-reference box (`Constant.bubbleCornerRadius`).
+        static let cornerRadius: CGFloat = 20
+        /// Leading inset for the avatar gutter (`avatarWidth` = `smallAvatar +
+        /// step2x`), aligning the card with incoming message bubbles. The row's
+        /// `step4x` leading already comes from the cell's `.padding(.horizontal)`,
+        /// so it is not added again here.
+        static let leadingInset: CGFloat = DesignConstants.ImageSizes.smallAvatar
+            + DesignConstants.Spacing.step2x
+        /// `.caption` is 12pt with a ~14.3pt intrinsic line height at the default
+        /// text size; +1.7 reaches the 16pt line-height from the design spec.
+        static let promptLineSpacing: CGFloat = 1.7
+    }
 }
 
 /// Chip image with the same cache-first strategy as

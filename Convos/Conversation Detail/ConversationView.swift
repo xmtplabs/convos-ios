@@ -640,12 +640,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .sheet(item: $viewModel.presentingAgentBuilder) { builderViewModel in
+        .sheet(item: $viewModel.presentingAgentBuilder, onDismiss: {
+            // Coming out of the in-chat maker, don't reopen the conversation
+            // keyboard: the agent still has to build and join before anything
+            // can be sent, so landing back here with the input focused isn't
+            // useful. Clear focus instead of letting it restore to `.message`.
+            focusCoordinator.moveFocus(to: nil)
+        }, content: { builderViewModel in
             AgentBuilderView(
                 viewModel: builderViewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )
-        }
+        })
         .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
             viewModel.presentAgentBuilderAfterIntroIfNeeded()
         }, content: {

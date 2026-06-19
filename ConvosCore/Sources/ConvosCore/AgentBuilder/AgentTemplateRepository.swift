@@ -77,6 +77,13 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// Re-drives any non-terminal rows after an app relaunch.
     func resumePendingGenerations()
 
+    /// Deletes the persisted generation row(s) for a conversation once the
+    /// build's agent has joined. The activating card is gated on "no verified
+    /// agent present", so a persisted (terminal) row would otherwise resurrect
+    /// the card if the agent is later removed; clearing the row makes that
+    /// durable across removal and relaunch. No-op when there's no row.
+    func clearGeneration(conversationId: String)
+
     /// Inject the session-routed join (set once at session init). When set,
     /// the invite step uses it instead of the raw API client so the join
     /// polling runs.
@@ -220,6 +227,21 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             }
             for key in keys {
                 Task { await self.drive(idempotencyKey: key) }
+            }
+        }
+    }
+
+    public func clearGeneration(conversationId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.databaseWriter.write { db in
+                    try DBAgentTemplateGeneration
+                        .filter(DBAgentTemplateGeneration.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                }
+            } catch {
+                Log.error("AgentTemplateRepository: clearGeneration failed: \(error.localizedDescription)")
             }
         }
     }
@@ -596,6 +618,8 @@ public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol 
     }
 
     public func resumePendingGenerations() {}
+
+    public func clearGeneration(conversationId: String) {}
 
     public func configureJoinHandler(_ handler: @escaping AgentTemplateJoinHandler) {}
 }

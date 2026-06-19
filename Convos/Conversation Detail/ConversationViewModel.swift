@@ -361,6 +361,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var observedAgentBuilderSummaryConversationId: String?
     @ObservationIgnored
     private var directBuildGenerationCancellable: AnyCancellable?
+    /// One-shot backstop: cleared/re-armed as the direct build reaches the
+    /// "agent should be joining" state. Fires if the agent never appears so the
+    /// activating card can't linger forever (e.g. provisioning/attestation
+    /// stalls), which is especially important in an existing group.
+    @ObservationIgnored
+    private var directBuildJoinTimeoutTask: Task<Void, Never>?
+    /// How long to keep the activating card up after the build is done + the
+    /// join issued before giving up on the agent appearing. Matches the legacy
+    /// placeholder window.
+    private static let directBuildJoinTimeout: TimeInterval = 180
     @ObservationIgnored
     private var observedDirectBuildConversationId: String?
     @ObservationIgnored
@@ -448,6 +458,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             agent = nil
         }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+        // The built agent has joined and verified: clear the persisted
+        // generation so the activating card can't resurrect if the agent is
+        // later removed (membership going back to no-agent would otherwise
+        // re-open the card's "no verified agent" gate on a still-`.invited`
+        // row). Durable across removal + relaunch; no-op once cleared.
+        if realAgent != nil, directBuildGeneration != nil {
+            session.agentTemplateRepository().clearGeneration(conversationId: conversation.id)
+        }
     }
 
     /// Activate the optimistic agent overlay for an agent-template flow.
@@ -1448,6 +1466,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private func syncDirectActivatingCard() {
         guard let generation = directBuildGeneration, generation.status != .failed else {
             messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
             return
         }
         let phase: AgentActivatingCardContent.Phase
@@ -1460,6 +1480,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             phase = .finishing
         case .failed:
             messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
             return
         }
         messagesListRepository.agentActivating = AgentActivatingCardContent(
@@ -1470,6 +1492,26 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             agentDescription: generation.preview?.description,
             progressPhrases: generation.progressPhrases
         )
+        // The repo bounds submit/poll (those fail -> the card clears above), but
+        // once the join is issued (`done`/`invited`) nothing else verifies the
+        // agent actually appeared. Arm a one-shot timeout so the card can't
+        // linger forever if the agent never joins/verifies.
+        if generation.status == .done || generation.status == .invited {
+            armDirectBuildJoinTimeoutIfNeeded()
+        }
+    }
+
+    private func armDirectBuildJoinTimeoutIfNeeded() {
+        guard directBuildJoinTimeoutTask == nil else { return }
+        directBuildJoinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.directBuildJoinTimeout))
+            guard let self, !Task.isCancelled else { return }
+            let hasVerifiedAgent: Bool = self.conversation.members.contains(where: \.isVerifiedConvosAgent)
+            guard self.directBuildGeneration != nil, !hasVerifiedAgent else { return }
+            Log.warning("AgentBuilder(direct): agent did not join within timeout; clearing activating card for \(self.conversation.id)")
+            self.messagesListRepository.agentActivating = nil
+            self.session.agentTemplateRepository().clearGeneration(conversationId: self.conversation.id)
+        }
     }
 
     /// Subscribe to the GRDB-backed thinking session feed for this

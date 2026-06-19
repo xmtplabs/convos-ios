@@ -1043,9 +1043,11 @@ final class AgentBuilderViewModel: Identifiable {
             }
         }
     }
+}
 
-    // MARK: - Direct builder
+// MARK: - Direct builder
 
+extension AgentBuilderViewModel {
     /// Capture the prompt and start the generation as soon as the conversation
     /// has an invite slug. If Make was tapped before the conversation was
     /// ready, `onReachedReady` re-invokes `startDirectGenerationIfReady()`.
@@ -1104,6 +1106,19 @@ final class AgentBuilderViewModel: Identifiable {
         // card represents it (bundled by id) instead of a bare bubble, matching
         // the legacy flow. nil for an attachment-only build (empty prompt).
         let promptMessageId: String? = prompt.isEmpty ? nil : UUID().uuidString
+        // Only an existing group has an audience for the attachments: a new
+        // conversation has no other members during the build (and the joining
+        // agent is excluded by publishing pre-join), and later-invited members
+        // can't decrypt pre-join messages. So we network the attachments as the
+        // legacy encrypted bundle only for the in-chat variant -- elsewhere they
+        // ride the generation API only. (The agent always built from the API
+        // copy, so it never needs them as messages.)
+        let hasComposerAttachments: Bool = !photos.isEmpty || recordedVoiceMemo != nil
+        let networksAttachmentBundle: Bool = targetsExistingConversation && hasComposerAttachments
+        let bundleMessageId: String? = networksAttachmentBundle ? UUID().uuidString : nil
+        let voiceMemoSnapshot: BuilderVoiceMemoSnapshot? = recordedVoiceMemo.map {
+            BuilderVoiceMemoSnapshot(url: $0.url, duration: $0.duration, levels: voiceMemoAudioLevels)
+        }
         session.agentTemplateRepository().startGeneration(
             prompt: prompt,
             conversationId: conversationId,
@@ -1111,37 +1126,58 @@ final class AgentBuilderViewModel: Identifiable {
             attachments: attachmentInputs,
             connections: connectionServiceIds
         )
+        var bundledIds: Set<String> = []
+        if let promptMessageId { bundledIds.insert(promptMessageId) }
+        if let bundleMessageId { bundledIds.insert(bundleMessageId) }
         persistCreationPromptCard(
             prompt: prompt,
             conversationId: conversationId,
             attachments: summaryAttachments,
             cloudConnectionIds: cloudConnectionIds,
-            bundledMessageIds: promptMessageId.map { Set([$0]) } ?? []
+            bundledMessageIds: bundledIds
         )
-        // The direct flow has copied the attachment bytes into the repository,
-        // so clear the composer's staged attachments (the legacy bundle path
-        // clears them via `cleanupPendingMediaAttachments`; the direct path
-        // otherwise left them lingering in the input bar after Make). The voice
-        // memo lives on the recorder, so reset it separately.
-        newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
-        if recordedVoiceMemo != nil {
-            cancelRecordedVoiceMemo()
-        }
-        // Legacy parity: also send the prompt into the conversation as a real
-        // message so the agent receives it once it joins and it persists across
-        // relaunch. Reuses the legacy `sendBuilderBundle` text path (gated on the
-        // agent joining). Text-only -- the direct flow uploads attachments via
-        // the generation API, not as XMTP messages, and the staged attachments
-        // were just cleared, so the bundle ships only the prompt.
-        if let promptMessageId, let innerVM = newConversationViewModel.conversationViewModel {
+        // We always publish pre-join (`awaitsAgentJoin: false`): the agent built
+        // from the prompt + attachments via the generation API, so it must not
+        // also receive them as chat messages (that lands them in an epoch the
+        // joining agent can't read, so the user/other members see them but the
+        // agent doesn't double-reply). The prompt is sent so it shows in chat and
+        // persists (the card anchors to it).
+        if networksAttachmentBundle, let innerVM = newConversationViewModel.conversationViewModel {
+            // Existing group: send the prompt + the encrypted attachment bundle
+            // so other members see the photos/voice. `sendBuilderBundle` reads
+            // and clears the composer's pending attachments and resets the voice
+            // recorder itself (and hides the staging chips via the flag below
+            // during the upload window), so don't clear them separately here.
+            innerVM.isAwaitingBuilderBundleSend = true
             Task {
+                try? await innerVM.awaitPendingMediaUploads()
                 await innerVM.sendBuilderBundle(
                     text: prompt,
-                    voiceMemo: nil,
+                    voiceMemo: voiceMemoSnapshot,
                     textMessageId: promptMessageId,
-                    bundleMessageId: nil,
-                    awaitsAgentJoin: true
+                    bundleMessageId: bundleMessageId,
+                    awaitsAgentJoin: false
                 )
+            }
+        } else {
+            // Home flow (or no attachments): the attachment bytes already went to
+            // the generation API, so clear the composer's staged attachments
+            // (otherwise they linger in the input bar after Make) and send the
+            // prompt text-only.
+            newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+            if recordedVoiceMemo != nil {
+                cancelRecordedVoiceMemo()
+            }
+            if let promptMessageId, let innerVM = newConversationViewModel.conversationViewModel {
+                Task {
+                    await innerVM.sendBuilderBundle(
+                        text: prompt,
+                        voiceMemo: nil,
+                        textMessageId: promptMessageId,
+                        bundleMessageId: nil,
+                        awaitsAgentJoin: false
+                    )
+                }
             }
         }
     }

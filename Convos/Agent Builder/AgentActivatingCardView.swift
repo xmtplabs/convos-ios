@@ -77,7 +77,7 @@ struct AgentActivatingCardView: View {
               !content.progressPhrases.isEmpty else {
             return false
         }
-        return tick % 2 == 0
+        return tick.isMultiple(of: 2)
     }
 
     /// Progress phrases use the grayish secondary color; the "will join soon"
@@ -121,13 +121,25 @@ struct AgentActivatingCardView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            GlassEffectContainer {
-                card
+            // Cap the card at the message-bubble width (50pt trailing spacer +
+            // `bubbleRowWidthCap`), and inset the leading edge by the avatar
+            // gutter + row padding so it lines up with incoming message bubbles
+            // (which leave room for the sender avatar). The caption stays centered.
+            HStack(spacing: 0.0) {
+                GlassEffectContainer {
+                    card
+                }
+                Spacer()
+                    .frame(minWidth: 50.0)
+                    .layoutPriority(-1)
             }
+            .bubbleRowWidthCap(alignment: .leading)
+            .padding(.leading, Constant.leadingInset)
             Text(caption)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(captionColor)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
                 .transition(.blurReplace)
                 .id("agent-activating-caption-\(caption)")
         }
@@ -214,14 +226,23 @@ struct AgentActivatingCardView: View {
         /// the finished card read as the same agent.
         static let accent: Color = .colorLava
         static let cornerRadius: CGFloat = 24
-        static let avatarSize: CGFloat = 64
+        /// Leading inset for the avatar gutter (`avatarWidth` = `smallAvatar +
+        /// step2x`), aligning the card with incoming message bubbles. The row's
+        /// `step4x` leading already comes from the cell's `.padding(.horizontal)`,
+        /// so it is not added again here.
+        static let leadingInset: CGFloat = DesignConstants.ImageSizes.smallAvatar
+            + DesignConstants.Spacing.step2x
+        /// Matches the in-chat agent contact card's avatar
+        /// (`AgentContactCardView` `.standard` `standardAvatarSize` = 40), so the
+        /// loading avatar and the finished card's avatar read as the same size.
+        static let avatarSize: CGFloat = 40
         /// Lines reserved for the description so the card holds a fixed height
         /// before the text reveals (generated descriptions cap at ~140 chars).
-        static let descriptionLineCount: Int = 4
-        /// Non-empty filler for the hidden description sizer. ~140 chars of
-        /// wrappable text guarantees the slot fills `descriptionLineCount`
-        /// lines regardless of `reservesSpace` quirks with empty strings.
-        static let descriptionPlaceholder: String = String(repeating: "reserved ", count: 18)
+        static let descriptionLineCount: Int = 5
+        /// Non-empty filler for the hidden description sizer. Enough wrappable
+        /// text to fill `descriptionLineCount` lines regardless of
+        /// `reservesSpace` quirks with empty strings.
+        static let descriptionPlaceholder: String = String(repeating: "reserved ", count: 23)
         /// Seconds between reveal/phrase steps. ~2.5s comfortably fills a ~30s
         /// build and finishes the reveal in the first ~5s of `running`.
         static let tickSeconds: TimeInterval = 2.5

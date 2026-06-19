@@ -335,9 +335,142 @@ resolved.
   (and persists past the 180s window / across relaunch via
   `reconstructBuilderCards`), then call `innerVM.sendBuilderBundle(text:…,
   awaitsAgentJoin: true)` after the staged attachments are cleared (so it ships
-  prompt-only; attachments still go via the generation API). Note: the agent now
-  receives the prompt both via the API build and as a chat message on join --
-  expected for legacy parity.
+  prompt-only; attachments still go via the generation API).
+- [x] **Don't deliver the chat prompt to the agent (avoid double reply).** With
+  `awaitsAgentJoin: true` (legacy default) the prompt publish was held until the
+  agent joined, so the agent received it post-join and replied -- on top of its
+  build/welcome message, giving two agent messages. Since the direct-flow agent
+  already built from this prompt via the generation API, it must not receive it
+  again. Changed the direct flow's `sendBuilderBundle` to `awaitsAgentJoin:
+  false`: the prompt publishes pre-join (an epoch the joining agent can't read),
+  so it shows + persists for the user and the card anchors to it, but the agent
+  doesn't double-reply. Also removes the `UnsentBuilderBriefReplayer` re-fire
+  window (no hold).
+
+- [x] **Copy the prompt from the creation card.** The prompt renders inside the
+  "You created an agent" card (it's bundled, not a real message bubble), so
+  long-press did nothing. Rather than turn it into a message bubble, added a
+  long-press `.contextMenu` on the card (`AgentBuilderSummaryView`) with a Copy
+  action that copies `content.prompt` (shown only when the prompt is non-empty).
+  No reactions -- a card can't hold them -- just Copy.
+
+- [x] **Activating card resurrects after the agent is removed.** Create -> agent
+  joins (card disappears) -> remove the agent -> the loading card came back and
+  never left. Cause: the card is gated on "no verified agent present", but the
+  generation row persists as `.invited`; removing the agent re-opens that gate
+  on the still-present row (and `directBuildAgentJoined` is membership-based, so
+  it resets too). Fix: when the built agent has joined + verified
+  (`syncVerifiedAgentToRepo` sees a verified Convos agent while a direct
+  generation exists), the repository's new `clearGeneration(conversationId:)`
+  deletes the persisted row. The generation publisher then emits nil, the
+  activating card clears, and it can't resurrect on removal or relaunch (durable,
+  no row to re-show).
+
+- [x] **Activating card stuck forever when the agent never joins.** The repo
+  bounds submit/poll (they mark the generation `failed`, clearing the card), but
+  once the join is issued (`done`/`invited`) nothing verified the agent actually
+  appeared -- if provisioning/attestation stalled, the card lingered forever
+  (especially bad in an existing group). Added a one-shot join-timeout backstop
+  in `ConversationViewModel` (`directBuildJoinTimeout = 180s`, armed when the
+  generation reaches `done`/`invited`): if no verified agent has joined by the
+  deadline it clears the activating card and the persisted row
+  (`clearGeneration`). Cancelled when the agent joins or the build fails;
+  self-heals across relaunch (a stuck `.invited` re-arms a fresh timeout).
+
+- [x] **Network attachments to other members (existing groups only).** Legacy
+  showed the prompt + attachments to every member; the direct flow only uploads
+  attachments to the generation API (creator-only chips). For the in-chat
+  variant (`targetsExistingConversation`) where there's an audience, also send
+  the photos/voice as the legacy encrypted bundle via `innerVM.sendBuilderBundle`
+  (prompt + bundle, `awaitsAgentJoin: false` so the agent -- already built from
+  the API copy -- doesn't receive them). Skipped for the home flow: a new
+  conversation has no other members during the build and later-invited members
+  can't decrypt pre-join messages, so it would be a wasted second upload. The
+  bundle's `bundleMessageId` joins the summary's `bundledMessageIds` so the card
+  represents it; `sendBuilderBundle` clears the staged attachments + resets the
+  voice recorder itself (chips hidden via `isAwaitingBuilderBundleSend`), so the
+  home-flow `cleanupPendingMediaAttachments` path is the else-branch only.
+
+- [ ] **Known pre-existing limitation: recipient builder-card image chips are
+  blank on iOS.** When attachments are networked to an existing group, other iOS
+  members reconstruct the card but the photo chip renders blank. Root cause is
+  pre-existing (legacy maker has the same gap): the chip loads only from
+  `ImageCache` by `key` (`imageAsync` is cache-only, no remote download/decrypt),
+  the bundle message is hidden so normal attachment rendering never fetches it,
+  and `HydratedAttachment` carries no `RemoteAttachment` params (url/secret/salt/
+  nonce). The send is correct (old Android build renders the image). Deferred --
+  fixing it means threading the decryption params into `HydratedAttachment` + a
+  remote-decrypt loader in the chip (or registering the hidden bundle attachment
+  with `ImageCache`); a separate bug/PR, not direct-builder scope.
+
+- [x] **Recipient attribution line + card widths.** (1) For other members, the
+  "&lt;name&gt; created an agent" line now appends " • They'll join soon" (they have
+  no activating card, so this gives them the join context). Resolved in
+  `AgentBuilderSummaryView.footerText` (non-creator case only). (2) The prompt
+  card and the activating card stretched edge-to-edge; constrain both to the
+  message-bubble width to match the contact card / text bubbles -- wrapped each
+  in `HStack { card; Spacer().frame(minWidth: 50).layoutPriority(-1) }
+  .bubbleRowWidthCap(alignment: .leading).padding(.leading, step4x)`, with the
+  footer/caption kept centered (full width).
+- [x] **"What needs done?" prompt-card header + composer hint.** (1) The prompt
+  card (creator and recipient) now leads with a gray "What needs done?" label in
+  the prompt-text style, a gap, then the prompt text -- added to
+  `AgentBuilderSummaryView.cardContent` as a `Text(Constant.promptHeader)`
+  (`.colorTextSecondary`) above the prompt `Text`, wrapped in a nested
+  `VStack(spacing: step4x)` for the empty-line gap; only shown when the prompt is
+  non-empty. (2) The maker composer's idle placeholder changed from "Make a new
+  agent" to "What needs done?" (text only, no style change) in
+  `AgentDraftComposer.textFieldPlaceholder`.
+- [x] **Prompt-card attribution: creator avatar + middle dot + "made" copy.**
+  (1) The footer now renders the creator's avatar in front of the text, matching
+  the "Agent is present · Invited by <name>" row -- swapped the plain `Text` for
+  `TextTitleContentView(title:profile:)` (16pt `MessageAvatarView` + caption).
+  (2) Copy: self reads "You made an agent · They'll join soon" (was "You created
+  an agent", no avatar/hint); others read "<name> created an agent · They'll join
+  soon". (3) Bullet `•` changed to the middle dot `·`. The avatar profile is a
+  new `AgentBuilderCardContent.creatorProfile`, resolved in `MessagesListProcessor`
+  from the build-message sender (`makeCardContent`) or, for the creator's own
+  pending card, from the build-message / current-user sender in `rawMessages`
+  threaded into `makePendingCardContent`.
+
+- [x] **Prompt card uses the reply-reference box style (no liquid glass).** The
+  card dropped the liquid-glass fill + matched-geometry morph in favor of the
+  same bordered box as `ReplyReferenceView.replyTextPreview`: a 1pt
+  `.colorBorderSubtle` `RoundedRectangle` (radius 20), no fill, no glass.
+  Removed `AgentBuilderSummaryView.transitionNamespace`, the `card` glass
+  branch (`glassEffectID` / `glassEffectTransition`), and the
+  `GlassEffectContainer`; the Make call site in `MessagesListItemTypeCell` no
+  longer passes a namespace. Per the chosen option, the morph-in animation is
+  dropped (the card appears with the standard cell transition). Follow-up (not
+  done): the now-orphaned `agentBuilderTransitionNamespace` plumbing
+  (AgentBuilderView -> ... -> CellFactory) and `AgentBuilderCardContent.transitionEligible`
+  are write-only dead code that a later cleanup can remove.
+
+- [x] **Prompt + activating cards align with message bubbles (avatar gutter).**
+  Both cards were inset only by `step4x`, so they sat one avatar-gutter to the
+  left of incoming message bubbles (which reserve room for the sender avatar).
+  Bumped each card's leading inset to `smallAvatar + step2x + step4x` (the
+  `avatarWidth + step4x` pattern `MessagesGroupView` already uses to align
+  non-bubble content), so the cards line up with the message column and share the
+  same width treatment. Added as `Constant.leadingInset` in both
+  `AgentBuilderSummaryView` and `AgentActivatingCardView`.
+- [x] **Fix card over-indentation (cell already pads horizontally).** The first
+  alignment pass double-counted `step4x`: the `MessagesListItemTypeCell` already
+  wraps both cards in `.padding(.horizontal, step4x)`, so adding `step4x` inside
+  the card pushed them one row-padding past the message column. Reduced
+  `leadingInset` to just the avatar gutter (`smallAvatar + step2x`); the cell
+  supplies the `step4x`, so the total now matches the message bubbles' leading.
+- [x] **Activating card: one more description line.** Bumped
+  `descriptionLineCount` 4 -> 5 (and the hidden sizer placeholder) so the full
+  generated description fits without truncation.
+- [x] **No keyboard on landing in the conversation from the maker.** On Make, the
+  home flow handed focus to the chat input (`moveFocus(to: .message)`) to keep
+  the keyboard up; since nothing can be sent until the agent builds + joins, this
+  now drops focus (`moveFocus(to: nil)`) so the conversation opens with the
+  keyboard down. The existing-conversation flow dismisses the maker sheet back to
+  the original `ConversationView`, which was restoring `.message` focus on
+  dismiss; added `onDismiss: { focusCoordinator.moveFocus(to: nil) }` to that
+  sheet so the keyboard stays down there too.
 
 ## Still out of scope (later phases)
 

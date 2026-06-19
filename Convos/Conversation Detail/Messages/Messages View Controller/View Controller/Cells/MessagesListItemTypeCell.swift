@@ -146,10 +146,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .agentBuilderSummary(let content):
-                    AgentBuilderSummaryView(
-                        content: content,
-                        transitionNamespace: content.transitionEligible ? config.agentBuilderTransitionNamespace : nil
-                    )
+                    AgentBuilderSummaryView(content: content)
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 

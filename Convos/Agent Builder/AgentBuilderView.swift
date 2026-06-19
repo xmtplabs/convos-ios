@@ -363,12 +363,12 @@ struct AgentBuilderView: View {
                         dismiss()
                         return
                     }
-                    // Hand focus over to the chat's text field BEFORE
-                    // collapsing the composer, so the keyboard stays up
-                    // and MessagesBottomBar's expanded state animates in
-                    // on the next focus-change tick.
+                    // Dismiss the keyboard as the composer collapses. The agent
+                    // still has to build and join before anything can be sent, so
+                    // landing on the conversation with the input focused isn't
+                    // useful -- drop focus instead of handing it to the chat input.
                     if focusState.wrappedValue == .agentBuilder {
-                        focusCoordinator.moveFocus(to: .message)
+                        focusCoordinator.moveFocus(to: nil)
                     }
                     withAnimation(.easeInOut(duration: 0.35)) {
                         viewModel.commit(focusCoordinator: focusCoordinator)
