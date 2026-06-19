@@ -228,4 +228,19 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
             error: nil
         )
     }
+
+    // Declared on the base (not left to the protocol-extension default) so
+    // subclasses can `override` them to simulate attachment-upload failures.
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        (objectKey: "build/test-\(UUID().uuidString)", uploadURL: "https://test.example.com/upload")
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {}
 }

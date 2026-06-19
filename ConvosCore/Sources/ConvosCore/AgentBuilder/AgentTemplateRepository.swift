@@ -468,7 +468,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 data = try Data(contentsOf: URL(fileURLWithPath: descriptor.localPath))
             } catch {
                 Log.error("AgentTemplateRepository: missing attachment file at \(descriptor.localPath): \(error.localizedDescription)")
-                return await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+                _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+                return nil
             }
             do {
                 let presigned = try await apiClient.getAgentTemplateAttachmentPresignedURL(
@@ -483,7 +484,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 stored[index].objectKey = presigned.objectKey
             } catch {
                 Log.error("AgentTemplateRepository: attachment upload failed: \(error.localizedDescription)")
-                return await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+                _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Attachment upload failed")
+                return nil
             }
         }
         let encoded = Self.encodeAttachments(stored)

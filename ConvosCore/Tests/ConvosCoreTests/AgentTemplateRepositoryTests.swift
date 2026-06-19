@@ -77,6 +77,36 @@ struct AgentTemplateRepositoryTests {
         #expect(row?.errorMessage != nil)
         #expect(api.joinCalls == 0)
     }
+
+    @Test("Attachment upload failure marks the row failed and never submits")
+    func attachmentUploadFails() async throws {
+        let database = try makeDatabase()
+        let api = AttachmentUploadFailingStubAPIClient()
+        let repository = makeRepository(database: database, apiClient: api)
+
+        let attachment = AgentBuildAttachmentInput(
+            data: Data([0x01, 0x02, 0x03]),
+            mimeType: "image/jpeg",
+            filename: nil
+        )
+        repository.startGeneration(
+            prompt: "build me a chef",
+            conversationId: "convo-3",
+            slug: "chef.abcd",
+            attachments: [attachment],
+            connections: []
+        )
+
+        let row = try await waitForStatus(.failed, conversationId: "convo-3", in: database)
+        #expect(row?.statusValue == .failed)
+        #expect(row?.errorMessage != nil)
+        // The pipeline must terminate at the failed upload: the generation
+        // submit and the agent-join are never reached (regression guard for
+        // `uploadAttachments` returning the failed row instead of nil, which
+        // let `submit` clobber the failure and build without attachments).
+        #expect(api.generationCalls == 0)
+        #expect(api.joinCalls == 0)
+    }
 }
 
 /// Submit returns pending, the first poll returns done, and the join records
@@ -148,6 +178,52 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
         connections: [String]
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         throw AgentGenerationError.moderationBlocked("not allowed")
+    }
+
+    override func requestAgentJoin(
+        slug: String?,
+        conversationId: String?,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        lock.withLock { joinCallCount += 1 }
+        return ConvosAPI.AgentJoinResponse(success: true, joined: true)
+    }
+}
+
+/// The attachment presigned-URL request fails, so the pipeline must mark the
+/// row failed and never reach submit or join.
+private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
+    private let lock: NSLock = NSLock()
+    private var generationCallCount: Int = 0
+    private var joinCallCount: Int = 0
+
+    var generationCalls: Int { lock.withLock { generationCallCount } }
+    var joinCalls: Int { lock.withLock { joinCallCount } }
+
+    override func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        throw APIError.invalidRequest
+    }
+
+    override func createAgentTemplateGeneration(
+        text: String,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        attachments: [ConvosAPI.AttachmentRef],
+        connections: [String]
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        lock.withLock { generationCallCount += 1 }
+        return ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: "gen-x",
+            status: .pending,
+            templateId: nil,
+            error: nil
+        )
     }
 
     override func requestAgentJoin(
