@@ -1287,7 +1287,12 @@ extension SessionManager {
     /// across a relaunch.
     func wireAgentTemplateRepository() {
         agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId in
-            _ = try await self?.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil)
+            // Throw rather than letting optional chaining return a silent `nil`:
+            // the invite step only detects failure via thrown errors, so a
+            // no-op `nil` would be recorded as a false `.invited` with no agent
+            // actually added.
+            guard let self else { throw AgentTemplateJoinError.sessionUnavailable }
+            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil)
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()
     }

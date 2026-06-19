@@ -48,6 +48,16 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
 /// the build targeted.
 public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String) async throws -> Void
 
+/// Errors an `AgentTemplateJoinHandler` can throw when it cannot perform the
+/// join. Surfacing these as thrown errors (rather than returning) keeps the
+/// repository's invite step from recording a false `.invited`.
+public enum AgentTemplateJoinError: Error {
+    /// The session that owns the join handler was deallocated before the invite
+    /// ran, so no agent could be added. The invite step retries / fails instead
+    /// of treating the no-op as success.
+    case sessionUnavailable
+}
+
 /// A local media input for a build, handed to `startGeneration`. The repository
 /// persists a copy, uploads the plaintext bytes to the agent-templates presigned
 /// endpoint, and references the resulting object key in `inputs.attachments[]`.
