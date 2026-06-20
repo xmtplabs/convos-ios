@@ -953,7 +953,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
                 source: source,
                 inputs: .init(text: text, attachments: attachments.isEmpty ? nil : attachments),
                 connections: connections.isEmpty ? nil : connections,
-                clientDeviceId: clientDeviceId
+                clientDeviceId: clientDeviceId,
+                publishStatus: "unlisted"
             )
         )
         request.httpBody = body

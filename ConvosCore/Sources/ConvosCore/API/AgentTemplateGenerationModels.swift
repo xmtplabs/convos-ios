@@ -44,12 +44,19 @@ public extension ConvosAPI {
         /// byte-identical and dedupe against a stored `[]`.
         public let connections: [String]?
         public let clientDeviceId: String?
+        /// Publish visibility for the generated template, a top-level envelope
+        /// field alongside `source`. The app submits `"unlisted"` (templates
+        /// built in-app are private to the build flow, not surfaced in any public
+        /// directory), matching the website create flow. Always encoded; when the
+        /// field is absent the backend defaults to a listed/public template.
+        public let publishStatus: String
 
-        public init(source: String, inputs: Inputs, connections: [String]? = nil, clientDeviceId: String?) {
+        public init(source: String, inputs: Inputs, connections: [String]? = nil, clientDeviceId: String?, publishStatus: String) {
             self.source = source
             self.inputs = inputs
             self.connections = connections
             self.clientDeviceId = clientDeviceId
+            self.publishStatus = publishStatus
         }
     }
 
