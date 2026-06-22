@@ -899,9 +899,15 @@ extension MessagesViewController {
             }
         }
 
-        if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
+        // Only surface the per-agent "lost power" cell for agents the viewer
+        // OWNS. `creditsDepleted` reflects the LOCAL viewer's wallet, which is
+        // only the right signal for the viewer's own agents - for someone
+        // else's funded agent it would mislabel a working agent as depleted.
+        // Gating on `isCurrentUserCreator` keeps the wallet check correct;
+        // non-owners see nothing until a backend per-agent power signal exists.
+        let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
+        if creditsDepleted, isCurrentUserCreator, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
-            let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
