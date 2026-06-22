@@ -92,10 +92,7 @@ class ProfileSettingsViewModel {
         self.session = nil
         writer = nil
         repository = nil
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
         loadState = .loading
         bindInternal(session: session)
     }
@@ -178,10 +175,7 @@ class ProfileSettingsViewModel {
     }
 
     func delete() {
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
         guard let writer else { return }
         Task {
             do {
@@ -190,5 +184,12 @@ class ProfileSettingsViewModel {
                 Log.error("Failed deleting profile settings: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func clearEditingFields() {
+        editingDisplayName = ""
+        profileImage = nil
+        profileImageAssetIdentifier = nil
+        profileImageContentDigest = nil
     }
 }
