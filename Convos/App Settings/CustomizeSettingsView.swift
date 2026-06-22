@@ -52,16 +52,6 @@ struct CustomizeSettingsView: View {
                     toggleAccessibilityIdentifier: "read-receipts-toggle"
                 )
             }
-
-            Section {
-                HStack {
-                    Text("Colors")
-                        .foregroundStyle(.colorTextTertiary)
-                    Spacer()
-                    SoonLabel()
-                }
-            }
-            .disabled(true)
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
