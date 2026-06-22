@@ -67,7 +67,13 @@ struct ConversationMemberView: View {
     }
 
     private var shouldShowOutOfCredits: Bool {
+        // `creditsBalance.isDepleted` is the LOCAL viewer's wallet, so this
+        // "No power" row is only correct for agents the viewer OWNS. On a
+        // non-owned agent's card it would wrongly attribute depletion to that
+        // agent. Gate on ownership (same fix as the in-stream cell); non-owners
+        // see nothing until a backend per-agent power signal exists.
         guard member.isAgent,
+              viewModel.conversation.creator.isCurrentUser,
               !ConfigManager.shared.currentEnvironment.isProduction,
               let creditsBalance else { return false }
         return creditsBalance.isDepleted
