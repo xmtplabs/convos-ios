@@ -112,6 +112,41 @@ enum Secrets {
 // swiftlint:enable all
 EOF
     echo "🏁 Generated Secrets.swift for Dev"
+
+# Part 2b: Generate Secrets.swift for Prod builds (the "NotificationService
+# (Prod)" / "Convos (Prod)" schemes use the "Release" configuration). Force the
+# backend URL and XMTP host EMPTY so ConfigManager falls back to the prod
+# source-of-truth in config.prod.json — never an .env override.
+elif [ "$CONFIGURATION" = "Release" ]; then
+    echo "🚀 Prod (Release) build detected - resolving backend from config.prod.json"
+
+    SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
+    mkdir -p "${SRCROOT}/Convos/Config"
+
+    POSTHOG_API_KEY=""
+    SENTRY_DSN=""
+    if [ -f "${SRCROOT}/.env" ]; then
+        POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        SENTRY_DSN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^SENTRY_DSN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+    fi
+
+    cat > "$SECRETS_FILE" << EOF
+import Foundation
+
+// swiftlint:disable all
+enum Secrets {
+    static let CONVOS_API_BASE_URL = ""
+    static let XMTP_CUSTOM_HOST = ""
+    static let GATEWAY_URL = ""
+    static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"
+    static let SENTRY_DSN = "$(swift_escape "$SENTRY_DSN")"
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = ""
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
+    static let AGENT_DEBUG_JWKS: String = ""
+}
+// swiftlint:enable all
+EOF
+    echo "🏁 Generated Secrets.swift for Prod"
 fi
 
 # Part 3: Copy config file to app bundle
