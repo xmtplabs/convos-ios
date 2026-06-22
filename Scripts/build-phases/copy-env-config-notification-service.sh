@@ -128,6 +128,9 @@ elif [ "$CONFIGURATION" = "Release" ] && [ -z "$CI" ] && [ -z "$BITRISE_BUILD_NU
     SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
     mkdir -p "${SRCROOT}/Convos/Config"
 
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
+
     cat > "$SECRETS_FILE" << EOF
 import Foundation
 
@@ -138,7 +141,7 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let POSTHOG_API_KEY = ""
     static let SENTRY_DSN = ""
-    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = ""
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = ""
 }

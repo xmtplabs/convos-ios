@@ -218,6 +218,9 @@ elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Release" ] && [ -z "
     # Create directory if needed
     mkdir -p "${SRCROOT}/Convos/Config"
 
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
+
     # Generate Secrets.swift for Prod. Every override is empty (matching the CI
     # generate-secrets-secure.sh output for a local Release with no injected
     # secrets); only GIT_COMMIT_SHA is populated.
@@ -241,7 +244,7 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let POSTHOG_API_KEY = ""
     static let SENTRY_DSN = ""
-    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = ""
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = ""
 }
