@@ -67,7 +67,6 @@ struct AppSettingsView: View {
     @State private var versionTapCount: Int = 0
     @State private var lastVersionTapAt: Date?
     @State private var showingEnableDebugConfirmation: Bool = false
-    @State private var prodDebugMenuEnabled: Bool = DebugMenuGate.showsProdDebugMenu(for: ConfigManager.shared.currentEnvironment)
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -331,7 +330,7 @@ struct AppSettingsView: View {
             sendFeedbackRow
             if showsFullMenu {
                 debugRow
-            } else if prodDebugMenuEnabled {
+            } else if DebugMenuGate.showsProdDebugMenu(for: environment) {
                 prodDebugRow
             }
         } footer: {
@@ -343,10 +342,10 @@ struct AppSettingsView: View {
             isPresented: $showingEnableDebugConfirmation,
             titleVisibility: .visible
         ) {
-            let enableAction = {
-                DebugMenuFlagStore.enable()
-                prodDebugMenuEnabled = true
-            }
+            // Persist the opt-in. Dismissing the dialog flips
+            // `showingEnableDebugConfirmation` back to false, which re-renders
+            // the body so `linksSection` re-reads the gate and reveals the row.
+            let enableAction = { DebugMenuFlagStore.enable() }
             Button("Enable", action: enableAction)
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -415,7 +414,9 @@ struct AppSettingsView: View {
         let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
         // Non-production already shows the full debug menu, so the easter-egg
         // gesture only matters in production where the curated menu is opt-in.
-        guard environment.isProduction, !prodDebugMenuEnabled else { return }
+        // Read the persisted flag directly (not a cached copy) so a menu that
+        // was disabled elsewhere can be re-enabled without relaunching.
+        guard environment.isProduction, !DebugMenuFlagStore.isEnabled() else { return }
         let now = Date()
         if let lastTap = lastVersionTapAt, now.timeIntervalSince(lastTap) > Constant.versionTapWindow {
             versionTapCount = 0

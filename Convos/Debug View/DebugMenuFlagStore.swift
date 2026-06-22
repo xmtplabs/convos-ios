@@ -18,11 +18,11 @@ enum DebugMenuFlagStore {
     }
 
     static func enable() {
-        UserDefaults.standard.set(true, forKey: Constant.enabledKey)
+        setEnabled(true)
     }
 
     static func disable() {
-        UserDefaults.standard.set(false, forKey: Constant.enabledKey)
+        setEnabled(false)
     }
 
     static func setEnabled(_ enabled: Bool) {

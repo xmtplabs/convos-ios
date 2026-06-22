@@ -4,8 +4,8 @@ import Foundation
 /// Runtime gate deciding whether a debug menu is reachable.
 ///
 /// The codebase prefers runtime gates over `#if DEBUG` because `#if DEBUG`
-/// does not propagate into the ConvosCore SPM package, so environment-based
-/// runtime checks are the established convention here.
+/// does not propagate into SPM packages like `ConvosCore`, so a runtime
+/// environment check is used instead.
 ///
 /// - Non-production environments keep the full debug experience unconditionally.
 /// - Production exposes only the curated `ProdDebugMenuView`, and only when the
@@ -22,12 +22,5 @@ enum DebugMenuGate {
     static func showsProdDebugMenu(for environment: AppEnvironment) -> Bool {
         if !environment.isProduction { return true }
         return DebugMenuFlagStore.isEnabled()
-    }
-
-    /// True when the app-wide "debug mode ON" indicator should be visible.
-    /// Only meaningful in production, where the menu is opt-in; in non-prod the
-    /// debug menu is always present so the indicator would be noise.
-    static func showsDebugModeIndicator(for environment: AppEnvironment) -> Bool {
-        environment.isProduction && DebugMenuFlagStore.isEnabled()
     }
 }
