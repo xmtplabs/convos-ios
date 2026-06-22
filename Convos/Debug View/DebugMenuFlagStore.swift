@@ -27,24 +27,9 @@ enum DebugMenuFlagStore {
 
     static func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Constant.enabledKey)
-        // `UserDefaults.didChangeNotification` does not fire for same-process
-        // `UserDefaults.standard` writes, so surfaces that key off the flag
-        // (e.g. the app-wide debug indicator) would otherwise only update on
-        // relaunch. Post an explicit notification they can observe directly.
-        NotificationCenter.default.post(name: .debugMenuFlagChanged, object: nil)
     }
 
     private enum Constant {
         static let enabledKey: String = "convos.debugMenu.enabled.v1"
     }
-}
-
-extension Notification.Name {
-    /// Posted whenever `DebugMenuFlagStore` mutates the persisted prod debug
-    /// menu flag. Lets in-process surfaces refresh without waiting for a
-    /// relaunch, which `UserDefaults.didChangeNotification` cannot guarantee
-    /// for same-process `UserDefaults.standard` writes.
-    static let debugMenuFlagChanged: Notification.Name = Notification.Name(
-        "convos.debugMenu.flagChanged"
-    )
 }

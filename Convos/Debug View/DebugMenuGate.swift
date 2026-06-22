@@ -23,11 +23,4 @@ enum DebugMenuGate {
         if !environment.isProduction { return true }
         return DebugMenuFlagStore.isEnabled()
     }
-
-    /// True when the app-wide "debug mode ON" indicator should be visible.
-    /// Only meaningful in production, where the menu is opt-in; in non-prod the
-    /// debug menu is always present so the indicator would be noise.
-    static func showsDebugModeIndicator(for environment: AppEnvironment) -> Bool {
-        environment.isProduction && DebugMenuFlagStore.isEnabled()
-    }
 }

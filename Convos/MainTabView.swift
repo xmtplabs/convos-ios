@@ -59,12 +59,6 @@ struct MainTabView: View {
     /// past the top. While hidden, a compact "add agent" button takes its
     /// place in the nav bar.
     @State private var isBuilderBarRevealed: Bool = true
-    /// Whether the app-wide "debug mode ON" indicator is shown. Only true in
-    /// production when the curated debug menu's persistent toggle is enabled;
-    /// refreshed when the UserDefaults-backed flag changes.
-    @State private var debugModeIndicatorVisible: Bool = DebugMenuGate.showsDebugModeIndicator(
-        for: ConfigManager.shared.currentEnvironment
-    )
     /// Latest scroll content offset from each tab's primary scroll view.
     /// Tracked per-tab so swapping tabs can re-evaluate the builder bar
     /// state against the new tab's scroll position immediately, instead
@@ -1044,25 +1038,11 @@ extension MainTabView {
             tabView
 
             sharedAppIndicatorOverlay
-
-            if debugModeIndicatorVisible {
-                DebugModeIndicator()
-                    .zIndex(1001)
-            }
         }
         .animation(.smooth(duration: 0.35), value: isConversationSelected)
         .animation(.smooth(duration: 0.35), value: isEmptyChatsCTAActive)
         .onChange(of: thingsPushedItems) { _, newItems in
             syncThingsPushedConvoVM(with: newItems)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            refreshDebugModeIndicator()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .debugMenuFlagChanged)) { _ in
-            refreshDebugModeIndicator()
-        }
-        .onAppear {
-            refreshDebugModeIndicator()
         }
         .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             userSubscription = newSubscription
@@ -1074,14 +1054,6 @@ extension MainTabView {
             handleConversationNotificationTapped()
         }
         .modifier(mainTabSheetsModifier)
-    }
-
-    private func refreshDebugModeIndicator() {
-        let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
-        let shouldShow: Bool = DebugMenuGate.showsDebugModeIndicator(for: environment)
-        if debugModeIndicatorVisible != shouldShow {
-            debugModeIndicatorVisible = shouldShow
-        }
     }
 
     var metricsObserversModifier: MetricsObservers {
