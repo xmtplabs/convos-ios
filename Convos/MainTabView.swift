@@ -1058,6 +1058,9 @@ extension MainTabView {
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             refreshDebugModeIndicator()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .debugMenuFlagChanged)) { _ in
+            refreshDebugModeIndicator()
+        }
         .onAppear {
             refreshDebugModeIndicator()
         }

@@ -331,7 +331,7 @@ struct AppSettingsView: View {
             sendFeedbackRow
             if showsFullMenu {
                 debugRow
-            } else if prodDebugMenuEnabled {
+            } else if DebugMenuGate.showsProdDebugMenu(for: environment) {
                 prodDebugRow
             }
         } footer: {
