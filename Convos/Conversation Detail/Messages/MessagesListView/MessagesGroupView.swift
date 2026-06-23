@@ -796,7 +796,7 @@ private struct ThoughtBubbleAppearance<Content: View>: View {
     ]
     let photoURL = "https://picsum.photos/400/300"
     let photoAttachment = HydratedAttachment(key: photoURL, width: 400, height: 300)
-    let hiddenPhoto = HydratedAttachment(key: photoURL, isHiddenByOwner: true, width: 400, height: 300)
+    let hiddenPhoto = HydratedAttachment(key: photoURL, width: 400, height: 300)
 
     let groups: [MessagesGroup] = [
         // -- Text messages --

@@ -1114,12 +1114,6 @@ extension NewConversationViewModel {
         let conversationId: String = stateManager.conversationId
         guard !conversationId.isEmpty else { return }
 
-        do {
-            try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: conversationId)
-        } catch {
-            Log.error("Error applying global auto reveal preference: \(error)")
-        }
-
         // The include-info default applies to every conversation this VM
         // creates - the auto-create modes and the scanned-template path
         // (which seeds `pendingAgentTemplateIds` but is not an auto-create

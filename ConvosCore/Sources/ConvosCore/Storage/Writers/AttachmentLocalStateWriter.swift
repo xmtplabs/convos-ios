@@ -2,8 +2,6 @@ import Foundation
 import GRDB
 
 public protocol AttachmentLocalStateWriterProtocol: Sendable {
-    func markRevealed(attachmentKey: String, conversationId: String) async throws
-    func markHidden(attachmentKey: String, conversationId: String) async throws
     func saveWithDimensions(
         attachmentKey: String,
         conversationId: String,
@@ -27,46 +25,6 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
 
     public init(databaseWriter: any DatabaseWriter) {
         self.databaseWriter = databaseWriter
-    }
-
-    public func markRevealed(attachmentKey: String, conversationId: String) async throws {
-        try await databaseWriter.write { db in
-            let existing = try AttachmentLocalState
-                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
-                .fetchOne(db)
-
-            let record = AttachmentLocalState(
-                attachmentKey: attachmentKey,
-                conversationId: conversationId,
-                isRevealed: true,
-                revealedAt: Date(),
-                width: existing?.width,
-                height: existing?.height,
-                isHiddenByOwner: false,
-                mimeType: existing?.mimeType
-            )
-            try record.save(db)
-        }
-    }
-
-    public func markHidden(attachmentKey: String, conversationId: String) async throws {
-        try await databaseWriter.write { db in
-            let existing = try AttachmentLocalState
-                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
-                .fetchOne(db)
-
-            let record = AttachmentLocalState(
-                attachmentKey: attachmentKey,
-                conversationId: conversationId,
-                isRevealed: false,
-                revealedAt: nil,
-                width: existing?.width,
-                height: existing?.height,
-                isHiddenByOwner: true,
-                mimeType: existing?.mimeType
-            )
-            try record.save(db)
-        }
     }
 
     public func saveWithDimensions(

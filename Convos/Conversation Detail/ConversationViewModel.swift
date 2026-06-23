@@ -1007,7 +1007,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingThinkingDetail: ThinkingSessionDescriptor?
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
-    var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the
@@ -1070,7 +1069,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
-    var autoRevealPhotos: Bool = GlobalConvoDefaults.shared.autoRevealPhotos
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -1080,27 +1078,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
-    private var hasShownRevealInfoSheet: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownRevealInfoSheetKey) }
-    }
-
-    private static let revealToastKeyPrefix: String = "hasShownRevealToast_"
-    private var hasShownRevealToastKey: String {
-        "\(Self.revealToastKeyPrefix)\(conversation.id)"
-    }
-    private var hasShownRevealToast: Bool {
-        get { UserDefaults.standard.bool(forKey: hasShownRevealToastKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasShownRevealToastKey) }
-    }
+    // Orphaned reveal-mode keys cleared opportunistically on launch.
+    private static let legacyRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
+    private static let legacyRevealToastKeyPrefix: String = "hasShownRevealToast_"
 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: legacyRevealInfoSheetKey)
         defaults.removeObject(forKey: hasShownAgentsIntroKey)
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyRevealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
     }
@@ -1155,10 +1142,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard pendingAgentBuilderAfterIntro else { return }
         pendingAgentBuilderAfterIntro = false
         presentingAgentBuilder = makeAgentBuilderViewModel()
-    }
-
-    var shouldBlurPhotos: Bool {
-        !autoRevealPhotos
     }
 
     // MARK: - Onboarding
@@ -1414,7 +1397,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1721,7 +1703,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1732,10 +1713,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
-    }
-
-    private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
-        autoRevealPhotos = autoReveal
     }
 
     func setSendReadReceipts(_ value: Bool) {
@@ -1749,12 +1726,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 Log.error("Error setting sendReadReceipts: \(error)")
             }
         }
-    }
-
-    private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
-        guard autoRevealPhotos != autoReveal else { return }
-        autoRevealPhotos = autoReveal
-        persistAutoReveal(autoReveal)
     }
 
     private func loadConversationImage(for conversation: Conversation) {
@@ -4359,48 +4330,6 @@ extension ConversationViewModel {
 // MARK: - Photo Preferences
 
 extension ConversationViewModel {
-    func onPhotoRevealed(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoRevealed called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markRevealed(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markRevealed completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo revealed: \(error)")
-            }
-        }
-
-        guard !autoRevealPhotos else { return }
-
-        if !hasShownRevealInfoSheet {
-            hasShownRevealInfoSheet = true
-            hasShownRevealToast = true
-            presentingRevealMediaInfoSheet = true
-        } else if !hasShownRevealToast {
-            hasShownRevealToast = true
-        }
-    }
-
-    func onPhotoHidden(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoHidden called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markHidden(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markHidden completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo hidden: \(error)")
-            }
-        }
-    }
-
     func onPhotoDimensionsLoaded(_ attachmentKey: String, width: Int, height: Int) {
         Task { [weak self] in
             guard let self else { return }
@@ -4413,21 +4342,6 @@ extension ConversationViewModel {
                 )
             } catch {
                 Log.error("Error saving photo dimensions: \(error)")
-            }
-        }
-    }
-
-    func setAutoReveal(_ autoReveal: Bool) {
-        setAutoRevealPhotosPersisted(autoReveal)
-    }
-
-    private func persistAutoReveal(_ autoReveal: Bool) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
-            } catch {
-                Log.error("Error setting autoReveal: \(error)")
             }
         }
     }

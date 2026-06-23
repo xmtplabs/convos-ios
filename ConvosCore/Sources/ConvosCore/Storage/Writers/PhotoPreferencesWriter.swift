@@ -2,8 +2,6 @@ import Foundation
 import GRDB
 
 public protocol PhotoPreferencesWriterProtocol: Sendable {
-    func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws
-    func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws
     func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws
 }
 
@@ -12,18 +10,6 @@ public final class PhotoPreferencesWriter: PhotoPreferencesWriterProtocol, Senda
 
     public init(databaseWriter: any DatabaseWriter) {
         self.databaseWriter = databaseWriter
-    }
-
-    public func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws {
-        try await updatePreferences(for: conversationId) { prefs in
-            prefs.with(autoReveal: autoReveal)
-        }
-    }
-
-    public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
-        try await updatePreferences(for: conversationId) { prefs in
-            prefs.with(hasRevealedFirst: hasRevealedFirst)
-        }
     }
 
     public func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws {
