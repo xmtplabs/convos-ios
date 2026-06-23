@@ -26,26 +26,41 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol, Sendable {
 
     func save(name: String?, imageData: Data?, imageAssetIdentifier: String?, metadata: ProfileMetadata?) async throws {
         let inboxId = try await currentInboxId()
-        let row = DBMyProfile(
-            inboxId: inboxId,
-            name: trim(name),
-            imageData: imageData,
-            imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
-            imageContentDigest: Self.digest(of: imageData),
-            metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
-            updatedAt: Date()
-        )
+        let trimmedName = trim(name)
         try await databaseWriter.write { db in
+            // Never clear an existing name with an empty save: a blank name
+            // would render the local user as "Somebody". A real name still
+            // wins; a first save with no existing name is unaffected.
+            let existing = try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+            // Treat empty/whitespace as "no name provided" independently of
+            // trim()'s nil-for-empty contract, so a future trim() change can't
+            // reintroduce a name-clearing path.
+            let resolvedName: String? = (trimmedName?.isEmpty == false) ? trimmedName : existing?.name
+            let row = DBMyProfile(
+                inboxId: inboxId,
+                name: resolvedName,
+                imageData: imageData,
+                imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
+                imageContentDigest: Self.digest(of: imageData),
+                metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
+                updatedAt: Date()
+            )
             try row.save(db)
         }
     }
 
     func update(name: String?) async throws {
-        let resolved = trim(name)
+        let trimmedName = trim(name)
         try await mutate { current in
-            DBMyProfile(
+            // Never clear an existing name with an empty update (would render
+            // the local user as "Somebody"). Treat empty/whitespace as "no
+            // name provided" independently of trim() (see save()).
+            let resolvedName: String? = (trimmedName?.isEmpty == false) ? trimmedName : current.name
+            return DBMyProfile(
                 inboxId: current.inboxId,
-                name: resolved,
+                name: resolvedName,
                 imageData: current.imageData,
                 imageAssetIdentifier: current.imageAssetIdentifier,
                 imageContentDigest: current.imageContentDigest,

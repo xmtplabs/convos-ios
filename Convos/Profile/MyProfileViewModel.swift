@@ -187,7 +187,11 @@ class MyProfileViewModel {
         let trimmedDisplayName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmoji = editingEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestProfile = try? myProfileRepository.fetch()
-        if latestProfile == nil || latestProfile?.name != trimmedDisplayName {
+        // Don't push an empty name over an existing one (it would render as
+        // "Somebody"). The writer guards this too, but skipping here avoids a
+        // redundant re-broadcast of the unchanged name.
+        let wouldClearExistingName = trimmedDisplayName.isEmpty && (latestProfile?.name?.isEmpty == false)
+        if !wouldClearExistingName, latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
             didChange = true
         }
