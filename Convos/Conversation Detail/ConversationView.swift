@@ -311,7 +311,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
-            onConvosAction: { viewModel.onConvosButtonTapped() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {

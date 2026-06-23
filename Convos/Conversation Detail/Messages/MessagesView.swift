@@ -97,7 +97,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
@@ -228,7 +227,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     onVoiceMemoTap: onVoiceMemoTap,
                     voiceMemoRecorder: voiceMemoRecorder,
                     onSendVoiceMemo: onSendVoiceMemo,
-                    onConvosAction: onConvosAction,
                     onDebugAttachmentTap: onDebugAttachmentTap,
                     onBaseHeightChanged: { height in
                         bottomBarHeight = height

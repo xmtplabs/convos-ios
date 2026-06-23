@@ -77,7 +77,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
@@ -402,7 +401,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
                 let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
                 let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
-                let sideConvoDisabled: Bool = hasSideConvo || hasMedia
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
@@ -410,16 +408,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     onFilePickerTap: {
                         isFilePickerPresented = true
                     },
-                    onConvosAction: {
-                        guard pendingInviteURL == nil else { return }
-                        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                            isMessageInputFocused = true
-                        }
-                        onConvosAction()
-                    },
                     isMediaCapacityFull: mediaButtonsDisabled,
                     isVoiceMemoDisabled: voiceMemoDisabled,
-                    isSideConvoDisabled: sideConvoDisabled,
                     onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
@@ -591,7 +581,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onVoiceMemoTap: {},
             voiceMemoRecorder: VoiceMemoRecorder(),
             onSendVoiceMemo: {},
-            onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height
             },
