@@ -114,11 +114,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
     }
 
-    private func handleRevealMediaInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(revealMediaInfo: RevealMediaInfoNavigatorArgs())
-    }
-
     private func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
         navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
@@ -535,13 +530,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var metricsObserversPart2: MetricsObserversPart2 {
         MetricsObserversPart2(
             showingFullInfo: showingFullInfo,
-            presentingRevealMediaInfo: viewModel.presentingRevealMediaInfoSheet,
             presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
             presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
             presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
             presentingAddFromContactsPicker: presentingAddFromContactsPicker,
             onFullInfoChanged: handleFullInfoChanged(from:to:),
-            onRevealMediaInfoChanged: handleRevealMediaInfoChanged(from:to:),
             onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
             onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
@@ -707,13 +700,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showingFullInfo = false
             })
         }
-        .selfSizingSheet(
-            isPresented: $viewModel.presentingRevealMediaInfoSheet,
-            onDismiss: { viewModel.showRevealSettingsToast() },
-            content: {
-                RevealMediaInfoSheet()
-            }
-        )
         .selfSizingSheet(
             isPresented: $viewModel.presentingPhotosInfoSheet,
             onDismiss: { focusCoordinator.moveFocus(to: .message) },

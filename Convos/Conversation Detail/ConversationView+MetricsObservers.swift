@@ -44,14 +44,12 @@ extension ConversationView {
 
     struct MetricsObserversPart2: ViewModifier {
         let showingFullInfo: Bool
-        let presentingRevealMediaInfo: Bool
         let presentingPhotosInfo: Bool
         let presentingAgentBuilder: Bool
         let presentingNewConvoForInvite: Bool
         let presentingAddFromContactsPicker: Bool
 
         let onFullInfoChanged: (Bool, Bool) -> Void
-        let onRevealMediaInfoChanged: (Bool, Bool) -> Void
         let onPhotosInfoChanged: (Bool, Bool) -> Void
         let onAgentBuilderChanged: (Bool, Bool) -> Void
         let onNewConvoInviteChanged: (Bool, Bool) -> Void
@@ -60,7 +58,6 @@ extension ConversationView {
         func body(content: Content) -> some View {
             content
                 .onChange(of: showingFullInfo) { o, n in onFullInfoChanged(o, n) }
-                .onChange(of: presentingRevealMediaInfo) { o, n in onRevealMediaInfoChanged(o, n) }
                 .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
                 .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
                 .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }

@@ -367,19 +367,6 @@ struct ConversationInfoView: View {
 
             FeatureRowItem(
                 imageName: nil,
-                symbolName: "eye.circle.fill",
-                title: "Reveal mode",
-                subtitle: "Blur incoming pics"
-            ) {
-                Toggle("", isOn: Binding(
-                    get: { !viewModel.autoRevealPhotos },
-                    set: { viewModel.setAutoReveal(!$0) }
-                ))
-                .labelsHidden()
-            }
-
-            FeatureRowItem(
-                imageName: nil,
                 symbolName: "eyeglasses",
                 title: "Peek-a-boo",
                 subtitle: "Blur when people peek"

@@ -259,11 +259,6 @@ struct ConversationIndicatorWrapper: View {
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,
-            activeToast: $viewModel.activeToast,
-            autoRevealPhotos: Binding(
-                get: { viewModel.autoRevealPhotos },
-                set: { viewModel.setAutoReveal($0) }
-            ),
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,

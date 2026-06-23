@@ -1029,7 +1029,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// via the balance publisher. Drives the in-stream out-of-credits cell
     /// insertion in `MessagesViewController` and the inline status surfaces.
     var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
-    var activeToast: IndicatorToastStyle?
 
     var agentJoinForceErrorCode: Int?
 
@@ -4383,7 +4382,6 @@ extension ConversationViewModel {
             presentingRevealMediaInfoSheet = true
         } else if !hasShownRevealToast {
             hasShownRevealToast = true
-            showRevealSettingsToast()
         }
     }
 
@@ -4432,10 +4430,6 @@ extension ConversationViewModel {
                 Log.error("Error setting autoReveal: \(error)")
             }
         }
-    }
-
-    func showRevealSettingsToast() {
-        activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
     }
 }
 
