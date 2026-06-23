@@ -4,8 +4,9 @@ import Foundation
 
 /// One cell in the cross-conversation Things grid: a single agent-sent
 /// HTML attachment in `conversation`, plus enough info to render the
-/// preview thumbnail and the convo's display name + unread dot under it.
-/// A conversation may contribute several items (one per distinct HTML
+/// preview thumbnail and the thing's title (its HTML `<title>`, falling
+/// back to the filename, then the conversation name) under it. A
+/// conversation may contribute several items (one per distinct HTML
 /// thing), so the identity is the message id, not the conversation id.
 struct ThingOverviewItem: Identifiable, Hashable {
     let conversation: Conversation
@@ -44,8 +45,7 @@ struct ThingOverviewItem: Identifiable, Hashable {
 /// One subscription per conversation is acceptable scale for v1; if list
 /// sizes ever grow past a couple hundred conversations the right next
 /// move is a single SQL query that joins the message + conversation
-/// tables and returns the latest HTML attachment per conversation in one
-/// shot.
+/// tables and returns the HTML attachments per conversation in one shot.
 @MainActor
 @Observable
 final class ThingsOverviewViewModel {
@@ -109,7 +109,7 @@ final class ThingsOverviewViewModel {
     }
 
     private func rebuildItems() {
-        items = htmlFilesPerConvo.flatMap { id, files -> [ThingOverviewItem] in
+        items = htmlFilesPerConvo.flatMap { (id: String, files: [AgentFile]) -> [ThingOverviewItem] in
             guard let convo = conversationsById[id] else { return [] }
             return files.map { (file: AgentFile) -> ThingOverviewItem in
                 ThingOverviewItem(

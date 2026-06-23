@@ -81,6 +81,11 @@ struct ThingPreviewCell: View {
             withAnimation(.smooth(duration: 0.2)) {
                 renderedImage = cached
             }
+        } else {
+            // No cache hit for the current appearance: drop any image
+            // rendered for the previous appearance so the guard below
+            // doesn't short-circuit and leave a stale thumbnail.
+            renderedImage = nil
         }
         guard renderedImage == nil || resolvedTitle == nil else { return }
         do {
@@ -108,6 +113,5 @@ struct ThingPreviewCell: View {
 
     private enum Constant {
         static let cornerRadius: CGFloat = 28.0
-        static let unreadDotSize: CGFloat = 8.0
     }
 }
