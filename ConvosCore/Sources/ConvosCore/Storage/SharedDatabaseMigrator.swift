@@ -219,10 +219,13 @@ extension SharedDatabaseMigrator {
     }
 
     /// Drops the reveal-mode columns now that incoming media always renders
-    /// unblurred. Plain `DROP COLUMN` is sufficient: none of these columns
-    /// carry indexes, views, triggers, or constraints. Extracted as an
-    /// internal static helper so the migration test can exercise the real
-    /// upgrade path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    /// unblurred. Existing reveal-blurred / owner-hidden rows already render
+    /// unblurred since the rendering predicates were removed earlier, so this
+    /// migration only drops the now-unused columns. Plain `DROP COLUMN` is
+    /// sufficient: none of these columns carry indexes, views, triggers, or
+    /// constraints. Extracted as an internal static helper so the migration
+    /// test can exercise the real upgrade path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
     static func dropRevealColumns(_ db: Database) throws {
         try db.alter(table: "photoPreferences") { t in
             t.drop(column: "autoReveal")

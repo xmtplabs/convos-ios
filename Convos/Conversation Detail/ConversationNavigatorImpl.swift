@@ -29,6 +29,8 @@ final class ConversationNavigatorImpl: @preconcurrency ConversationNavigator, Na
     func present(lockedConvoInfo: LockedConvoInfoNavigatorArgs) {}
     func present(fullConvoInfo: FullConvoInfoNavigatorArgs) {}
     func present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs) {}
+    // Required by the convos-shared ConversationNavigator protocol, so it cannot be
+    // dropped here. Now a no-op since the reveal-media feature was removed.
     func present(revealMediaInfo: RevealMediaInfoNavigatorArgs) {}
     func present(photosInfo: PhotosInfoNavigatorArgs) {}
     func present(assistantConfirmation: AssistantConfirmationNavigatorArgs) {}
