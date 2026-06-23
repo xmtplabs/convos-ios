@@ -8,12 +8,9 @@ struct ReplyReferenceView: View {
     let replySender: ConversationMember
     let parentMessage: Message
     let isOutgoing: Bool
-    let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var parentAudioTranscriptText: String?
 
     private var previewText: String {
@@ -211,8 +208,7 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: true,
-        shouldBlurPhotos: false
+        isOutgoing: true
     )
     .padding()
 }
@@ -227,8 +223,7 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: false,
-        shouldBlurPhotos: false
+        isOutgoing: false
     )
     .padding()
 }
@@ -243,8 +238,7 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: true,
-        shouldBlurPhotos: false
+        isOutgoing: true
     )
     .padding()
 }
@@ -259,8 +253,7 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: true,
-        shouldBlurPhotos: false
+        isOutgoing: true
     )
     .padding()
 }

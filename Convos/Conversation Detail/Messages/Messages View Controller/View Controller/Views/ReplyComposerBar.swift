@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ReplyComposerBar: View {
     let message: AnyMessage
-    let shouldBlurPhotos: Bool
     var audioTranscriptText: String?
     let onDismiss: () -> Void
 
@@ -348,7 +347,6 @@ private struct ReplyAgentShareThumbnail: View {
                 sender: .mock(isCurrentUser: false, name: "Louis"),
                 status: .published
             ), .existing),
-            shouldBlurPhotos: false,
             onDismiss: {}
         )
     }
@@ -363,7 +361,6 @@ private struct ReplyAgentShareThumbnail: View {
                 sender: .mock(isCurrentUser: false, name: "Shane"),
                 status: .published
             ), .existing),
-            shouldBlurPhotos: false,
             onDismiss: {}
         )
     }
@@ -378,7 +375,6 @@ private struct ReplyAgentShareThumbnail: View {
                 sender: .mock(isCurrentUser: false, name: "Louis"),
                 status: .published
             ), .existing),
-            shouldBlurPhotos: false,
             onDismiss: {}
         )
     }

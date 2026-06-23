@@ -5,7 +5,6 @@ import SwiftUI
 struct MessagesGroupView: View {
     let group: MessagesGroup
     let conversationId: String
-    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     /// Fires when the sender label or an avatar that has no concrete message
     /// to attach (e.g. the synthesized agent contact-card group) is
@@ -20,8 +19,6 @@ struct MessagesGroupView: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -392,12 +389,9 @@ struct MessagesGroupView: View {
                     message: message,
                     conversationId: conversationId,
                     bubbleType: bubbleType,
-                    shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: onTapAvatar,
                     onTapInvite: onTapInvite,
                     onReply: onReply,
-                    onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
                     htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
@@ -1159,15 +1153,12 @@ private struct ThoughtBubbleAppearance<Content: View>: View {
                 MessagesGroupView(
                     group: group,
                     conversationId: "preview-conversation",
-                    shouldBlurPhotos: true,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
                     onReaction: { _, _ in },
                     onToggleReaction: { _, _ in },
                     onReply: { _ in },
-                    onPhotoRevealed: { _ in },
-                    onPhotoHidden: { _ in },
                     onPhotoDimensionsLoaded: { _, _, _ in }
                 )
             }

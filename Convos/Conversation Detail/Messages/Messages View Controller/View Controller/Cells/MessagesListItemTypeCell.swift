@@ -186,7 +186,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         MessagesGroupView(
             group: group,
             conversationId: config.conversationId,
-            shouldBlurPhotos: config.shouldBlurPhotos,
             onTapAvatar: config.onTapAvatar,
             onTapSender: config.onTapSender,
             onTapInvite: config.onTapInvite,
@@ -196,8 +195,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onReaction: config.onReaction,
             onToggleReaction: config.onToggleReaction,
             onReply: config.onReply,
-            onPhotoRevealed: config.onPhotoRevealed,
-            onPhotoHidden: config.onPhotoHidden,
             onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
             onOpenFile: config.onOpenFile,
             onRetryMessage: config.onRetryMessage,

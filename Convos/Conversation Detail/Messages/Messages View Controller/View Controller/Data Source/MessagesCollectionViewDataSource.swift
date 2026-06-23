@@ -14,7 +14,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     }
 
     var conversationId: String = ""
-    var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
@@ -27,8 +26,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState?
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var creditsDepleted: Bool = false
@@ -88,7 +85,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
         let item = sections[indexPath.section].cells[indexPath.item]
         let config = CellConfig(
             conversationId: conversationId,
-            shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
@@ -123,14 +119,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onReply?(message)
             },
             contextMenuState: contextMenuState ?? .init(),
-            onPhotoRevealed: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoRevealed?(attachmentData)
-            },
-            onPhotoHidden: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoHidden?(attachmentData)
-            },
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },

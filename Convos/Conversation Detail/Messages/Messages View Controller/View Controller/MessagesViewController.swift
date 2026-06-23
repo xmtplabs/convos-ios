@@ -399,8 +399,6 @@ final class MessagesViewController: UIViewController {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
 
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     /// Drives the in-stream out-of-credits cell. Set from
@@ -448,13 +446,6 @@ final class MessagesViewController: UIViewController {
 
     var isAgentJoinPending: Bool = false {
         didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
-    }
-    var shouldBlurPhotos: Bool = true {
-        didSet {
-            guard oldValue != shouldBlurPhotos else { return }
-            dataSource.shouldBlurPhotos = shouldBlurPhotos
-            collectionView.reloadData()
-        }
     }
 
     private var currentReactionMessageId: String?
@@ -656,12 +647,6 @@ final class MessagesViewController: UIViewController {
         dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
             self.onReply?(message)
-        }
-        dataSource.onPhotoRevealed = { [weak self] attachmentKey in
-            self?.onPhotoRevealed?(attachmentKey)
-        }
-        dataSource.onPhotoHidden = { [weak self] attachmentKey in
-            self?.onPhotoHidden?(attachmentKey)
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)

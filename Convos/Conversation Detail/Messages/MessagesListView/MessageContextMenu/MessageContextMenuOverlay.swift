@@ -5,13 +5,10 @@ import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
-    let shouldBlurPhotos: Bool
     var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
 
     @State private var appeared: Bool = false
     @State private var emojiAppeared: [Bool] = []

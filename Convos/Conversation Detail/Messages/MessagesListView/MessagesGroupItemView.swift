@@ -8,12 +8,9 @@ struct MessagesGroupItemView: View {
     let message: AnyMessage
     let conversationId: String
     let bubbleType: MessageBubbleType
-    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReply: (AnyMessage) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     /// Namespace owned by `MessagesView` and threaded down via the cell
@@ -64,12 +61,9 @@ struct MessagesGroupItemView: View {
                     replySender: reply.sender,
                     parentMessage: reply.parentMessage,
                     isOutgoing: message.sender.isCurrentUser,
-                    shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
                     onOpenFile: onOpenFile,
-                    onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden,
                     parentAudioTranscriptText: parentAudioTranscriptText
                 )
                 .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
@@ -1233,12 +1227,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .normal,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1254,12 +1245,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1275,12 +1263,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .normal,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1296,12 +1281,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1318,12 +1300,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1340,12 +1319,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1372,12 +1348,9 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1393,12 +1366,9 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1414,12 +1384,9 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: true,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
