@@ -61,7 +61,7 @@ struct AddToConversationMenu: View {
             .disabled(isAgentActionDisabled)
             .accessibilityIdentifier("context-menu-add-agent")
         } label: {
-            Image(systemName: "person.2.fill")
+            Image(systemName: "person.crop.circle.badge.plus")
                 .foregroundStyle(labelColor)
         }
         .disabled(!isEnabled)
