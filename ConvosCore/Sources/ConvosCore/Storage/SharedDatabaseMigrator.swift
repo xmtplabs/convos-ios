@@ -202,14 +202,37 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 
         Self.registerRemovedStateMigrations(on: &migrator)
-
-        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
-
-        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
-
+        Self.registerConnectionGrantMigrations(on: &migrator)
         Self.registerJoinAndGenerationMigrations(on: &migrator)
+        Self.registerCleanupMigrations(on: &migrator)
 
         return migrator
+    }
+
+    private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
+        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
+    }
+
+    private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
+    }
+
+    /// Drops the reveal-mode columns now that incoming media always renders
+    /// unblurred. Plain `DROP COLUMN` is sufficient: none of these columns
+    /// carry indexes, views, triggers, or constraints. Extracted as an
+    /// internal static helper so the migration test can exercise the real
+    /// upgrade path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func dropRevealColumns(_ db: Database) throws {
+        try db.alter(table: "photoPreferences") { t in
+            t.drop(column: "autoReveal")
+            t.drop(column: "hasRevealedFirst")
+        }
+        try db.alter(table: "attachmentLocalState") { t in
+            t.drop(column: "isRevealed")
+            t.drop(column: "revealedAt")
+            t.drop(column: "isHiddenByOwner")
+        }
     }
 
     /// In-progress preview identity + narration columns on the direct-builder

@@ -56,11 +56,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 let updated = AttachmentLocalState(
                     attachmentKey: existing.attachmentKey,
                     conversationId: existing.conversationId,
-                    isRevealed: existing.isRevealed,
-                    revealedAt: existing.revealedAt,
                     width: width,
                     height: height,
-                    isHiddenByOwner: existing.isHiddenByOwner,
                     mimeType: mimeType ?? existing.mimeType
                 )
                 try updated.update(db)
@@ -68,11 +65,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 let record = AttachmentLocalState(
                     attachmentKey: attachmentKey,
                     conversationId: conversationId,
-                    isRevealed: false,
-                    revealedAt: nil,
                     width: width,
                     height: height,
-                    isHiddenByOwner: false,
                     mimeType: mimeType
                 )
                 try record.insert(db)
@@ -92,11 +86,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
             let migrated = AttachmentLocalState(
                 attachmentKey: newKey,
                 conversationId: existing.conversationId,
-                isRevealed: existing.isRevealed,
-                revealedAt: existing.revealedAt,
                 width: existing.width,
                 height: existing.height,
-                isHiddenByOwner: existing.isHiddenByOwner,
                 mimeType: existing.mimeType,
                 waveformLevels: existing.waveformLevels,
                 duration: existing.duration
