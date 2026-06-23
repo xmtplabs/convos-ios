@@ -387,7 +387,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextTertiary)
+                        .foregroundStyle(Color.colorTextPrimary)
                         .frame(width: 32, height: 32)
                         .contentShape(.circle)
                 }
