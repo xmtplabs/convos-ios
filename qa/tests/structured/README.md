@@ -209,7 +209,7 @@ had their YAMLs corrected to match actual UI behavior.
 | 14 | ✅ | Profile not auto-applied; needs banner tap; name changes retroactive |
 | 07 | ✅ | Profile edit via quick-edit; group_updated messages sent to participants |
 | 08 | ✅ | Lock/unlock at XMTP level; lock icon in toolbar; no info page indicator |
-| 20 | ❌ | BUG: sender sees "Failed to load" for own sent photo; receive/reveal works |
+| 20 | ❌ | BUG: sender sees "Failed to load" for own sent photo; receive renders unblurred |
 | 23 | ✅ | Pending shows "verifying" with draft-UUID id; restricted actions; filter works |
 | 19 | ✅ | Profile photo via quick-edit; group photo via Edit info; both display in list |
 | 24 | ✅ | Navigate away safe; discovery sync detects recovery within 10s; fully functional |

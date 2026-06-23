@@ -1375,21 +1375,4 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
     .padding()
 }
 
-#Preview("Single Attachment - Incoming Blurred") {
-    MessagesGroupItemView(
-        message: .message(Message.mockWithAttachment(
-            url: URL(string: "https://picsum.photos/400/300")!,
-            sender: .mock(isCurrentUser: false),
-            status: .published
-        ), .existing),
-        conversationId: "preview-conversation",
-        bubbleType: .tailed,
-        onTapAvatar: { _ in },
-        onTapInvite: { _ in },
-        onReply: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in },
-        onToggleReaction: { _, _ in }
-    )
-    .padding()
-}
 // swiftlint:enable force_unwrapping

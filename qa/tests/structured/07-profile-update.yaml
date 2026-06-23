@@ -38,8 +38,7 @@ steps:
       Conversation info page shows: large avatar, conversation name,
       "Edit info" button (id="edit-info-button", label="Edit conversation info"),
       "2 members" row with disclosure arrow, "Convo code" with share button,
-      Personal preferences section (Notifications toggle, Reveal mode toggle,
-      Peek-a-boo "Soon").
+      Personal preferences section (Notifications toggle, Peek-a-boo "Soon").
 
   - id: edit_display_name
     name: "Edit display name via quick-edit"

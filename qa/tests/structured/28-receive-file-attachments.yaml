@@ -191,8 +191,7 @@ steps:
     criteria: file_context_menu_correct
     note: >
       File context menu should show Reply, Save to Files, and Share. It should
-      NOT show Blur/Reveal (files don't have visual content to blur) or Save
-      (which is for saving images to Photos).
+      not show the image-only "Save" action (which saves images to Photos).
 
   - id: dismiss_context_menu
     name: "Dismiss context menu"
@@ -266,7 +265,7 @@ steps:
     criteria: photos_still_render_correctly
     note: >
       This is a regression check. Photos should continue to render as
-      full-width images with blur/reveal treatment, not as file bubbles.
+      full-width images, not as file bubbles.
 
 teardown:
   - action: explode_conversation

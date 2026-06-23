@@ -238,11 +238,11 @@ steps:
           note: >
             convos conversation send-attachment $id /tmp/convos-qa-photo.jpg \
               --remote --env dev
-      - wait_for_element: { label_contains: "Tap to reveal", timeout: 30 }
+      - wait_for_element: { label_contains: "Photo message", timeout: 30 }
         note: >
-          Incoming photos render blurred with a "Tap to reveal" label
-          (MessagesGroupItemView builds "Tap to reveal"). This locates the
-          photo bubble without revealing it.
+          Incoming photos render immediately as full-width images, unblurred.
+          MessagesGroupItemView sets the "Photo message" accessibility label
+          on the photo bubble. This locates the photo bubble.
       - screenshot: {}
     verify:
       - visual_check: >
