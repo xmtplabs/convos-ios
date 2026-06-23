@@ -50,7 +50,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
     let onUserInteraction: () -> Void
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
@@ -211,7 +210,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     focusCoordinator: focusCoordinator,
                     onboardingCoordinator: onboardingCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
                     onSendMessage: {
                         scrollToBottom?()
                         onSendMessage()

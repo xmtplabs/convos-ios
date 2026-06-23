@@ -239,10 +239,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
             },
-            onProfilePhotoTap: {
-                onboardingCoordinator.didTapProfilePhoto()
-                viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-            },
             onSendMessage: {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
