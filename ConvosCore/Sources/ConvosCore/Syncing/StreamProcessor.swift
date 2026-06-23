@@ -494,12 +494,9 @@ actor StreamProcessor: StreamProcessorProtocol {
                     avatar: nil
                 )
 
-                // Don't let a name-less or blank ProfileUpdate (e.g. the startup
-                // update an agent publishes) clear a name we already have - it
-                // would render the member as "Somebody". A real incoming name
-                // still wins; a member we have no name for is unaffected.
-                let incomingName: String? = update.hasName ? update.name : nil
-                profile = profile.with(name: (incomingName?.isEmpty == false) ? incomingName : profile.name)
+                // Never clear an existing name with a name-less/blank update
+                // (see DBMemberProfile.withInboundName).
+                profile = profile.withInboundName(update.hasName ? update.name : nil)
 
                 if update.hasEncryptedImage, update.encryptedImage.isValid {
                     let encryptionKey: Data? = if let existingKey = profile.avatarKey {

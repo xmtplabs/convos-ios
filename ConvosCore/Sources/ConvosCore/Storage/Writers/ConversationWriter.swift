@@ -1135,11 +1135,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Never clear an existing name with a name-less/blank update. This is
         // the catch-up/history apply path (cold launch, reconnect, conversation
-        // open, backfill); reprocessing a name-less ProfileUpdate here would
-        // otherwise wipe a populated name and render the member as "Somebody".
-        // A real incoming name still wins; a member we have no name for is
-        // unaffected. Mirrors the guards in StreamProcessor / the NSE handler.
-        profile = profile.with(name: (name?.isEmpty == false) ? name : profile.name)
+        // open, backfill) (see DBMemberProfile.withInboundName).
+        profile = profile.withInboundName(name)
 
         if let image = encryptedImage, image.isValid {
             profile = profile.with(

@@ -116,3 +116,46 @@ struct DBMemberProfileWithHelpersTests {
         #expect(updated.metadata == Self.baseMetadata)
     }
 }
+
+/// Pins the never-clear invariant shared by every inbound apply path (stream,
+/// NSE push, catch-up/history): a name-less or blank `ProfileUpdate` must never
+/// wipe a name we already have, which would render the member as "Somebody".
+/// All three paths funnel through `DBMemberProfile.withInboundName`, so this is
+/// the single place the invariant is tested.
+@Suite("DBMemberProfile.withInboundName never clears an existing name")
+struct DBMemberProfileInboundNameTests {
+    private static func profile(name: String?) -> DBMemberProfile {
+        DBMemberProfile(conversationId: "convo-1", inboxId: "inbox-1", name: name, avatar: nil)
+    }
+
+    @Test("a real incoming name wins")
+    func realNameWins() {
+        #expect(Self.profile(name: "Bob").withInboundName("Robert").name == "Robert")
+    }
+
+    @Test("a nil incoming name preserves the existing name")
+    func nilPreservesExisting() {
+        #expect(Self.profile(name: "Bob").withInboundName(nil).name == "Bob")
+    }
+
+    @Test("an empty incoming name preserves the existing name")
+    func emptyPreservesExisting() {
+        #expect(Self.profile(name: "Bob").withInboundName("").name == "Bob")
+    }
+
+    @Test("a whitespace-only incoming name preserves the existing name")
+    func whitespacePreservesExisting() {
+        #expect(Self.profile(name: "Bob").withInboundName("   ").name == "Bob")
+    }
+
+    @Test("a real name is set when none existed")
+    func firstNameIsSet() {
+        #expect(Self.profile(name: nil).withInboundName("Bob").name == "Bob")
+    }
+
+    @Test("a blank incoming name with no existing name stays nil")
+    func blankWithNoExistingStaysNil() {
+        #expect(Self.profile(name: nil).withInboundName(nil).name == nil)
+        #expect(Self.profile(name: nil).withInboundName("").name == nil)
+    }
+}
