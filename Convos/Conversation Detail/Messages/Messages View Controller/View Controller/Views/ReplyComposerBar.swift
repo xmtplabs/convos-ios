@@ -72,14 +72,6 @@ struct ReplyComposerBar: View {
         attachment != nil || agentShare != nil
     }
 
-    private var shouldBlurAttachment: Bool {
-        guard let attachment else { return false }
-        if message.sender.isCurrentUser {
-            return attachment.isHiddenByOwner
-        }
-        return shouldBlurPhotos && !attachment.isRevealed
-    }
-
     private var isVideo: Bool {
         attachment?.mediaType == .video
     }
@@ -119,7 +111,6 @@ struct ReplyComposerBar: View {
                 ReplyPhotoThumbnail(
                     attachmentKey: attachment.key,
                     thumbnailData: attachment.thumbnailData,
-                    shouldBlur: shouldBlurAttachment,
                     isVideo: isVideo
                 )
             } else if agentShare != nil {
@@ -255,7 +246,6 @@ private struct ReplyHTMLThumbnail: View {
 private struct ReplyPhotoThumbnail: View {
     let attachmentKey: String
     let thumbnailData: Data?
-    let shouldBlur: Bool
     var isVideo: Bool = false
 
     @State private var loadedImage: UIImage?
@@ -263,10 +253,9 @@ private struct ReplyPhotoThumbnail: View {
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let thumbnailSize: CGFloat = 40.0
 
-    init(attachmentKey: String, thumbnailData: Data?, shouldBlur: Bool, isVideo: Bool = false) {
+    init(attachmentKey: String, thumbnailData: Data?, isVideo: Bool = false) {
         self.attachmentKey = attachmentKey
         self.thumbnailData = thumbnailData
-        self.shouldBlur = shouldBlur
         self.isVideo = isVideo
 
         if isVideo, let thumbnailData, let thumb = UIImage(data: thumbnailData) {
@@ -283,11 +272,9 @@ private struct ReplyPhotoThumbnail: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
-                    .blur(radius: shouldBlur ? 8 : 0)
-                    .opacity(shouldBlur ? 0.5 : 1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 8.0))
                     .overlay {
-                        if isVideo, !shouldBlur {
+                        if isVideo {
                             Image(systemName: "play.fill")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.white)

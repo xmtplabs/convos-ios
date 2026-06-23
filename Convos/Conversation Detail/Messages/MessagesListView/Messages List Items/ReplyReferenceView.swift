@@ -89,13 +89,6 @@ struct ReplyReferenceView: View {
         return nil
     }
 
-    private var shouldBlurAttachment: Bool {
-        guard let parentAttachment else { return false }
-        if parentAttachment.isHiddenByOwner { return true }
-        if parentMessage.sender.isCurrentUser { return false }
-        return shouldBlurPhotos && !parentAttachment.isRevealed
-    }
-
     var body: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: DesignConstants.Spacing.stepX) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
@@ -141,10 +134,7 @@ struct ReplyReferenceView: View {
                     attachmentKey: attachment.key,
                     isVideo: attachment.mediaType == .video,
                     thumbnailData: attachment.thumbnailData,
-                    parentMessage: parentMessage,
-                    shouldBlur: shouldBlurAttachment,
-                    onReveal: { onPhotoRevealed?(attachment.key) },
-                    onHide: { onPhotoHidden?(attachment.key) }
+                    parentMessage: parentMessage
                 )
             } else if let emoji = parentEmoji {
                 Text(emoji)
@@ -282,9 +272,6 @@ private struct ReplyReferencePhotoPreview: View {
     let isVideo: Bool
     let thumbnailData: Data?
     let parentMessage: Message
-    let shouldBlur: Bool
-    let onReveal: () -> Void
-    let onHide: () -> Void
 
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
     @State private var loadedImage: UIImage?
@@ -296,18 +283,12 @@ private struct ReplyReferencePhotoPreview: View {
         attachmentKey: String,
         isVideo: Bool = false,
         thumbnailData: Data? = nil,
-        parentMessage: Message,
-        shouldBlur: Bool,
-        onReveal: @escaping () -> Void,
-        onHide: @escaping () -> Void
+        parentMessage: Message
     ) {
         self.attachmentKey = attachmentKey
         self.isVideo = isVideo
         self.thumbnailData = thumbnailData
         self.parentMessage = parentMessage
-        self.shouldBlur = shouldBlur
-        self.onReveal = onReveal
-        self.onHide = onHide
 
         if isVideo, let thumbnailData {
             if let thumb = UIImage(data: thumbnailData) {
@@ -332,22 +313,16 @@ private struct ReplyReferencePhotoPreview: View {
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(maxHeight: Self.maxHeight)
-            .scaleEffect(shouldBlur ? 1.65 : 1.0)
-            .blur(radius: shouldBlur ? 96 : 0)
-            .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
             .overlay { videoPlayOverlay }
             .opacity(isSourceForContextMenu ? 0 : 1.0)
             .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
             .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
-            .onTapGesture {
-                if shouldBlur { onReveal() }
-            }
             .overlay { longPressOverlay }
     }
 
     @ViewBuilder
     private var videoPlayOverlay: some View {
-        if isVideo, !shouldBlur {
+        if isVideo {
             Image(systemName: "play.fill")
                 .font(.system(size: 20))
                 .foregroundStyle(.white)
