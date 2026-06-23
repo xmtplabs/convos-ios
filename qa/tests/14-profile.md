@@ -56,8 +56,8 @@ This is the new behavior introduced with the global profile model. Existing conv
 
 ### Part 5: Per-conversation override is preserved (regression check)
 
-26. From "Profile Test A", open the conversation info view.
-27. Tap the user's own avatar/profile area to enter the per-conversation editor and change ONLY the per-conversation display name to "A-only Name". Save.
+26. From "Profile Test A", open the conversation info view, then open the members list.
+27. Tap your own member row to open the My Info sheet (the per-conversation editor) and change ONLY the per-conversation display name to "A-only Name". Save. (The in-composer avatar button was removed in the composer redesign; once a profile is set, re-editing lives behind your own member row.)
 28. Verify the composer in "Profile Test A" now shows "Chat as A-only Name".
 29. Open App Settings → My Info and confirm the global is **still** "Updated QA Name" — the per-conversation edit must not have overwritten the global.
 30. Open "Profile Test B" and verify it still shows "Chat as Updated QA Name" — the per-conversation edit must not have leaked to other conversations.
