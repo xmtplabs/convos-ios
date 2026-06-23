@@ -236,19 +236,9 @@ public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryPro
 // MARK: - Mock Photo Preferences Writer
 
 public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
-    public var autoRevealValues: [String: Bool] = [:]
-    public var hasRevealedFirstValues: [String: Bool] = [:]
     public var sendReadReceiptsValues: [String: Bool?] = [:]
 
     public init() {}
-
-    public func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws {
-        autoRevealValues[conversationId] = autoReveal
-    }
-
-    public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
-        hasRevealedFirstValues[conversationId] = hasRevealedFirst
-    }
 
     public func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws {
         sendReadReceiptsValues[conversationId] = sendReadReceipts
@@ -324,19 +314,9 @@ public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServ
 // MARK: - Mock Attachment Local State Writer
 
 public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {
-    public var revealedAttachments: [String: String] = [:]
-    public var hiddenKeys: Set<String> = []
+    public var migratedKeys: [String: String] = [:]
 
     public init() {}
-
-    public func markRevealed(attachmentKey: String, conversationId: String) async throws {
-        revealedAttachments[attachmentKey] = conversationId
-    }
-
-    public func markHidden(attachmentKey: String, conversationId: String) async throws {
-        hiddenKeys.insert(attachmentKey)
-        revealedAttachments.removeValue(forKey: attachmentKey)
-    }
 
     public func saveWithDimensions(
         attachmentKey: String,
@@ -354,9 +334,7 @@ public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterPro
     ) async throws {}
 
     public func migrateKey(from oldKey: String, to newKey: String) async throws {
-        if let conversationId = revealedAttachments.removeValue(forKey: oldKey) {
-            revealedAttachments[newKey] = conversationId
-        }
+        migratedKeys[oldKey] = newKey
     }
 
     public func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws {

@@ -37,13 +37,13 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 17 | `qa/tests/17-swipe-actions.md` | Mark read/unread via swipe and context menu |
 | 18 | `qa/tests/18-delete-all-data.md` | Delete all data flow, confirmation, progress, completion |
 | 19 | `qa/tests/19-profile-photo.md` | Profile photo, group photo, sync to other participants |
-| 20 | `qa/tests/20-send-receive-photos.md` | Send photos from app, receive from CLI, blur/reveal, context menu |
+| 20 | `qa/tests/20-send-receive-photos.md` | Send photos from app, receive from CLI, context menu |
 | 21 | `qa/tests/21-message-gestures.md` | All message gestures: double-tap, swipe reply, long-press menu, link tap, avatar tap |
 | 22 | `qa/tests/22-rejoin-existing-conversation.md` | Rejoin existing conversation via deep link or paste in scanner |
 | 23 | `qa/tests/23-pending-invites-home-view.md` | Pending invites appear in home view, filter, swipe/context restrictions, approval transition |
 | 25 | `qa/tests/25-conversations-list-baseline.md` | Conversations list baseline for UICollectionView migration - captures all UI states and interactions |
 | 26 | `qa/tests/26-failed-message-send.md` | Failed message send: "Not Delivered" state, retry, and delete |
-| 27 | `qa/tests/27-send-receive-video.md` | Send and receive video messages, inline playback, blur/reveal, context menu, size limit |
+| 27 | `qa/tests/27-send-receive-video.md` | Send and receive video messages, inline playback, context menu, size limit |
 | 28 | `qa/tests/28-receive-file-attachments.md` | Receive file attachments (PDF, text, CSV, JSON), file bubble display, QuickLook preview, Save to Files |
 | 28b | `qa/tests/28-app-icon-badge-count.md` | App icon badge count for unread conversations |
 | 29 | `qa/tests/29-typing-indicators.md` | Typing indicators: receive, dismiss, message-arrival clearing, grouping, expiry |
@@ -81,8 +81,8 @@ Recommended order:
 14. **11-mute-conversation** — tests muting
 15. **16-conversation-filters** — tests unread filter (needs conversations with mixed read states)
 16. **17-swipe-actions** — tests mark read/unread swipe actions
-17. **20-send-receive-photos** — tests photo send/receive, blur/reveal, context menu
-18. **27-send-receive-video** — tests video send/receive, inline playback, blur/reveal
+17. **20-send-receive-photos** — tests photo send/receive, context menu
+18. **27-send-receive-video** — tests video send/receive, inline playback
 19. **28-receive-file-attachments** — tests receiving file attachments from CLI, file bubble UI, QuickLook
 19. **19-profile-photo** — tests profile and group photos
 20. **15-performance** — performance baselines (run last, non-destructive)

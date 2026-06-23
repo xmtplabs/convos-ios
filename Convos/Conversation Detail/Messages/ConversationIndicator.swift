@@ -11,8 +11,6 @@ struct ConversationIndicator<InfoView: View>: View {
     @Binding var conversationName: String
     @Binding var conversationImage: UIImage?
     @Binding var presentingConversationSettings: Bool
-    @Binding var activeToast: IndicatorToastStyle?
-    @Binding var autoRevealPhotos: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator?
     let showsExplodeNowButton: Bool
@@ -25,24 +23,13 @@ struct ConversationIndicator<InfoView: View>: View {
     @ViewBuilder let infoView: () -> InfoView
 
     @State private var isExpanded: Bool = false
-    @State private var showingToast: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
 
     var body: some View {
         GlassEffectContainer {
             ZStack {
-                if showingToast, let toast = activeToast {
-                    IndicatorToast(
-                        style: toast,
-                        isAutoReveal: $autoRevealPhotos,
-                        onDismiss: dismissToast
-                    )
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.9).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                } else if !isExpanded {
+                if !isExpanded {
                     ConversationToolbarButton(
                         conversation: conversation,
                         conversationImage: $conversationImage,
@@ -102,16 +89,8 @@ struct ConversationIndicator<InfoView: View>: View {
                     )
                 )
         }
-        .onChange(of: activeToast) { _, newValue in
-            if newValue != nil {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    isExpanded = false
-                    showingToast = true
-                }
-            }
-        }
         .onChange(of: focusCoordinator?.currentFocus) { _, newValue in
-            guard !isImagePickerPresented, !showingToast else { return }
+            guard !isImagePickerPresented else { return }
 
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .conversationName ? true : false
@@ -124,13 +103,6 @@ struct ConversationIndicator<InfoView: View>: View {
             }
         }
     }
-
-    private func dismissToast() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            showingToast = false
-            activeToast = nil
-        }
-    }
 }
 
 #Preview {
@@ -138,8 +110,6 @@ struct ConversationIndicator<InfoView: View>: View {
     @Previewable @State var conversationImage: UIImage?
     @Previewable @State var focusCoordinator: FocusCoordinator? = FocusCoordinator(horizontalSizeClass: nil)
     @Previewable @State var presentingConversationSettings: Bool = false
-    @Previewable @State var activeToast: IndicatorToastStyle?
-    @Previewable @State var autoRevealPhotos: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
     let conversation: Conversation = .mock()
@@ -155,8 +125,6 @@ struct ConversationIndicator<InfoView: View>: View {
             conversationName: $conversationName,
             conversationImage: $conversationImage,
             presentingConversationSettings: $presentingConversationSettings,
-            activeToast: $activeToast,
-            autoRevealPhotos: $autoRevealPhotos,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: true,
@@ -176,9 +144,5 @@ struct ConversationIndicator<InfoView: View>: View {
                 EmptyView()
             }
         )
-
-        Button("Show Toast") {
-            activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
-        }
     }
 }

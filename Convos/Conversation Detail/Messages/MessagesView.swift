@@ -72,9 +72,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
-    let shouldBlurPhotos: Bool
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
@@ -126,7 +123,6 @@ struct MessagesView<BottomBarContent: View>: View {
             invite: invite,
             onUserInteraction: onUserInteraction,
             hasLoadedAllMessages: hasLoadedAllMessages,
-            shouldBlurPhotos: shouldBlurPhotos,
             focusCoordinator: focusCoordinator,
             onTapAvatar: onTapAvatar,
             onLoadPreviousMessages: onLoadPreviousMessages,
@@ -141,8 +137,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapThinkingIndicator: onTapThinkingIndicator,
             onReply: onReply,
             contextMenuState: contextMenuState,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
             creditsDepleted: creditsDepleted,
@@ -244,7 +238,6 @@ struct MessagesView<BottomBarContent: View>: View {
                         if let replyingToMessage {
                             ReplyComposerBar(
                                 message: replyingToMessage,
-                                shouldBlurPhotos: shouldBlurPhotos,
                                 audioTranscriptText: replyingToAudioTranscriptText,
                                 onDismiss: onCancelReply
                             )
@@ -263,7 +256,6 @@ struct MessagesView<BottomBarContent: View>: View {
         .overlay {
             MessageContextMenuOverlay(
                 state: contextMenuState,
-                shouldBlurPhotos: shouldBlurPhotos,
                 isReadOnly: isReadOnly,
                 onReaction: onReaction,
                 onReply: { message in
@@ -271,9 +263,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 },
                 onCopy: { text in
                     UIPasteboard.general.string = text
-                },
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden
+                }
             )
             // The overlay renders in a separate tree from the message cells,
             // so it doesn't inherit the cell's resolver injection. Provide it

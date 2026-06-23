@@ -8,7 +8,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let invite: Invite
     let onUserInteraction: () -> Void
     let hasLoadedAllMessages: Bool
-    let shouldBlurPhotos: Bool
     let focusCoordinator: FocusCoordinator
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
@@ -23,8 +22,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
@@ -82,7 +79,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
-        Log.debug("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
@@ -103,15 +99,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapReadReceipts = onTapReadReceipts
         messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
-        messagesViewController.shouldBlurPhotos = shouldBlurPhotos
-        messagesViewController.onPhotoRevealed = { key in
-            Log.debug("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
-            self.onPhotoRevealed(key)
-        }
-        messagesViewController.onPhotoHidden = { key in
-            Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
-            self.onPhotoHidden(key)
-        }
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
@@ -172,7 +159,6 @@ let menuPresented = contextMenuState.isPresented
         invite: invite,
         onUserInteraction: {},
         hasLoadedAllMessages: false,
-        shouldBlurPhotos: true,
         focusCoordinator: FocusCoordinator(horizontalSizeClass: nil),
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},
@@ -184,8 +170,6 @@ let menuPresented = contextMenuState.isPresented
         onTapThinkingIndicator: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAgentOutOfCredits: {},
         creditsDepleted: false,

@@ -5,13 +5,10 @@ import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
-    let shouldBlurPhotos: Bool
     var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
 
     @State private var appeared: Bool = false
     @State private var emojiAppeared: [Bool] = []
@@ -21,7 +18,6 @@ struct MessageContextMenuOverlay: View {
     @State private var customEmoji: String?
     @State private var selectedEmoji: String?
     @State private var popScale: CGFloat = 1.0
-    @State private var blurOverride: Bool?
     @State private var dragOffset: CGFloat = 0
     @State private var isDragDismissing: Bool = false
     @State private var isPoofDismissing: Bool = false
@@ -76,14 +72,6 @@ struct MessageContextMenuOverlay: View {
             dayFormatter.dateFormat = "MMM d, yyyy"
             return "\(dayFormatter.string(from: date)) · \(timeString)"
         }
-    }
-
-    private var shouldBlurPhoto: Bool {
-        if let blurOverride { return blurOverride }
-        guard let photoAttachment, let message else { return false }
-        if photoAttachment.isHiddenByOwner { return true }
-        if message.sender.isCurrentUser { return false }
-        return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
     private var windowSafeTop: CGFloat { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0 }
@@ -510,28 +498,6 @@ struct MessageContextMenuOverlay: View {
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
-
-                    if attachment.supportsBlur {
-                        let isBlurred = shouldBlurPhoto
-                        let key = attachment.key
-                        let revealCallback = onPhotoRevealed
-                        let hideCallback = onPhotoHidden
-                        let toggleAction = {
-                            if isBlurred {
-                                blurOverride = false
-                                revealCallback(key)
-                            } else {
-                                blurOverride = true
-                                hideCallback(key)
-                            }
-                            dismissMenu(afterStateChange: true)
-                        }
-                        ContextMenuRow(
-                            icon: isBlurred ? "eye" : "eye.slash",
-                            title: isBlurred ? "Reveal" : "Blur",
-                            action: toggleAction
-                        )
-                    }
                 }
             }
             .padding(.vertical, 10)
@@ -583,7 +549,6 @@ struct MessageContextMenuOverlay: View {
         let delay: TimeInterval = afterStateChange ? 0.3 : (wasDragDismiss ? 0.28 : 0.2)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             state.dismiss()
-            blurOverride = nil
             isDragDismissing = false
             isPoofDismissing = false
         }
@@ -668,7 +633,6 @@ struct MessageContextMenuOverlay: View {
                 : (appeared ? C.photoCornerRadius : restingRadius)
             ContextMenuPhotoPreview(
                 attachmentKey: attachment.key,
-                shouldBlur: shouldBlurPhoto,
                 cornerRadius: previewRadius,
                 isVideo: attachment.mediaType == .video,
                 isReplyParent: state.isReplyParent
@@ -775,7 +739,6 @@ private extension MessageContextMenuOverlay {
 
 private struct ContextMenuPhotoPreview: View {
     let attachmentKey: String
-    let shouldBlur: Bool
     let cornerRadius: CGFloat
     let isVideo: Bool
     let isReplyParent: Bool
@@ -784,13 +747,11 @@ private struct ContextMenuPhotoPreview: View {
 
     init(
         attachmentKey: String,
-        shouldBlur: Bool,
         cornerRadius: CGFloat = DesignConstants.CornerRadius.photo,
         isVideo: Bool = false,
         isReplyParent: Bool = false
     ) {
         self.attachmentKey = attachmentKey
-        self.shouldBlur = shouldBlur
         self.cornerRadius = cornerRadius
         self.isVideo = isVideo
         self.isReplyParent = isReplyParent
@@ -802,10 +763,7 @@ private struct ContextMenuPhotoPreview: View {
             if let image = loadedImage {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: shouldBlur && !isReplyParent ? .fill : .fit)
-                    .scaleEffect(shouldBlur ? 1.65 : 1.0)
-                    .blur(radius: shouldBlur ? 96 : 0)
-                    .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                    .aspectRatio(contentMode: .fit)
                     .overlay {
                         if isVideo {
                             Image(systemName: "play.fill")

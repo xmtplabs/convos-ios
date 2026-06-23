@@ -8,12 +8,9 @@ struct MessagesGroupItemView: View {
     let message: AnyMessage
     let conversationId: String
     let bubbleType: MessageBubbleType
-    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReply: (AnyMessage) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     /// Namespace owned by `MessagesView` and threaded down via the cell
@@ -64,12 +61,9 @@ struct MessagesGroupItemView: View {
                     replySender: reply.sender,
                     parentMessage: reply.parentMessage,
                     isOutgoing: message.sender.isCurrentUser,
-                    shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
                     onOpenFile: onOpenFile,
-                    onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden,
                     parentAudioTranscriptText: parentAudioTranscriptText
                 )
                 .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
@@ -285,8 +279,6 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
-        let isBlurred = attachment.isHiddenByOwner || (!message.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
-
         if attachment.mediaType == .audio {
             let playAction: () -> Void = {
                 NotificationCenter.default.post(
@@ -364,10 +356,7 @@ struct MessagesGroupItemView: View {
                 message: message,
                 isOutgoing: message.sender.isCurrentUser,
                 profile: message.sender.profile,
-                shouldBlurPhotos: shouldBlurPhotos,
-                isBlurred: isBlurred,
                 reactions: message.reactions,
-                onPhotoRevealed: onPhotoRevealed,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onReply: onReply,
                 onToggleReaction: onToggleReaction,
@@ -402,10 +391,7 @@ private struct MediaAttachmentView: View {
     let message: AnyMessage
     let isOutgoing: Bool
     let profile: Profile
-    let shouldBlurPhotos: Bool
-    let isBlurred: Bool
     var reactions: [MessageReaction] = []
-    let onPhotoRevealed: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onReply: (AnyMessage) -> Void
     let onToggleReaction: (String, String) -> Void
@@ -417,7 +403,6 @@ private struct MediaAttachmentView: View {
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
     @State private var resolvedDuration: Double?
-    @State private var pendingPlayAfterReveal: Bool = false
     @State private var reactionsPeekVisible: Bool = false
     @State private var reactionsPeekTask: Task<Void, Never>?
     @State private var pendingPlayingDoubleTapReaction: Bool = false
@@ -438,12 +423,10 @@ private struct MediaAttachmentView: View {
             attachment: attachment,
             isOutgoing: isOutgoing,
             profile: profile,
-            shouldBlurPhotos: shouldBlurPhotos,
             cornerRadius: swipeCornerRadius,
             videoPlayTrigger: $videoPlayTrigger,
             isPlaying: $isPlaying,
             resolvedDuration: $resolvedDuration,
-            pendingPlayAfterReveal: $pendingPlayAfterReveal,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
@@ -464,7 +447,6 @@ private struct MediaAttachmentView: View {
         .overlay(alignment: .topTrailing) {
             if !isPlaying {
                 MediaContainerInfo(
-                    isBlurred: isBlurred,
                     isVideo: isVideo,
                     duration: resolvedDuration ?? attachment.duration
                 )
@@ -515,14 +497,7 @@ private struct MediaAttachmentView: View {
     }
 
     private var singleTapAction: (() -> Void)? {
-        if isBlurred {
-            return {
-                onPhotoRevealed(attachment.key)
-                if isVideo {
-                    pendingPlayAfterReveal = true
-                }
-            }
-        } else if isVideo {
+        if isVideo {
             return { videoPlayTrigger.toggle() }
         }
         return nil
@@ -651,12 +626,10 @@ private struct AttachmentPlaceholder: View {
     let attachment: HydratedAttachment
     let isOutgoing: Bool
     let profile: Profile
-    let shouldBlurPhotos: Bool
     var cornerRadius: CGFloat = 0
     @Binding var videoPlayTrigger: Bool
     @Binding var isPlaying: Bool
     @Binding var resolvedDuration: Double?
-    @Binding var pendingPlayAfterReveal: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @State private var loadedImage: UIImage?
@@ -666,24 +639,8 @@ private struct AttachmentPlaceholder: View {
     @State private var isLoadingVideo: Bool = false
     @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
-    @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
-
-    private var shouldBlur: Bool {
-        if attachment.isHiddenByOwner { return true }
-        if isOutgoing { return false }
-        return shouldBlurPhotos && !attachment.isRevealed
-    }
-
-    private var showBlurOverlay: Bool {
-        shouldBlur
-    }
-
-    private var blurRadius: CGFloat {
-        guard showBlurOverlay else { return 0 }
-        return isPressed ? 80 : 96
-    }
 
     private var placeholderAspectRatio: CGFloat {
         attachment.aspectRatio ?? (4.0 / 3.0)
@@ -699,9 +656,6 @@ private struct AttachmentPlaceholder: View {
             .accessibilityLabel(isVideo ? "Video message" : "Photo message")
             .onChange(of: videoPlayTrigger) {
                 handleVideoPlayTap()
-            }
-            .onChange(of: shouldBlur) {
-                handleBlurChange()
             }
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
                 handlePlaybackEnd(notification: notification)
@@ -731,8 +685,6 @@ private struct AttachmentPlaceholder: View {
     private func inlineVideoView(player: AVPlayer) -> some View {
         InlineVideoPlayerView(player: player)
             .background { videoThumbnailUnderlay }
-            .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-            .blur(radius: showBlurOverlay ? blurRadius : 0)
             .overlay(alignment: .top) {
                 if !isPlaying {
                     MediaTopGradient()
@@ -747,7 +699,6 @@ private struct AttachmentPlaceholder: View {
             .clipped()
             .compositingGroup()
             .modifier(MediaBoxLayout())
-            .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
     }
 
     // An AVPlayerLayer renders nothing until its first frame is decoded, so
@@ -775,16 +726,6 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .modifier(MediaBoxLayout())
-    }
-
-    private func handleBlurChange() {
-        if shouldBlur, isPlaying {
-            inlinePlayer?.pause()
-            isPlaying = false
-        } else if !shouldBlur, pendingPlayAfterReveal {
-            pendingPlayAfterReveal = false
-            handleVideoPlayTap()
-        }
     }
 
     private func handlePlaybackEnd(notification: Notification) {
@@ -817,11 +758,6 @@ private struct AttachmentPlaceholder: View {
 
     private func handleVideoPlayTap() {
         guard isVideo else { return }
-        if shouldBlur {
-            pendingPlayAfterReveal = true
-            return
-        }
-
         if let player = inlinePlayer {
             if isPlaying {
                 player.pause()
@@ -867,16 +803,12 @@ private struct AttachmentPlaceholder: View {
         Image(uiImage: image)
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-            .blur(radius: showBlurOverlay ? blurRadius : 0)
             .overlay(alignment: .top) {
                 MediaTopGradient()
             }
             .clipped()
             .compositingGroup()
             .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
-            .animation(.easeOut(duration: 0.15), value: isPressed)
     }
 
     private func loadAttachment() async {
@@ -1167,15 +1099,11 @@ private struct MediaContainerID: View {
 }
 
 private struct MediaContainerInfo: View {
-    let isBlurred: Bool
     let isVideo: Bool
     let duration: Double?
 
     private var text: String? {
         var parts: [String] = []
-        if isBlurred {
-            parts.append("Tap to reveal")
-        }
         if isVideo, let duration {
             parts.append(formatDuration(duration))
         }
@@ -1299,12 +1227,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .normal,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1320,12 +1245,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1341,12 +1263,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .normal,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1362,12 +1281,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1384,12 +1300,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1406,12 +1319,9 @@ private struct MediaTopGradient: View {
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1438,12 +1348,9 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
@@ -1459,36 +1366,13 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         ), .existing),
         conversationId: "preview-conversation",
         bubbleType: .tailed,
-        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onToggleReaction: { _, _ in }
     )
     .padding()
 }
 
-#Preview("Single Attachment - Incoming Blurred") {
-    MessagesGroupItemView(
-        message: .message(Message.mockWithAttachment(
-            url: URL(string: "https://picsum.photos/400/300")!,
-            sender: .mock(isCurrentUser: false),
-            status: .published
-        ), .existing),
-        conversationId: "preview-conversation",
-        bubbleType: .tailed,
-        shouldBlurPhotos: true,
-        onTapAvatar: { _ in },
-        onTapInvite: { _ in },
-        onReply: { _ in },
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in },
-        onToggleReaction: { _, _ in }
-    )
-    .padding()
-}
 // swiftlint:enable force_unwrapping

@@ -24,8 +24,6 @@ public enum MediaType: String, Codable, Sendable {
 
 public struct HydratedAttachment: Hashable, Codable, Sendable {
     public let key: String
-    public let isRevealed: Bool
-    public let isHiddenByOwner: Bool
     public let width: Int?
     public let height: Int?
     public let mimeType: String?
@@ -84,14 +82,6 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         return .file
     }
 
-    /// Whether this attachment renders as visual media that can be blurred and revealed.
-    /// Mirrors the routing in `MessagesGroupItemView`: voice memos, files, and HTML tiles
-    /// render in their own bubbles and never receive the blur overlay, so the reveal/blur
-    /// toggle must not be offered for them.
-    public var supportsBlur: Bool {
-        !isHTMLFile && mediaType != .audio && mediaType != .file
-    }
-
     public var aspectRatio: CGFloat? {
         guard let w = width, let h = height, h > 0 else { return nil }
         return CGFloat(w) / CGFloat(h)
@@ -104,8 +94,6 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
 
     public init(
         key: String,
-        isRevealed: Bool = false,
-        isHiddenByOwner: Bool = false,
         width: Int? = nil,
         height: Int? = nil,
         mimeType: String? = nil,
@@ -116,8 +104,6 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         waveformLevels: [Float]? = nil
     ) {
         self.key = key
-        self.isRevealed = isRevealed
-        self.isHiddenByOwner = isHiddenByOwner
         self.width = width
         self.height = height
         self.mimeType = mimeType

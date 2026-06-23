@@ -1135,8 +1135,6 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
 
     return HydratedAttachment(
         key: key,
-        isRevealed: localState?.isRevealed ?? false,
-        isHiddenByOwner: localState?.isHiddenByOwner ?? false,
         width: width,
         height: height,
         mimeType: mimeType,

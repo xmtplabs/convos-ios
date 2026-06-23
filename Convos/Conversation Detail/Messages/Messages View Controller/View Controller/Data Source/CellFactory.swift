@@ -5,7 +5,6 @@ import UIKit
 @MainActor
 struct CellConfig {
     let conversationId: String
-    let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
     /// Resolves whether the current user already joined the conversation an
     /// invite card points to, so it can show the member count instead of
@@ -30,8 +29,6 @@ struct CellConfig {
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
     let onRetryAgentJoin: () -> Void

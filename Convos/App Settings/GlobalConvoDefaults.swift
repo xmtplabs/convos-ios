@@ -5,19 +5,6 @@ import Observation
 final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 
-    var autoRevealPhotos: Bool {
-        get {
-            access(keyPath: \.autoRevealPhotos)
-            // Default true means photos are auto-revealed (Reveal Mode toggle is off).
-            return UserDefaults.standard.object(forKey: Constant.autoRevealPhotosKey) as? Bool ?? true
-        }
-        set {
-            withMutation(keyPath: \.autoRevealPhotos) {
-                UserDefaults.standard.set(newValue, forKey: Constant.autoRevealPhotosKey)
-            }
-        }
-    }
-
     var includeInfoWithInvites: Bool {
         get {
             access(keyPath: \.includeInfoWithInvites)
@@ -43,9 +30,8 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     }
 
     func reset() {
-        withMutation(keyPath: \.autoRevealPhotos) {
-            UserDefaults.standard.removeObject(forKey: Constant.autoRevealPhotosKey)
-        }
+        // Clear the orphaned reveal-mode default left by older installs.
+        UserDefaults.standard.removeObject(forKey: Constant.legacyAutoRevealPhotosKey)
         withMutation(keyPath: \.includeInfoWithInvites) {
             UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
         }
@@ -55,7 +41,7 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     }
 
     private enum Constant {
-        static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
+        static let legacyAutoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
         static let sendReadReceiptsKey: String = "globalSendReadReceipts"
     }

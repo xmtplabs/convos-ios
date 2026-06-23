@@ -6,7 +6,6 @@ struct MessagesListView: View {
     @Binding var messages: [MessagesListItemType]
     let invite: Invite
     let focusCoordinator: FocusCoordinator
-    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
@@ -15,8 +14,6 @@ struct MessagesListView: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
@@ -193,7 +190,6 @@ var body: some View {
         return MessagesGroupView(
             group: group,
             conversationId: conversation.id,
-            shouldBlurPhotos: shouldBlurPhotos,
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
@@ -202,8 +198,6 @@ var body: some View {
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onReply: onReply,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             allVoiceMemoTranscripts: allVoiceMemoTranscripts
         )
