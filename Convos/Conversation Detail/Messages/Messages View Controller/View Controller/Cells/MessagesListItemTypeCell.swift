@@ -202,7 +202,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onRetryTranscript: config.onRetryTranscript,
             allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
             htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
-            creditsDepleted: config.creditsDepleted
+            creditsDepleted: config.creditsDepleted,
+            memberContactOverride: config.memberContactOverride
         )
     }
 

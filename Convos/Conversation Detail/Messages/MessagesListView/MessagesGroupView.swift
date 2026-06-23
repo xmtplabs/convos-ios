@@ -34,6 +34,13 @@ struct MessagesGroupView: View {
     /// `bolt.fill` glyph next to an agent sender's display name when
     /// the global credit balance is depleted.
     var creditsDepleted: Bool = false
+    /// Resolves an inbox id to the local contact-name override so the sender
+    /// label matches the contact card and conversation title (contact name ->
+    /// per-conversation profile name -> "Somebody"). Without this the label
+    /// reads only the per-conversation profile and shows "Somebody" even when
+    /// a contact name exists. Defaults to no override for previews / the unused
+    /// SwiftUI list path.
+    var memberContactOverride: (String) -> Contact? = { _ in nil }
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
@@ -78,6 +85,13 @@ struct MessagesGroupView: View {
         DesignConstants.Spacing.step2x
     }
 
+    /// Sender name with the same precedence as the contact card and
+    /// conversation title: contact-name override, then per-conversation profile
+    /// name, then "Somebody" / "Agent".
+    private var senderDisplayName: String {
+        displayGroup.sender.displayName(memberNameOverride: { memberContactOverride($0)?.displayName })
+    }
+
     private var senderLabel: some View {
         senderLabelContent
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -94,7 +108,7 @@ struct MessagesGroupView: View {
         let tapAction = { onTapSender(displayGroup.sender) }
         return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(displayGroup.sender.profile.displayName)
+                Text(senderDisplayName)
                 if displayGroup.sender.isAgent && creditsDepleted {
                     Image(systemName: "bolt.fill")
                         .foregroundStyle(.colorLava)
@@ -115,7 +129,7 @@ struct MessagesGroupView: View {
                 y: 0.0
             )
             .id("profile-\(displayGroup.id)")
-            .accessibilityLabel("View \(displayGroup.sender.profile.displayName)'s profile")
+            .accessibilityLabel("View \(senderDisplayName)'s profile")
             .accessibilityAddTraits(.isButton)
     }
 
