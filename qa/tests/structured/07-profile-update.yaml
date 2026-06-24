@@ -45,7 +45,7 @@ steps:
     actions:
       - tap: { id: "close-info-button" }
       - wait_for_element: { id: "message-text-field", timeout: 5 }
-      - tap: { id: "profile-avatar-button" }
+      - tap: { id: "setup-profile-button" }
       - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
       - type_in_field: { id: "quick-edit-display-name-field", text: "Updated QA Name", clear_first: true }
       - tap: { id: "quick-edit-done-button" }
@@ -55,10 +55,14 @@ steps:
     criteria: name_can_be_edited
     note: >
       Profile editing is via the quick-edit inline UI, not the conversation
-      info page. Tap profile-avatar-button (label="Edit your profile") to
-      open quick-edit with quick-edit-display-name-field and
-      quick-edit-done-button. Name changes are retroactive on all messages
-      and the system "You joined as" message.
+      info page. The in-composer avatar button was removed; the surviving
+      entry point is setup-profile-button (label="Add your name and pic"),
+      surfaced under the composer by the onboarding flow while the
+      conversation profile is still unset. Tapping it opens quick-edit with
+      quick-edit-display-name-field and quick-edit-done-button. Name changes
+      are retroactive on all messages and the system "You joined as" message.
+      Once a profile is set, re-editing moves to the conversation members
+      list: tap your own member row to open the My Info profile sheet.
 
   - id: verify_name_in_app
     name: "Updated name appears on new messages"

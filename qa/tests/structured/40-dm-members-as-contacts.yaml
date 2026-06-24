@@ -60,8 +60,9 @@ steps:
       existing contacts; on a freshly erased device the list is empty). Tap
       contacts-picker-confirm (label "Skip") to reach the new-conversation/invite
       screen. It is optional because the picker only appears in compose mode. The
-      creator's profile is set on this screen via setup-profile-button (the joiner
-      uses profile-avatar-button instead - see device_b_join_and_name). A human
+      creator's profile is set on this screen via setup-profile-button; the joiner
+      uses the same setup-profile-button under the message composer (see
+      device_b_join_and_name). A human
       contact is only visible when it has a displayName (isVisibleInContactsList);
       Device A names itself "Alice" so Device B sees a named contact, not the
       hidden "Somebody" default.
@@ -95,7 +96,7 @@ steps:
       - tap: { label: "Open", optional: true }
       - wait_for_element: { id: "message-text-field", timeout: 60 }
       - wait_for_element: { label_contains: "2 members", timeout: 15 }
-      - tap: { id: "profile-avatar-button" }
+      - tap: { id: "setup-profile-button" }
       - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
       - type_in_field: { id: "quick-edit-display-name-field", text: "$device_b_name", clear_first: true }
       - press_return: { id: "quick-edit-display-name-field" }
@@ -106,9 +107,10 @@ steps:
       Open invite_deeplink (the convos-local:// form). If the open was routed
       through Safari, iOS shows an "Open in Convos?" prompt - tap Open (optional,
       only appears when Safari was foreground). The joiner sets its
-      per-conversation name from the message bar's profile-avatar-button ("Edit
-      your profile"), not setup-profile-button (which only exists on the
-      creator's new-conversation screen). The joined screen reads "You joined as
+      per-conversation name from setup-profile-button (label "Add your name and
+      pic"), which the onboarding flow surfaces under the message composer while
+      the conversation profile is still unset - the same control the creator
+      uses on the new-conversation screen. The joined screen reads "You joined as
       Somebody" until named. Device A auto-processes the join request. Device B
       names itself "Bob" so Device A sees a named, non-agent contact.
 

@@ -239,10 +239,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
             },
-            onProfilePhotoTap: {
-                onboardingCoordinator.didTapProfilePhoto()
-                viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-            },
             onSendMessage: {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
@@ -311,7 +307,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
-            onConvosAction: { viewModel.onConvosButtonTapped() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {

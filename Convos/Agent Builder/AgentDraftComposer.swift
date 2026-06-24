@@ -289,10 +289,8 @@ struct AgentDraftComposer: View {
                     focusState.wrappedValue = nil
                     isFilePickerPresented = true
                 },
-                onConvosAction: {},
                 isMediaCapacityFull: isMediaCapacityFull,
                 isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
-                showsSideConvoButton: false,
                 showsFileButton: false,
                 buttonSpacing: DesignConstants.Spacing.step4x,
                 onConnectionsTap: {

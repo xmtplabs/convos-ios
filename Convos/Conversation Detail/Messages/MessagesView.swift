@@ -50,7 +50,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
     let onUserInteraction: () -> Void
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
@@ -97,7 +96,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
@@ -212,7 +210,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     focusCoordinator: focusCoordinator,
                     onboardingCoordinator: onboardingCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
                     onSendMessage: {
                         scrollToBottom?()
                         onSendMessage()
@@ -228,7 +225,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     onVoiceMemoTap: onVoiceMemoTap,
                     voiceMemoRecorder: voiceMemoRecorder,
                     onSendVoiceMemo: onSendVoiceMemo,
-                    onConvosAction: onConvosAction,
                     onDebugAttachmentTap: onDebugAttachmentTap,
                     onBaseHeightChanged: { height in
                         bottomBarHeight = height

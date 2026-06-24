@@ -194,14 +194,25 @@ steps:
   - id: per_conv_override
     name: "Edit per-conversation name in A only"
     actions:
-      - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "A-only Name", clear_first: true }
-      - tap: { id: "quick-edit-done-button" }
+      - tap: { id: "conversation-toolbar-button" }
+      - tap: { label_contains: "members" }
+      - tap: { label_contains: "$updated_profile", note: "tap your own member row (the local user) to open the My Info sheet" }
+      - wait_for_element: { id: "profile-display-name-field", timeout: 10 }
+      - type_in_field: { id: "profile-display-name-field", text: "A-only Name", clear_first: true }
+      - press_return: { id: "profile-display-name-field" }
+      - tap: { id: "close-info-button", optional: true }
       - wait_for_element: { label_contains: "Chat as A-only Name", timeout: 10 }
     verify:
       - element_exists: { label_contains: "Chat as A-only Name" }
     criteria: per_conv_override_applied
+    note: >
+      The in-composer avatar button (profile-avatar-button) was removed in the
+      composer redesign, and setup-profile-button only surfaces while the
+      conversation profile is still unset. To re-edit an already-set
+      per-conversation profile, open conversation info -> the members row ->
+      tap your own member row (isCurrentUser), which presents the My Info
+      sheet (profile-display-name-field, profile-image-picker). Dismiss the
+      sheet to return to the composer.
 
   - id: global_unchanged
     name: "Global in App Settings is still the updated name"
