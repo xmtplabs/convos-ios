@@ -64,8 +64,8 @@ struct FeatureRowItem<AccessoryView: View>: View {
 }
 
 #Preview {
-    FeatureRowItem(imageName: nil, symbolName: "eyeglasses", title: "Peek-a-boo", subtitle: "Blur when people peek") {
-        SoonLabel()
+    FeatureRowItem(imageName: nil, symbolName: "folder", title: "Files & Links", subtitle: "Managed by Agents") {
+        EmptyView()
     }
     .padding(DesignConstants.Spacing.step4x)
 }
@@ -364,52 +364,8 @@ struct ConversationInfoView: View {
             .accessibilityValue(viewModel.sendReadReceipts ? "on" : "off")
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("convo-read-receipts-toggle")
-
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "eyeglasses",
-                title: "Peek-a-boo",
-                subtitle: "Blur when people peek"
-            ) {
-                SoonLabel()
-            }
-
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "tray.fill",
-                title: "Allow DMs",
-                subtitle: "From group members"
-            ) {
-                SoonLabel()
-            }
-
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "faceid",
-                title: "Require FaceID",
-                subtitle: "Or passcode"
-            ) {
-                SoonLabel()
-            }
         } header: {
             Text("Personal preferences")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    private var convoRulesSection: some View {
-        Section {
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "timer",
-                title: "Disappear",
-                subtitle: "Messages"
-            ) {
-                SoonLabel()
-            }
-        } header: {
-            Text("Convo rules")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.colorTextSecondary)
         }
@@ -431,40 +387,6 @@ struct ConversationInfoView: View {
             .onChange(of: presentingEditView) { oldValue, newValue in
                 handleEditViewChanged(from: oldValue, to: newValue)
             }
-    }
-
-    private var vanishSection: some View {
-        Section {
-            HStack {
-                Text("Vanish")
-                    .foregroundStyle(.colorTextPrimary)
-                Spacer()
-                SoonLabel()
-            }
-        } footer: {
-            Text("Choose when this convo disappears from your device")
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .disabled(true)
-    }
-
-    private var permissionsSection: some View {
-        Section {
-            NavigationLink {
-                EmptyView()
-            } label: {
-                HStack {
-                    Text("Permissions")
-                        .foregroundStyle(.colorTextPrimary)
-                    Spacer()
-                    SoonLabel()
-                }
-            }
-            .disabled(true)
-        } footer: {
-            Text("Choose who can manage the group")
-                .foregroundStyle(.colorTextSecondary)
-        }
     }
 
     private var infoList: some View {
@@ -493,12 +415,6 @@ struct ConversationInfoView: View {
                let connectionsViewModel {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
             }
-
-            convoRulesSection
-
-            vanishSection
-
-            permissionsSection
 
             debugInfoSection
         }
