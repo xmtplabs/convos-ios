@@ -57,6 +57,11 @@ class ProfileSettingsViewModel {
     /// The last name loaded from (or saved to) the global profile. Used to
     /// reject an empty save: once a name is set it cannot be cleared.
     private var loadedDisplayName: String?
+    /// The last metadata loaded from the global profile. The My Info editor does
+    /// not edit metadata, so we carry this through on save instead of writing
+    /// nil - otherwise a name-only edit would clear stored metadata (e.g. the
+    /// profile emoji). Kept fresh by `apply(profile:)`.
+    private var loadedMetadata: ProfileMetadata?
 
     private init() {}
 
@@ -129,6 +134,7 @@ class ProfileSettingsViewModel {
     private func apply(profile: MyProfile?) {
         editingDisplayName = profile?.name ?? ""
         loadedDisplayName = profile?.name
+        loadedMetadata = profile?.metadata
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
         profileImageAssetIdentifier = profile?.imageAssetIdentifier
         profileImageContentDigest = profile?.imageContentDigest
@@ -165,7 +171,7 @@ class ProfileSettingsViewModel {
             name: resolvedName,
             imageData: imageData,
             imageAssetIdentifier: assetIdentifier,
-            metadata: nil
+            metadata: loadedMetadata
         )
         // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
         // only refreshed by the async profile observation, so a first-time user
@@ -211,6 +217,7 @@ class ProfileSettingsViewModel {
     private func clearEditingFields() {
         editingDisplayName = ""
         loadedDisplayName = nil
+        loadedMetadata = nil
         profileImage = nil
         profileImageAssetIdentifier = nil
         profileImageContentDigest = nil

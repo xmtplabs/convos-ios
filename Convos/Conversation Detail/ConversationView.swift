@@ -664,7 +664,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
-            ReadByDrawerView(members: group.readByMembers)
+            ReadByDrawerView(
+                members: group.readByMembers,
+                memberContactOverride: contactOverride
+            )
         }
         .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
             ThinkingDetailView(
