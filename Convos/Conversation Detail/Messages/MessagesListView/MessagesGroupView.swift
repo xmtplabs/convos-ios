@@ -85,11 +85,13 @@ struct MessagesGroupView: View {
         DesignConstants.Spacing.step2x
     }
 
-    /// Sender name with the same precedence as the contact card and
-    /// conversation title: contact-name override, then per-conversation profile
-    /// name, then "Somebody" / "Agent".
+    /// Sender name, fallback-only: the per-conversation profile name wins when
+    /// present, and the contact name is used only to fill an empty name instead
+    /// of "Somebody". This can only replace a blank - it never overrides a name
+    /// that already renders correctly - so it can't surface a stale contact name
+    /// over a fresh member name.
     private var senderDisplayName: String {
-        displayGroup.sender.displayName(memberNameOverride: { memberContactOverride($0)?.displayName })
+        displayGroup.sender.displayName(contactNameFallback: { memberContactOverride($0)?.displayName })
     }
 
     private var senderLabel: some View {

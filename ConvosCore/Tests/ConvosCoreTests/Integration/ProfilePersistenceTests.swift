@@ -119,18 +119,6 @@ struct ProfilePersistenceTests {
         let groupB = try #require(try clientB.conversations.listGroups().first { $0.id == group.id })
         try await groupB.sync()
 
-        // Seed a previously-known name for A in B's database.
-        try await fixtures.databaseManager.dbWriter.write { db in
-            let member = DBMember(inboxId: clientA.inboxID)
-            try member.save(db)
-            try DBMemberProfile(
-                conversationId: group.id,
-                inboxId: clientA.inboxID,
-                name: "Alice",
-                avatar: nil
-            ).save(db)
-        }
-
         let mockMessageWriter = MockIncomingMessageWriter()
         let conversationWriter = ConversationWriter(
             identityStore: fixtures.identityStore,
@@ -138,6 +126,24 @@ struct ProfilePersistenceTests {
             messageWriter: mockMessageWriter
         )
 
+        // First store persists the conversation + member rows (so the
+        // memberProfile foreign keys resolve) and processes the name-less
+        // update, leaving A with no name.
+        _ = try await conversationWriter.store(
+            conversation: groupB,
+            inboxId: inboxIdB
+        )
+
+        // Seed a previously-known name for A now that the conversation row
+        // exists. This models a name we already had before re-running catch-up.
+        try await fixtures.databaseManager.dbWriter.write { db in
+            let existing = try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: clientA.inboxID)
+                ?? DBMemberProfile(conversationId: group.id, inboxId: clientA.inboxID, name: nil, avatar: nil)
+            try existing.with(name: "Alice").save(db)
+        }
+
+        // Re-running store reprocesses the same name-less update from history.
+        // With the guard, A's name must survive (not revert to "Somebody").
         _ = try await conversationWriter.store(
             conversation: groupB,
             inboxId: inboxIdB

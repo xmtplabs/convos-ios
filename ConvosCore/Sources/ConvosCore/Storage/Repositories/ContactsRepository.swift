@@ -176,6 +176,23 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         return name
     }
 
+    /// Bulk inbox-id -> contact display-name resolver for hydration. Returns a
+    /// closure backed by a single fetch of the `contact` table; empty names are
+    /// omitted so a missing key means "no contact name" and the caller's
+    /// fallback applies. Building this inside a `ValueObservation` read closure
+    /// also registers the observation on the `contact` table, so a contact
+    /// rename refreshes surfaces hydrated through the resolver.
+    static func contactNameResolverInTransaction(db: Database) throws -> (String) -> String? {
+        let names: [String: String] = try DBContact
+            .fetchAll(db)
+            .reduce(into: [:]) { map, contact in
+                if let name = contact.displayName, !name.isEmpty {
+                    map[contact.inboxId] = name
+                }
+            }
+        return { names[$0] }
+    }
+
     func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation] {
         guard !ids.isEmpty else { return [:] }
         return try databaseReader.read { db in
