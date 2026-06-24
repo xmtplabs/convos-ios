@@ -47,9 +47,10 @@ echo "Creating app: $APP_NAME" >&2
 # error. Existence is checked via `apps list` (there is no `apps show` command
 # in flyctl, and an unknown subcommand prints help and exits 0 - which would
 # mask real create failures like overdue billing or missing permissions as a
-# false "already exists").
+# false "already exists"). Match the app name against the first column exactly
+# so a substring like "foo" doesn't match an unrelated "foo-prod".
 if ! CREATE_OUT="$(flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>&1)"; then
-    if flyctl apps list 2>/dev/null | grep -qF "$APP_NAME"; then
+    if flyctl apps list 2>/dev/null | awk -v name="$APP_NAME" '$1 == name { found = 1 } END { exit !found }'; then
         echo "App already exists, continuing: $APP_NAME" >&2
     else
         echo "Failed to create app: $APP_NAME" >&2
