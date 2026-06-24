@@ -61,12 +61,25 @@ flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
 # Deploy multi-container machine
 echo "Deploying multi-container machine..." >&2
+
+# --- TEMPORARY CI DEBUG (remove once the prompt cause is identified) ---
+# `flyctl machine run` is failing with "prompt: non interactive". Surface the
+# flyctl version and the exact `machine run` usage/flags so we can see what
+# input it is trying to prompt for (suspected: the required image positional,
+# since machine-config.json is multi-container with no top-level image).
+echo "DEBUG: flyctl version:" >&2
+flyctl version >&2 || true
+echo "DEBUG: machine run help:" >&2
+flyctl machine run --help >&2 || true
+echo "DEBUG: end debug ---" >&2
+
 flyctl machine run \
     --app "$APP_NAME" \
     --region "$FLY_REGION" \
     --rm \
     --restart no \
-    --machine-config "$MACHINE_CONFIG"
+    --machine-config "$MACHINE_CONFIG" \
+    --verbose
 
 # Wait for TLS to be ready
 APP_HOSTNAME="${APP_NAME}.fly.dev"
