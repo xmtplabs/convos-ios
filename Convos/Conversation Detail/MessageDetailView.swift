@@ -106,7 +106,8 @@ private struct SelectableTextView: UIViewRepresentable {
         textView.isScrollEnabled = true
         textView.isSelectable = true
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        let inset: CGFloat = DesignConstants.Spacing.step4x
+        textView.textContainerInset = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
         textView.dataDetectorTypes = .link

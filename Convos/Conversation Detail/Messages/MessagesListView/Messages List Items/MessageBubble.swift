@@ -17,9 +17,9 @@ enum MessageLengthClass {
 /// tunable in one place. Exposed (not private) so any caller that builds a
 /// `MessageBubble` preview shares the same classification semantics.
 enum MessageBodyClassifier {
-    static let longCharThreshold: Int = 1_200
-    static let pathologicalCharThreshold: Int = 6_000
-    static let shortNewlineThreshold: Int = 30
+    static let longCharThreshold: Int = 1_200 // ~3-4 paragraphs at typical density
+    static let pathologicalCharThreshold: Int = 6_000 // ~1-2 pages of text
+    static let shortNewlineThreshold: Int = 30 // many short lines, e.g. code snippets or poems
     static let longPreviewLineLimit: Int = 12
     static let pathologicalPreviewLineLimit: Int = 8
 
@@ -127,7 +127,7 @@ struct MessageBubble: View {
                 let expandAction: () -> Void = {
                     withAnimation(.easeInOut(duration: 0.18)) { isExpanded = true }
                 }
-                readMoreButton(action: expandAction)
+                readMoreButton(action: expandAction, hint: "Double tap to expand the message")
             }
         }
     }
@@ -158,19 +158,20 @@ struct MessageBubble: View {
                 .foregroundStyle(textColor)
                 .lineLimit(MessageBodyClassifier.pathologicalPreviewLineLimit)
             let openDetailAction: () -> Void = { onOpenDetail?(message) }
-            readMoreButton(action: openDetailAction)
+            readMoreButton(action: openDetailAction, hint: "Double tap to open the full message")
         }
         .contentShape(Rectangle())
     }
 
     @ViewBuilder
-    private func readMoreButton(action: @escaping () -> Void) -> some View {
+    private func readMoreButton(action: @escaping () -> Void, hint: String) -> some View {
         Button(action: action) {
             Text("Read More")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(textColor.opacity(0.75))
         }
         .buttonStyle(.plain)
+        .accessibilityHint(hint)
         // The bubble is wrapped by `.messageGesture(...)`, whose gesture
         // overlay swallows taps on plain in-bubble controls (its `hitTest`
         // returns the overlay unless the point hits a `LinkHitTestable` view
