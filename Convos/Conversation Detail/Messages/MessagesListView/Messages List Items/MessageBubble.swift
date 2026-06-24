@@ -171,6 +171,12 @@ struct MessageBubble: View {
                 .foregroundStyle(textColor.opacity(0.75))
         }
         .buttonStyle(.plain)
+        // The bubble is wrapped by `.messageGesture(...)`, whose gesture
+        // overlay swallows taps on plain in-bubble controls (its `hitTest`
+        // returns the overlay unless the point hits a `LinkHitTestable` view
+        // or a passthrough marker). Mark this button so the overlay lets the
+        // tap through, mirroring the voice-memo transcript buttons.
+        .background(GesturePassthroughBackground())
         .accessibilityIdentifier("message-read-more-button")
     }
 }
