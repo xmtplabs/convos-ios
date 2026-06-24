@@ -378,6 +378,7 @@ public enum ConvosAPI {
     /// body too would let a caller claim someone else's transaction.
     struct VerifySubscriptionRequest: Encodable {
         let jwsRepresentation: String
+        let platform: String = "apple"
     }
 
     struct VerifySubscriptionResponse: Decodable {
