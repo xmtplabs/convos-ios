@@ -194,6 +194,10 @@ class MyProfileViewModel {
         if !wouldClearExistingName, latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
             didChange = true
+        } else if wouldClearExistingName {
+            // Clearing was prevented; restore the field so it doesn't show blank
+            // while the stored name is actually preserved (mirrors saveAndAwait).
+            editingDisplayName = latestProfile?.name ?? ""
         }
 
         let updatedMetadata: ProfileMetadata? = {
