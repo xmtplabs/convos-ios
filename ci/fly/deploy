@@ -65,14 +65,13 @@ flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
 # Deploy multi-container machine.
 #
-# `machine run` requires an <image> positional even with --machine-config; we
-# pass the first container's image (keep in sync with machine-config.json's
-# first container, currently postgres:16) - the authoritative container set
-# comes from --machine-config. --org targets the app's organization.
+# `machine run` requires an <image> positional even with --machine-config, so
+# we pass the first container's image (keep in sync with machine-config.json's
+# first container, currently postgres:16); the authoritative container set comes
+# from --machine-config.
 echo "Deploying multi-container machine..." >&2
 flyctl machine run "postgres:16" \
     --app "$APP_NAME" \
-    --org "$FLY_ORG" \
     --region "$FLY_REGION" \
     --rm \
     --restart no \
