@@ -17,6 +17,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onReaction: ((String, String) -> Void)? { get set }
     var onToggleReaction: ((String, String) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }
+    var onOpenMessageDetail: ((AnyMessage) -> Void)? { get set }
     var contextMenuState: MessageContextMenuState? { get set }
     var conversationId: String { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }

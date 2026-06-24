@@ -265,6 +265,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
             },
+            onOpenMessageDetail: { message in
+                viewModel.presentingMessageDetail = message
+            },
             replyingToMessage: viewModel.replyingToMessage,
             replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
             onCancelReply: viewModel.cancelReply,
@@ -677,6 +680,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 conversation: viewModel.conversation,
                 viewModel: viewModel,
                 profileSheetForMember: profileSheetForMember
+            )
+        }
+        .sheet(item: $viewModel.presentingMessageDetail) { message in
+            MessageDetailView(
+                message: message,
+                onCopy: { text in
+                    UIPasteboard.general.string = text
+                },
+                onReply: { repliedMessage in
+                    viewModel.presentingMessageDetail = nil
+                    viewModel.onReply(repliedMessage)
+                    focusCoordinator.moveFocus(to: .message)
+                }
             )
         }
         .selfSizingSheet(isPresented: $showingLockedInfo) {

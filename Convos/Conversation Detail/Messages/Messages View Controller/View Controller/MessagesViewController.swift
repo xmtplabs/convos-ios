@@ -395,6 +395,7 @@ final class MessagesViewController: UIViewController {
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
@@ -647,6 +648,9 @@ final class MessagesViewController: UIViewController {
         dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
             self.onReply?(message)
+        }
+        dataSource.onOpenMessageDetail = { [weak self] message in
+            self?.onOpenMessageDetail?(message)
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)

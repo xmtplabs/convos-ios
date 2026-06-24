@@ -19,6 +19,9 @@ struct MessagesGroupView: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. nil outside the main messages list path.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -392,6 +395,7 @@ struct MessagesGroupView: View {
                     onTapAvatar: onTapAvatar,
                     onTapInvite: onTapInvite,
                     onReply: onReply,
+                    onOpenMessageDetail: onOpenMessageDetail,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
                     htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,

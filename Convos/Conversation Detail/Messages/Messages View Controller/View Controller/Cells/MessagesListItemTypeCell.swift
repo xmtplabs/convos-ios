@@ -195,6 +195,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onReaction: config.onReaction,
             onToggleReaction: config.onToggleReaction,
             onReply: config.onReply,
+            onOpenMessageDetail: config.onOpenMessageDetail,
             onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
             onOpenFile: config.onOpenFile,
             onRetryMessage: config.onRetryMessage,

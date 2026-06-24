@@ -66,6 +66,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
+    var onOpenMessageDetail: (AnyMessage) -> Void = { _ in }
     let replyingToMessage: AnyMessage?
     var replyingToAudioTranscriptText: String?
     let onCancelReply: () -> Void
@@ -136,6 +137,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapReadReceipts: onTapReadReceipts,
             onTapThinkingIndicator: onTapThinkingIndicator,
             onReply: onReply,
+            onOpenMessageDetail: onOpenMessageDetail,
             contextMenuState: contextMenuState,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,

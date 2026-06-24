@@ -28,6 +28,9 @@ struct CellConfig {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap so the host can
+    /// present `MessageDetailView`.
+    let onOpenMessageDetail: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool

@@ -1005,6 +1005,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
+    /// Drives the `MessageDetailView` sheet for a pathological (very long)
+    /// message body, presented when its bubble "Read More" is tapped.
+    var presentingMessageDetail: AnyMessage?
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
     var presentingPhotosInfoSheet: Bool = false

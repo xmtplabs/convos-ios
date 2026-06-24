@@ -11,6 +11,11 @@ struct MessagesGroupItemView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Invoked when a pathological (very long) text bubble's "Read More" is
+    /// tapped, so the host can present `MessageDetailView`. `nil` outside the
+    /// main messages list path (reply parents, previews), where the bounded
+    /// preview renders without a tap.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     /// Namespace owned by `MessagesView` and threaded down via the cell
@@ -134,11 +139,15 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func textBubble(text: String) -> some View {
+        let openDetail: ((String) -> Void)? = onOpenMessageDetail.map { handler in
+            { _ in handler(message) }
+        }
         MessageBubble(
             style: message.content.isEmoji ? .none : bubbleType,
             message: text,
             isOutgoing: message.sender.isCurrentUser,
-            profile: message.sender.profile
+            profile: message.sender.profile,
+            onOpenDetail: openDetail
         )
         .messageGesture(
             message: message,

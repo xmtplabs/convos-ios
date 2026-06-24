@@ -21,6 +21,10 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. Default no-op for hosts (the thinking
+    /// detail sheet) that don't present a message detail.
+    var onOpenMessageDetail: (AnyMessage) -> Void = { _ in }
     let contextMenuState: MessageContextMenuState
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
@@ -99,6 +103,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapReadReceipts = onTapReadReceipts
         messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
+        messagesViewController.onOpenMessageDetail = onOpenMessageDetail
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
