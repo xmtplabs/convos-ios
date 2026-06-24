@@ -167,6 +167,14 @@ class ProfileSettingsViewModel {
             imageAssetIdentifier: assetIdentifier,
             metadata: nil
         )
+        // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
+        // only refreshed by the async profile observation, so a first-time user
+        // who saves a name and then clears + saves again before that fires would
+        // skip the guard above. (The writer also preserves the stored name on an
+        // empty save, so this is defense-in-depth + keeps the field restore working.)
+        if let resolvedName {
+            loadedDisplayName = resolvedName
+        }
         markProfileEditorShownIfPopulated()
     }
 
