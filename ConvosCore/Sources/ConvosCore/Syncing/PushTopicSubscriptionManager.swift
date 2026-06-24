@@ -33,6 +33,16 @@ protocol PushTopicSubscriptionManaging: Actor {
         context: String
     ) async
 
+    /// Unsubscribes from a group's message topic. Used when the user leaves
+    /// or is removed from a conversation so the backend stops pushing it
+    /// immediately, rather than waiting for the next full reconcile to diff
+    /// the topic out of the desired set.
+    func unsubscribeFromGroupTopic(
+        conversationId: String,
+        params: SyncClientParams,
+        context: String
+    ) async
+
     /// Re-derives and resends the full topic set (welcome + groups +
     /// invite DMs) so server state matches the local conversation list.
     /// Called on resume / cold start to recover from missed deltas.
@@ -213,6 +223,31 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     }
 
     func unsubscribeFromInviteDMTopics(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async {
+        guard !conversationIds.isEmpty else { return }
+        await unsubscribe(
+            topics: conversationIds.map(\.xmtpGroupTopicFormat),
+            params: params,
+            context: context
+        )
+    }
+
+    func unsubscribeFromGroupTopic(
+        conversationId: String,
+        params: SyncClientParams,
+        context: String
+    ) async {
+        await unsubscribeFromGroupTopics(
+            conversationIds: [conversationId],
+            params: params,
+            context: context
+        )
+    }
+
+    func unsubscribeFromGroupTopics(
         conversationIds: [String],
         params: SyncClientParams,
         context: String
