@@ -22,6 +22,9 @@ enum MessageBodyClassifier {
     static let shortNewlineThreshold: Int = 30 // many short lines, e.g. code snippets or poems
     static let longPreviewLineLimit: Int = 12
     static let pathologicalPreviewLineLimit: Int = 8
+    // Short ease so the inline "Read More" expand/collapse reads as a quick
+    // reveal, not a slow unfold that the user has to wait through.
+    static let readMoreExpandAnimationDuration: Double = 0.18
 
     static func classify(_ text: String) -> MessageLengthClass {
         let count: Int = text.count
@@ -127,13 +130,19 @@ struct MessageBubble: View {
     @ViewBuilder
     private var longBody: some View {
         let lineCap: Int? = isExpanded ? nil : MessageBodyClassifier.longPreviewLineLimit
+        let duration: Double = MessageBodyClassifier.readMoreExpandAnimationDuration
+        // Links inside the collapsed preview are rendered as plain truncated
+        // Text, so an individual link in the hidden tail is not tappable while
+        // collapsed. Expanding lifts the line cap (links in the full text still
+        // render as plain Text inline); the detail view's UITextView is where
+        // links become individually tappable.
         VStack(alignment: .leading, spacing: 4.0) {
             longBodyText(lineCap: lineCap)
             if !isExpanded {
                 let expandAction: () -> Void = {
-                    withAnimation(.easeInOut(duration: 0.18)) { onToggleExpand?() }
+                    withAnimation(.easeInOut(duration: duration)) { onToggleExpand?() }
                 }
-                readMoreButton(action: expandAction, hint: "Double tap to expand the message")
+                readMoreButton(action: expandAction, hint: "Expands the message")
             }
         }
     }
@@ -158,13 +167,16 @@ struct MessageBubble: View {
     /// place. A bounded preview shows, and "Read More" opens the detail view.
     @ViewBuilder
     private var pathologicalBody: some View {
+        // The bounded preview is plain truncated Text, so links in it are not
+        // individually tappable here. Tappable links live in the detail view's
+        // UITextView, which "Read More" opens.
         VStack(alignment: .leading, spacing: 4.0) {
             Text(message)
                 .font(.callout)
                 .foregroundStyle(textColor)
                 .lineLimit(MessageBodyClassifier.pathologicalPreviewLineLimit)
             let openDetailAction: () -> Void = { onOpenDetail?(message) }
-            readMoreButton(action: openDetailAction, hint: "Double tap to open the full message")
+            readMoreButton(action: openDetailAction, hint: "Opens the full message")
         }
         .contentShape(Rectangle())
     }
