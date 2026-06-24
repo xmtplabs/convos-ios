@@ -43,9 +43,13 @@ fi
 
 echo "Creating app: $APP_NAME" >&2
 
-# Create the app; if it already exists continue, otherwise surface the real error
+# Create the app; if it already exists continue, otherwise surface the real
+# error. Existence is checked via `apps list` (there is no `apps show` command
+# in flyctl, and an unknown subcommand prints help and exits 0 - which would
+# mask real create failures like overdue billing or missing permissions as a
+# false "already exists").
 if ! CREATE_OUT="$(flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>&1)"; then
-    if flyctl apps show "$APP_NAME" >/dev/null 2>&1; then
+    if flyctl apps list 2>/dev/null | grep -qF "$APP_NAME"; then
         echo "App already exists, continuing: $APP_NAME" >&2
     else
         echo "Failed to create app: $APP_NAME" >&2
@@ -59,27 +63,12 @@ echo "Allocating IP addresses..." >&2
 flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
-# --- TEMPORARY CI DEBUG: identify the app's org + why create failed ---
-# `machine run` still prompts "app does not exist" even with --org, so confirm
-# where the app actually lives and what `apps create` reported.
-echo "DEBUG: configured FLY_ORG=$FLY_ORG" >&2
-echo "DEBUG: apps create result: ${CREATE_OUT:-<created fresh, no error captured>}" >&2
-echo "DEBUG: apps show ($APP_NAME) - look for Owner/Organization:" >&2
-flyctl apps show "$APP_NAME" 2>&1 | sed 's/^/DEBUG: /' >&2 || true
-echo "DEBUG: apps list (name + org):" >&2
-flyctl apps list 2>&1 | sed 's/^/DEBUG: /' >&2 || true
-echo "DEBUG: ---" >&2
-
 # Deploy multi-container machine.
 #
-# Pass --org so `machine run` resolves the already-created app (it otherwise
-# looks in the default org, fails to find the app, and prompts "App ... does
-# not exist, would you like to create it?", which FLYCTL_NO_PROMPT turns into a
-# fatal "prompt: non interactive"). The <image> positional is also required
-# even with --machine-config; we pass the first container's image so it's a
-# no-op if flyctl maps it onto the default container (the authoritative set
-# comes from --machine-config; keep in sync with machine-config.json's first
-# container, currently postgres:16).
+# `machine run` requires an <image> positional even with --machine-config; we
+# pass the first container's image (keep in sync with machine-config.json's
+# first container, currently postgres:16) - the authoritative container set
+# comes from --machine-config. --org targets the app's organization.
 echo "Deploying multi-container machine..." >&2
 flyctl machine run "postgres:16" \
     --app "$APP_NAME" \
