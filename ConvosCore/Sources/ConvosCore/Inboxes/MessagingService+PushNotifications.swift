@@ -430,6 +430,20 @@ extension MessagingService {
 
         let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
 
+        // Second line of defense behind the app-side leave/removed unsubscribe:
+        // suppress the banner when the local conversation says the user is no
+        // longer in it. Mirrors the denied-welcome guard above, and covers the
+        // in-flight-push race (a push already sent before the backend
+        // unsubscribe landed) plus the removed-but-still-`.allowed` kick case
+        // that the reconcile desired set never drops.
+        if try await shouldDropGroupNotification(
+            conversationId: dbConversation.id,
+            consent: dbConversation.consent,
+            currentInboxId: currentInboxId
+        ) {
+            return .droppedMessage
+        }
+
         _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
 
         let notificationTitle = (try? await getComputedDisplayName(
@@ -479,6 +493,53 @@ extension MessagingService {
                 currentInboxId: currentInboxId
             )
         }
+    }
+
+    private func shouldDropGroupNotification(
+        conversationId: String,
+        consent: Consent,
+        currentInboxId: String
+    ) async throws -> Bool {
+        try await databaseReader.read { db in
+            try Self.shouldDropGroupNotification(
+                db: db,
+                conversationId: conversationId,
+                consent: consent,
+                currentInboxId: currentInboxId
+            )
+        }
+    }
+
+    /// True when a group push should be suppressed because the local state says
+    /// the user is no longer in the conversation: the user left (consent
+    /// `.denied`), was removed (`ConversationLocalState.wasRemoved`), or the
+    /// current inbox is absent from `DBConversationMember` (robust to the kick
+    /// path, which sets `wasRemoved` but leaves consent untouched). The
+    /// membership read mirrors `otherMemberCount` / `computedDisplayName`,
+    /// which already gate on `DBConversationMember` in this file.
+    static func shouldDropGroupNotification(
+        db: Database,
+        conversationId: String,
+        consent: Consent,
+        currentInboxId: String
+    ) throws -> Bool {
+        if consent == .denied {
+            return true
+        }
+
+        let wasRemoved = try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .fetchOne(db)?
+            .wasRemoved ?? false
+        if wasRemoved {
+            return true
+        }
+
+        let isCurrentMember = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .filter(DBConversationMember.Columns.inboxId == currentInboxId)
+            .fetchCount(db) > 0
+        return !isCurrentMember
     }
 
     /// Counts the conversation's current members excluding the current user,
