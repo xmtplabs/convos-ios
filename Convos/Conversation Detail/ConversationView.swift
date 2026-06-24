@@ -268,6 +268,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onOpenMessageDetail: { message in
                 viewModel.presentingMessageDetail = message
             },
+            expandedMessageIds: viewModel.expandedMessageIds,
+            onToggleMessageExpanded: { messageId in
+                viewModel.toggleMessageExpanded(messageId)
+            },
             replyingToMessage: viewModel.replyingToMessage,
             replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
             onCancelReply: viewModel.cancelReply,

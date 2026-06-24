@@ -52,8 +52,14 @@ struct MessageBubble: View {
     /// can present `MessageDetailView`. `nil` in previews and the context-menu
     /// preview path, where the bounded preview just renders without a tap.
     var onOpenDetail: ((String) -> Void)?
-
-    @State private var isExpanded: Bool = false
+    /// Whether the long-body inline expansion is on. Owned by the conversation
+    /// view model (keyed by message id) and passed in, not local `@State`, so
+    /// expansion survives `UICollectionView` cell reuse and never bleeds onto
+    /// a recycled cell showing a different message.
+    var isExpanded: Bool = false
+    /// Toggles the long-body inline expansion on the host. `nil` in previews
+    /// and the context-menu preview path (the long body just stays collapsed).
+    var onToggleExpand: (() -> Void)?
 
     private var textColor: Color {
         if isOutgoing {
@@ -125,7 +131,7 @@ struct MessageBubble: View {
             longBodyText(lineCap: lineCap)
             if !isExpanded {
                 let expandAction: () -> Void = {
-                    withAnimation(.easeInOut(duration: 0.18)) { isExpanded = true }
+                    withAnimation(.easeInOut(duration: 0.18)) { onToggleExpand?() }
                 }
                 readMoreButton(action: expandAction, hint: "Double tap to expand the message")
             }

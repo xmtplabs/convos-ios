@@ -31,6 +31,11 @@ struct CellConfig {
     /// Surfaces a pathological text bubble's "Read More" tap so the host can
     /// present `MessageDetailView`.
     let onOpenMessageDetail: (AnyMessage) -> Void
+    /// Message ids with long-body inline expansion on (owned by the VM, so it
+    /// survives `UICollectionView` cell reuse).
+    let expandedMessageIds: Set<String>
+    /// Toggles a message id's long-body inline expansion on the host.
+    let onToggleMessageExpanded: (String) -> Void
     let contextMenuState: MessageContextMenuState
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool

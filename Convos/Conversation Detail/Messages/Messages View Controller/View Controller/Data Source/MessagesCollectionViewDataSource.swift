@@ -26,6 +26,8 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    var expandedMessageIds: Set<String> = []
+    var onToggleMessageExpanded: ((String) -> Void)?
     var contextMenuState: MessageContextMenuState?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
@@ -121,6 +123,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onOpenMessageDetail: { [weak self] message in
                 self?.onOpenMessageDetail?(message)
+            },
+            expandedMessageIds: expandedMessageIds,
+            onToggleMessageExpanded: { [weak self] messageId in
+                self?.onToggleMessageExpanded?(messageId)
             },
             contextMenuState: contextMenuState ?? .init(),
             onAgentOutOfCredits: { [weak self] in

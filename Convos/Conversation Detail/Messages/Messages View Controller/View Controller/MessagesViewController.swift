@@ -396,6 +396,21 @@ final class MessagesViewController: UIViewController {
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    var onToggleMessageExpanded: ((String) -> Void)?
+    /// Message ids whose long-body inline expansion is on. Owned by the VM and
+    /// pushed in each render so expansion survives cell reuse; forwarded to the
+    /// data source so reconfigured cells read the current set.
+    var expandedMessageIds: Set<String> = [] {
+        didSet {
+            guard expandedMessageIds != oldValue else { return }
+            dataSource.expandedMessageIds = expandedMessageIds
+            // A change to the set alone produces no DifferenceKit changeset
+            // (the messages are identical), so the visible cell would not
+            // re-render. Reconfigure the cells whose expansion flipped so the
+            // hosted SwiftUI bubble rebuilds from the updated config.
+            reconfigureCells(forMessageIds: expandedMessageIds.symmetricDifference(oldValue))
+        }
+    }
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
@@ -464,6 +479,27 @@ final class MessagesViewController: UIViewController {
     @available(*, unavailable, message: "Use init(messageController:) instead")
     required init?(coder: NSCoder) {
         fatalError()
+    }
+
+    /// Reconfigures the visible message cells that contain any of the given
+    /// message ids. Used when the long-body expansion set flips, since that
+    /// change carries no DifferenceKit changeset on its own.
+    private func reconfigureCells(forMessageIds messageIds: Set<String>) {
+        guard !messageIds.isEmpty else { return }
+        var indexPaths: [IndexPath] = []
+        for (sectionIndex, section) in dataSource.sections.enumerated() {
+            for (itemIndex, cell) in section.cells.enumerated() {
+                guard case .messages(let group) = cell else { continue }
+                let groupContainsChangedId = group.messages.contains { message in
+                    messageIds.contains(message.messageId)
+                }
+                if groupContainsChangedId {
+                    indexPaths.append(IndexPath(item: itemIndex, section: sectionIndex))
+                }
+            }
+        }
+        guard !indexPaths.isEmpty else { return }
+        collectionView.reconfigureItems(at: indexPaths)
     }
 
     override func viewDidLoad() {
@@ -651,6 +687,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onOpenMessageDetail = { [weak self] message in
             self?.onOpenMessageDetail?(message)
+        }
+        dataSource.onToggleMessageExpanded = { [weak self] messageId in
+            self?.onToggleMessageExpanded?(messageId)
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)

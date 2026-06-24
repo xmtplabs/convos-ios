@@ -22,6 +22,10 @@ struct MessagesGroupView: View {
     /// Surfaces a pathological text bubble's "Read More" tap to the host so it
     /// can present `MessageDetailView`. nil outside the main messages list path.
     var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM).
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: ((String) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -396,6 +400,8 @@ struct MessagesGroupView: View {
                     onTapInvite: onTapInvite,
                     onReply: onReply,
                     onOpenMessageDetail: onOpenMessageDetail,
+                    expandedMessageIds: expandedMessageIds,
+                    onToggleMessageExpanded: onToggleMessageExpanded,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
                     htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,

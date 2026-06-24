@@ -25,6 +25,11 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// can present `MessageDetailView`. Default no-op for hosts (the thinking
     /// detail sheet) that don't present a message detail.
     var onOpenMessageDetail: (AnyMessage) -> Void = { _ in }
+    /// Message ids with long-body inline expansion on (owned by the VM so it
+    /// survives cell reuse). Default empty for hosts that never expand.
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: (String) -> Void = { _ in }
     let contextMenuState: MessageContextMenuState
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
@@ -104,6 +109,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
         messagesViewController.onOpenMessageDetail = onOpenMessageDetail
+        messagesViewController.onToggleMessageExpanded = onToggleMessageExpanded
+        messagesViewController.expandedMessageIds = expandedMessageIds
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
