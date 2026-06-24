@@ -53,6 +53,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 33 | `qa/tests/33-read-receipts.md` | Read receipts: send on view, display avatars, opt-out setting |
 | 34 | `qa/tests/34-side-convo-stable-emoji.md` | Side convo flow: create linked convo invite, verify invite metadata, and confirm stable conversation emoji across two devices |
 | 42 | `qa/tests/42-agent-builder-attachment-summary.md` | Agent builder: create agent with prompt + photo attachment, verify summary card renders the photo thumbnail (pre- and post-rehydration) |
+| 43 | `qa/tests/43-long-message-rendering.md` | Long-message UX: short renders unchanged, long shows Read More + inline expand, pathological pushes MessageDetailView (Back/Copy/Reply), no-hang guard |
 
 ## Running Tests
 
