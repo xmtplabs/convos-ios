@@ -59,30 +59,35 @@ echo "Allocating IP addresses..." >&2
 flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
-# Deploy multi-container machine
-echo "Deploying multi-container machine..." >&2
+# --- TEMPORARY CI DEBUG: identify the app's org + why create failed ---
+# `machine run` still prompts "app does not exist" even with --org, so confirm
+# where the app actually lives and what `apps create` reported.
+echo "DEBUG: configured FLY_ORG=$FLY_ORG" >&2
+echo "DEBUG: apps create result: ${CREATE_OUT:-<created fresh, no error captured>}" >&2
+echo "DEBUG: apps show ($APP_NAME) - look for Owner/Organization:" >&2
+flyctl apps show "$APP_NAME" 2>&1 | sed 's/^/DEBUG: /' >&2 || true
+echo "DEBUG: apps list (name + org):" >&2
+flyctl apps list 2>&1 | sed 's/^/DEBUG: /' >&2 || true
+echo "DEBUG: ---" >&2
 
-# --- TEMPORARY CI DEBUG: capture the exact prompt text ---
-# Adding the <image> positional did not help and FLYCTL_NO_PROMPT hides the
-# actual question. Re-run with prompting ENABLED but stdin closed (/dev/null):
-# flyctl prints the prompt it is stuck on, then fails on EOF. --debug adds
-# traces. We capture everything, print it, and fail the step.
-echo "DEBUG: probing for the actual prompt (prompts on, stdin=/dev/null)" >&2
-set +e
-env -u FLYCTL_NO_PROMPT flyctl machine run "postgres:16" \
+# Deploy multi-container machine.
+#
+# Pass --org so `machine run` resolves the already-created app (it otherwise
+# looks in the default org, fails to find the app, and prompts "App ... does
+# not exist, would you like to create it?", which FLYCTL_NO_PROMPT turns into a
+# fatal "prompt: non interactive"). The <image> positional is also required
+# even with --machine-config; we pass the first container's image so it's a
+# no-op if flyctl maps it onto the default container (the authoritative set
+# comes from --machine-config; keep in sync with machine-config.json's first
+# container, currently postgres:16).
+echo "Deploying multi-container machine..." >&2
+flyctl machine run "postgres:16" \
     --app "$APP_NAME" \
+    --org "$FLY_ORG" \
     --region "$FLY_REGION" \
     --rm \
     --restart no \
-    --machine-config "$MACHINE_CONFIG" \
-    --debug < /dev/null > /tmp/flyprobe.log 2>&1
-PROBE_RC=$?
-set -e
-echo "DEBUG: probe exit code: $PROBE_RC" >&2
-echo "DEBUG: ---- probe output start ----" >&2
-cat /tmp/flyprobe.log >&2 || true
-echo "DEBUG: ---- probe output end ----" >&2
-exit 1
+    --machine-config "$MACHINE_CONFIG"
 
 # Wait for TLS to be ready
 APP_HOSTNAME="${APP_NAME}.fly.dev"
