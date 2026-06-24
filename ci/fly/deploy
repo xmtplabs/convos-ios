@@ -59,25 +59,30 @@ echo "Allocating IP addresses..." >&2
 flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
-# Deploy multi-container machine.
-#
-# `flyctl machine run` requires an <image> positional even when
-# --machine-config fully specifies the containers (see `machine run --help`:
-# "machine run <image> [command] [flags]"). Without it, flyctl prompts for the
-# image and FLYCTL_NO_PROMPT turns that into "prompt: non interactive".
-#
-# We pass the first container's image so that if flyctl maps the positional
-# onto the default container it is a no-op; the authoritative container set
-# still comes from --machine-config. Keep this in sync with the first entry in
-# machine-config.json (currently the "db" container, postgres:16).
+# Deploy multi-container machine
 echo "Deploying multi-container machine..." >&2
-flyctl machine run "postgres:16" \
+
+# --- TEMPORARY CI DEBUG: capture the exact prompt text ---
+# Adding the <image> positional did not help and FLYCTL_NO_PROMPT hides the
+# actual question. Re-run with prompting ENABLED but stdin closed (/dev/null):
+# flyctl prints the prompt it is stuck on, then fails on EOF. --debug adds
+# traces. We capture everything, print it, and fail the step.
+echo "DEBUG: probing for the actual prompt (prompts on, stdin=/dev/null)" >&2
+set +e
+env -u FLYCTL_NO_PROMPT flyctl machine run "postgres:16" \
     --app "$APP_NAME" \
     --region "$FLY_REGION" \
     --rm \
     --restart no \
     --machine-config "$MACHINE_CONFIG" \
-    --verbose
+    --debug < /dev/null > /tmp/flyprobe.log 2>&1
+PROBE_RC=$?
+set -e
+echo "DEBUG: probe exit code: $PROBE_RC" >&2
+echo "DEBUG: ---- probe output start ----" >&2
+cat /tmp/flyprobe.log >&2 || true
+echo "DEBUG: ---- probe output end ----" >&2
+exit 1
 
 # Wait for TLS to be ready
 APP_HOSTNAME="${APP_NAME}.fly.dev"
