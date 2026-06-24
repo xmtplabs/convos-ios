@@ -307,13 +307,36 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         servicesStore
     }
 
+    /// One shared serialization choke point for every per-sender
+    /// `ProfileUpdate.metadata` write (connections, timezone, ...). The shared
+    /// instance is what lets a connections write and a timezone write queue
+    /// behind each other instead of clobbering the per-sender metadata map.
+    private lazy var sharedProfileMetadataWriter: ProfileMetadataWriter = ProfileMetadataWriter(
+        myProfileWriter: myProfileWriter(),
+        databaseReader: databaseReader
+    )
+
+    func profileMetadataWriter() -> any ProfileMetadataWriterProtocol {
+        sharedProfileMetadataWriter
+    }
+
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         CloudConnectionGrantWriter(
             sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            myProfileWriter: myProfileWriter(),
+            profileMetadataWriter: sharedProfileMetadataWriter,
             servicesStore: servicesStore
+        )
+    }
+
+    func agentTimezonePublisher() async throws -> any AgentTimezonePublishing {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        return AgentTimezonePublisher(
+            profileMetadataWriter: sharedProfileMetadataWriter,
+            databaseReader: databaseReader,
+            myInboxId: inboxReady.client.inboxId,
+            appGroupIdentifier: environment.appGroupIdentifier
         )
     }
 

@@ -113,6 +113,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
+    /// Opportunistic foreground republish of the user's timezone across every
+    /// agent conversation (agent-timezone Channel B refresh). Throttled so a
+    /// conversation is only republished when the device timezone changed since
+    /// the last published value. Call only from the foregrounded main app.
+    func republishAgentTimezones() async
+
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
     /// Owns the direct agent-builder generation lifecycle (submit -> poll ->

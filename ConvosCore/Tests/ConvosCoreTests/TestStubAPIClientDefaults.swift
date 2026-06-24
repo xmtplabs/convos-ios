@@ -40,6 +40,7 @@ extension ConvosAPIClientProtocol {
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         ConvosAPI.AgentJoinResponse(
@@ -192,6 +193,7 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
         conversationId: String?,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
+        timezone: String?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         ConvosAPI.AgentJoinResponse(

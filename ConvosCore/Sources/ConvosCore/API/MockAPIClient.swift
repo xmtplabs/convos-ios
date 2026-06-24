@@ -100,6 +100,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         conversationId: String? = nil,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
+        timezone: String? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")

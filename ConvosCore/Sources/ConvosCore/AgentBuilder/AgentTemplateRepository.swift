@@ -380,6 +380,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                         conversationId: row.conversationId,
                         templateId: templateId,
                         options: nil,
+                        timezone: nil,
                         forceErrorCode: nil
                     )
                 }

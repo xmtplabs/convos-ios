@@ -307,6 +307,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         )
     }
 
+    func republishAgentTimezones() async {
+        await base.republishAgentTimezones()
+    }
+
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
         base.voiceMemoTranscriptRepository()
     }
