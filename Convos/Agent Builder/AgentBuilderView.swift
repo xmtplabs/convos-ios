@@ -96,11 +96,13 @@ struct AgentBuilderView: View {
 
     /// The dice is shown only when hints exist in memory and the draft is in a
     /// state that permits a roll (no attachments / connections, composer empty
-    /// or showing an unedited dice result). Hoisted to a typed `Bool` so the
-    /// toolbar modifier chain stays inside the type-check budget.
+    /// or showing an unedited dice result). It is also hidden once the builder
+    /// has committed, otherwise `commit()` clearing `composerText` would let the
+    /// dice reappear in the revealed conversation's toolbar. Hoisted to a typed
+    /// `Bool` so the toolbar modifier chain stays inside the type-check budget.
     private var isDiceVisible: Bool {
         let hintsAvailable: Bool = !(promptHints?.hints.isEmpty ?? true)
-        return hintsAvailable && viewModel.allowsDiceRoll
+        return hintsAvailable && viewModel.allowsDiceRoll && !viewModel.hasCommitted
     }
 
     private var composerHintText: String {
