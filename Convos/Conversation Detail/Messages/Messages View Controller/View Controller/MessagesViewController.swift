@@ -395,7 +395,13 @@ final class MessagesViewController: UIViewController {
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
-    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// When nil, the data source forwards nil into `CellConfig` so the bubble's
+    /// "Read more" detail button is suppressed (nil-handler => no button). The
+    /// `didSet` re-applies that mapping whenever the host wires or clears the
+    /// handler, after the data source has been created during setup.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)? {
+        didSet { applyOpenMessageDetailToDataSource() }
+    }
     var onToggleMessageExpanded: ((String) -> Void)?
     /// Message ids whose long-body inline expansion is on. Owned by the VM and
     /// pushed in each render so expansion survives cell reuse; forwarded to the
@@ -484,6 +490,17 @@ final class MessagesViewController: UIViewController {
     /// Reconfigures the visible message cells that contain any of the given
     /// message ids. Used when the long-body expansion set flips, since that
     /// change carries no DifferenceKit changeset on its own.
+    /// Forwards the host's optional detail handler to the data source, keeping
+    /// it nil when the host wired none so the bubble's "Read more" detail button
+    /// is suppressed. Called at setup and from `onOpenMessageDetail.didSet`, so
+    /// it stays correct regardless of whether the host sets the handler before
+    /// or after the data source is created.
+    private func applyOpenMessageDetailToDataSource() {
+        dataSource.onOpenMessageDetail = onOpenMessageDetail.map { _ in
+            { [weak self] message in self?.onOpenMessageDetail?(message) }
+        }
+    }
+
     private func reconfigureCells(forMessageIds messageIds: Set<String>) {
         guard !messageIds.isEmpty else { return }
         var indexPaths: [IndexPath] = []
@@ -691,9 +708,7 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onReply?(message)
         }
-        dataSource.onOpenMessageDetail = { [weak self] message in
-            self?.onOpenMessageDetail?(message)
-        }
+        applyOpenMessageDetailToDataSource()
         dataSource.onToggleMessageExpanded = { [weak self] messageId in
             self?.onToggleMessageExpanded?(messageId)
         }

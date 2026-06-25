@@ -29,8 +29,9 @@ struct CellConfig {
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     /// Surfaces a pathological text bubble's "Read More" tap so the host can
-    /// present `MessageDetailView`.
-    let onOpenMessageDetail: (AnyMessage) -> Void
+    /// present `MessageDetailView`. Nil when no host handler is wired, which
+    /// suppresses the button (nil-handler => no button contract).
+    let onOpenMessageDetail: ((AnyMessage) -> Void)?
     /// Message ids with long-body inline expansion on (owned by the VM, so it
     /// survives `UICollectionView` cell reuse).
     let expandedMessageIds: Set<String>

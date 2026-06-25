@@ -121,8 +121,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onReply: { [weak self] message in
                 self?.onReply?(message)
             },
-            onOpenMessageDetail: { [weak self] message in
-                self?.onOpenMessageDetail?(message)
+            onOpenMessageDetail: onOpenMessageDetail.map { _ in
+                { [weak self] message in self?.onOpenMessageDetail?(message) }
             },
             expandedMessageIds: expandedMessageIds,
             onToggleMessageExpanded: { [weak self] messageId in

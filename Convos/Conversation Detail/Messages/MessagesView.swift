@@ -66,7 +66,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
-    var onOpenMessageDetail: (AnyMessage) -> Void = { _ in }
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
     var expandedMessageIds: Set<String> = []
     var onToggleMessageExpanded: (String) -> Void = { _ in }
     let replyingToMessage: AnyMessage?

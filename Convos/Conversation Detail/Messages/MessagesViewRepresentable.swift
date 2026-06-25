@@ -22,9 +22,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
     /// Surfaces a pathological text bubble's "Read More" tap to the host so it
-    /// can present `MessageDetailView`. Default no-op for hosts (the thinking
-    /// detail sheet) that don't present a message detail.
-    var onOpenMessageDetail: (AnyMessage) -> Void = { _ in }
+    /// can present `MessageDetailView`. Nil for hosts that don't present a
+    /// message detail, which suppresses the bubble's "Read more" detail button.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
     /// Message ids with long-body inline expansion on (owned by the VM so it
     /// survives cell reuse). Default empty for hosts that never expand.
     var expandedMessageIds: Set<String> = []
