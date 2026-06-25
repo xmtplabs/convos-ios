@@ -17,8 +17,9 @@ Verify the two-tier long-message UX that fixes the dominant CoreText app-hang. S
 
 The CLI has no "send long text" helper, so send pre-generated strings whose first ~40 characters contain a stable marker. Generate them with:
 
-- Long (~800 chars, marker `LONG43B`):
-  `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*30)"`
+- Long (~800 chars, marker `LONG43B`; prose names the 500-char threshold so the
+  in-sim text matches the current tuning):
+  `python3 -c "print('LONG43B This message is over the five-hundred character preview threshold, so it shows a bounded preview with a Read more button that expands it inline. ' + 'It keeps going past five hundred characters but stays under the fifteen-hundred pathological threshold so it expands in place. '*5)"`
 - Pathological (~3000 chars, marker `HUGE43C`):
   `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*110)"`
 

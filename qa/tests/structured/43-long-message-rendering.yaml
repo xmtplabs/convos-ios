@@ -58,9 +58,10 @@ steps:
       Send a body of roughly 800 characters that crosses the long threshold
       (500) but stays under pathological (1500). The body MUST start with the
       marker "LONG43B " so `label_contains` targets a short stable substring,
-      not the whole giant body. Generator (bash):
-      `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*30)"`
-      yields ~820 chars. Send that string verbatim via cli_send_text.
+      not the whole giant body. The sample prose names the 500-char threshold so
+      what shows in the sim matches the current tuning. Generator (bash):
+      `python3 -c "print('LONG43B This message is over the five-hundred character preview threshold, so it shows a bounded preview with a Read more button that expands it inline. ' + 'It keeps going past five hundred characters but stays under the fifteen-hundred pathological threshold so it expands in place. '*5)"`
+      yields ~790 chars. Send that string verbatim via cli_send_text.
 
   - id: long_message_expands_inline
     name: "Read More expands the long message inline"
