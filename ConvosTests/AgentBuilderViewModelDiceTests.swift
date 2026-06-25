@@ -77,6 +77,48 @@ final class AgentBuilderViewModelDiceTests: XCTestCase {
         XCTAssertEqual(viewModel.promptHintTapCount, 3)
     }
 
+    func testEchoedSetDoesNotRegisterPhantomEdit() {
+        let viewModel = makeViewModel()
+        viewModel.rollDice(hints: ["seeded prompt"])
+        XCTAssertEqual(viewModel.composerTextSource, .dice)
+
+        // A re-presented sheet reconstructs the text field, which echoes the
+        // current value back through the binding with no real keystroke. That
+        // must not count as an edit, otherwise the first dice tap after a reopen
+        // hides the dice.
+        viewModel.composerTextBinding.wrappedValue = viewModel.composerText
+        XCTAssertEqual(viewModel.composerTextSource, .dice,
+                       "An echoed no-op write must not flip the source to manual")
+        XCTAssertTrue(viewModel.allowsDiceRoll,
+                      "The dice must stay visible after an echoed no-op write")
+        XCTAssertTrue(viewModel.fromPromptHint,
+                      "An echoed no-op write must not clear the metrics flag")
+    }
+
+    func testReopenThenRollKeepsDiceVisible() {
+        let viewModel = makeViewModel()
+        let hints = ["one", "two", "three"]
+        viewModel.rollDice(hints: hints)
+
+        // Simulate the sheet reopen: the reconstructed field echoes the held
+        // hint, then the user taps the dice once.
+        viewModel.composerTextBinding.wrappedValue = viewModel.composerText
+        viewModel.rollDice(hints: hints)
+        XCTAssertEqual(viewModel.composerTextSource, .dice)
+        XCTAssertTrue(viewModel.allowsDiceRoll,
+                      "The first dice tap after a reopen must keep the dice visible")
+    }
+
+    func testGenuineEditStillHidesDiceAfterRoll() {
+        let viewModel = makeViewModel()
+        viewModel.rollDice(hints: ["seeded prompt"])
+        viewModel.composerTextBinding.wrappedValue = "seeded prompt edited by hand"
+        XCTAssertEqual(viewModel.composerTextSource, .manual,
+                       "A real keystroke that changes the text must mark the source manual")
+        XCTAssertFalse(viewModel.allowsDiceRoll,
+                       "Genuinely edited text should hide the dice")
+    }
+
     func testEmptyHintsAreIgnored() {
         let viewModel = makeViewModel()
         viewModel.rollDice(hints: [])

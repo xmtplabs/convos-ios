@@ -170,16 +170,20 @@ final class AgentBuilderViewModel: Identifiable {
     private var lastRolledHint: String?
 
     /// Binding the composer's text field uses instead of `$viewModel.composerText`.
-    /// SwiftUI invokes the setter only on user keystrokes -- never on the
-    /// programmatic assignment the dice performs -- so editing flips the source
-    /// to `.manual` (hiding the dice once non-empty), while a dice roll keeps it
-    /// `.dice` (dice stays visible for re-rolls). Clearing the box resets the
-    /// metrics `fromPromptHint` flag.
+    /// A genuine keystroke changes the text and flips the source to `.manual`
+    /// (hiding the dice once non-empty), while a dice roll assigns `composerText`
+    /// directly and keeps the source `.dice` (dice stays visible for re-rolls).
+    /// A re-presented sheet reconstructs the field, which can echo the current
+    /// value back through this setter with no real edit, so writes that don't
+    /// change the text are ignored -- otherwise the first dice tap after a reopen
+    /// would register a phantom edit, flip the source to `.manual`, and hide the
+    /// dice. Clearing the box resets the metrics `fromPromptHint` flag.
     var composerTextBinding: Binding<String> {
         Binding(
             get: { [weak self] in self?.composerText ?? "" },
             set: { [weak self] newValue in
                 guard let self else { return }
+                guard newValue != self.composerText else { return }
                 self.composerText = newValue
                 self.composerTextSource = .manual
                 if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
