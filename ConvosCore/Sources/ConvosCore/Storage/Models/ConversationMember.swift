@@ -83,6 +83,26 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         }
         return profile.displayName
     }
+
+    /// Fallback-only contact resolution: the per-conversation profile name
+    /// **wins** when present, and the contact name is used only to fill an
+    /// empty name (in place of "Somebody"/"Agent"). Unlike
+    /// `displayName(memberNameOverride:)`, this can never replace a name that is
+    /// already rendering correctly - it can only turn a blank into a real name -
+    /// so it is the safe choice for message-derived surfaces. Pass
+    /// `{ _ in nil }` for the legacy behavior (no fallback).
+    public func displayName(contactNameFallback: (String) -> String?) -> String {
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if let fallback = contactNameFallback(profile.inboxId), !fallback.isEmpty {
+            return fallback
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
+    }
 }
 
 public extension Array where Element == ConversationMember {

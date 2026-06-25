@@ -494,7 +494,9 @@ actor StreamProcessor: StreamProcessorProtocol {
                     avatar: nil
                 )
 
-                profile = profile.with(name: update.hasName ? update.name : nil)
+                // Never clear an existing name with a name-less/blank update
+                // (see DBMemberProfile.withInboundName).
+                profile = profile.withInboundName(update.hasName ? update.name : nil)
 
                 if update.hasEncryptedImage, update.encryptedImage.isValid {
                     let encryptionKey: Data? = if let existingKey = profile.avatarKey {

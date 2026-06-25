@@ -88,6 +88,75 @@ struct ProfilePersistenceTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("A name-less inbound ProfileUpdate does not clear an existing member name (catch-up)")
+    func nameLessUpdateDoesNotClearExistingName() async throws {
+        let fixtures = TestFixtures()
+        try await fixtures.createTestClients()
+
+        guard let clientA = fixtures.clientA as? Client,
+              let clientB = fixtures.clientB as? Client,
+              let clientIdB = fixtures.clientIdB else {
+            throw TestError.missingClients
+        }
+
+        let inboxIdB = clientB.inboxID
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdB, clientId: clientIdB, createdAt: Date()).insert(db)
+        }
+
+        let group = try await clientA.conversations.newGroup(
+            with: [clientB.inboxID],
+            name: "Test Group"
+        )
+
+        // A publishes a name-less ProfileUpdate (e.g. the startup ping an agent
+        // sends, or any partial update). Reprocessing it on catch-up must not
+        // clear A's already-known name and surface "Somebody".
+        let nameLessUpdate = ProfileUpdate()
+        _ = try await group.send(encodedContent: try ProfileUpdateCodec().encode(content: nameLessUpdate))
+
+        try await clientB.conversations.sync()
+        let groupB = try #require(try clientB.conversations.listGroups().first { $0.id == group.id })
+        try await groupB.sync()
+
+        let mockMessageWriter = MockIncomingMessageWriter()
+        let conversationWriter = ConversationWriter(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            messageWriter: mockMessageWriter
+        )
+
+        // First store persists the conversation + member rows (so the
+        // memberProfile foreign keys resolve) and processes the name-less
+        // update, leaving A with no name.
+        _ = try await conversationWriter.store(
+            conversation: groupB,
+            inboxId: inboxIdB
+        )
+
+        // Seed a previously-known name for A now that the conversation row
+        // exists. This models a name we already had before re-running catch-up.
+        try await fixtures.databaseManager.dbWriter.write { db in
+            let existing = try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: clientA.inboxID)
+                ?? DBMemberProfile(conversationId: group.id, inboxId: clientA.inboxID, name: nil, avatar: nil)
+            try existing.with(name: "Alice").save(db)
+        }
+
+        // Re-running store reprocesses the same name-less update from history.
+        // With the guard, A's name must survive (not revert to "Somebody").
+        _ = try await conversationWriter.store(
+            conversation: groupB,
+            inboxId: inboxIdB
+        )
+
+        let profile = try await fixtures.databaseManager.dbReader.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: clientA.inboxID)
+        }
+        #expect(profile?.name == "Alice")
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("AppData profile fills gap for member without message-sourced data")
     func appDataProfileFillsGap() async throws {
         let fixtures = TestFixtures()

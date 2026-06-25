@@ -14,7 +14,8 @@ extension DBLastMessageWithSource {
     func hydrateMessagePreview(
         conversationKind: ConversationKind,
         currentInboxId: String,
-        members: [DBConversationMemberProfileWithRole]
+        members: [DBConversationMemberProfileWithRole],
+        contactNameResolver: (String) -> String? = { _ in nil }
     ) -> MessagePreview {
         let text: String
         let isCurrentUser = senderId == currentInboxId
@@ -24,7 +25,9 @@ extension DBLastMessageWithSource {
         // pattern `resolvedMemberDisplayName` uses in ModelMocks.swift.
         let senderName = Self.resolveSenderName(
             isCurrentUser: isCurrentUser,
-            profile: senderProfile?.memberProfile
+            inboxId: senderId,
+            profile: senderProfile?.memberProfile,
+            contactNameResolver: contactNameResolver
         )
         let attachmentsCount = attachmentUrls.count
         let attachmentsString = Self.attachmentsPreviewString(attachmentUrls: attachmentUrls, count: attachmentsCount)
@@ -146,17 +149,22 @@ extension DBLastMessageWithSource {
     }
 
     /// Resolves the sender's rendered name for a message preview row.
-    /// Precedence: "You" for the local user, the per-conversation profile
-    /// name when set, then "Agent" / "Somebody" keyed on the profile's
-    /// `isAgent` (mirrors `Profile.displayName`). Hoisted out of
-    /// `hydrateMessagePreview` so the agent-aware branch doesn't push that
-    /// function past the cyclomatic complexity threshold.
+    /// Precedence: "You" for the local user, the per-conversation profile name
+    /// when set, then the local contact name as a fallback, then "Agent" /
+    /// "Somebody" keyed on `isAgent`. The contact name is fallback-only (it
+    /// fills an empty name, it does not override a present one), matching the
+    /// in-chat bubble. Hoisted out of `hydrateMessagePreview` so the extra
+    /// branch doesn't push that function past the cyclomatic complexity
+    /// threshold.
     private static func resolveSenderName(
         isCurrentUser: Bool,
-        profile: DBMemberProfile?
+        inboxId: String,
+        profile: DBMemberProfile?,
+        contactNameResolver: (String) -> String? = { _ in nil }
     ) -> String {
         if isCurrentUser { return "You" }
         if let name = profile?.name, !name.isEmpty { return name }
+        if let contactName = contactNameResolver(inboxId), !contactName.isEmpty { return contactName }
         return profile?.isAgent == true ? "Agent" : "Somebody"
     }
 

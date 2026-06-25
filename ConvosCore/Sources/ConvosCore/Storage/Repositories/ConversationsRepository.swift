@@ -95,11 +95,19 @@ extension Array where Element == DBConversationDetails {
         // Empty string when no inbox is authorized yet — hydration treats
         // that as "no member is current user".
         let currentInboxId = try DBInbox.currentInboxId(database) ?? ""
+        // Fallback contact name for the last-message preview when a member's
+        // per-conversation name is empty. Fetching here also registers this
+        // observation on the `contact` table, so a contact rename refreshes the
+        // list previews.
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: database)
         let dbConversations: [DBConversationDetails] = self
 
         let conversations: [Conversation] = dbConversations
             .compactMap { dbConversationDetails in
-            dbConversationDetails.hydrateConversation(currentInboxId: currentInboxId)
+            dbConversationDetails.hydrateConversation(
+                currentInboxId: currentInboxId,
+                contactNameResolver: contactNameResolver
+            )
         }
 
         return conversations
@@ -204,7 +212,8 @@ fileprivate extension Database {
             .fetchOne(self)
         guard let details = dbConversationDetails else { return nil }
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
-        return details.hydrateConversation(currentInboxId: currentInboxId)
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
+        return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
     }
 }
 

@@ -270,12 +270,14 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     /// the snapshot should be applied; returns `nil` if the caller should
     /// leave the stored row untouched.
     ///
-    /// The snapshot is treated as one authoritative unit: when applied,
-    /// every profile field on the stored row is replaced by the snapshot's
-    /// value (including `nil`s, which clear the stored field). There is no
-    /// per-field merging. This matches the wire-format contract for
-    /// `ProfileUpdate`, where a message with no name and no encrypted
-    /// image clears the sender's profile.
+    /// The snapshot is treated as one authoritative unit: when applied, every
+    /// profile field on the stored row is replaced by the snapshot's value
+    /// (including `nil`s, which clear the stored field), matching the wire-
+    /// format contract for `ProfileUpdate` where a message with no encrypted
+    /// image clears the sender's avatar. The exceptions are the sticky fields
+    /// in `DBContact.replacingProfileFields`: `displayName` (a blank incoming
+    /// name never clears the stored name) and the agent-template identity
+    /// columns. There is otherwise no per-field merging.
     ///
     /// Application rules:
     /// - Untimestamped snapshots (`profile.profileUpdatedAt == nil`) never
@@ -284,8 +286,8 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     ///   profiles) and the stored row is authoritative.
     /// - Timestamped snapshots older than the stored `profileUpdatedAt`
     ///   are dropped (most-recent-wins).
-    /// - Timestamped snapshots greater-than-or-equal to the stored
-    ///   timestamp wholesale-replace every profile field on the row.
+    /// - Timestamped snapshots greater-than-or-equal to the stored timestamp
+    ///   replace the row's profile fields (subject to the sticky exceptions).
     private static func replacingProfile(
         of existing: DBContact,
         with profile: ContactProfileSnapshot

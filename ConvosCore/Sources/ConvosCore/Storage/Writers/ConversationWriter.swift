@@ -1133,7 +1133,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             db, conversationId: conversationId, inboxId: inboxId
         ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
 
-        profile = profile.with(name: name)
+        // Never clear an existing name with a name-less/blank update. This is
+        // the catch-up/history apply path (cold launch, reconnect, conversation
+        // open, backfill) (see DBMemberProfile.withInboundName).
+        profile = profile.withInboundName(name)
 
         if let image = encryptedImage, image.isValid {
             profile = profile.with(
