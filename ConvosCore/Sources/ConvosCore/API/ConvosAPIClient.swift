@@ -118,6 +118,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// serves them to anonymous callers (mirrors `getAgentTemplate`).
     func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
 
+    /// Lists curated agent prompt hints (`GET /v2/agent-prompt-hints`) -- a flat
+    /// array of short prompt strings used to seed the agent builder's composer
+    /// via the dice control. Unauthenticated: the hints are public, so
+    /// `request(for:)` builds a bare GET (no auth header), mirroring
+    /// `getFeaturedAgentTemplates`.
+    func getAgentPromptHints() async throws -> [String]
+
     /// Submits an async template generation (`POST /v2/agent-templates/generations`).
     /// Returns 202 with `status: pending` by default; the caller polls
     /// `getAgentTemplateGeneration` for the terminal state. `idempotencyKey`
@@ -949,6 +956,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
         let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
+    }
+
+    func getAgentPromptHints() async throws -> [String] {
+        // Public, unauthenticated GET -- the curated hints are not user-scoped,
+        // so `request(for:)` builds a bare GET (no auth header).
+        let request = try request(for: "v2/agent-prompt-hints")
+        let response: ConvosAPI.AgentPromptHintsResponse = try await performRequest(request)
+        return response.hints
     }
 
     func createAgentTemplateGeneration(

@@ -221,7 +221,7 @@ struct AgentDraftComposer: View {
     private var textField: some View {
         TextField(
             textFieldPlaceholder,
-            text: $viewModel.composerText,
+            text: viewModel.composerTextBinding,
             axis: .vertical
         )
         .focused(focusState, equals: .agentBuilder)
