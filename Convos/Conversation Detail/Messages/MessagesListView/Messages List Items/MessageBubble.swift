@@ -72,6 +72,18 @@ struct MessageBubble: View {
         }
     }
 
+    /// Subtle outline for the "Read more" pill. Mirrors the bubble's
+    /// inverted/non-inverted context: on an outgoing (dark) bubble the border
+    /// is the inverted subtle grey, on an incoming (light) bubble it is the
+    /// standard subtle border so the outline stays visible against the fill.
+    private var readMoreBorderColor: Color {
+        if isOutgoing {
+            return Color.colorFillInvertedSubtle
+        } else {
+            return Color.colorBorderSubtle
+        }
+    }
+
     private var lengthClass: MessageLengthClass {
         MessageBodyClassifier.classify(message)
     }
@@ -136,7 +148,7 @@ struct MessageBubble: View {
         // collapsed. Expanding lifts the line cap (links in the full text still
         // render as plain Text inline); the detail view's UITextView is where
         // links become individually tappable.
-        VStack(alignment: .leading, spacing: 4.0) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             longBodyText(lineCap: lineCap)
             if !isExpanded {
                 let expandAction: () -> Void = {
@@ -170,7 +182,7 @@ struct MessageBubble: View {
         // The bounded preview is plain truncated Text, so links in it are not
         // individually tappable here. Tappable links live in the detail view's
         // UITextView, which "Read More" opens.
-        VStack(alignment: .leading, spacing: 4.0) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Text(message)
                 .font(.callout)
                 .foregroundStyle(textColor)
@@ -181,12 +193,27 @@ struct MessageBubble: View {
         .contentShape(Rectangle())
     }
 
+    /// Distinct, bordered "Read more" pill (per Quarter's Figma spec): a
+    /// rounded-rect outline with the same subtle inverted/non-inverted border
+    /// as the surrounding bubble, so the affordance reads as a tappable button
+    /// rather than blending into the message text.
     @ViewBuilder
     private func readMoreButton(action: @escaping () -> Void, hint: String) -> some View {
+        let cornerRadius: CGFloat = DesignConstants.CornerRadius.regular
+        let horizontalPadding: CGFloat = DesignConstants.Spacing.step4x
+        let verticalPadding: CGFloat = DesignConstants.Spacing.step2x
+        let borderColor: Color = readMoreBorderColor
+        let labelColor: Color = textColor
         Button(action: action) {
-            Text("Read More")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(textColor.opacity(0.75))
+            Text("Read more")
+                .font(DesignConstants.Fonts.buttonText)
+                .foregroundStyle(labelColor)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(borderColor, lineWidth: 1.0)
+                )
         }
         .buttonStyle(.plain)
         .accessibilityHint(hint)
