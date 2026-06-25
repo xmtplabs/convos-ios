@@ -214,42 +214,18 @@ struct MessageBubble: View {
         .contentShape(Rectangle())
     }
 
-    /// Distinct, bordered "Read more" pill (per Quarter's Figma spec): a
-    /// rounded-rect outline with the same subtle inverted/non-inverted border
-    /// as the surrounding bubble, so the affordance reads as a tappable button
-    /// rather than blending into the message text.
+    /// Distinct, bordered "Read more" pill (per Quarter's Figma spec). The
+    /// message bubble sits under the `.messageGesture(...)` overlay, so the
+    /// shared `ReadMoreButton` keeps its gesture-passthrough marker here.
     @ViewBuilder
     private func readMoreButton(action: @escaping () -> Void, hint: String) -> some View {
-        let cornerRadius: CGFloat = DesignConstants.CornerRadius.regular
-        let horizontalPadding: CGFloat = DesignConstants.Spacing.step4x
-        let verticalPadding: CGFloat = DesignConstants.Spacing.step2x
-        let borderColor: Color = readMoreBorderColor
-        let labelColor: Color = textColor
-        Button(action: action) {
-            Text("Read more")
-                .font(DesignConstants.Fonts.buttonText)
-                .foregroundStyle(labelColor)
-                .padding(.horizontal, horizontalPadding)
-                .padding(.vertical, verticalPadding)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(borderColor, lineWidth: 1.0)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint(hint)
-        // The bubble is wrapped by `.messageGesture(...)`, whose gesture
-        // overlay swallows taps on plain in-bubble controls (its `hitTest`
-        // returns the overlay unless the point hits a `LinkHitTestable` view
-        // or a passthrough marker). Mark this button so the overlay lets the
-        // tap through, mirroring the voice-memo transcript buttons. Hide the
-        // marker from accessibility so the representable doesn't surface a
-        // second element carrying the button's identifier.
-        .background(
-            GesturePassthroughBackground()
-                .accessibilityHidden(true)
+        ReadMoreButton(
+            action: action,
+            accessibilityHint: hint,
+            borderColor: readMoreBorderColor,
+            labelColor: textColor,
+            gesturePassthrough: true
         )
-        .accessibilityIdentifier("message-read-more-button")
     }
 }
 
