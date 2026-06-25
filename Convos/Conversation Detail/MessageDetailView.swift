@@ -34,7 +34,7 @@ struct MessageDetailView: View {
 
     var body: some View {
         NavigationStack {
-            SelectableTextView(text: bodyText)
+            SelectableTextView(text: bodyText, bottomClearance: Constant.bottomContentClearance)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .safeAreaInset(edge: .bottom) { bottomActionBar }
                 .navigationTitle("Message")
@@ -89,6 +89,15 @@ struct MessageDetailView: View {
 
     private enum Constant {
         static let actionButtonSize: CGFloat = 44.0
+        /// Bottom content inset for the scrolling body so its last line and
+        /// scroll indicator clear the floating Copy/Reply buttons. Covers the
+        /// button height, the action bar's bottom padding, and a comfortable
+        /// gap. The bottom safe-area inset is added on top automatically by the
+        /// text view's `adjustedContentInset` (the bar is placed via
+        /// `safeAreaInset`, the body extends under it via `ignoresSafeArea`).
+        static let bottomContentClearance: CGFloat = actionButtonSize
+            + DesignConstants.Spacing.step3x
+            + DesignConstants.Spacing.step4x
     }
 }
 
@@ -99,6 +108,11 @@ struct MessageDetailView: View {
 /// incrementally instead of measuring the whole string up front.
 private struct SelectableTextView: UIViewRepresentable {
     let text: String
+    /// Extra bottom inset so the final line and scroll indicator sit above the
+    /// floating Copy/Reply buttons. Applied as `contentInset.bottom` (not
+    /// `textContainerInset`) so the scroll indicator is inset too; the bottom
+    /// safe area is added on top by `adjustedContentInset`.
+    let bottomClearance: CGFloat
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -118,6 +132,10 @@ private struct SelectableTextView: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         if uiView.text != text {
             uiView.text = text
+        }
+        if uiView.contentInset.bottom != bottomClearance {
+            uiView.contentInset.bottom = bottomClearance
+            uiView.verticalScrollIndicatorInsets.bottom = bottomClearance
         }
     }
 }
