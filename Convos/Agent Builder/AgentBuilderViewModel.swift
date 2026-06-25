@@ -104,6 +104,16 @@ enum AgentBuilderEntryMode {
     case voiceMemo
 }
 
+/// Whether the composer's current text was dropped by the dice (`.dice`) or
+/// typed / edited by the user (`.manual`). Drives dice *visibility* only: the
+/// dice stays visible while re-rolling (text stays `.dice`) and hides as soon
+/// as the user edits (flips to `.manual`). Deliberately separate from the
+/// metrics-facing `fromPromptHint` flag, which survives edits.
+enum ComposerTextSource {
+    case manual
+    case dice
+}
+
 @MainActor
 @Observable
 final class AgentBuilderViewModel: Identifiable {
@@ -138,6 +148,46 @@ final class AgentBuilderViewModel: Identifiable {
     let newConversationViewModel: NewConversationViewModel
 
     var composerText: String = ""
+
+    /// Source of the current `composerText`, used purely to decide whether the
+    /// dice control stays visible (see `allowsDiceRoll`). Flips to `.manual` on
+    /// any user keystroke via `composerTextBinding`'s setter; a programmatic
+    /// dice roll keeps it `.dice`.
+    private(set) var composerTextSource: ComposerTextSource = .manual
+
+    /// Metrics-only: `true` once a dice hint seeded the prompt, and stays true
+    /// through subsequent edits. Reset to `false` only when the composer is
+    /// emptied. Reported on the `built_agent` event as `from_prompt_hint`.
+    private(set) var fromPromptHint: Bool = false
+
+    /// Metrics-only: running count of dice taps in this builder session.
+    /// Reported on every `prompt_hint_tapped` event and on `built_agent`.
+    private(set) var promptHintTapCount: Int = 0
+
+    /// Last hint dropped by the dice, so a re-roll can avoid an immediate
+    /// repeat. Not observed -- it only influences the next roll.
+    @ObservationIgnored
+    private var lastRolledHint: String?
+
+    /// Binding the composer's text field uses instead of `$viewModel.composerText`.
+    /// SwiftUI invokes the setter only on user keystrokes -- never on the
+    /// programmatic assignment the dice performs -- so editing flips the source
+    /// to `.manual` (hiding the dice once non-empty), while a dice roll keeps it
+    /// `.dice` (dice stays visible for re-rolls). Clearing the box resets the
+    /// metrics `fromPromptHint` flag.
+    var composerTextBinding: Binding<String> {
+        Binding(
+            get: { [weak self] in self?.composerText ?? "" },
+            set: { [weak self] newValue in
+                guard let self else { return }
+                self.composerText = newValue
+                self.composerTextSource = .manual
+                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.fromPromptHint = false
+                }
+            }
+        )
+    }
 
     /// Routes attachment state through the underlying conversation view
     /// model so eager upload + thumbnail generation are reused. The view
@@ -496,6 +546,51 @@ final class AgentBuilderViewModel: Identifiable {
             || !enabledConnections.isEmpty
     }
 
+    // MARK: - Dice / prompt hints
+
+    /// Whether the dice control's draft preconditions hold: no staged
+    /// attachments (media, voice memo, recording, or connections) and the
+    /// composer is either empty or still showing an unedited dice result. The
+    /// hints-non-empty check is layered on by the view (`isDiceVisible`).
+    var allowsDiceRoll: Bool {
+        guard pendingMediaAttachments.isEmpty else { return false }
+        guard recordedVoiceMemo == nil, !isRecordingVoiceMemo else { return false }
+        guard enabledConnections.isEmpty else { return false }
+        let trimmed: String = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || composerTextSource == .dice
+    }
+
+    /// Drops a random hint into the composer, avoiding an immediate repeat of
+    /// the current one. Marks the source `.dice` so the dice stays visible for
+    /// repeated re-rolls, sets the metrics `fromPromptHint` flag (which survives
+    /// later edits), and fires a `prompt_hint_tapped` metric carrying the
+    /// running tap count.
+    func rollDice(hints: [String]) {
+        let available: [String] = hints.filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !available.isEmpty else { return }
+        let chosen: String = Self.randomHint(from: available, avoiding: lastRolledHint)
+        lastRolledHint = chosen
+        composerText = chosen
+        composerTextSource = .dice
+        fromPromptHint = true
+        promptHintTapCount += 1
+        emitPromptHintTappedMetric()
+    }
+
+    /// Picks a random hint, excluding `current` when there is more than one
+    /// option so a tap never lands on the same hint twice in a row.
+    private static func randomHint(from hints: [String], avoiding current: String?) -> String {
+        let pool: [String]
+        if let current, hints.count > 1 {
+            pool = hints.filter { $0 != current }
+        } else {
+            pool = hints
+        }
+        return pool.randomElement() ?? hints.first ?? ""
+    }
+
     /// Set to true when the user taps Make. Until then the builder is in
     /// "draft" mode: the conversation indicator is non-interactive
     /// (renaming/re-imaging the draft happens *after* commit, in the
@@ -539,6 +634,11 @@ final class AgentBuilderViewModel: Identifiable {
 
         let textToSend = composerText
         composerText = ""
+        // Reset the dice visibility state now that the draft text is cleared.
+        // The metrics flags (`fromPromptHint`, `promptHintTapCount`) are read by
+        // `emitBuiltAgentMetric` just below, so they are left intact here.
+        composerTextSource = .manual
+        lastRolledHint = nil
         emitBuiltAgentMetric(text: textToSend, isSuccess: true)
 
         // Hand the prompt to the session-scoped repository, which submits the
@@ -891,6 +991,8 @@ extension AgentBuilderViewModel {
         let voiceMemoDuration: Float = recordedVoiceMemo.map { Float($0.duration) } ?? 0
         let connectionTypes: [String] = enabledConnections.map { $0.rawValue }
         let metricsEntryMode: ConvosMetrics.AgentBuilderEntryMode = (entryMode == .voiceMemo) ? .voiceMemo : .composer
+        let fromHint: Bool = fromPromptHint
+        let tapCount: Int = promptHintTapCount
         let actions: any CoreActions = coreActions
         Task {
             await actions.builtAgent(
@@ -902,8 +1004,20 @@ extension AgentBuilderViewModel {
                 voiceMemoDuration: voiceMemoDuration,
                 connectionTypes: connectionTypes,
                 entryMode: metricsEntryMode,
-                isSuccess: isSuccess
+                isSuccess: isSuccess,
+                fromPromptHint: fromHint,
+                tapCount: tapCount
             )
+        }
+    }
+
+    /// Fires the `prompt_hint_tapped` event on each dice tap, carrying the
+    /// running per-session tap count, through the shared metrics `CoreActions`.
+    private func emitPromptHintTappedMetric() {
+        let tapCount: Int = promptHintTapCount
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.promptHintTapped(tapCount: tapCount)
         }
     }
 }

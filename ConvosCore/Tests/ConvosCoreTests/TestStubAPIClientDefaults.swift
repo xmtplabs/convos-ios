@@ -89,6 +89,13 @@ extension ConvosAPIClientProtocol {
         ConvosAPI.AgentTemplatesPage(data: [], hasMore: false, nextCursor: nil)
     }
 
+    /// Default for the agent prompt-hints list backing the builder's dice
+    /// control. Tests that exercise it specifically should override on their
+    /// fixture.
+    func getAgentPromptHints() async throws -> [String] {
+        []
+    }
+
     /// Defaults for the backend connection-grant push so pre-existing fixtures
     /// don't have to re-stub them. Tests that exercise the push specifically
     /// should override on their fixture.

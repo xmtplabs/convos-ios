@@ -117,6 +117,12 @@ struct MainTabView: View {
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    /// Curated agent-builder prompt hints, hydrated from disk on init and
+    /// refreshed once on launch (see `body`'s `.task`). Injected into the
+    /// environment so the agent builder's dice control -- in this view's
+    /// builder sheet and in builders presented from descendant conversation
+    /// screens -- can read the cached hints.
+    @State private var promptHints: PromptHintsModel = .live()
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -273,6 +279,10 @@ struct MainTabView: View {
 
     var body: some View {
         bodyCore
+            .environment(promptHints)
+            .task {
+                await promptHints.loadOnLaunch()
+            }
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()

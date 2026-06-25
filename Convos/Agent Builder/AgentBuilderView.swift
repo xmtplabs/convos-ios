@@ -27,6 +27,10 @@ struct AgentBuilderView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.openURL) private var openURL: OpenURLAction
+    /// Prewarmed prompt hints, injected at `MainTabView` scope. Optional so the
+    /// builder still renders (dice hidden) from entry points / previews that
+    /// don't provide it.
+    @Environment(PromptHintsModel.self) private var promptHints: PromptHintsModel?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
@@ -88,6 +92,15 @@ struct AgentBuilderView: View {
     /// avatar would default to the unverified grey style.
     private var forcedVerification: AgentVerification? {
         viewModel.hasCommitted ? nil : .verified(.convos)
+    }
+
+    /// The dice is shown only when hints exist in memory and the draft is in a
+    /// state that permits a roll (no attachments / connections, composer empty
+    /// or showing an unedited dice result). Hoisted to a typed `Bool` so the
+    /// toolbar modifier chain stays inside the type-check budget.
+    private var isDiceVisible: Bool {
+        let hintsAvailable: Bool = !(promptHints?.hints.isEmpty ?? true)
+        return hintsAvailable && viewModel.allowsDiceRoll
     }
 
     private var composerHintText: String {
@@ -277,6 +290,7 @@ struct AgentBuilderView: View {
                 .toolbar {
                     if mode == .sheet {
                         closeToolbarItem
+                        diceToolbarItem
                     }
                 }
                 .toolbarTitleDisplayMode(.inline)
@@ -488,6 +502,26 @@ struct AgentBuilderView: View {
         }
     }
 
+    /// Top-right dice control. Tapping drops a random prompt hint into the
+    /// composer (see `AgentBuilderViewModel.rollDice`). The whole item is
+    /// omitted when `isDiceVisible` is false, so the slot stays empty rather
+    /// than reserving space for a hidden control.
+    @ToolbarContentBuilder
+    private var diceToolbarItem: some ToolbarContent {
+        if isDiceVisible {
+            ToolbarItem(placement: .topBarTrailing) {
+                let action = {
+                    viewModel.rollDice(hints: promptHints?.hints ?? [])
+                }
+                Button(action: action) {
+                    Image(systemName: "dice.fill")
+                }
+                .accessibilityLabel("Roll a prompt idea")
+                .accessibilityIdentifier("agent-builder-dice-button")
+            }
+        }
+    }
+
     private func handleCloseTapped() {
         if viewModel.hasCommitted {
             dismiss()
@@ -525,5 +559,6 @@ struct AgentBuilderView: View {
                 viewModel: viewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )
+            .environment(PromptHintsModel.preview())
         }
 }

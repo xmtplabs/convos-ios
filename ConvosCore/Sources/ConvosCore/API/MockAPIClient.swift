@@ -141,6 +141,16 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return .init(data: templates, hasMore: false, nextCursor: nil)
     }
 
+    func getAgentPromptHints() async throws -> [String] {
+        [
+            "Plan a 3-day trip to Lisbon with a $1000 budget",
+            "Draft a weekly meal plan and a grocery list",
+            "Summarize long articles into five quick bullet points",
+            "Be my daily Spanish conversation partner",
+            "Track my workouts and suggest the next session",
+        ]
+    }
+
     func createAgentTemplateGeneration(
         text: String,
         source: String,
