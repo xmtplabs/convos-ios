@@ -6,7 +6,6 @@ struct AddToConversationMenu: View {
     var isAgentJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
-    let onCopyLink: () -> Void
     let onInviteAgent: () -> Void
     /// Opens the contacts picker scoped to the destination conversation.
     /// Every menu surface (chat header, info view, members list) offers
@@ -31,16 +30,9 @@ struct AddToConversationMenu: View {
 
     var body: some View {
         Menu {
-            Button(action: onCopyLink) {
-                Text("Invite link")
-                Text("Copy to clipboard")
-                Image(systemName: "link")
-            }
-            .accessibilityIdentifier("context-menu-copy-link")
-
             Button(action: onConvoCode) {
-                Text("Convo code")
-                Text("Show, share or AirDrop it")
+                Text("Invite Friends")
+                Text("Show or share invite link")
                 Image(systemName: "qrcode")
             }
             .accessibilityIdentifier("context-menu-convo-code")
@@ -79,7 +71,6 @@ struct AddToConversationMenu: View {
                         isFull: false,
                         isEnabled: true,
                         onConvoCode: {},
-                        onCopyLink: {},
                         onInviteAgent: {},
                         onAddFromContacts: {}
                     )

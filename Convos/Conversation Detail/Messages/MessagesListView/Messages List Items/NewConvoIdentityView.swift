@@ -19,17 +19,10 @@ struct NewConvoIdentityView: View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             if showInviteMenu {
                 Menu {
-                    let copyLinkAction: () -> Void = { onCopyLink?() }
-                    Button(action: copyLinkAction) {
-                        Text("Invite link")
-                        Text("Copy to clipboard")
-                        Image(systemName: "link")
-                    }
-
                     let convoCodeAction: () -> Void = { onConvoCode?() }
                     Button(action: convoCodeAction) {
-                        Text("Convo code")
-                        Text("Show, share or AirDrop it")
+                        Text("Invite Friends")
+                        Text("Show or share invite link")
                         Image(systemName: "qrcode")
                     }
 

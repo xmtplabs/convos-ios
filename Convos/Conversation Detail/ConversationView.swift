@@ -383,9 +383,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onCopyLink: {
-                viewModel.copyInviteLink()
-            },
             onInviteAgent: {
                 viewModel.presentAgentBuilder()
             },
