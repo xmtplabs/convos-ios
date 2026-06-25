@@ -211,7 +211,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
         ConversationConsentWriter(
             sessionStateManager: sessionStateManager,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            pushTopicSubscriptionManager: PushTopicSubscriptionManager(
+                identityStore: identityStore,
+                deviceInfoProvider: deviceInfoProvider
+            )
         )
     }
 

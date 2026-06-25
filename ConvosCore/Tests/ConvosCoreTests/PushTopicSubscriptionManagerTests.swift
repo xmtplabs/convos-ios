@@ -89,6 +89,81 @@ struct PushTopicSubscriptionManagerTests {
         #expect(calls.first?.topics == ["dm-1".xmtpGroupTopicFormat])
     }
 
+    @Test("Unsubscribes group topic on leave/removal")
+    func unsubscribesGroupTopic() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1")
+        )
+
+        await manager.unsubscribeFromGroupTopic(
+            conversationId: "group-1",
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "leave"
+        )
+
+        let calls = apiClient.unsubscribeCalls
+        #expect(calls.count == 1)
+        #expect(calls.first?.clientId == "client-1")
+        // Same topic derivation reconcile uses for groups, so it diffs cleanly.
+        #expect(calls.first?.topics == ["group-1".xmtpGroupTopicFormat])
+    }
+
+    @Test("Group-topic unsubscribe removes it from the mirror so reconcile re-adds it on rejoin")
+    func groupUnsubscribeUpdatesMirror() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: []
+        )
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        // Establish mirror = {welcome, group-1} via a full reconcile.
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "seed"
+        )
+        #expect(apiClient.subscribeCalls.count == 1)
+
+        // Unsubscribe the group topic -> mirror becomes {welcome}.
+        await manager.unsubscribeFromGroupTopic(
+            conversationId: "group-1",
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "leave"
+        )
+        #expect(apiClient.unsubscribeCalls.count == 1)
+        #expect(apiClient.unsubscribeCalls.last?.topics == ["group-1".xmtpGroupTopicFormat])
+
+        // Reconcile again: group-1 is still in the listing but no longer in the
+        // mirror, so it must be re-added as a delta -> proves removeTopics ran.
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "reconcile-after-leave"
+        )
+        #expect(apiClient.subscribeCalls.count == 2)
+        #expect(apiClient.subscribeCalls.last?.topics == ["group-1".xmtpGroupTopicFormat])
+    }
+
     @Test("Skips subscription when stored identity does not match client")
     func skipsSubscriptionForIdentityMismatch() async throws {
         let identityStore = MockKeychainIdentityStore()

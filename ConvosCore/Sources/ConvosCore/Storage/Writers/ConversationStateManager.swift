@@ -127,7 +127,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
         self.conversationConsentWriter = ConversationConsentWriter(
             sessionStateManager: sessionStateManager,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            pushTopicSubscriptionManager: PushTopicSubscriptionManager(
+                identityStore: identityStore
+            )
         )
 
         self.conversationLocalStateWriter = ConversationLocalStateWriter(
