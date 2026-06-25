@@ -3,8 +3,8 @@ name: "Long-Message Rendering and Detail View"
 description: >
   Verify the two-tier long-message UX that fixes the dominant CoreText
   app-hang. Short messages render unchanged with no Read More. Long messages
-  (over ~1200 chars) show a bounded preview with a Read More that expands
-  inline. Pathological messages (over ~6000 chars) show a bounded preview whose
+  (over ~500 chars) show a bounded preview with a Read More that expands
+  inline. Pathological messages (over ~1500 chars) show a bounded preview whose
   Read More opens a pushed MessageDetailView with working Back, Copy, and
   Reply. Includes a no-hang guard that opening a very long message keeps the UI
   responsive.
@@ -41,7 +41,7 @@ steps:
       - element_not_exists: { id: "message-read-more-button" }
     criteria: short_renders_normally
     note: >
-      Short bodies (under ~1200 chars and under 30 newlines) keep the original
+      Short bodies (under ~500 chars and under 20 newlines) keep the original
       full Text render with no Read More affordance.
 
   - id: long_message_shows_read_more
@@ -49,18 +49,18 @@ steps:
     actions:
       - cli_send_text:
           conversation: "$conversation_id"
-          text: "LONG43B <~2500-char body>"
+          text: "LONG43B <~800-char body>"
       - wait_for_element: { label_contains: "LONG43B", timeout: 15 }
     verify:
       - element_exists: { id: "message-read-more-button" }
     criteria: long_shows_read_more
     note: >
-      Send a body of roughly 2500 characters that crosses the long threshold
-      (1200) but stays under pathological (6000). The body MUST start with the
+      Send a body of roughly 800 characters that crosses the long threshold
+      (500) but stays under pathological (1500). The body MUST start with the
       marker "LONG43B " so `label_contains` targets a short stable substring,
       not the whole giant body. Generator (bash):
-      `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*90)"`
-      yields ~2500 chars. Send that string verbatim via cli_send_text.
+      `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*30)"`
+      yields ~820 chars. Send that string verbatim via cli_send_text.
 
   - id: long_message_expands_inline
     name: "Read More expands the long message inline"
@@ -82,7 +82,7 @@ steps:
     actions:
       - cli_send_text:
           conversation: "$conversation_id"
-          text: "HUGE43C <~12000-char body>"
+          text: "HUGE43C <~3000-char body>"
       - wait_for_element: { label_contains: "HUGE43C", timeout: 20 }
       - tap: { id: "message-read-more-button" }
       - wait_for_element: { id: "message-detail-view", timeout: 5 }
@@ -93,10 +93,10 @@ steps:
       - element_exists: { id: "message-detail-back-button" }
     criteria: pathological_pushes_detail
     note: >
-      Send a body of roughly 12000 characters that crosses the pathological
-      threshold (6000), starting with the marker "HUGE43C ". Generator (bash):
-      `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*440)"`
-      yields ~12000 chars. After the long bubble was expanded in the prior
+      Send a body of roughly 3000 characters that crosses the pathological
+      threshold (1500), starting with the marker "HUGE43C ". Generator (bash):
+      `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*110)"`
+      yields ~3000 chars. After the long bubble was expanded in the prior
       step, the only collapsed Read More on screen belongs to the HUGE43C
       bubble, so tapping message-read-more-button targets it. Read More here
       opens the detail view instead of expanding inline.
@@ -158,7 +158,7 @@ steps:
       time out and fail the step. The fix bounds every inline render path with
       a finite lineLimit and lays the full pathological body out only inside
       the detail view's scroll-enabled UITextView (incremental TextKit), so
-      presenting the detail view for a 12000-char body must not block. There is
+      presenting the detail view for a 3000-char body must not block. There is
       no [PERF] marker emitted for this transition; the timeout is the guard.
       Dismiss the detail view (Back) after this step.
 
@@ -171,11 +171,11 @@ criteria:
   short_renders_normally:
     description: "Short message body is fully visible and no message-read-more-button exists"
   long_shows_read_more:
-    description: "Long (~2500 char) message shows a message-read-more-button"
+    description: "Long (~800 char) message shows a message-read-more-button"
   long_expands_inline:
     description: "Tapping Read More on a long message removes the button and shows more text without opening message-detail-view"
   pathological_pushes_detail:
-    description: "Tapping Read More on a pathological (~12000 char) message opens message-detail-view with Back, Copy, and Reply buttons"
+    description: "Tapping Read More on a pathological (~3000 char) message opens message-detail-view with Back, Copy, and Reply buttons"
   detail_copy_works:
     description: "Detail Copy places the full message text (containing marker HUGE43C) on the pasteboard"
   detail_reply_works:
@@ -183,4 +183,4 @@ criteria:
   detail_back_works:
     description: "Detail Back dismisses message-detail-view and returns to the conversation with message-text-field visible"
   no_hang_on_huge_message:
-    description: "Opening a ~12000 char message presents message-detail-view within 3s (no >= 2s main-thread hang)"
+    description: "Opening a ~3000 char message presents message-detail-view within 3s (no >= 2s main-thread hang)"

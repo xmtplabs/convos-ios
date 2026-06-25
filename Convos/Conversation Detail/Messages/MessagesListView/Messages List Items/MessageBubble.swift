@@ -17,11 +17,11 @@ enum MessageLengthClass {
 /// tunable in one place. Exposed (not private) so any caller that builds a
 /// `MessageBubble` preview shares the same classification semantics.
 enum MessageBodyClassifier {
-    static let longCharThreshold: Int = 1_200 // ~3-4 paragraphs at typical density
-    static let pathologicalCharThreshold: Int = 6_000 // ~1-2 pages of text
-    static let shortNewlineThreshold: Int = 30 // many short lines, e.g. code snippets or poems
-    static let longPreviewLineLimit: Int = 12
-    static let pathologicalPreviewLineLimit: Int = 8
+    static let longCharThreshold: Int = 500 // a few paragraphs; human messages rarely exceed this
+    static let pathologicalCharThreshold: Int = 1_500 // long-form; well past a normal chat message
+    static let shortNewlineThreshold: Int = 20 // many short lines, e.g. code snippets or poems
+    static let longPreviewLineLimit: Int = 6
+    static let pathologicalPreviewLineLimit: Int = 6
     // Short ease so the inline "Read More" expand/collapse reads as a quick
     // reveal, not a slow unfold that the user has to wait through.
     static let readMoreExpandAnimationDuration: Double = 0.18

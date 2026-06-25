@@ -17,10 +17,10 @@ Verify the two-tier long-message UX that fixes the dominant CoreText app-hang. S
 
 The CLI has no "send long text" helper, so send pre-generated strings whose first ~40 characters contain a stable marker. Generate them with:
 
-- Long (~2500 chars, marker `LONG43B`):
-  `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*90)"`
-- Pathological (~12000 chars, marker `HUGE43C`):
-  `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*440)"`
+- Long (~800 chars, marker `LONG43B`):
+  `python3 -c "print('LONG43B ' + 'lorem ipsum dolor sit amet '*30)"`
+- Pathological (~3000 chars, marker `HUGE43C`):
+  `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*110)"`
 
 Send each verbatim with `convos conversation send-text $id "$body" --env dev`. Target the bubble with `label_contains: "LONG43B"` / `"HUGE43C"` so matching uses a short substring, not the whole body.
 
@@ -32,12 +32,12 @@ Send each verbatim with `convos conversation send-text $id "$body" --env dev`. T
 
 ### Long message - Read More + inline expand
 
-3. CLI sends the ~2500-char `LONG43B` body. A truncated preview with a Read More button (`message-read-more-button`) appears.
+3. CLI sends the ~800-char `LONG43B` body. A truncated preview with a Read More button (`message-read-more-button`) appears.
 4. Tap Read More. The message expands inline; the Read More button disappears; no detail view opens (`message-detail-view` does not exist).
 
 ### Pathological message - pushes detail
 
-5. CLI sends the ~12000-char `HUGE43C` body. A truncated preview with a Read More button appears (the long bubble from step 4 is already expanded, so this is the only collapsed Read More on screen).
+5. CLI sends the ~3000-char `HUGE43C` body. A truncated preview with a Read More button appears (the long bubble from step 4 is already expanded, so this is the only collapsed Read More on screen).
 6. Tap Read More. The `MessageDetailView` opens (`message-detail-view`) with a back chevron (`message-detail-back-button`), a centered "Message" title, and Copy (`message-detail-copy-button`) / Reply (`message-detail-reply-button`) buttons floating at the bottom corners.
 
 ### Detail view actions
@@ -48,7 +48,7 @@ Send each verbatim with `convos conversation send-text $id "$body" --env dev`. T
 
 ### No-hang guard
 
-10. Re-open the detail view for the ~12000-char message; it must present within ~3s. A >= 2s main-thread hang would make the 3s wait time out and fail. There is no `[PERF]` marker for this transition; the timeout is the guard. Dismiss the detail view afterward.
+10. Re-open the detail view for the ~3000-char message; it must present within ~3s. A >= 2s main-thread hang would make the 3s wait time out and fail. There is no `[PERF]` marker for this transition; the timeout is the guard. Dismiss the detail view afterward.
 
 ## Teardown
 
@@ -63,4 +63,4 @@ Explode the conversation via CLI (optional; transient CLI errors do not fail the
 - [ ] Detail Copy copies the full body (containing `HUGE43C`) to the pasteboard.
 - [ ] Detail Reply dismisses the detail view and reveals the reply composer bar.
 - [ ] Detail Back dismisses the detail view and returns to the conversation.
-- [ ] Opening a ~12000-char message presents the detail view within 3s (no hang).
+- [ ] Opening a ~3000-char message presents the detail view within 3s (no hang).

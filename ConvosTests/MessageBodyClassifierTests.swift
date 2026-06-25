@@ -27,10 +27,19 @@ final class MessageBodyClassifierTests: XCTestCase {
     }
 
     func testExactlyShortNewlineThresholdIsShort() {
-        // The rule is `> shortNewlineThreshold`, so exactly 30 newlines (with a
-        // short char count) stays short.
+        // The rule is `> shortNewlineThreshold`, so exactly the threshold count
+        // of newlines (with a short char count) stays short.
         let text = newlines(MessageBodyClassifier.shortNewlineThreshold)
         XCTAssertEqual(MessageBodyClassifier.classify(text), .short)
+    }
+
+    // MARK: - Threshold values (lock the data-backed tuning)
+
+    func testThresholdConstantsMatchTunedValues() {
+        // Quarter's data-backed tuning: human messages over a few hundred chars
+        // are rare, so long starts at 500 and pathological at 1500.
+        XCTAssertEqual(MessageBodyClassifier.longCharThreshold, 500)
+        XCTAssertEqual(MessageBodyClassifier.pathologicalCharThreshold, 1_500)
     }
 
     // MARK: - Long
