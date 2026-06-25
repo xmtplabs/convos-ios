@@ -72,17 +72,19 @@ struct MessageBubble: View {
         }
     }
 
-    /// Subtle 1px outline for the "Read more" pill, matching Figma's
-    /// `color/border/subtle` (incoming) and `color/border/inverted/subtle`
-    /// (outgoing). The design system has no inverted-border token, and the
-    /// earlier `colorFillInvertedSubtle` (a fill token) collapsed to a
-    /// near-white value in dark mode, leaving the outgoing border invisible on
-    /// the white-in-dark bubble. `colorBorderSubtle` is a real border token
-    /// (#EB light / #33 dark) that renders a visible subtle outline on both
-    /// bubble fills in both appearances, so the button reads as a button in
-    /// dark mode too.
+    /// Subtle 1px outline for the "Read more" pill, matching Figma per side:
+    /// incoming (received, left) uses `color/border/subtle`, outgoing (sent,
+    /// right) uses `color/border/inverted/subtle`. Both tokens are adaptive, so
+    /// light/dark is automatic and the border stays visible in all four
+    /// sender x appearance combos. `colorBorderInvertedSubtle` is the
+    /// appearance-swapped twin of `colorBorderSubtle` (light #33 / dark #EB),
+    /// so it contrasts with the black-in-light / white-in-dark outgoing bubble.
     private var readMoreBorderColor: Color {
-        Color.colorBorderSubtle
+        if isOutgoing {
+            return Color.colorBorderInvertedSubtle
+        } else {
+            return Color.colorBorderSubtle
+        }
     }
 
     private var lengthClass: MessageLengthClass {
