@@ -448,9 +448,6 @@ struct ConversationInfoView: View {
                                 presentingShareView = true
                             }
                         },
-                        onCopyLink: {
-                            viewModel.copyInviteLink()
-                        },
                         onInviteAgent: {
                             if viewModel.consumeAgentsIntroGate() {
                                 presentingAgentsIntro = true

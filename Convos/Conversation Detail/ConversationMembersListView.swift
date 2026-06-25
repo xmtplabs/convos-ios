@@ -104,9 +104,6 @@ struct ConversationMembersListView: View {
                     onConvoCode: {
                         viewModel.presentingShareView = true
                     },
-                    onCopyLink: {
-                        viewModel.copyInviteLink()
-                    },
                     onInviteAgent: {
                         if viewModel.consumeAgentsIntroGate() {
                             presentingAgentsIntro = true
