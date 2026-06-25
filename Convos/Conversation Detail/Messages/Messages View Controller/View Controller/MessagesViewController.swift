@@ -500,6 +500,12 @@ final class MessagesViewController: UIViewController {
         }
         guard !indexPaths.isEmpty else { return }
         collectionView.reconfigureItems(at: indexPaths)
+        // The custom layout only builds `.itemReconfigure` height-diff items
+        // from cells stashed by its own `reconfigureItems`, so pair the
+        // collection-view call with the layout call (matching the DifferenceKit
+        // reconfigure path) or the cell height is not re-measured when a long
+        // message expands or collapses.
+        messagesLayout.reconfigureItems(at: indexPaths)
     }
 
     override func viewDidLoad() {
