@@ -134,20 +134,17 @@ struct MessageBubble: View {
     }
 
     /// Long (but not pathological) bodies render a bounded preview with an
-    /// inline "Read More" that lifts the line cap in place. `.fixedSize` is
-    /// dropped (the `lineLimit` is what bounds the vertical layout); selection
-    /// is gated to the expanded state so the collapsed measure stays cheap.
-    /// Links render as plain `Text` here to avoid the unbounded TextKit
-    /// `sizeThatFits`; tappable links live in the detail view.
+    /// inline "Read More" that lifts the line cap in place. The collapsed
+    /// preview is a bounded `Text(lineLimit:)` teaser. Once expanded, a body
+    /// that contains a link is rendered through the same scroll-disabled
+    /// `LinkDetectingTextView` (UITextView) that short link-bodies use, so URLs
+    /// in 500-1500 char messages become tappable. Data detection is async and
+    /// a non-scrolling `sizeThatFits` over <=1500 chars is well under a
+    /// millisecond, so this does not reintroduce the layout hang.
     @ViewBuilder
     private var longBody: some View {
         let lineCap: Int? = isExpanded ? nil : MessageBodyClassifier.longPreviewLineLimit
         let duration: Double = MessageBodyClassifier.readMoreExpandAnimationDuration
-        // Links inside the collapsed preview are rendered as plain truncated
-        // Text, so an individual link in the hidden tail is not tappable while
-        // collapsed. Expanding lifts the line cap (links in the full text still
-        // render as plain Text inline); the detail view's UITextView is where
-        // links become individually tappable.
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             longBodyText(lineCap: lineCap)
             if !isExpanded {
@@ -159,19 +156,33 @@ struct MessageBubble: View {
         }
     }
 
-    /// Selection is gated to the expanded state. `.textSelection(.enabled)` and
-    /// `.textSelection(.disabled)` resolve to different concrete types, so the
-    /// gate is an `if` rather than a ternary inside the modifier argument.
+    /// Collapsed: a bounded plain `Text` teaser (links in the hidden tail are
+    /// not tappable, which is fine for a truncated preview). Expanded: if the
+    /// body has a link, switch to `LinkDetectingTextView` so links are
+    /// tappable; otherwise keep plain `Text` (cheaper). Selection is gated to
+    /// the expanded `Text` path; `.textSelection(.enabled)` and `.disabled`
+    /// resolve to different concrete types, so the gate is an `if`, not a
+    /// ternary inside the modifier argument.
     @ViewBuilder
     private func longBodyText(lineCap: Int?) -> some View {
-        let base = Text(message)
-            .font(.callout)
-            .foregroundStyle(textColor)
-            .lineLimit(lineCap)
-        if isExpanded {
-            base.textSelection(.enabled)
+        if isExpanded, TextLinkPresence.containsLinks(message) {
+            LinkDetectingTextView(
+                message,
+                linkColor: textColor,
+                foregroundColor: textColor,
+                font: .preferredFont(forTextStyle: .callout)
+            )
+            .fixedSize(horizontal: false, vertical: true)
         } else {
-            base.textSelection(.disabled)
+            let base = Text(message)
+                .font(.callout)
+                .foregroundStyle(textColor)
+                .lineLimit(lineCap)
+            if isExpanded {
+                base.textSelection(.enabled)
+            } else {
+                base.textSelection(.disabled)
+            }
         }
     }
 
