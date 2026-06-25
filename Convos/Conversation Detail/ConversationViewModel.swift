@@ -1001,6 +1001,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
+    /// Drives the `MessageDetailView` sheet for a pathological (very long)
+    /// message body, presented when its bubble "Read More" is tapped.
+    var presentingMessageDetail: AnyMessage?
+    /// Message ids whose long-body inline expansion is on. Held on the view
+    /// model (not as cell-local `@State`) so an expanded message stays expanded
+    /// across `UICollectionView` cell reuse and never bleeds onto a recycled
+    /// cell showing a different message.
+    var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
     var presentingPhotosInfoSheet: Bool = false
@@ -3446,6 +3454,14 @@ extension ConversationViewModel {
 
     func onReply(_ message: AnyMessage) {
         replyingToMessage = message
+    }
+
+    func toggleMessageExpanded(_ messageId: String) {
+        if expandedMessageIds.contains(messageId) {
+            expandedMessageIds.remove(messageId)
+        } else {
+            expandedMessageIds.insert(messageId)
+        }
     }
 
     func cancelReply() {

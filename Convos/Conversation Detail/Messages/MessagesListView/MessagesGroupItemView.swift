@@ -11,6 +11,16 @@ struct MessagesGroupItemView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Invoked when a pathological (very long) text bubble's "Read More" is
+    /// tapped, so the host can present `MessageDetailView`. `nil` outside the
+    /// main messages list path (reply parents, previews), where the bounded
+    /// preview renders without a tap.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids whose long-body inline expansion is currently on. Owned by
+    /// the conversation view model so expansion survives cell reuse.
+    var expandedMessageIds: Set<String> = []
+    /// Toggles the long-body inline expansion for a message id on the host.
+    var onToggleMessageExpanded: ((String) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     /// Namespace owned by `MessagesView` and threaded down via the cell
@@ -134,11 +144,22 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func textBubble(text: String) -> some View {
+        let openDetail: ((String) -> Void)? = onOpenMessageDetail.map { handler in
+            { _ in handler(message) }
+        }
+        let messageId: String = message.messageId
+        let isExpanded: Bool = expandedMessageIds.contains(messageId)
+        let toggleExpand: (() -> Void)? = onToggleMessageExpanded.map { handler in
+            { handler(messageId) }
+        }
         MessageBubble(
             style: message.content.isEmoji ? .none : bubbleType,
             message: text,
             isOutgoing: message.sender.isCurrentUser,
-            profile: message.sender.profile
+            profile: message.sender.profile,
+            onOpenDetail: openDetail,
+            isExpanded: isExpanded,
+            onToggleExpand: toggleExpand
         )
         .messageGesture(
             message: message,

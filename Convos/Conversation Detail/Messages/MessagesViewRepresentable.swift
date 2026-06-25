@@ -21,6 +21,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. Nil for hosts that don't present a
+    /// message detail, which suppresses the bubble's "Read more" detail button.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM so it
+    /// survives cell reuse). Default empty for hosts that never expand.
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: (String) -> Void = { _ in }
     let contextMenuState: MessageContextMenuState
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
@@ -99,6 +108,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapReadReceipts = onTapReadReceipts
         messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
+        messagesViewController.onOpenMessageDetail = onOpenMessageDetail
+        messagesViewController.onToggleMessageExpanded = onToggleMessageExpanded
+        messagesViewController.expandedMessageIds = expandedMessageIds
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }

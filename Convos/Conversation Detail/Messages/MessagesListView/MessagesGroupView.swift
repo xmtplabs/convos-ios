@@ -19,6 +19,13 @@ struct MessagesGroupView: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. nil outside the main messages list path.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM).
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: ((String) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -373,33 +380,7 @@ struct MessagesGroupView: View {
             }
 
             if displayGroup.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
-                ThoughtBubbleAppearance(animates: message.origin == .inserted) {
-                    HStack(spacing: 0.0) {
-                        ThoughtBubble {
-                            // Type spec from design: 16pt regular, 24pt
-                            // line height, 0.3pt tracking. `.callout` is
-                            // 16pt by default on iOS and scales with
-                            // Dynamic Type. SF Pro 16pt's natural line
-                            // height is ~19pt, so 5pt extra `lineSpacing`
-                            // brings each line to ~24pt.
-                            Text(text)
-                                .font(.callout)
-                                .tracking(0.3)
-                                .lineSpacing(5.0)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        Spacer(minLength: 50.0)
-                            .layoutPriority(-1)
-                    }
-                }
-                .bubbleRowWidthCap(alignment: .leading)
-                .zIndex(100)
-                .id("messages-group-item-\(message.differenceIdentifier)")
-                .overlay(alignment: .bottomLeading) {
-                    if isLast && !displayGroup.sender.isCurrentUser {
-                        avatarOverlay { onTapAvatar(message) }
-                    }
-                }
+                thoughtBubbleRow(message: message, text: text, isLast: isLast)
             } else {
                 MessagesGroupItemView(
                     message: message,
@@ -408,6 +389,9 @@ struct MessagesGroupView: View {
                     onTapAvatar: onTapAvatar,
                     onTapInvite: onTapInvite,
                     onReply: onReply,
+                    onOpenMessageDetail: onOpenMessageDetail,
+                    expandedMessageIds: expandedMessageIds,
+                    onToggleMessageExpanded: onToggleMessageExpanded,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
                     htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
@@ -456,6 +440,68 @@ struct MessagesGroupView: View {
         guard case .message(let inner, _) = message,
               case .text(let text) = inner.content else { return nil }
         return text
+    }
+
+    /// Renders a thinking moment in a `ThoughtBubble`, bounded the same way the
+    /// message path bounds long bodies so a large `ThinkingMoment.content`
+    /// cannot trigger an unbounded CoreText layout on the main thread. Short
+    /// bodies render in full; long/pathological bodies show a line-capped
+    /// preview plus a "Read more" pill that opens the hang-safe
+    /// `MessageDetailView` (the thought bubble already lives inside
+    /// `ThinkingDetailView`, so the generic full-message reader, not the
+    /// thinking sheet, is the correct detail target). The thought bubble is not
+    /// wrapped in `.messageGesture`, so the pill omits the gesture-passthrough
+    /// marker.
+    @ViewBuilder
+    private func thoughtBubbleRow(message: AnyMessage, text: String, isLast: Bool) -> some View {
+        let lengthClass: MessageLengthClass = MessageBodyClassifier.classify(text)
+        let isBounded: Bool = lengthClass != .short
+        ThoughtBubbleAppearance(animates: message.origin == .inserted) {
+            HStack(spacing: 0.0) {
+                ThoughtBubble {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                        thoughtBubbleText(text, bounded: isBounded)
+                        if isBounded {
+                            let openDetail: () -> Void = { onOpenMessageDetail?(message) }
+                            ReadMoreButton(
+                                action: openDetail,
+                                accessibilityHint: "Opens the full message",
+                                borderColor: .colorBorderSubtle,
+                                labelColor: .colorTextSecondary,
+                                gesturePassthrough: false
+                            )
+                        }
+                    }
+                }
+                Spacer(minLength: 50.0)
+                    .layoutPriority(-1)
+            }
+        }
+        .bubbleRowWidthCap(alignment: .leading)
+        .zIndex(100)
+        .id("messages-group-item-\(message.differenceIdentifier)")
+        .overlay(alignment: .bottomLeading) {
+            if isLast && !displayGroup.sender.isCurrentUser {
+                avatarOverlay { onTapAvatar(message) }
+            }
+        }
+    }
+
+    /// The thought-bubble body text. Type spec from design: 16pt regular, 24pt
+    /// line height, 0.3pt tracking. `.callout` is 16pt by default on iOS and
+    /// scales with Dynamic Type; SF Pro 16pt's natural line height is ~19pt, so
+    /// 5pt extra `lineSpacing` brings each line to ~24pt. When bounded, a
+    /// finite `lineLimit` caps the layout (no vertical `.fixedSize`, which would
+    /// reintroduce the full-height measure).
+    @ViewBuilder
+    private func thoughtBubbleText(_ text: String, bounded: Bool) -> some View {
+        let lineCap: Int? = bounded ? MessageBodyClassifier.longPreviewLineLimit : nil
+        Text(text)
+            .font(.callout)
+            .tracking(0.3)
+            .lineSpacing(5.0)
+            .foregroundStyle(.colorTextSecondary)
+            .lineLimit(lineCap)
     }
 
     private func parentAudioTranscriptText(for message: AnyMessage) -> String? {
