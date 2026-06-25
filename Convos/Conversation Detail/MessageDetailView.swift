@@ -120,6 +120,7 @@ private struct SelectableTextView: UIViewRepresentable {
         textView.isScrollEnabled = true
         textView.isSelectable = true
         textView.backgroundColor = .clear
+        textView.textColor = .label
         let inset: CGFloat = DesignConstants.Spacing.step4x
         textView.textContainerInset = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         textView.font = .preferredFont(forTextStyle: .body)
