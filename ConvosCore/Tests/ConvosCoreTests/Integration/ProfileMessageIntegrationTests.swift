@@ -354,6 +354,45 @@ struct ProfileMessageIntegrationTests {
         #expect(agentProfile?.memberKind == .agent)
     }
 
+    @Test("A blank incoming name does not clobber a populated database name")
+    func snapshotBuilderBlankNameKeepsDatabaseName() async throws {
+        let clientA = try await createClient()
+        let clientB = try await createClient()
+        defer {
+            try? clientA.deleteLocalDatabase()
+            try? clientB.deleteLocalDatabase()
+        }
+
+        let groupA = try await clientA.conversations.newGroup(with: [clientB.inboxID])
+
+        // clientA publishes a real new name (must win over its database row);
+        // clientB publishes a whitespace-only name (hasName=true but blank),
+        // the clear-style update that must not regress a known name.
+        _ = try await groupA.send(encodedContent: try ProfileUpdateCodec().encode(content: ProfileUpdate(name: "Fresh A")))
+
+        try await clientB.conversations.sync()
+        let groupB = try #require(try clientB.conversations.listGroups().first { $0.id == groupA.id })
+        try await groupB.sync()
+        _ = try await groupB.send(encodedContent: try ProfileUpdateCodec().encode(content: ProfileUpdate(name: "   ")))
+
+        try await groupA.sync()
+
+        let dbAlice = try #require(MemberProfile(inboxIdString: clientA.inboxID, name: "DB A"))
+        let dbBob = try #require(MemberProfile(inboxIdString: clientB.inboxID, name: "DB B"))
+
+        let allMembers = try await groupA.members.map(\.inboxId)
+        let builtSnapshot = try await ProfileSnapshotBuilder.buildSnapshot(
+            group: groupA,
+            memberInboxIds: allMembers,
+            dbProfiles: [dbAlice, dbBob]
+        )
+
+        let resolvedAlice = builtSnapshot.findProfile(inboxId: clientA.inboxID)
+        let resolvedBob = builtSnapshot.findProfile(inboxId: clientB.inboxID)
+        #expect(resolvedAlice?.name == "Fresh A")
+        #expect(resolvedBob?.name == "DB B")
+    }
+
     // MARK: - Empty group
 
     @Test("Snapshot builder returns empty profiles when no profile messages exist")
