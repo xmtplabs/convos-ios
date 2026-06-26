@@ -328,7 +328,13 @@ struct JoinRequestProcessingTests {
         )
         let alreadyMember = JoinRequestDMOutcome.alreadyMember(
             dmConversationId: "dm-123",
-            joinerInboxId: "joiner-123"
+            joinerInboxId: "joiner-123",
+            verified: AlreadyMemberContext(conversationId: "group-123", profile: nil, metadata: nil)
+        )
+        let alreadyMemberLedger = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: nil
         )
 
         #expect(accepted.shouldKeepDMSubscribed)
@@ -341,6 +347,39 @@ struct JoinRequestProcessingTests {
         #expect(alreadyMember.dmConversationId == "dm-123")
         #expect(alreadyMember.joinResult == nil)
         #expect(!alreadyMember.isMalicious)
+
+        // A verified already-member result carries the conversation so the
+        // caller can re-publish a complete snapshot; the ledger pre-check does
+        // not resolve a conversation.
+        #expect(alreadyMember.alreadyMemberContext?.conversationId == "group-123")
+        #expect(alreadyMemberLedger.alreadyMemberContext == nil)
+    }
+
+    @Test("Outcome selection prefers a verified already-member over a ledger-only one")
+    func preferringVerifiedKeepsTheVerifiedOutcome() {
+        let ledger = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: nil
+        )
+        let verified = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: AlreadyMemberContext(conversationId: "group-123", profile: nil, metadata: nil)
+        )
+
+        // A verified outcome arriving after a ledger-only one upgrades it.
+        #expect(
+            InviteCoordinator.preferringVerified(ledger, over: verified).alreadyMemberContext?.conversationId == "group-123"
+        )
+        // A ledger-only outcome arriving after a verified one does not downgrade it.
+        #expect(
+            InviteCoordinator.preferringVerified(verified, over: ledger).alreadyMemberContext?.conversationId == "group-123"
+        )
+        // With nothing accumulated yet, the candidate is taken as-is.
+        #expect(
+            InviteCoordinator.preferringVerified(nil, over: ledger).alreadyMemberContext == nil
+        )
     }
 
     // MARK: - InviteJoinError Feedback
