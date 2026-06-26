@@ -465,11 +465,10 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
         }
 
-        let allMemberInboxIds = try await group.members.map(\.inboxId)
         do {
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
         } catch {

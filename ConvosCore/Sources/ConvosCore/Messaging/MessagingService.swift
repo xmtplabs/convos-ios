@@ -473,10 +473,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         for conversation in conversations {
             guard case let .group(group) = conversation else { continue }
             do {
-                let memberInboxIds = try await group.members.map(\.inboxId)
                 try await ProfileSnapshotBuilder.sendSnapshot(
                     group: group,
-                    memberInboxIds: memberInboxIds
+                    databaseReader: databaseReader
                 )
                 sent += 1
             } catch {
