@@ -88,8 +88,7 @@ struct ProfileMessageIntegrationTests {
         try await groupA.sync()
         _ = try await groupA.addMembers(inboxIds: [clientC.inboxID])
 
-        let allMembers = try await groupA.members.map(\.inboxId)
-        try await ProfileSnapshotBuilder.sendSnapshot(group: groupA, memberInboxIds: allMembers)
+        try await ProfileSnapshotBuilder.sendSnapshot(group: groupA)
 
         try await clientC.conversations.sync()
         let groupC = try #require(try clientC.conversations.listGroups().first { $0.id == groupA.id })
@@ -330,10 +329,8 @@ struct ProfileMessageIntegrationTests {
             try agentRow.insert(db)
         }
 
-        let allMembers = try await groupA.members.map(\.inboxId)
         try await ProfileSnapshotBuilder.sendSnapshot(
             group: groupA,
-            memberInboxIds: allMembers,
             databaseReader: minimalDB
         )
 

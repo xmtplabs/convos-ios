@@ -162,9 +162,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
     }
 
-    private func persistJoinerProfile(_ result: JoinResult) async {
-        let profile = result.profile
-        let metadata = result.metadata
+    private func persistJoinerProfile(
+        joinerInboxId: String,
+        conversationId: String,
+        profile: JoinRequestProfile?,
+        metadata: [String: String]?
+    ) async {
         guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || metadata != nil else { return }
 
         let baseMemberKind: DBMemberKind? = profile?.memberKind == "agent" ? .agent : nil
@@ -176,8 +179,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         let memberKind: DBMemberKind?
         if baseMemberKind != nil, let profileMetadata {
             let tempProfile = Profile(
-                inboxId: result.joinerInboxId,
-                conversationId: result.conversationId,
+                inboxId: joinerInboxId,
+                conversationId: conversationId,
                 name: profile?.name,
                 avatar: profile?.imageURL,
                 isAgent: true,
@@ -191,29 +194,29 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
         do {
             try await databaseWriter.write { db in
-                let member = DBMember(inboxId: result.joinerInboxId)
+                let member = DBMember(inboxId: joinerInboxId)
                 try member.save(db)
 
                 let dbProfile = DBMemberProfile(
-                    conversationId: result.conversationId,
-                    inboxId: result.joinerInboxId,
+                    conversationId: conversationId,
+                    inboxId: joinerInboxId,
                     name: profile?.name,
                     avatar: profile?.imageURL,
                     memberKind: memberKind,
                     metadata: profileMetadata
                 )
                 // Note: `Date()` here rather than the message's `sentAtNs`
-                // because `JoinResult` doesn't carry the original timestamp.
-                // Tracked as a follow-up — see the contacts MVP plan.
+                // because the join request does not carry the original
+                // timestamp. Tracked as a follow-up — see the contacts MVP plan.
                 try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
                 if dbProfile.agentVerification.isConvosAgent,
-                   let conversation = try DBConversation.fetchOne(db, id: result.conversationId),
+                   let conversation = try DBConversation.fetchOne(db, id: conversationId),
                    !conversation.hasHadVerifiedAgent {
                     try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }
-            Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")
+            Log.debug("Persisted join request profile for \(joinerInboxId) in \(conversationId)")
         } catch {
             Log.warning("Failed to persist join request profile: \(error.localizedDescription)")
         }
@@ -227,7 +230,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         switch outcome {
         case let .accepted(result, dmConversationId: dmConversationId):
             logAccepted(result)
-            await persistJoinerProfile(result)
+            await persistJoinerProfile(
+                joinerInboxId: result.joinerInboxId,
+                conversationId: result.conversationId,
+                profile: result.profile,
+                metadata: result.metadata
+            )
             mapped = .accepted(
                 JoinRequestResult(
                     conversationId: result.conversationId,
@@ -252,8 +260,22 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 senderInboxId: senderInboxId,
                 error: error
             )
-        case let .alreadyMember(dmConversationId, joinerInboxId, _):
+        case let .alreadyMember(dmConversationId, joinerInboxId, verified):
             Log.debug("Join request for \(joinerInboxId) already handled by another pass (DM \(dmConversationId))")
+            // A verified already-member result targets a dedup race or a
+            // re-invite where this installation may never have processed the
+            // original accept, so it has no local row for the joiner. Persist
+            // the joiner's profile (carried on the verified context) before the
+            // snapshot is built, or the re-published roster would omit the
+            // joiner and render them as "Somebody".
+            if let verified {
+                await persistJoinerProfile(
+                    joinerInboxId: joinerInboxId,
+                    conversationId: verified.conversationId,
+                    profile: verified.profile,
+                    metadata: verified.metadata
+                )
+            }
             mapped = .alreadyMember(
                 dmConversationId: dmConversationId,
                 joinerInboxId: joinerInboxId
@@ -264,8 +286,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         // A fresh accept and a verified already-member result both re-publish
         // the roster: the already-member path covers re-invites and dedup
         // races where the accept that added the member ran in another pass, so
-        // the joiner still needs a complete snapshot. The `.accepted` persist
-        // above runs first so the snapshot build sees the joiner's own row.
+        // the joiner still needs a complete snapshot. The persist above runs
+        // first so the snapshot build sees the joiner's own row.
         if let conversationId = Self.profileSnapshotConversationId(for: outcome) {
             await sendProfileSnapshotAfterJoin(conversationId: conversationId, client: client)
         }
@@ -274,14 +296,14 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     /// The conversation whose roster should be (re)published for an outcome, or
     /// nil when no snapshot is warranted. Verified already-member results carry
-    /// a `conversationId`; the handled-request ledger pre-check does not, and a
+    /// a conversation; the handled-request ledger pre-check does not, and a
     /// snapshot there would have been sent on the original accept anyway.
     static func profileSnapshotConversationId(for outcome: JoinRequestDMOutcome) -> String? {
         switch outcome {
         case let .accepted(result, dmConversationId: _):
             return result.conversationId
-        case let .alreadyMember(_, _, conversationId):
-            return conversationId
+        case let .alreadyMember(_, _, verified):
+            return verified?.conversationId
         case .benignFailure, .malicious, .noJoinRequest:
             return nil
         }
@@ -302,10 +324,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             ), case .group(let group) = conversation else {
                 return
             }
-            let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds,
                 databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")

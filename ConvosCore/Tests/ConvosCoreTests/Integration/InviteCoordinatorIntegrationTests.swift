@@ -561,13 +561,62 @@ struct InviteCoordinatorIntegrationTests {
 
         var alreadyMemberConversationIds: [String?] = []
         for outcome in replayOutcomes {
-            if case .alreadyMember(_, _, let conversationId) = outcome {
-                alreadyMemberConversationIds.append(conversationId)
-            }
+            alreadyMemberConversationIds.append(outcome.alreadyMemberContext?.conversationId)
         }
         #expect(
             alreadyMemberConversationIds.contains(group.id),
             "A verified already-member result must carry the conversation id so the joiner can be re-snapshotted"
+        )
+    }
+
+    /// The verified already-member result must carry the joiner's own profile
+    /// from the join request. An installation that never processed the original
+    /// accept (cross-installation or dedup race) uses it to persist the joiner's
+    /// row, so the re-published snapshot includes the joiner by name rather than
+    /// rendering them as "Somebody".
+    @Test("Verified already-member result carries the joiner's profile from the request")
+    func alreadyMemberCarriesJoinerProfile() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let firstPass = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstPass.revokeInvites(for: group)
+        let invite = try await firstPass.createInvite(for: group, client: creatorClient)
+
+        // Typed join carrying the joiner's profile.
+        let joinerProfile = JoinRequestProfile(name: "Joiner Jane", imageURL: nil, memberKind: nil)
+        _ = try await firstPass.sendJoinRequest(
+            for: invite.signedInvite,
+            client: joinerClient,
+            profile: joinerProfile
+        )
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        // A fresh installation (empty ledger) revalidates while the joiner is
+        // still a member, producing a verified already-member result.
+        let secondPass = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+        let replayOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+
+        let verifiedContexts = replayOutcomes.compactMap(\.alreadyMemberContext)
+        #expect(
+            verifiedContexts.contains { $0.conversationId == group.id && $0.profile?.name == "Joiner Jane" },
+            "A verified already-member result must carry the joiner's profile so it can be persisted and re-snapshotted"
         )
     }
 

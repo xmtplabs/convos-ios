@@ -144,10 +144,14 @@ public enum ProfileSnapshotBuilder {
 
     public static func sendSnapshot(
         group: XMTPiOS.Group,
-        memberInboxIds: [String],
         databaseReader: (any DatabaseReader)? = nil
     ) async throws {
+        // Sync first, then read the member list, so a just-added joiner (for
+        // example on the already-member re-publish path, where this
+        // installation may not have synced the group yet) is in the roster
+        // rather than filtered out by a stale member list.
         try await group.sync()
+        let memberInboxIds = try await group.members.map(\.inboxId)
         let dbProfiles = try await fetchDBProfiles(
             databaseReader,
             conversationId: group.id,
@@ -163,7 +167,7 @@ public enum ProfileSnapshotBuilder {
         let codec = ProfileSnapshotCodec()
         let encoded = try codec.encode(content: snapshot)
         if encoded.content.count > Constant.snapshotSizeWarningThreshold {
-            print("[ConvosProfiles] Large ProfileSnapshot: \(encoded.content.count) bytes, \(snapshot.profiles.count) profiles")
+            Log.warning("Large ProfileSnapshot: \(encoded.content.count) bytes, \(snapshot.profiles.count) profiles")
         }
         _ = try await group.send(encodedContent: encoded)
     }

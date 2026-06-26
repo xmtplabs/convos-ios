@@ -631,10 +631,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
         do {
-            let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds,
                 databaseReader: databaseReader
             )
             Log.debug("Sent initial ProfileSnapshot for \(group.id)")

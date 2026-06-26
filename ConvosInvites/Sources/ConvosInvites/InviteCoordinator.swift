@@ -277,7 +277,7 @@ public final class InviteCoordinator: @unchecked Sendable {
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId,
-                conversationId: nil
+                verified: nil
             )
         }
 
@@ -512,7 +512,11 @@ public final class InviteCoordinator: @unchecked Sendable {
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId,
-                conversationId: conversationId
+                verified: AlreadyMemberContext(
+                    conversationId: conversationId,
+                    profile: request.profile,
+                    metadata: request.metadata
+                )
             )
         }
 
@@ -537,7 +541,11 @@ public final class InviteCoordinator: @unchecked Sendable {
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
                 joinerInboxId: request.joinerInboxId,
-                conversationId: conversationId
+                verified: AlreadyMemberContext(
+                    conversationId: conversationId,
+                    profile: request.profile,
+                    metadata: request.metadata
+                )
             )
         }
 
@@ -647,10 +655,13 @@ public final class InviteCoordinator: @unchecked Sendable {
             if await handledRequestStore.isHandled(messageId: message.id) {
                 // Ledger pre-check before validation: no conversation resolved,
                 // so nothing to re-snapshot here.
-                handledOutcome = handledOutcome ?? .alreadyMember(
-                    dmConversationId: dm.id,
-                    joinerInboxId: message.senderInboxId,
-                    conversationId: nil
+                handledOutcome = Self.preferringVerified(
+                    handledOutcome,
+                    over: .alreadyMember(
+                        dmConversationId: dm.id,
+                        joinerInboxId: message.senderInboxId,
+                        verified: nil
+                    )
                 )
                 continue
             }
@@ -662,7 +673,7 @@ public final class InviteCoordinator: @unchecked Sendable {
                 try? await dm.updateConsentState(state: .allowed)
                 return outcome
             case .alreadyMember:
-                handledOutcome = handledOutcome ?? outcome
+                handledOutcome = Self.preferringVerified(handledOutcome, over: outcome)
                 continue
             case .malicious:
                 return outcome
@@ -943,5 +954,23 @@ extension XMTPiOS.Dm {
         /// interleaved creator bookkeeping. Join DMs carry very little
         /// traffic, so a handful of messages is plenty.
         static let outgoingInviteScanLimit: Int = 10
+    }
+}
+
+extension InviteCoordinator {
+    /// Picks the already-member outcome to keep across one DM scan. A verified
+    /// context (a real conversation + the joiner's profile) lets the caller
+    /// re-publish the roster snapshot, so it must win over an earlier
+    /// ledger-only outcome whose context is nil. Same-richness outcomes keep
+    /// the first one seen, preserving the prior first-wins behavior.
+    static func preferringVerified(
+        _ existing: JoinRequestDMOutcome?,
+        over candidate: JoinRequestDMOutcome
+    ) -> JoinRequestDMOutcome {
+        guard let existing else { return candidate }
+        if existing.alreadyMemberContext == nil, candidate.alreadyMemberContext != nil {
+            return candidate
+        }
+        return existing
     }
 }

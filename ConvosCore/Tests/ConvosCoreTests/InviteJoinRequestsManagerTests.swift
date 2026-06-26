@@ -26,7 +26,7 @@ struct InviteJoinRequestsManagerTests {
         let outcome = JoinRequestDMOutcome.alreadyMember(
             dmConversationId: "dm-1",
             joinerInboxId: "joiner-1",
-            conversationId: "group-1"
+            verified: AlreadyMemberContext(conversationId: "group-1", profile: nil, metadata: nil)
         )
         #expect(InviteJoinRequestsManager.profileSnapshotConversationId(for: outcome) == "group-1")
     }
@@ -36,7 +36,7 @@ struct InviteJoinRequestsManagerTests {
         let outcome = JoinRequestDMOutcome.alreadyMember(
             dmConversationId: "dm-1",
             joinerInboxId: "joiner-1",
-            conversationId: nil
+            verified: nil
         )
         #expect(InviteJoinRequestsManager.profileSnapshotConversationId(for: outcome) == nil)
     }
