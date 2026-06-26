@@ -1,6 +1,7 @@
 import ConvosAppData
 @testable import ConvosCore
 import Foundation
+import GRDB
 import Testing
 @preconcurrency import XMTPiOS
 
@@ -282,6 +283,75 @@ struct ProfileMessageIntegrationTests {
         let resolvedBob = builtSnapshot.findProfile(inboxId: clientB.inboxID)
         #expect(resolvedAlice?.name == "DB Alice")
         #expect(resolvedBob?.name == "Fresh Bob")
+    }
+
+    // MARK: - sendSnapshot wires the database reader to the builder
+
+    @Test("sendSnapshot with a database reader includes a DB-only agent in the received snapshot")
+    func sendSnapshotIncludesDatabaseOnlyAgentInReceivedSnapshot() async throws {
+        let clientA = try await createClient()
+        let clientB = try await createClient()
+        let clientC = try await createClient()
+        defer {
+            try? clientA.deleteLocalDatabase()
+            try? clientB.deleteLocalDatabase()
+            try? clientC.deleteLocalDatabase()
+        }
+
+        let groupA = try await clientA.conversations.newGroup(with: [clientB.inboxID])
+        try await groupA.sync()
+
+        _ = try await groupA.addMembers(inboxIds: [clientC.inboxID])
+
+        let minimalDB = try DatabaseQueue()
+        try await minimalDB.write { db in
+            try db.create(table: "memberProfile") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("inboxId", .text).notNull()
+                t.column("name", .text)
+                t.column("avatar", .text)
+                t.column("avatarSalt", .blob)
+                t.column("avatarNonce", .blob)
+                t.column("avatarKey", .blob)
+                t.column("avatarLastRenewed", .datetime)
+                t.column("memberKind", .text)
+                t.column("metadata", .jsonText)
+                t.column("imageSourceAssetIdentifier", .text)
+                t.column("imageSourceContentDigest", .text)
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+            let agentRow = DBMemberProfile(
+                conversationId: groupA.id,
+                inboxId: clientB.inboxID,
+                name: "Agent Bob",
+                avatar: nil,
+                memberKind: .agent
+            )
+            try agentRow.insert(db)
+        }
+
+        let allMembers = try await groupA.members.map(\.inboxId)
+        try await ProfileSnapshotBuilder.sendSnapshot(
+            group: groupA,
+            memberInboxIds: allMembers,
+            databaseReader: minimalDB
+        )
+
+        try await clientC.conversations.sync()
+        let groupC = try #require(try clientC.conversations.listGroups().first { $0.id == groupA.id })
+        try await groupC.sync()
+
+        let messages = try await groupC.messages(limit: 20, direction: .descending)
+        let snapshotMessages = messages.filter {
+            (try? $0.encodedContent.type) == ContentTypeProfileSnapshot
+        }
+
+        #expect(!snapshotMessages.isEmpty, "Late joiner must receive a profile snapshot")
+
+        let snapshot = try ProfileSnapshotCodec().decode(content: snapshotMessages[0].encodedContent)
+        let agentProfile = snapshot.findProfile(inboxId: clientB.inboxID)
+        #expect(agentProfile?.name == "Agent Bob", "Snapshot must carry the database-only agent name")
+        #expect(agentProfile?.memberKind == .agent)
     }
 
     // MARK: - Empty group
