@@ -362,7 +362,8 @@ struct MessageContextMenuOverlay: View {
                     style: state.bubbleStyle,
                     message: text,
                     isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile
+                    profile: message.sender.profile,
+                    isExpanded: state.isExpanded
                 )
 
             case .emoji(let text):
