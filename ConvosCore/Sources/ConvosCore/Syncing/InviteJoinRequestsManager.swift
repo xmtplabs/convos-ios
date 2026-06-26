@@ -162,13 +162,18 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
     }
 
-    private func persistJoinerProfile(
+    func persistJoinerProfile(
         joinerInboxId: String,
         conversationId: String,
         profile: JoinRequestProfile?,
         metadata: [String: String]?
     ) async {
-        guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || metadata != nil else { return }
+        // An empty metadata dictionary is non-nil but carries nothing usable;
+        // treating it as present would write an all-blank row and overwrite a
+        // good existing profile back to "Somebody" on the already-member replay
+        // path. Persist only when at least one field is actually populated.
+        let hasMetadata = !(metadata?.isEmpty ?? true)
+        guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || hasMetadata else { return }
 
         let baseMemberKind: DBMemberKind? = profile?.memberKind == "agent" ? .agent : nil
         let profileMetadata: ProfileMetadata? = metadata.flatMap { dict in

@@ -1,6 +1,7 @@
 @testable import ConvosCore
 import ConvosInvites
 import Foundation
+import GRDB
 import Testing
 
 @Suite("InviteJoinRequestsManager Tests")
@@ -83,5 +84,94 @@ struct InviteJoinRequestsManagerTests {
         let boundary = now.addingTimeInterval(-day)
         let effective = InviteJoinRequestsManager.effectiveCatchUpSince(since: boundary, now: now)
         #expect(effective == boundary)
+    }
+}
+
+@Suite("InviteJoinRequestsManager profile persistence", .serialized)
+struct InviteJoinRequestsManagerPersistenceTests {
+    private func makeManager(_ dbManager: MockDatabaseManager) -> InviteJoinRequestsManager {
+        InviteJoinRequestsManager(
+            identityStore: MockKeychainIdentityStore(),
+            databaseWriter: dbManager.dbWriter
+        )
+    }
+
+    private func seedConversation(_ db: Database, id: String) throws {
+        let creatorInboxId = "creator-\(id)"
+        try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: id,
+            inviteTag: "tag-\(id)",
+            creatorId: creatorInboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false
+        ).insert(db)
+    }
+
+    @Test("Empty metadata and no profile fields does not blank an existing member row")
+    func emptyMetadataDoesNotBlankExistingRow() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let manager = makeManager(dbManager)
+
+        let conversationId = "convo-persist-1"
+        let joinerInboxId = "joiner-persist-1"
+
+        try await dbManager.dbWriter.write { db in
+            try self.seedConversation(db, id: conversationId)
+            try DBMember(inboxId: joinerInboxId).save(db, onConflict: .ignore)
+            try DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: joinerInboxId,
+                name: "Good Name",
+                avatar: nil,
+                memberKind: nil,
+                metadata: ["k": .string("v")]
+            ).insert(db)
+        }
+
+        // All-nil profile with an empty (but non-nil) metadata dictionary must
+        // be a no-op, not an overwrite that blanks the existing row.
+        await manager.persistJoinerProfile(
+            joinerInboxId: joinerInboxId,
+            conversationId: conversationId,
+            profile: nil,
+            metadata: [:]
+        )
+
+        let afterEmpty = try await dbManager.dbReader.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: joinerInboxId)
+        }
+        #expect(afterEmpty?.name == "Good Name", "Empty-metadata persist must not blank an existing row")
+        #expect(afterEmpty?.metadata?["k"]?.stringValue == "v")
+
+        // A populated profile still persists as before.
+        await manager.persistJoinerProfile(
+            joinerInboxId: joinerInboxId,
+            conversationId: conversationId,
+            profile: JoinRequestProfile(name: "New Name", imageURL: nil, memberKind: nil),
+            metadata: nil
+        )
+
+        let afterReal = try await dbManager.dbReader.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: joinerInboxId)
+        }
+        #expect(afterReal?.name == "New Name", "A populated profile must still persist")
     }
 }
