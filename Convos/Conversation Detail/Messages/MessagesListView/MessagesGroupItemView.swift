@@ -164,6 +164,7 @@ struct MessagesGroupItemView: View {
         .messageGesture(
             message: message,
             bubbleStyle: message.content.isEmoji ? .none : bubbleType,
+            isExpanded: isExpanded,
             onReply: onReply,
             onToggleReaction: onToggleReaction
         )
