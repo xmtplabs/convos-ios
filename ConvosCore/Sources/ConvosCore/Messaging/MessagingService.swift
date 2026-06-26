@@ -476,7 +476,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                 let memberInboxIds = try await group.members.map(\.inboxId)
                 try await ProfileSnapshotBuilder.sendSnapshot(
                     group: group,
-                    memberInboxIds: memberInboxIds
+                    memberInboxIds: memberInboxIds,
+                    databaseReader: databaseReader
                 )
                 sent += 1
             } catch {

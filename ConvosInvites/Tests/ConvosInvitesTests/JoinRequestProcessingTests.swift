@@ -328,7 +328,13 @@ struct JoinRequestProcessingTests {
         )
         let alreadyMember = JoinRequestDMOutcome.alreadyMember(
             dmConversationId: "dm-123",
-            joinerInboxId: "joiner-123"
+            joinerInboxId: "joiner-123",
+            conversationId: "group-123"
+        )
+        let alreadyMemberLedger = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            conversationId: nil
         )
 
         #expect(accepted.shouldKeepDMSubscribed)
@@ -341,6 +347,20 @@ struct JoinRequestProcessingTests {
         #expect(alreadyMember.dmConversationId == "dm-123")
         #expect(alreadyMember.joinResult == nil)
         #expect(!alreadyMember.isMalicious)
+
+        // A verified already-member result carries the conversation so the
+        // caller can re-publish a complete snapshot; the ledger pre-check does
+        // not resolve a conversation.
+        guard case .alreadyMember(_, _, let verifiedConversationId) = alreadyMember else {
+            Issue.record("expected alreadyMember case")
+            return
+        }
+        #expect(verifiedConversationId == "group-123")
+        guard case .alreadyMember(_, _, let ledgerConversationId) = alreadyMemberLedger else {
+            Issue.record("expected alreadyMember case")
+            return
+        }
+        #expect(ledgerConversationId == nil)
     }
 
     // MARK: - InviteJoinError Feedback

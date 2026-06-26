@@ -1,11 +1,31 @@
 import ConvosAppData
 import Foundation
+import GRDB
 @preconcurrency import XMTPiOS
 
 public enum ProfileSnapshotBuilder {
+    /// Builds the roster bundle a member publishes so new joiners learn
+    /// everyone's profile at once (in-group messages do not reach members
+    /// who join later, so this snapshot is the joiner's only source for
+    /// pre-join members).
+    ///
+    /// The roster unions two sources, keyed by inbox id and filtered to the
+    /// current `memberInboxIds`:
+    /// - `dbProfiles`: the sender's authoritative per-conversation rows. These
+    ///   include members the sender learned only via group appData (agents,
+    ///   directly-added members) and members whose profile update has aged out
+    ///   of the recent-message window.
+    /// - the recent-message scan: profile updates (and a fallback snapshot)
+    ///   from the last `maxMessagesToScan` messages. This catches an update
+    ///   that has been synced but not yet flushed to the database.
+    ///
+    /// When both sources carry a member, the recent message wins per field and
+    /// the database row fills any gap, so a freshly received update is honored
+    /// without ever regressing a known name back to nothing.
     public static func buildSnapshot(
         group: XMTPiOS.Group,
-        memberInboxIds: [String]
+        memberInboxIds: [String],
+        dbProfiles: [MemberProfile] = []
     ) async throws -> ProfileSnapshot {
         let messages = try await group.messages(
             limit: Constant.maxMessagesToScan,
@@ -28,16 +48,56 @@ public enum ProfileSnapshotBuilder {
             if allMembersResolved { break }
         }
 
+        var dbProfilesByInboxId: [String: MemberProfile] = [:]
+        for profile in dbProfiles {
+            dbProfilesByInboxId[profile.inboxIdString] = profile
+        }
+
         var result: [MemberProfile] = []
         for inboxId in memberInboxIds {
-            if let profile = profilesByInboxId[inboxId] {
-                result.append(profile)
-            } else if let snapshotProfile = latestSnapshotProfiles[inboxId] {
-                result.append(snapshotProfile)
+            let messageProfile = profilesByInboxId[inboxId] ?? latestSnapshotProfiles[inboxId]
+            let dbProfile = dbProfilesByInboxId[inboxId]
+            guard let merged = mergedProfile(base: dbProfile, overlay: messageProfile),
+                  merged.hasSnapshotContent else {
+                continue
             }
+            result.append(merged)
         }
 
         return ProfileSnapshot(profiles: result)
+    }
+
+    /// Combines a database-sourced base with a recent-message overlay. The
+    /// overlay wins on any field it sets; the base fills the rest. This keeps
+    /// a just-received name while never clearing a known name when the overlay
+    /// lacks one.
+    private static func mergedProfile(
+        base: MemberProfile?,
+        overlay: MemberProfile?
+    ) -> MemberProfile? {
+        switch (base, overlay) {
+        case (nil, nil):
+            return nil
+        case let (base?, nil):
+            return base
+        case let (nil, overlay?):
+            return overlay
+        case let (base?, overlay?):
+            var merged = overlay
+            if !overlay.hasName, base.hasName {
+                merged.name = base.name
+            }
+            if !overlay.hasEncryptedImage, base.hasEncryptedImage {
+                merged.encryptedImage = base.encryptedImage
+            }
+            if overlay.memberKind == .unspecified, base.memberKind != .unspecified {
+                merged.memberKind = base.memberKind
+            }
+            if overlay.metadata.isEmpty, !base.metadata.isEmpty {
+                merged.metadata = base.metadata
+            }
+            return merged
+        }
     }
 
     private static func processProfileUpdate(
@@ -78,10 +138,20 @@ public enum ProfileSnapshotBuilder {
 
     public static func sendSnapshot(
         group: XMTPiOS.Group,
-        memberInboxIds: [String]
+        memberInboxIds: [String],
+        databaseReader: (any DatabaseReader)? = nil
     ) async throws {
         try await group.sync()
-        let snapshot = try await buildSnapshot(group: group, memberInboxIds: memberInboxIds)
+        let dbProfiles = try await fetchDBProfiles(
+            databaseReader,
+            conversationId: group.id,
+            memberInboxIds: memberInboxIds
+        )
+        let snapshot = try await buildSnapshot(
+            group: group,
+            memberInboxIds: memberInboxIds,
+            dbProfiles: dbProfiles
+        )
         guard !snapshot.profiles.isEmpty else { return }
 
         let codec = ProfileSnapshotCodec()
@@ -92,8 +162,29 @@ public enum ProfileSnapshotBuilder {
         _ = try await group.send(encodedContent: encoded)
     }
 
+    private static func fetchDBProfiles(
+        _ databaseReader: (any DatabaseReader)?,
+        conversationId: String,
+        memberInboxIds: [String]
+    ) async throws -> [MemberProfile] {
+        guard let databaseReader else { return [] }
+        let rows = try await databaseReader.read { db in
+            try DBMemberProfile.fetchAll(db, conversationId: conversationId, inboxIds: memberInboxIds)
+        }
+        return rows.compactMap(\.snapshotMemberProfile)
+    }
+
     private enum Constant {
         static let maxMessagesToScan: Int = 500
         static let snapshotSizeWarningThreshold: Int = 50_000
+    }
+}
+
+private extension MemberProfile {
+    /// Whether the profile carries anything worth broadcasting. An inbox-id-only
+    /// entry (a cleared profile with no name, image, agent kind, or metadata)
+    /// conveys nothing to a joiner, so it is dropped from the snapshot.
+    var hasSnapshotContent: Bool {
+        hasName || hasEncryptedImage || memberKind != .unspecified || !metadata.isEmpty
     }
 }

@@ -513,6 +513,64 @@ struct InviteCoordinatorIntegrationTests {
         #expect(errorCount == 0, "An .unknown consent state must not send an error reply")
     }
 
+    /// A re-invite / dedup-race revalidation must still let the joiner receive
+    /// the roster. The coordinator returns `.alreadyMember` without re-adding,
+    /// but a verified result now carries the `conversationId` so ConvosCore can
+    /// re-publish a complete profile snapshot for that conversation.
+    @Test("Verified already-member result carries the conversation id for re-snapshotting")
+    func alreadyMemberCarriesConversationId() async throws {
+        let creatorClient = try await createClient()
+        let joinerClient = try await createClient()
+        defer {
+            try? creatorClient.deleteLocalDatabase()
+            try? joinerClient.deleteLocalDatabase()
+        }
+        let key = creatorInviteKey
+        let firstPass = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+
+        let group = try await creatorClient.conversations.newGroup(with: [])
+        try await group.updateConsentState(state: .allowed)
+        _ = try await firstPass.revokeInvites(for: group)
+        let invite = try await firstPass.createInvite(for: group, client: creatorClient)
+
+        // Text-only join: no handled marker is sent, so the revalidation pass
+        // reaches the membership-dedup branch (which carries the conversation
+        // id) rather than the marker branch.
+        let dm = try await joinerClient.conversations.findOrCreateDm(with: creatorClient.inboxID)
+        _ = try await dm.send(content: invite.slug)
+
+        _ = try await creatorClient.conversations.syncAllConversations(consentStates: nil)
+        let firstOutcomes = await firstPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+        #expect(firstOutcomes.compactMap(\.joinResult).contains { $0.conversationId == group.id })
+
+        // A fresh installation (empty ledger) revalidates the same request
+        // while the joiner is still a member.
+        let secondPass = InviteCoordinator(
+            privateKeyProvider: { _ in key },
+            handledRequestStore: InMemoryHandledJoinRequestStore()
+        )
+        let replayOutcomes = await secondPass.processJoinRequestOutcomes(since: nil, client: creatorClient)
+
+        #expect(
+            replayOutcomes.compactMap(\.joinResult).isEmpty,
+            "Revalidation must not re-add the joiner"
+        )
+
+        var alreadyMemberConversationIds: [String?] = []
+        for outcome in replayOutcomes {
+            if case .alreadyMember(_, _, let conversationId) = outcome {
+                alreadyMemberConversationIds.append(conversationId)
+            }
+        }
+        #expect(
+            alreadyMemberConversationIds.contains(group.id),
+            "A verified already-member result must carry the conversation id so the joiner can be re-snapshotted"
+        )
+    }
+
     private func joinErrors(inDmWith peerInboxId: String, client: Client) async throws -> [InviteJoinError] {
         let dm = try await client.conversations.findOrCreateDm(with: peerInboxId)
         let messages = try await dm.messages()

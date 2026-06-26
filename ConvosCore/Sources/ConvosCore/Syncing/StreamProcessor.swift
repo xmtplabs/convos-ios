@@ -634,7 +634,8 @@ actor StreamProcessor: StreamProcessorProtocol {
             let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                memberInboxIds: allMemberInboxIds,
+                databaseReader: databaseReader
             )
             Log.debug("Sent initial ProfileSnapshot for \(group.id)")
         } catch {

@@ -469,7 +469,8 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         do {
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                memberInboxIds: allMemberInboxIds,
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
         } catch {

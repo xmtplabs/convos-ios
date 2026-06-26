@@ -272,9 +272,12 @@ public final class InviteCoordinator: @unchecked Sendable {
         // Removal is not a block - a removed member rejoins by sending a
         // fresh request (new message ID) with the same invite.
         if await handledRequestStore.isHandled(messageId: request.messageId) {
+            // No conversation resolved yet: the ledger short circuits before
+            // the invite is validated, so there is no group to re-snapshot.
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                conversationId: nil
             )
         }
 
@@ -508,7 +511,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             await handledRequestStore.markHandled(messageId: request.messageId)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                conversationId: conversationId
             )
         }
 
@@ -532,7 +536,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             await sendJoinHandledMarker(for: request, client: client)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                conversationId: conversationId
             )
         }
 
@@ -640,9 +645,12 @@ public final class InviteCoordinator: @unchecked Sendable {
             // verification, so tampered slugs still reach the malicious
             // detection and DM blocking path.
             if await handledRequestStore.isHandled(messageId: message.id) {
+                // Ledger pre-check before validation: no conversation resolved,
+                // so nothing to re-snapshot here.
                 handledOutcome = handledOutcome ?? .alreadyMember(
                     dmConversationId: dm.id,
-                    joinerInboxId: message.senderInboxId
+                    joinerInboxId: message.senderInboxId,
+                    conversationId: nil
                 )
                 continue
             }

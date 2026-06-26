@@ -223,12 +223,12 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         _ outcome: JoinRequestDMOutcome,
         client: AnyClientProvider
     ) async -> InviteJoinRequestOutcome {
+        let mapped: InviteJoinRequestOutcome
         switch outcome {
         case let .accepted(result, dmConversationId: dmConversationId):
             logAccepted(result)
             await persistJoinerProfile(result)
-            await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
-            return .accepted(
+            mapped = .accepted(
                 JoinRequestResult(
                     conversationId: result.conversationId,
                     conversationName: result.conversationName,
@@ -240,26 +240,50 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             )
         case let .benignFailure(dmConversationId, senderInboxId, error):
             Log.info("Join request failed without blocking DM \(dmConversationId): \(error)")
-            return .benignFailure(
+            mapped = .benignFailure(
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
             )
         case let .malicious(dmConversationId, senderInboxId, error):
             Log.warning("Join request marked malicious for DM \(dmConversationId), sender \(senderInboxId): \(error)")
-            return .malicious(
+            mapped = .malicious(
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
             )
-        case let .alreadyMember(dmConversationId, joinerInboxId):
+        case let .alreadyMember(dmConversationId, joinerInboxId, _):
             Log.debug("Join request for \(joinerInboxId) already handled by another pass (DM \(dmConversationId))")
-            return .alreadyMember(
+            mapped = .alreadyMember(
                 dmConversationId: dmConversationId,
                 joinerInboxId: joinerInboxId
             )
         case .noJoinRequest:
-            return .noJoinRequest
+            mapped = .noJoinRequest
+        }
+        // A fresh accept and a verified already-member result both re-publish
+        // the roster: the already-member path covers re-invites and dedup
+        // races where the accept that added the member ran in another pass, so
+        // the joiner still needs a complete snapshot. The `.accepted` persist
+        // above runs first so the snapshot build sees the joiner's own row.
+        if let conversationId = Self.profileSnapshotConversationId(for: outcome) {
+            await sendProfileSnapshotAfterJoin(conversationId: conversationId, client: client)
+        }
+        return mapped
+    }
+
+    /// The conversation whose roster should be (re)published for an outcome, or
+    /// nil when no snapshot is warranted. Verified already-member results carry
+    /// a `conversationId`; the handled-request ledger pre-check does not, and a
+    /// snapshot there would have been sent on the original accept anyway.
+    static func profileSnapshotConversationId(for outcome: JoinRequestDMOutcome) -> String? {
+        switch outcome {
+        case let .accepted(result, dmConversationId: _):
+            return result.conversationId
+        case let .alreadyMember(_, _, conversationId):
+            return conversationId
+        case .benignFailure, .malicious, .noJoinRequest:
+            return nil
         }
     }
 
@@ -281,7 +305,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                memberInboxIds: allMemberInboxIds,
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")
         } catch {

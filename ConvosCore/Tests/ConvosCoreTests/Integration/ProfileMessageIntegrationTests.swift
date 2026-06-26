@@ -212,6 +212,78 @@ struct ProfileMessageIntegrationTests {
         #expect(agentProfile?.memberKind == .agent)
     }
 
+    // MARK: - Snapshot builder unions database rows with recent messages
+
+    @Test("Snapshot builder includes a database-only member with no recent profile message")
+    func snapshotBuilderIncludesDatabaseOnlyMember() async throws {
+        let clientA = try await createClient()
+        let clientB = try await createClient()
+        defer {
+            try? clientA.deleteLocalDatabase()
+            try? clientB.deleteLocalDatabase()
+        }
+
+        let groupA = try await clientA.conversations.newGroup(with: [clientB.inboxID])
+
+        // The human (clientA) has a recent profile update. The agent (clientB)
+        // never published one, so the inviter knows it only through the
+        // authoritative database row - the case that rendered "Somebody".
+        _ = try await groupA.send(encodedContent: try ProfileUpdateCodec().encode(content: ProfileUpdate(name: "Human")))
+        try await groupA.sync()
+
+        var agentProfile = try #require(MemberProfile(inboxIdString: clientB.inboxID, name: "My Agent"))
+        agentProfile.memberKind = .agent
+
+        let allMembers = try await groupA.members.map(\.inboxId)
+        let builtSnapshot = try await ProfileSnapshotBuilder.buildSnapshot(
+            group: groupA,
+            memberInboxIds: allMembers,
+            dbProfiles: [agentProfile]
+        )
+
+        let humanProfile = builtSnapshot.findProfile(inboxId: clientA.inboxID)
+        let resolvedAgent = builtSnapshot.findProfile(inboxId: clientB.inboxID)
+        #expect(humanProfile?.name == "Human")
+        #expect(resolvedAgent?.name == "My Agent")
+        #expect(resolvedAgent?.memberKind == .agent)
+    }
+
+    @Test("Snapshot builder includes a message-only member missing from the database")
+    func snapshotBuilderUnionsMessageOnlyMember() async throws {
+        let clientA = try await createClient()
+        let clientB = try await createClient()
+        defer {
+            try? clientA.deleteLocalDatabase()
+            try? clientB.deleteLocalDatabase()
+        }
+
+        let groupA = try await clientA.conversations.newGroup(with: [clientB.inboxID])
+
+        // clientB publishes a profile update the inviter has synced but not yet
+        // flushed to its database; only clientA has a database row. The union
+        // must surface both: the message-only member and the database-only one.
+        try await clientB.conversations.sync()
+        let groupB = try #require(try clientB.conversations.listGroups().first { $0.id == groupA.id })
+        try await groupB.sync()
+        _ = try await groupB.send(encodedContent: try ProfileUpdateCodec().encode(content: ProfileUpdate(name: "Fresh Bob")))
+
+        try await groupA.sync()
+
+        let aliceProfile = try #require(MemberProfile(inboxIdString: clientA.inboxID, name: "DB Alice"))
+
+        let allMembers = try await groupA.members.map(\.inboxId)
+        let builtSnapshot = try await ProfileSnapshotBuilder.buildSnapshot(
+            group: groupA,
+            memberInboxIds: allMembers,
+            dbProfiles: [aliceProfile]
+        )
+
+        let resolvedAlice = builtSnapshot.findProfile(inboxId: clientA.inboxID)
+        let resolvedBob = builtSnapshot.findProfile(inboxId: clientB.inboxID)
+        #expect(resolvedAlice?.name == "DB Alice")
+        #expect(resolvedBob?.name == "Fresh Bob")
+    }
+
     // MARK: - Empty group
 
     @Test("Snapshot builder returns empty profiles when no profile messages exist")

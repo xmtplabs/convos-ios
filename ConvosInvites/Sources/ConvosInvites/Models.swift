@@ -156,18 +156,24 @@ public struct JoinResult: Sendable {
 /// - `malicious`: Signature verification failed in a way that indicates
 ///   tampering. The DM is denied and the device unsubscribes from its
 ///   topic so it can no longer wake the inbox.
-/// - `alreadyMember`: The request needs no action - either the joiner is
+/// - `alreadyMember`: The request needs no re-add - either the joiner is
 ///   already in the group, or this exact message already admitted them
 ///   once (handled-request ledger) and they may have since been removed.
 ///   Another processing path (stream vs batch vs poll) handled this
-///   request first. No re-add, no snapshot, no error DM; the DM stays
-///   subscribed like `accepted`.
+///   request first. No re-add, no error DM; the DM stays subscribed like
+///   `accepted`. `conversationId` is carried when the request was verified
+///   against a known group (the joiner is currently a member), so the
+///   caller can still re-publish a complete profile snapshot for that
+///   conversation - a re-invite or a dedup race where the accept that added
+///   the member ran in another pass still needs the joiner to receive the
+///   roster. It is nil on the handled-request ledger pre-check, which short
+///   circuits before the conversation is resolved.
 /// - `noJoinRequest`: The message was not a join-request candidate.
 public enum JoinRequestDMOutcome: Sendable {
     case accepted(JoinResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
-    case alreadyMember(dmConversationId: String, joinerInboxId: String)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String, conversationId: String?)
     case noJoinRequest
 
     public var joinResult: JoinResult? {
@@ -183,7 +189,7 @@ public enum JoinRequestDMOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
-        case .alreadyMember(let dmConversationId, _):
+        case .alreadyMember(let dmConversationId, _, _):
             return dmConversationId
         case .noJoinRequest:
             return nil
