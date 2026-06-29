@@ -106,7 +106,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")
     }
 
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+    func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse {
         // A registered, joined agent — a coherent terminal state (joined ⇒
         // inbox present), not "starting" paired with an inbox, which masks the
         // poll loop and can't be told apart from a real in-flight state.
@@ -151,13 +151,36 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         ]
     }
 
+    func getAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        [
+            .init(
+                slug: "pr-1234",
+                label: "Q+A",
+                whatToTest: "Agent asks clarifying questions before building. Check it doesn't over-ask.",
+                status: "ready",
+                assistantWorkerUrl: "https://ephemeral-pr-1234.convos.fun",
+                builderPromptSlug: "qa-flow-v2",
+                prUrl: "https://github.com/xmtplabs/convos-assistants/pull/1234",
+                branch: "saul/qa-flow",
+                commit: "b9adb65"
+            ),
+            .init(
+                slug: "pr-1251",
+                label: "Artifact",
+                whatToTest: "Replies with an artifact card -- check rendering.",
+                status: "building"
+            ),
+        ]
+    }
+
     func createAgentTemplateGeneration(
         text: String,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
         attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         .init(generationId: UUID().uuidString, status: .pending, templateId: nil, error: nil)
     }

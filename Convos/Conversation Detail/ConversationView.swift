@@ -753,6 +753,7 @@ struct MemberContactDetailSheetContent: View {
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,
+                variantStamp: member.profile.variant,
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,

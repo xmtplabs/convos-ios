@@ -46,7 +46,7 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
 /// `SessionManager.addAgentToConversation` (not the raw API client) so the
 /// direct-add provision/add runs and the agent is added to the conversation
 /// the build targeted.
-public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String) async throws -> Void
+public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String, _ variantId: String?) async throws -> Void
 
 /// Errors an `AgentTemplateJoinHandler` can throw when it cannot perform the
 /// join. Surfacing these as thrown errors (rather than returning) keeps the
@@ -79,7 +79,10 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// in the background. Safe to call once per build; the persisted row makes it
     /// idempotent across relaunch. `connections` are neutral service ids sent
     /// for generation awareness; post-join grants are driven separately.
-    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String])
+    /// `variantId` is the dev-only agent variant slug captured once at build
+    /// start (`nil` for default builds); it is persisted on the row and reused
+    /// for the generation, join, and join-status-poll calls.
+    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?)
 
     /// Latest generation for a conversation, observed reactively.
     func generationPublisher(conversationId: String) -> AnyPublisher<AgentTemplateGeneration?, Never>
@@ -103,7 +106,7 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
 public extension AgentTemplateRepositoryProtocol {
     /// Text-only convenience for callers with no attachments or connections.
     func startGeneration(prompt: String, conversationId: String, slug: String) {
-        startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [])
+        startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [], variantId: nil)
     }
 }
 
@@ -151,7 +154,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         joinHandler.withLock { $0 = handler }
     }
 
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String]) {
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {
         let idempotencyKey: String = UUID().uuidString
         let now: Date = Date()
         let storedAttachments: [StoredGenerationAttachment]
@@ -172,6 +175,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             errorMessage: nil,
             attachments: Self.encodeAttachments(storedAttachments),
             connections: Self.encodeConnections(connections),
+            variantId: variantId,
             createdAt: now,
             updatedAt: now
         )
@@ -298,7 +302,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     clientDeviceId: clientDeviceIdProvider(),
                     idempotencyKey: row.idempotencyKey,
                     attachments: Self.attachmentRefs(from: row),
-                    connections: Self.decodeConnections(row.connections)
+                    connections: Self.decodeConnections(row.connections),
+                    variantId: row.variantId
                 )
                 return await applyResponse(response, to: row.idempotencyKey)
             } catch let error as AgentGenerationError {
@@ -373,13 +378,14 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 // to the raw client when unset (tests).
                 let handler = joinHandler.withLock { $0 }
                 if let handler {
-                    try await handler(row.conversationId, templateId)
+                    try await handler(row.conversationId, templateId, row.variantId)
                 } else {
+                    let options = row.variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
                     _ = try await apiClient.requestAgentJoin(
                         slug: nil,
                         conversationId: row.conversationId,
                         templateId: templateId,
-                        options: nil,
+                        options: options,
                         timezone: nil,
                         forceErrorCode: nil
                     )
@@ -625,7 +631,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 /// No-op repository used as the `SessionManagerProtocol` default so test mocks
 /// and non-builder conformers don't need bespoke wiring.
 public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol {
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String]) {}
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {}
 
     public init() {}
 

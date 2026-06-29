@@ -261,6 +261,13 @@ final class AgentBuilderViewModel: Identifiable {
     /// the repository. Cleared once the generation has been kicked off.
     @ObservationIgnored
     private var pendingDirectPrompt: String?
+    /// Direct-builder only: the dev variant slug captured at Make (`nil` when no
+    /// variant is selected), held alongside the prompt and handed to the
+    /// repository with it. Capturing once at Make -- not re-reading the device
+    /// selection when the deferred generation finally starts -- is what keeps a
+    /// mid-build variant switch from splitting generation and routing.
+    @ObservationIgnored
+    private var pendingDirectVariantId: String?
     @ObservationIgnored
     private var didStartDirectGeneration: Bool = false
     @ObservationIgnored
@@ -652,7 +659,12 @@ final class AgentBuilderViewModel: Identifiable {
         // chat without the reveal tail; the home flow runs the reveal/visibility
         // tail below so the chat animates in and the agent's contact card
         // appears once it joins.
-        startDirectGeneration(prompt: textToSend)
+        // Capture the active variant once, here at Make. Reading the device
+        // selection now (rather than when the deferred generation starts) is the
+        // split-brain guard: a mid-build switch can't generate under one variant
+        // and route/stamp under another.
+        let variantId = FeatureFlags.shared.selectedAgentVariant?.slug
+        startDirectGeneration(prompt: textToSend, variantId: variantId)
         if targetsExistingConversation { return }
 
         Task { @MainActor [weak self] in
@@ -774,8 +786,9 @@ extension AgentBuilderViewModel {
     /// Capture the prompt and start the generation as soon as the conversation
     /// has an invite slug. If Make was tapped before the conversation was
     /// ready, `onReachedReady` re-invokes `startDirectGenerationIfReady()`.
-    private func startDirectGeneration(prompt: String) {
+    private func startDirectGeneration(prompt: String, variantId: String?) {
         pendingDirectPrompt = prompt
+        pendingDirectVariantId = variantId
         startDirectGenerationIfReady()
     }
 
@@ -796,6 +809,8 @@ extension AgentBuilderViewModel {
         }
         didStartDirectGeneration = true
         pendingDirectPrompt = nil
+        let variantId = pendingDirectVariantId
+        pendingDirectVariantId = nil
         let conversationId = conversation.id
         let photos: [PendingPhotoAttachment] = directBuildPhotos()
         var attachmentInputs: [AgentBuildAttachmentInput] = []
@@ -849,7 +864,8 @@ extension AgentBuilderViewModel {
             conversationId: conversationId,
             slug: slug,
             attachments: attachmentInputs,
-            connections: connectionServiceIds
+            connections: connectionServiceIds,
+            variantId: variantId
         )
         var bundledIds: Set<String> = []
         if let promptMessageId { bundledIds.insert(promptMessageId) }
