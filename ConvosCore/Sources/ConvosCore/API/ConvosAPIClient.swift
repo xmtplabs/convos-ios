@@ -139,11 +139,10 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// `getAgentTemplateGeneration` for the terminal state. `idempotencyKey`
     /// must be a UUID and is reused across retries of the same submit.
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
@@ -262,11 +261,10 @@ extension ConvosAPIClientProtocol {
     /// have to stub these. The real `ConvosAPIClient` and `MockAPIClient`
     /// override both.
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
@@ -991,11 +989,10 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
@@ -1005,7 +1002,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let body = try JSONEncoder().encode(
             ConvosAPI.AgentTemplateGenerationRequest(
                 source: source,
-                inputs: .init(text: text, attachments: attachments.isEmpty ? nil : attachments),
+                inputs: inputs,
                 connections: connections.isEmpty ? nil : connections,
                 clientDeviceId: clientDeviceId,
                 publishStatus: "unlisted",

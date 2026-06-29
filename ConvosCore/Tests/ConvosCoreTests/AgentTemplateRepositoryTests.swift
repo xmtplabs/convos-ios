@@ -127,11 +127,10 @@ private final class HappyStubAPIClient: TestStubAPIClient {
     var joinedConversationId: String? { lock.withLock { capturedConversationId } }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
@@ -178,11 +177,10 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
     var joinCalls: Int { lock.withLock { joinCallCount } }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
@@ -220,11 +218,10 @@ private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
     }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {

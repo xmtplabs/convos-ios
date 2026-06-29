@@ -662,8 +662,12 @@ final class AgentBuilderViewModel: Identifiable {
         // Capture the active variant once, here at Make. Reading the device
         // selection now (rather than when the deferred generation starts) is the
         // split-brain guard: a mid-build switch can't generate under one variant
-        // and route/stamp under another.
-        let variantId = FeatureFlags.shared.selectedAgentVariant?.slug
+        // and route/stamp under another. Gated on the selector flag so a stale
+        // persisted selection can't silently route builds once the dev toggle is
+        // turned back off (disabling it only hides the UI, not the cached value).
+        let variantId = FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
         startDirectGeneration(prompt: textToSend, variantId: variantId)
         if targetsExistingConversation { return }
 

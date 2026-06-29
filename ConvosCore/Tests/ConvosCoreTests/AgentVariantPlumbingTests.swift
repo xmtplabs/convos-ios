@@ -199,11 +199,10 @@ private final class VariantRecordingStubAPIClient: TestStubAPIClient {
     var joinVariantId: String? { lock.withLock { capturedJoinVariantId } }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {

@@ -174,11 +174,10 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
         connections: [String],
         variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {

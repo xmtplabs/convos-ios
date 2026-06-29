@@ -296,12 +296,12 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         var attempt: Int = 0
         while attempt < Constant.maxSubmitAttempts {
             do {
+                let attachmentRefs = Self.attachmentRefs(from: row)
                 let response = try await apiClient.createAgentTemplateGeneration(
-                    text: row.prompt,
+                    inputs: .init(text: row.prompt, attachments: attachmentRefs.isEmpty ? nil : attachmentRefs),
                     source: source,
                     clientDeviceId: clientDeviceIdProvider(),
                     idempotencyKey: row.idempotencyKey,
-                    attachments: Self.attachmentRefs(from: row),
                     connections: Self.decodeConnections(row.connections),
                     variantId: row.variantId
                 )

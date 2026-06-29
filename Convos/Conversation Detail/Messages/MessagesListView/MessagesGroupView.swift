@@ -323,8 +323,9 @@ struct MessagesGroupView: View {
     }
 
     /// Dev-only variant ribbon overlaid on the agent contact card's top, clipped
-    /// to its own top corners so the card stays untouched. The PR-number link
-    /// taps through to the PR; taps elsewhere fall to the card.
+    /// to its own top corners so the card stays untouched. Non-interactive so
+    /// taps pass through to the card's gesture and open the agent profile, which
+    /// carries the full detail and a working PR link.
     @ViewBuilder
     private var variantRibbonOverlay: some View {
         if !ConfigManager.shared.currentEnvironment.isProduction,
@@ -339,6 +340,7 @@ struct MessagesGroupView: View {
                         topTrailingRadius: 24.0
                     )
                 )
+                .allowsHitTesting(false)
         }
     }
 
