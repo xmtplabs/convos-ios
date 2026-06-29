@@ -1321,16 +1321,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         if let error = state.uploadError { throw error }
         let prepared = state.prepared
-        let info = MultiRemoteAttachment.RemoteAttachmentInfo(
-            url: prepared.assetURL,
-            filename: prepared.filename,
-            contentLength: 0,
-            contentDigest: prepared.contentDigest,
-            nonce: prepared.encryptionNonce,
-            scheme: "https",
-            salt: prepared.encryptionSalt,
-            secret: prepared.encryptionSecret
-        )
+        let info = MultiRemoteAttachment.RemoteAttachmentInfo(from: prepared)
         // Embed a chip-sized thumbnail in the stored JSON, mirroring the
         // video path's `state.thumbnailData` below. The agent-builder summary
         // card renders bundle chips straight from this JSON (`hydrateAttachment`
@@ -1373,7 +1364,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let info = MultiRemoteAttachment.RemoteAttachmentInfo(
             url: prepared.assetURL,
             filename: state.filename,
-            contentLength: 0,
+            contentLength: prepared.encryptedContentLength,
             contentDigest: prepared.contentDigest,
             nonce: prepared.encryptionNonce,
             scheme: "https",
@@ -1513,7 +1504,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let info = MultiRemoteAttachment.RemoteAttachmentInfo(
             url: presigned.assetURL,
             filename: filename,
-            contentLength: UInt32(clamping: fileData.count),
+            contentLength: UInt32(encrypted.payload.count),
             contentDigest: encrypted.digest,
             nonce: encrypted.nonce,
             scheme: "https",
@@ -1693,7 +1684,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 encryptionSalt: encrypted.salt,
                 encryptionNonce: encrypted.nonce,
                 contentDigest: encrypted.digest,
-                filename: state.filename
+                filename: state.filename,
+                encryptedContentLength: UInt32(encrypted.payload.count)
             )
 
             // Publish prepared + compressed URL into the shared state BEFORE the
@@ -1866,6 +1858,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         _ = try await publishAttachment(
             storedAttachment: storedAttachment,
+            contentLength: prepared.encryptedContentLength,
             clientMessageId: state.clientMessageId,
             trackingKey: trackingKey,
             thumbnailImage: thumbnailImage,
@@ -2008,6 +2001,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             let messageId = try await publishAttachment(
                 storedAttachment: storedAttachment,
+                contentLength: UInt32(encrypted.payload.count),
                 clientMessageId: clientMessageId,
                 trackingKey: trackingKey,
                 thumbnailImage: params.thumbnailData.flatMap { ImageType(data: $0) },
@@ -2051,6 +2045,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishAttachment(
         storedAttachment: StoredRemoteAttachment,
+        contentLength: UInt32,
         clientMessageId: String,
         trackingKey: String,
         thumbnailImage: ImageType?,
@@ -2072,7 +2067,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             salt: storedAttachment.salt,
             nonce: storedAttachment.nonce,
             scheme: .https,
-            contentLength: nil,
+            contentLength: Int(contentLength),
             filename: storedAttachment.filename
         )
 
@@ -2614,6 +2609,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let messageId = try await publishAttachment(
             storedAttachment: storedAttachment,
+            contentLength: UInt32(encrypted.payload.count),
             clientMessageId: queued.clientMessageId,
             trackingKey: queued.trackingKey,
             thumbnailImage: thumbnailImage,
@@ -2693,6 +2689,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let messageId = try await publishAttachment(
             storedAttachment: storedAttachment,
+            contentLength: UInt32(encrypted.payload.count),
             clientMessageId: queued.clientMessageId,
             trackingKey: queued.trackingKey,
             thumbnailImage: nil,
@@ -2727,6 +2724,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         do {
             messageId = try await publishAttachment(
                 storedAttachment: storedAttachment,
+                contentLength: prepared.encryptedContentLength,
                 clientMessageId: queued.clientMessageId,
                 trackingKey: trackingKey,
                 thumbnailImage: queued.image,
