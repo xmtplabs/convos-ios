@@ -116,19 +116,26 @@ final class DeepLinkHandler {
         return templateId
     }
 
-    /// Parses agent-template deep links of the form
-    /// `convos[-{env}]://template/<templateId>`, where `<templateId>` is
-    /// the backend's `AgentTemplate.id` (a UUID).
+    /// Parses agent-template deep links in two shapes, both carrying the
+    /// backend's `AgentTemplate.id` (a UUID):
+    ///  - custom scheme `convos[-{env}]://template/<templateId>`
+    ///  - Universal Link `https://app[-{env}].convos.org/template/<templateId>`
     ///
-    /// V1 handles the custom URL scheme only. A Universal Link form
-    /// (`https://.../<templateId>`) is a planned follow-up.
+    /// The Universal Link form opens the app from contexts a custom scheme
+    /// can't reach - notably a social app's in-app browser, which silently
+    /// drops `convos://` navigations but still hands an https associated-domain
+    /// link off to the app.
     ///
     /// See `docs/plans/agent-templates-phase-1-prd.md`.
     @MainActor
     private static func parseAgentTemplate(from url: URL) -> DeepLinkDestination? {
-        guard url.scheme == ConfigManager.shared.appUrlScheme,
-              let templateId = customSchemeAgentTemplateId(from: url),
-              isValidTemplateId(templateId) else {
+        let templateId: String?
+        if url.scheme == ConfigManager.shared.appUrlScheme {
+            templateId = customSchemeAgentTemplateId(from: url)
+        } else {
+            templateId = universalLinkAgentTemplateId(from: url)
+        }
+        guard let templateId, isValidTemplateId(templateId) else {
             return nil
         }
         return .agentTemplate(templateId: templateId)
@@ -141,6 +148,22 @@ final class DeepLinkHandler {
         let components = url.pathComponents.filter { $0 != "/" }
         guard components.count == 1 else { return nil }
         return components[0]
+    }
+
+    /// `https://app[-{env}].convos.org/template/<id>` - host is one of the
+    /// app's associated domains, first path component is `template`, second
+    /// is the id. The host is validated here, not only at `destination(for:)`,
+    /// so the QR-scanner entry point `agentTemplateId(from:)` can't extract an
+    /// id out of an unclaimed host.
+    private static func universalLinkAgentTemplateId(from url: URL) -> String? {
+        guard url.scheme == "https",
+              let host = url.host,
+              ConfigManager.shared.associatedDomains.contains(host) else {
+            return nil
+        }
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard components.count == 2, components[0] == "template" else { return nil }
+        return components[1]
     }
 
     private static let uuidPattern: NSRegularExpression? = {
