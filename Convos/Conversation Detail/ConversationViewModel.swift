@@ -3738,11 +3738,13 @@ extension ConversationViewModel {
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
+        let variantId = Self.selectedAgentVariantSlug()
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
                 conversationId: conversationId,
                 requestId: requestId,
+                variantId: variantId,
                 forceErrorCode: forceErrorCode,
                 session: session
             )
@@ -3828,6 +3830,7 @@ extension ConversationViewModel {
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
+        let variantId = Self.selectedAgentVariantSlug()
         Task { [weak self] in
             var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
@@ -3842,6 +3845,7 @@ extension ConversationViewModel {
                     templateId: join.templateId,
                     conversationId: conversationId,
                     requestId: join.requestId,
+                    variantId: variantId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
@@ -3959,10 +3963,20 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
+    /// The dev-selected agent variant slug to route an agent join, or `nil`.
+    /// Gated on the selector flag so a stale persisted selection can't route
+    /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    private static func selectedAgentVariantSlug() -> String? {
+        FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
+    }
+
     private static func performAgentJoinCall(
         templateId: String?,
         conversationId: String,
         requestId: String,
+        variantId: String?,
         forceErrorCode: Int?,
         session: any SessionManagerProtocol
     ) async -> AgentJoinOutcome {
@@ -3973,10 +3987,13 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
+            let options: ConvosAPI.AgentJoinOptions? = variantId.map {
+                ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0)
+            }
             _ = try await session.addAgentToConversation(
                 conversationId: conversationId,
                 templateId: templateId,
-                options: nil,
+                options: options,
                 forceErrorCode: forceErrorCode
             )
             Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")
