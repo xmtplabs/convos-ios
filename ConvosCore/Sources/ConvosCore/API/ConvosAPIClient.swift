@@ -985,6 +985,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // route serves an empty list.
         let request = try authenticatedRequest(for: "v2/agent-variants")
         let response: ConvosAPI.AgentVariantsResponse = try await performRequest(request)
+        if response.data.isEmpty {
+            // A throw would mean a transport/auth failure; an empty list is the
+            // route's intended prod response (or no open variants in dev). Log so
+            // the two are distinguishable when the picker shows nothing.
+            Log.info("getAgentVariants: registry returned an empty list")
+        }
         return response.data
     }
 

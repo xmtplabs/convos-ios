@@ -31,6 +31,12 @@ final class FeatureFlags {
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             UserDefaults.standard.set(newValue, forKey: Constant.agentVariantSelectorEnabledKey)
+            // Clear any cached selection when the feature is turned off so a
+            // stale variant can't resurface on re-enable. Reads are already
+            // gated on this flag; clearing keeps the persisted state honest too.
+            if !newValue {
+                selectedAgentVariant = nil
+            }
         }
     }
 

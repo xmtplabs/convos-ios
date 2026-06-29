@@ -78,25 +78,35 @@ struct AgentVariantSelector: View {
 
     private var menu: some View {
         Menu {
-            let selectNone = { viewModel.select(nil) }
-            Button(action: selectNone) {
-                menuItemLabel(title: "No variant", selected: viewModel.selectedVariant == nil)
-            }
-            switch viewModel.loadState {
-            case .loaded:
-                ForEach(viewModel.variants) { variant in
-                    let selectVariant = { viewModel.select(variant) }
-                    Button(action: selectVariant) {
-                        menuItemLabel(title: variant.label, selected: viewModel.isSelected(variant))
-                    }
-                }
-            case .loading:
-                Text("Loading variants...")
-            case .failed:
-                Text("Couldn't load variants")
-            }
+            menuContent
         } label: {
             menuButtonLabel
+        }
+    }
+
+    @ViewBuilder
+    private var menuContent: some View {
+        let selectNone = { viewModel.select(nil) }
+        Button(action: selectNone) {
+            menuItemLabel(title: "No variant", selected: viewModel.selectedVariant == nil)
+        }
+        loadedVariantsOrPlaceholder
+    }
+
+    @ViewBuilder
+    private var loadedVariantsOrPlaceholder: some View {
+        switch viewModel.loadState {
+        case .loaded:
+            ForEach(viewModel.variants) { variant in
+                let selectVariant = { viewModel.select(variant) }
+                Button(action: selectVariant) {
+                    menuItemLabel(title: variant.label, selected: viewModel.isSelected(variant))
+                }
+            }
+        case .loading:
+            Text("Loading variants...")
+        case .failed:
+            Text("Couldn't load variants")
         }
     }
 
