@@ -39,6 +39,7 @@ struct InviteCodeBody: View {
     @State private var qrImage: UIImage?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     init(
         conversation: Conversation,
@@ -115,22 +116,24 @@ struct InviteCodeBody: View {
 
     /// The Figma QR card (nodes 1/2): the `fillSubtle` rounded card (corner
     /// radius `.extraLarge` = 56), generously padded from the card edge, with
-    /// the legacy `QRCodeGenerator` glyph (rounded modules, Q error correction,
-    /// a 0.25 center hole) and the conversation avatar overlaid into the center
-    /// circle. The card and screens are Figma; the glyph itself is the one
-    /// legacy element. The generator leaves a center hole; `ConversationAvatarView`
-    /// fills it and provides the avatar -> emoji -> monogram fallback so the
-    /// center is never empty.
+    /// the legacy `QRCodeGenerator` glyph (rounded modules, Q error correction)
+    /// and the conversation avatar overlaid into the center circle. The card and
+    /// screens are Figma; the glyph itself is the one legacy element. The
+    /// generator clears a square center; a circular hole mask rounds that gap so
+    /// the card background shows through as a clean circle, and
+    /// `ConversationAvatarView` fills it with the avatar -> emoji -> monogram
+    /// fallback so the center is never empty.
     private var inviteQRTile: some View {
         let cardSize: CGFloat = Constant.tileSize
         let qrSize: CGFloat = cardSize - Constant.qrCardPadding * 2.0
         let centerDiameter: CGFloat = qrSize * Constant.qrCenterFraction
         // The generator clears a square region in the QR matrix (centerSpaceSize),
-        // whose corners read as a square frame around the round avatar. A circular
-        // fillSubtle disc sized to the square's diagonal hides those corners so the
-        // eye only sees a clean circle. sqrt(2) covers the corners of the cleared
-        // square (side == centerDiameter) without enlarging the cleared area.
-        let centerDiscDiameter: CGFloat = centerDiameter * 1.4142135623730951
+        // whose corners read as a square frame around the round avatar. Punch a
+        // circular hole out of the QR image sized to the square's diagonal so the
+        // cleared center reads as a clean circle of the card background (no opaque
+        // backing shape); the avatar sits on top. sqrt(2) reaches the corners of
+        // the cleared square (side == centerDiameter) without enlarging it.
+        let centerHoleDiameter: CGFloat = centerDiameter * 1.4142135623730951
         return ZStack {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge)
                 .fill(DesignConstants.Colors.fillSubtle)
@@ -140,11 +143,9 @@ struct InviteCodeBody: View {
                     .interpolation(.none)
                     .aspectRatio(1.0, contentMode: .fit)
                     .frame(width: qrSize, height: qrSize)
+                    .mask(qrCenterMask(holeDiameter: centerHoleDiameter))
                     .transition(.opacity)
             }
-            Circle()
-                .fill(DesignConstants.Colors.fillSubtle)
-                .frame(width: centerDiscDiameter, height: centerDiscDiameter)
             ConversationAvatarView(
                 conversation: conversation,
                 conversationImage: conversationImage,
@@ -162,14 +163,28 @@ struct InviteCodeBody: View {
         .accessibilityIdentifier("invite-qr-code-view")
     }
 
+    /// Full-square mask with a centered circular hole, used to round off the
+    /// corners of the generator's square cleared center so the card background
+    /// shows through as a clean circle behind the avatar.
+    private func qrCenterMask(holeDiameter: CGFloat) -> some View {
+        Rectangle()
+            .overlay(
+                Circle()
+                    .frame(width: holeDiameter, height: holeDiameter)
+                    .blendMode(.destinationOut)
+            )
+            .compositingGroup()
+    }
+
     private var qrTaskKey: String {
-        "\(encodedURLString)|\(displayScale)"
+        "\(encodedURLString)|\(displayScale)|\(colorScheme)"
     }
 
     private func regenerateQR(size: CGFloat) async {
         let options = QRCodeGenerator.Options(
             scale: displayScale,
             displaySize: size,
+            centerSpaceSize: Float(Constant.qrCenterFraction),
             foregroundColor: UIColor(.colorTextPrimary),
             backgroundColor: UIColor(DesignConstants.Colors.fillSubtle)
         )
@@ -299,9 +314,14 @@ struct InviteCodeBody: View {
         /// Padding from the card edge to the QR glyph, giving the roomy
         /// QR-to-card spacing from the Figma card.
         static let qrCardPadding: CGFloat = 32.0
-        /// Center-avatar diameter as a fraction of the QR, sized to land in
-        /// the generator's 0.25 center hole.
-        static let qrCenterFraction: CGFloat = 0.25
+        /// Center-avatar diameter as a fraction of the QR. Also drives the
+        /// generator's cleared center (`centerSpaceSize`) and the circular hole
+        /// mask, which are kept locked to this value so the avatar exactly fills
+        /// the cleared circle. 0.28 is the largest center that still reliably
+        /// decodes a short real invite under Q error correction (verified with
+        /// Vision against the rendered output, occlusion worst-cased); longer
+        /// real invites carry more margin.
+        static let qrCenterFraction: CGFloat = 0.28
         static let buttonHeight: CGFloat = 72.0
     }
 }
