@@ -29,14 +29,18 @@ public enum StylizedQRCodeGenerator {
         public let centerLogoFraction: CGFloat
         /// Optional image rendered, clipped to a circle, in the center.
         public let centerImage: UIImage?
-        /// Draw the three finder patterns as the Figma ring-and-pupil "eyes"
-        /// instead of their crisp square modules. Defaults to `false`:
-        /// `CIDetector` (and some scanners) fail to lock onto stylized finder
-        /// patterns, so square finders keep the code reliably machine-readable.
-        /// See the deferred-work note on `drawRoundedFinderEyes` before
-        /// enabling. The rounded data dots, by contrast, decode fine and are
-        /// always drawn.
+        /// Draw the three finder patterns as the Figma rounded ring-and-pupil
+        /// "eyes" (rounded-corner concentric squares) instead of crisp square
+        /// modules. Defaults to `true`: rounded-corner squares keep the
+        /// finder's 1:1:3:1:1 proportions, so both `CIDetector` and Vision
+        /// decode them reliably. (An earlier attempt drew the eyes as circles,
+        /// which destroyed the proportions and broke decoding; rounded squares
+        /// do not.)
         public let roundedFinderEyes: Bool
+        /// Corner radius of the rounded finder eyes as a fraction of one
+        /// module's side. ~0.30 reads as clearly rounded while keeping the
+        /// squareness obvious; round-trip decoding holds well past this.
+        public let finderEyeCornerRadiusFactor: CGFloat
 
         public init(
             size: CGFloat = 280.0,
@@ -45,7 +49,8 @@ public enum StylizedQRCodeGenerator {
             backgroundColor: UIColor = .clear,
             centerLogoFraction: CGFloat = 0.27,
             centerImage: UIImage? = nil,
-            roundedFinderEyes: Bool = false
+            roundedFinderEyes: Bool = true,
+            finderEyeCornerRadiusFactor: CGFloat = 0.30
         ) {
             self.size = size
             self.scale = scale
@@ -54,6 +59,7 @@ public enum StylizedQRCodeGenerator {
             self.centerLogoFraction = centerLogoFraction
             self.centerImage = centerImage
             self.roundedFinderEyes = roundedFinderEyes
+            self.finderEyeCornerRadiusFactor = finderEyeCornerRadiusFactor
         }
     }
 
@@ -237,7 +243,12 @@ public enum StylizedQRCodeGenerator {
             drawSquareFinders(in: cgContext, layout: layout)
             return
         }
-        drawRoundedFinderEyes(in: cgContext, layout: layout, foregroundColor: options.foregroundColor)
+        drawRoundedFinderEyes(
+            in: cgContext,
+            layout: layout,
+            foregroundColor: options.foregroundColor,
+            cornerRadiusFactor: options.finderEyeCornerRadiusFactor
+        )
     }
 
     /// Draws the finder patterns as their exact square modules (outer 7x7 ring
@@ -263,29 +274,31 @@ public enum StylizedQRCodeGenerator {
         }
     }
 
-    // Deferred styling: the Figma design draws the finder patterns as rounded
-    // ring-and-pupil "eyes". `CIDetector` (and some scanners) fail to lock onto
-    // that stylization - the round-trip decode test in
-    // StylizedQRCodeGeneratorTests only passes with square finders - so it is
-    // gated behind `Options.roundedFinderEyes` and off by default. Enable once a
-    // rounded-eye geometry that survives round-trip decoding is validated on a
-    // physical device.
-    private static func drawRoundedFinderEyes(in cgContext: CGContext, layout: Layout, foregroundColor: UIColor) {
+    /// Draws the finder patterns as rounded-corner concentric squares (the
+    /// Figma ring-and-pupil "eyes"): a rounded-rect outer ring, a cleared
+    /// rounded-rect separator band, and a rounded-rect pupil. Rounding the
+    /// corners of squares preserves the finder's 1:1:3:1:1 proportions, so
+    /// both CIDetector and Vision still decode the code. The separator band is
+    /// cleared (not filled white) so the tile color shows through, matching the
+    /// transparent gaps left between the data dots.
+    private static func drawRoundedFinderEyes(
+        in cgContext: CGContext,
+        layout: Layout,
+        foregroundColor: UIColor,
+        cornerRadiusFactor: CGFloat
+    ) {
         let moduleSize = layout.moduleSize
         let outerSide: CGFloat = moduleSize * 7.0
         let ringThickness: CGFloat = moduleSize
         let pupilSide: CGFloat = moduleSize * 3.0
+        let outerRadius: CGFloat = moduleSize * cornerRadiusFactor
+        let bandRadius: CGFloat = max(0.0, outerRadius - ringThickness * 0.6)
+        let pupilRadius: CGFloat = max(0.0, outerRadius - ringThickness)
         for origin in layout.finderOrigins {
             let originX: CGFloat = CGFloat(origin.column) * moduleSize
             let originY: CGFloat = CGFloat(origin.row) * moduleSize
             let outerRect = CGRect(x: originX, y: originY, width: outerSide, height: outerSide)
-            let innerRect = outerRect.insetBy(dx: ringThickness, dy: ringThickness)
-            cgContext.setFillColor(foregroundColor.cgColor)
-            cgContext.fillEllipse(in: outerRect)
-            cgContext.setBlendMode(.clear)
-            cgContext.fillEllipse(in: innerRect)
-            cgContext.setBlendMode(.normal)
-            cgContext.setFillColor(foregroundColor.cgColor)
+            let bandRect = outerRect.insetBy(dx: ringThickness, dy: ringThickness)
             let pupilOrigin: CGFloat = (outerSide - pupilSide) / 2.0
             let pupilRect = CGRect(
                 x: originX + pupilOrigin,
@@ -293,8 +306,21 @@ public enum StylizedQRCodeGenerator {
                 width: pupilSide,
                 height: pupilSide
             )
-            cgContext.fillEllipse(in: pupilRect)
+            cgContext.setFillColor(foregroundColor.cgColor)
+            fillRoundedRect(in: cgContext, rect: outerRect, radius: outerRadius)
+            cgContext.setBlendMode(.clear)
+            fillRoundedRect(in: cgContext, rect: bandRect, radius: bandRadius)
+            cgContext.setBlendMode(.normal)
+            cgContext.setFillColor(foregroundColor.cgColor)
+            fillRoundedRect(in: cgContext, rect: pupilRect, radius: pupilRadius)
         }
+    }
+
+    private static func fillRoundedRect(in cgContext: CGContext, rect: CGRect, radius: CGFloat) {
+        let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        cgContext.beginPath()
+        cgContext.addPath(path)
+        cgContext.fillPath()
     }
 
     private static func drawCenterLogo(

@@ -4,6 +4,7 @@ import CoreImage
 import Foundation
 import Testing
 import UIKit
+import Vision
 
 struct StylizedQRCodeGeneratorTests {
     private let sampleString: String = "https://local.convos.org/v2?i=stylized-qr-test-token"
@@ -23,28 +24,50 @@ struct StylizedQRCodeGeneratorTests {
         }
     }
 
-    @Test
-    func defaultStyledImageDecodesBackToInput() {
-        let options = StylizedQRCodeGenerator.Options(
-            size: 280.0,
-            scale: 3.0,
-            foregroundColor: .black,
-            backgroundColor: .white,
-            centerImage: nil
-        )
-        guard let image = StylizedQRCodeGenerator.generate(from: sampleString, options: options),
-              let cgImage = image.cgImage else {
-            Issue.record("Expected a CGImage-backed stylized QR")
-            return
+    /// The default render uses rounded ring-and-pupil finder eyes. Assert it
+    /// round-trips through both decoders across payload sizes, with and without
+    /// a center logo. Vision is the better proxy for the real camera scanner;
+    /// CIDetector is the more conservative legacy decoder.
+    @Test(arguments: [
+        "convos",
+        "https://local.convos.org/v2?i=stylized-qr-test-token",
+        "https://local.convos.org/v2?i=" + String(repeating: "x", count: 120),
+    ])
+    func defaultRoundedEyeImageDecodesBackToInput(payload: String) {
+        for withLogo in [false, true] {
+            let logo: UIImage? = withLogo ? UIImage(systemName: "person.crop.circle.fill") : nil
+            let options = StylizedQRCodeGenerator.Options(
+                size: 280.0,
+                scale: 3.0,
+                foregroundColor: .black,
+                backgroundColor: .white,
+                centerImage: logo
+            )
+            #expect(options.roundedFinderEyes)
+            guard let cgImage = StylizedQRCodeGenerator.generate(from: payload, options: options)?.cgImage else {
+                Issue.record("Expected a CGImage-backed stylized QR for \(payload)")
+                continue
+            }
+            #expect(ciDecode(cgImage) == payload)
+            #expect(visionDecode(cgImage) == payload)
         }
+    }
+
+    private func ciDecode(_ cgImage: CGImage) -> String? {
         let detector = CIDetector(
             ofType: CIDetectorTypeQRCode,
             context: nil,
             options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]
         )
         let features = detector?.features(in: CIImage(cgImage: cgImage)) ?? []
-        let decoded = (features.first as? CIQRCodeFeature)?.messageString
-        #expect(decoded == sampleString)
+        return (features.first as? CIQRCodeFeature)?.messageString
+    }
+
+    private func visionDecode(_ cgImage: CGImage) -> String? {
+        let request = VNDetectBarcodesRequest()
+        request.symbologies = [.qr]
+        try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+        return (request.results?.first as? VNBarcodeObservation)?.payloadStringValue
     }
 
     @Test
