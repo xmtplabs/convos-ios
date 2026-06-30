@@ -104,7 +104,8 @@ struct InviteCodeOverlay: View {
         case .invite:
             StylizedQRCodeView(
                 encodedURLString: encodedURLString,
-                centerImage: conversationImage,
+                conversation: conversation,
+                conversationImage: conversationImage,
                 tileSize: Constant.tileSize
             )
         case .scan:

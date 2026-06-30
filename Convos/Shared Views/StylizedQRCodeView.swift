@@ -1,3 +1,4 @@
+import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
 
@@ -6,9 +7,23 @@ import SwiftUI
 /// invite-screen design. The heavy drawing happens off the main thread in
 /// `StylizedQRCodeGenerator`; this view owns the async lifecycle and the tile
 /// chrome.
+///
+/// The generator draws the white knockout disc in the center but does not
+/// rasterize the avatar into it. Instead this view overlays the app's own
+/// `ConversationAvatarView`, clipped to the knockout circle. Reusing that view
+/// keeps the center logo consistent with every other avatar surface and gives
+/// the full fallback chain (loaded image -> emoji -> monogram -> clustered) for
+/// free, so the center is never an empty hole even for a brand-new conversation
+/// or before the avatar finishes loading.
 struct StylizedQRCodeView: View {
     let encodedURLString: String
-    let centerImage: UIImage?
+    /// Conversation whose avatar fills the center circle. The avatar loads and
+    /// updates live through `ConversationAvatarView`.
+    let conversation: Conversation
+    /// Already-resolved conversation avatar, when the caller has one cached.
+    /// Forwarded to `ConversationAvatarView` for instant display; nil falls
+    /// back to that view's own cache/emoji/monogram chain.
+    var conversationImage: UIImage?
     var foregroundColor: Color = .colorTextPrimary
     var tileColor: Color = DesignConstants.Colors.fillSubtle
     /// Side length of the square QR tile (Figma: 280.5pt).
@@ -17,12 +32,23 @@ struct StylizedQRCodeView: View {
     @State private var qrImage: UIImage?
     @Environment(\.displayScale) private var displayScale: CGFloat
 
+    /// Diameter of the circular center logo as a fraction of the QR image.
+    /// Mirrors `StylizedQRCodeGenerator.Options.centerLogoFraction` default so
+    /// the overlaid avatar lands exactly inside the white knockout disc.
+    private let centerLogoFraction: CGFloat = 0.27
+
     private var contentInset: CGFloat {
         tileSize * (24.0 / 280.0)
     }
 
     private var qrRenderSize: CGFloat {
         tileSize - contentInset * 2.0
+    }
+
+    /// Diameter of the center avatar, in tile points. The generator sizes the
+    /// knockout as `qrRenderSize * centerLogoFraction`, so the overlay matches.
+    private var centerLogoDiameter: CGFloat {
+        qrRenderSize * centerLogoFraction
     }
 
     var body: some View {
@@ -37,6 +63,12 @@ struct StylizedQRCodeView: View {
                     .frame(width: qrRenderSize, height: qrRenderSize)
                     .transition(.opacity)
             }
+            ConversationAvatarView(
+                conversation: conversation,
+                conversationImage: conversationImage,
+                size: centerLogoDiameter
+            )
+            .frame(width: centerLogoDiameter, height: centerLogoDiameter)
         }
         .frame(width: tileSize, height: tileSize)
         .task(id: taskKey) {
@@ -57,7 +89,8 @@ struct StylizedQRCodeView: View {
             scale: displayScale,
             foregroundColor: UIColor(foregroundColor),
             backgroundColor: .clear,
-            centerImage: centerImage
+            centerLogoFraction: centerLogoFraction,
+            centerImage: nil
         )
         let generated = await StylizedQRCodeGenerator.generate(from: encodedURLString, options: options)
         guard !Task.isCancelled else { return }
@@ -67,18 +100,19 @@ struct StylizedQRCodeView: View {
     }
 }
 
-#Preview("With image logo") {
+#Preview("With conversation avatar") {
     StylizedQRCodeView(
         encodedURLString: "https://local.convos.org/v2?i=preview-invite-token",
-        centerImage: UIImage(systemName: "person.crop.circle.fill")
+        conversation: .mock()
     )
     .padding()
 }
 
-#Preview("No logo") {
+#Preview("Emoji fallback") {
     StylizedQRCodeView(
         encodedURLString: "https://local.convos.org/v2?i=preview-invite-token",
-        centerImage: nil
+        conversation: .mock(),
+        conversationImage: nil
     )
     .padding()
 }
