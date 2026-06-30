@@ -146,13 +146,7 @@ struct InviteCodeBody: View {
                     .mask(qrCenterMask(holeDiameter: centerHoleDiameter))
                     .transition(.opacity)
             }
-            ConversationAvatarView(
-                conversation: conversation,
-                conversationImage: conversationImage,
-                size: centerDiameter
-            )
-            .frame(width: centerDiameter, height: centerDiameter)
-            .clipShape(.circle)
+            inviteCenter(holeDiameter: centerHoleDiameter)
         }
         .frame(width: cardSize, height: cardSize)
         .task(id: qrTaskKey) {
@@ -174,6 +168,56 @@ struct InviteCodeBody: View {
                     .blendMode(.destinationOut)
             )
             .compositingGroup()
+    }
+
+    /// The avatar/emoji that fills the cleared QR center. Renders the emoji or
+    /// conversation image directly with no backing disc -- a large `Text` glyph
+    /// or a circle-clipped photo on a transparent background -- so only the
+    /// round content shows over the card. This deliberately avoids the shared
+    /// `ConversationAvatarView` / `EmojiAvatarView` for the common emoji/image
+    /// cases (whose `colorFillMinimal` disc and small padded glyph are wrong
+    /// here) and falls back to it only for the rarer monogram/clustered/pending
+    /// avatars. `contentDiameter` stays inside the cleared circle so the QR
+    /// remains scannable.
+    @ViewBuilder
+    private func inviteCenter(holeDiameter: CGFloat) -> some View {
+        let contentDiameter: CGFloat = holeDiameter * Constant.qrCenterContentFill
+        if let conversationImage {
+            Image(uiImage: conversationImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: contentDiameter, height: contentDiameter)
+                .clipShape(.circle)
+        } else if let emoji = inviteCenterEmoji {
+            Text(emoji)
+                .font(.system(size: contentDiameter))
+                .frame(width: holeDiameter, height: holeDiameter)
+        } else {
+            ConversationAvatarView(
+                conversation: conversation,
+                conversationImage: conversationImage,
+                size: contentDiameter
+            )
+            .frame(width: contentDiameter, height: contentDiameter)
+            .clipShape(.circle)
+        }
+    }
+
+    /// The center emoji when the conversation's avatar resolves to one (the
+    /// common invite case). Mirrors `ConversationAvatarView`'s emoji resolution
+    /// so this surface can render the glyph directly, large and disc-free.
+    private var inviteCenterEmoji: String? {
+        switch conversation.avatarType {
+        case .emoji(let emoji):
+            return emoji
+        case let .profile(profile, verification):
+            if let emoji = profile.profileEmoji, !emoji.isEmpty {
+                return emoji
+            }
+            return verification == .unverified ? conversation.defaultEmoji : nil
+        default:
+            return nil
+        }
     }
 
     private var qrTaskKey: String {
@@ -322,6 +366,11 @@ struct InviteCodeBody: View {
         /// Vision against the rendered output, occlusion worst-cased); longer
         /// real invites carry more margin.
         static let qrCenterFraction: CGFloat = 0.28
+        /// Emoji/image content size as a fraction of the cleared circular hole
+        /// (`centerDiameter * sqrt(2)`). Below 1.0 so the round content fills
+        /// most of the cleared center while leaving a thin card-colored ring and
+        /// staying inside the hole, keeping the QR scannable.
+        static let qrCenterContentFill: CGFloat = 0.82
         static let buttonHeight: CGFloat = 72.0
     }
 }
