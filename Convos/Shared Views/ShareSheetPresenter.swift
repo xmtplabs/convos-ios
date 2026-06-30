@@ -37,21 +37,32 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
     let onDismiss: (() -> Void)?
     let onCompletion: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIViewController(context: Context) -> UIViewController {
         UIViewController()
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        let coordinator = context.coordinator
         guard isPresented else {
             // The binding flipped to false while the sheet is still up (e.g. a
             // backdrop tap dismissing a containing overlay) - tear it down so the
-            // activity controller can't outlive its presenter.
-            if uiViewController.presentedViewController != nil {
+            // activity controller can't outlive its presenter. Only dismiss the
+            // activity controller this presenter actually presented: this hidden
+            // host view controller can also be the nearest ancestor UIKit picks
+            // to attach a sibling SwiftUI `.sheet` to, and blindly dismissing
+            // `presentedViewController` would tear that unrelated sheet down.
+            if let presented = coordinator.activityViewController,
+               uiViewController.presentedViewController === presented {
                 uiViewController.dismiss(animated: true)
             }
+            coordinator.activityViewController = nil
             return
         }
-        guard !items.isEmpty, uiViewController.presentedViewController == nil else {
+        guard !items.isEmpty, coordinator.activityViewController == nil else {
             return
         }
 
@@ -59,6 +70,7 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
             activityItems: items,
             applicationActivities: nil
         )
+        coordinator.activityViewController = activityViewController
         if let popover = activityViewController.popoverPresentationController {
             popover.sourceView = uiViewController.view
             popover.sourceRect = CGRect(
@@ -70,6 +82,7 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
             popover.permittedArrowDirections = .up
         }
         activityViewController.completionWithItemsHandler = { activityType, completed, _, error in
+            coordinator.activityViewController = nil
             isPresented = false
             onCompletion?(activityType, completed, error)
             onDismiss?()
@@ -82,5 +95,9 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
                 onPresented?()
             }
         }
+    }
+
+    final class Coordinator {
+        var activityViewController: UIActivityViewController?
     }
 }
