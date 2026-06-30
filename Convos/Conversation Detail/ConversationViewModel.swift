@@ -1011,6 +1011,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
+    /// Segment the share overlay opens on when `presentingShareView` flips true.
+    /// The Invite sheet's "Show an invite code" row leaves this `.invite`; its
+    /// `viewfinder` button sets `.scan` so the overlay opens straight to the
+    /// scanner. Reset to `.invite` once the overlay closes.
+    var shareViewInitialSegment: ScanInviteSegment = .invite
     var presentingPhotosInfoSheet: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the

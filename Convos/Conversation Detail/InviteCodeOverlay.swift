@@ -37,6 +37,10 @@ struct InviteCodeOverlay: View {
     let conversation: Conversation
     let encodedURLString: String
     let mode: InviteCodeMode
+    /// Segment selected when the screen first appears. Defaults to `.invite`
+    /// (show-my-code); the in-convo Invite sheet's viewfinder button opens
+    /// directly on `.scan`.
+    var initialSegment: ScanInviteSegment = .invite
     @Binding var isPresented: Bool
     /// Fired with the decoded payload from either the live viewfinder or a
     /// picked screenshot. Nil keeps the Scan tab in viewfinder-only mode.
@@ -48,7 +52,7 @@ struct InviteCodeOverlay: View {
     /// Nil hides the action.
     var onAddPeople: (() -> Void)?
 
-    @State private var selection: ScanInviteSegment = .invite
+    @State private var selection: ScanInviteSegment
     @State private var conversationImage: UIImage?
     @State private var isShareSheetPresented: Bool = false
     @State private var scannerViewModel: QRScannerViewModel = QRScannerViewModel()
@@ -58,6 +62,27 @@ struct InviteCodeOverlay: View {
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
+
+    init(
+        conversation: Conversation,
+        encodedURLString: String,
+        mode: InviteCodeMode,
+        initialSegment: ScanInviteSegment = .invite,
+        isPresented: Binding<Bool>,
+        onScannedCode: ((String) -> Void)? = nil,
+        onShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil,
+        onAddPeople: (() -> Void)? = nil
+    ) {
+        self.conversation = conversation
+        self.encodedURLString = encodedURLString
+        self.mode = mode
+        self.initialSegment = initialSegment
+        _isPresented = isPresented
+        self.onScannedCode = onScannedCode
+        self.onShareCompleted = onShareCompleted
+        self.onAddPeople = onAddPeople
+        _selection = State(initialValue: initialSegment)
+    }
 
     var body: some View {
         ZStack {

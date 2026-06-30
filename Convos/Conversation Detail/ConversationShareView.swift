@@ -17,6 +17,9 @@ struct ConversationShareOverlay: View {
     /// Variant: presented over an existing convo, or for a brand-new one.
     /// Defaults to `.inConvo` (every current call site is an existing convo).
     var mode: InviteCodeMode = .inConvo
+    /// Segment selected on first appearance. Defaults to `.invite`; the in-convo
+    /// Invite sheet's viewfinder button requests `.scan`.
+    var initialSegment: ScanInviteSegment = .invite
     /// Routes a code decoded on the Scan tab. Nil keeps the Scan tab in
     /// viewfinder-only mode.
     var onScannedCode: ((String) -> Void)?
@@ -39,6 +42,7 @@ struct ConversationShareOverlay: View {
             conversation: conversation,
             encodedURLString: invite.inviteURLString,
             mode: mode,
+            initialSegment: initialSegment,
             isPresented: $isPresented,
             onScannedCode: onScannedCode,
             onShareCompleted: handleShareCompletion,
