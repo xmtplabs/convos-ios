@@ -1,3 +1,4 @@
+import AVFoundation
 import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
@@ -75,6 +76,30 @@ struct InviteCodeBody: View {
         }
         .onChange(of: selectedScreenshot) { _, newValue in
             handleSelectedScreenshot(newValue)
+        }
+        .onChange(of: selection) { _, newValue in
+            handleSelectionChanged(to: newValue)
+        }
+        .onAppear {
+            handleSelectionChanged(to: selection)
+        }
+    }
+
+    /// Requests camera access the moment the Scan segment becomes active.
+    /// Without this, `QRScannerView.checkCameraAuthorization` maps a
+    /// `.notDetermined` status to "not authorized" and skips camera setup, so
+    /// a first-time user gets a black viewfinder and no permission prompt.
+    /// Mirrors `JoinConversationView.requestCameraAccess`.
+    private func handleSelectionChanged(to newValue: ScanInviteSegment) {
+        guard newValue == .scan else { return }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .notDetermined:
+            scannerViewModel.requestAccess()
+        case .authorized:
+            scannerViewModel.cameraAuthorized = true
+            scannerViewModel.triggerCameraSetup()
+        default:
+            break
         }
     }
 
@@ -237,6 +262,11 @@ struct InviteCodeBody: View {
     private func handleScannedCode(_ code: String?) {
         guard let code, let onScannedCode else { return }
         onScannedCode(code)
+        // A scan disables further scanning (`isScanningEnabled = false`); without
+        // re-enabling, the viewfinder goes dead after one code -- including after
+        // a rejected/invalid code. Re-arm so repeated scans keep working. The
+        // 3s minimum-scan-interval in the VM still debounces duplicates.
+        scannerViewModel.resetScanning()
     }
 
     private func handleSelectedScreenshot(_ item: PhotosPickerItem?) {
