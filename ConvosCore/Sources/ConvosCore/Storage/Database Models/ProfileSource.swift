@@ -10,9 +10,9 @@ import Foundation
 /// member who added others), `profileUpdate` (authored by the subject).
 enum ProfileSource: String, Codable, Hashable, CaseIterable, Comparable {
     case contact
-    case appData
-    case profileSnapshot
-    case profileUpdate
+    case appData = "app_data"
+    case profileSnapshot = "profile_snapshot"
+    case profileUpdate = "profile_update"
 
     private var precedence: Int {
         switch self {

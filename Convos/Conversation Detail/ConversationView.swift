@@ -492,57 +492,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
-    private var metricsObserversPart1: MetricsObserversPart1 {
-        MetricsObserversPart1(
-            presentingConversationSettings: viewModel.presentingConversationSettings,
-            presentingProfileSettings: viewModel.presentingProfileSettings,
-            presentingShareView: viewModel.presentingShareView,
-            presentingConversationForked: viewModel.presentingConversationForked,
-            presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
-            presentingAgentsIntro: viewModel.presentingAgentsIntro,
-            presentingPaywall: viewModel.presentingPaywall,
-            showingAgentsInfo: showingAgentsInfo,
-            showingLockedInfo: showingLockedInfo,
-            onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
-            onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
-            onShareViewChanged: handleShareViewChanged(from:to:),
-            onConversationForkedChanged: handleConversationForkedChanged(from:to:),
-            onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
-            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
-            onPaywallChanged: handlePaywallChanged(from:to:),
-            onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
-            onLockedInfoChanged: handleLockedInfoChanged(from:to:)
-        )
-    }
-
-    private var metricsObserversPart3: MetricsObserversPart3 {
-        MetricsObserversPart3(
-            presentingProfileForMember: viewModel.presentingProfileForMember,
-            presentingContactForAgentShare: viewModel.presentingContactForAgentShare,
-            presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
-            presentingThinkingDetail: viewModel.presentingThinkingDetail,
-            onMemberProfileChanged: handleMemberProfileChanged(from:to:),
-            onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
-            onReactionsChanged: handleReactionsChanged(from:to:),
-            onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
-        )
-    }
-
-    private var metricsObserversPart2: MetricsObserversPart2 {
-        MetricsObserversPart2(
-            showingFullInfo: showingFullInfo,
-            presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
-            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
-            presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
-            presentingAddFromContactsPicker: presentingAddFromContactsPicker,
-            onFullInfoChanged: handleFullInfoChanged(from:to:),
-            onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
-            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
-            onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
-            onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
-        )
-    }
-
     var body: some View {
         let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
@@ -821,6 +770,59 @@ struct AgentShareContactDetailSheetContent: View {
             messagesTopBarTrailingItemEnabled: true,
             messagesTextFieldEnabled: true,
             bottomBarContent: { EmptyView() }
+        )
+    }
+}
+
+extension ConversationView {
+    private var metricsObserversPart1: MetricsObserversPart1 {
+        MetricsObserversPart1(
+            presentingConversationSettings: viewModel.presentingConversationSettings,
+            presentingProfileSettings: viewModel.presentingProfileSettings,
+            presentingShareView: viewModel.presentingShareView,
+            presentingConversationForked: viewModel.presentingConversationForked,
+            presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
+            presentingAgentsIntro: viewModel.presentingAgentsIntro,
+            presentingPaywall: viewModel.presentingPaywall,
+            showingAgentsInfo: showingAgentsInfo,
+            showingLockedInfo: showingLockedInfo,
+            onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
+            onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
+            onShareViewChanged: handleShareViewChanged(from:to:),
+            onConversationForkedChanged: handleConversationForkedChanged(from:to:),
+            onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
+            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
+            onPaywallChanged: handlePaywallChanged(from:to:),
+            onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
+            onLockedInfoChanged: handleLockedInfoChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart3: MetricsObserversPart3 {
+        MetricsObserversPart3(
+            presentingProfileForMember: viewModel.presentingProfileForMember,
+            presentingContactForAgentShare: viewModel.presentingContactForAgentShare,
+            presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
+            presentingThinkingDetail: viewModel.presentingThinkingDetail,
+            onMemberProfileChanged: handleMemberProfileChanged(from:to:),
+            onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
+            onReactionsChanged: handleReactionsChanged(from:to:),
+            onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart2: MetricsObserversPart2 {
+        MetricsObserversPart2(
+            showingFullInfo: showingFullInfo,
+            presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
+            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
+            presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
+            presentingAddFromContactsPicker: presentingAddFromContactsPicker,
+            onFullInfoChanged: handleFullInfoChanged(from:to:),
+            onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
+            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
+            onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
+            onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
     }
 }
