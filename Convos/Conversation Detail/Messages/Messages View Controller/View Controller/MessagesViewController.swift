@@ -935,12 +935,17 @@ extension MessagesViewController {
         // agent" footer, so the "+ Invite members" pill on top of it is
         // redundant. The in-chat "New Agent" flow (`existingConversation`) is
         // different: it targets a real group, so its invite affordances stay
-        // visible while the card shows. Without a summary, `.hidden` header
-        // mode still renders the `.invite` cell (which surfaces just the
-        // "Invite members" affordance - the QR is gated inside the cell on the
-        // same `headerMode`).
+        // visible while the card shows.
         let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
-        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
+        // When the embedded Scan/Invite toggle owns the top of the convo, the
+        // header mode is forced to `.hidden` (non-builder context). That toggle
+        // already provides the invite affordance via a top `safeAreaInset`, so
+        // the transcript's `.invite` cell ("Invite members" pill) would render
+        // behind/below it and overlap on short screens. Suppress it here. The
+        // Agent Builder also passes `.hidden` but carries a summary, so it's
+        // excluded and keeps its invite cell.
+        let embeddedToggleOwnsTop: Bool = headerMode == .hidden && agentBuilderSummary == nil
+        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed, !embeddedToggleOwnsTop {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else if headerMode == .standard, !hasVerifiedConvosAgent {
