@@ -453,6 +453,20 @@ final class ConversationsViewModel {
         )
     }
 
+    /// Starts and enters a fresh conversation showing the invite QR at the top
+    /// (the standard message-list header) and the scan viewfinder as its
+    /// trailing action -- the "Show an invite code" entry point. Mirrors the
+    /// no-contacts branch of `onStartConvo`, opting the conversation into the
+    /// embedded-invite presentation.
+    func onShowInviteCode() {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            showsEmbeddedInvite: true,
+            coreActions: coreActions
+        )
+    }
+
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
         agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }

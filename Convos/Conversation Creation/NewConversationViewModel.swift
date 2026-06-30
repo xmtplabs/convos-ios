@@ -149,6 +149,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     private let seededAgentTemplateIds: [String]
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
+    /// True when this conversation was entered from "Show an invite code".
+    /// The chat opens showing the invite QR at the top (the standard header)
+    /// and its trailing toolbar item is the scan viewfinder, whose tap opens
+    /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
+    /// into this one. Drives `trailingItemForReadyState`.
+    let showsEmbeddedInvite: Bool
     private(set) var showingFullScreenScanner: Bool
     var presentingJoinConversationSheet: Bool = false
     var displayError: IdentifiableError? {
@@ -292,10 +298,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     init(
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
+        showsEmbeddedInvite: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.showsEmbeddedInvite = showsEmbeddedInvite
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -356,6 +364,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.isExistingConversation = if case .existingConversation = mode { true } else { false }
 
         self.isCreatingConversation = mode.isNewConversation
+        self.messagesTopBarTrailingItem = showsEmbeddedInvite ? .scan : .share
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -387,6 +396,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.showsEmbeddedInvite = false
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -832,9 +842,17 @@ class NewConversationViewModel: Identifiable, Hashable {
         isCreatingConversation = false
     }
 
+    /// The trailing toolbar item for an interactive new conversation.
+    /// "Show an invite code" convos surface the scan viewfinder (whose tap
+    /// opens a new conversation); every other new convo surfaces the share /
+    /// add-people menu.
+    private var defaultTrailingItem: MessagesViewTopBarTrailingItem {
+        showsEmbeddedInvite ? .scan : .share
+    }
+
     @MainActor
     private func resetUIState() {
-        messagesTopBarTrailingItem = .share
+        messagesTopBarTrailingItem = defaultTrailingItem
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
@@ -878,7 +896,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         .sink { [weak self] in
             guard let self else { return }
             guard conversationState.isReadyOrJoining else { return }
-            messagesTopBarTrailingItem = .share
+            messagesTopBarTrailingItem = defaultTrailingItem
         }
         .store(in: &cancellables)
     }
@@ -1041,7 +1059,7 @@ extension NewConversationViewModel {
             conversationViewModel?.isWaitingForInviteAcceptance = true
             conversationViewModel?.showsInfoView = true
             messagesTopBarTrailingItemEnabled = false
-            messagesTopBarTrailingItem = .share
+            messagesTopBarTrailingItem = defaultTrailingItem
             messagesTextFieldEnabled = false
             isCreatingConversation = false
             currentError = nil

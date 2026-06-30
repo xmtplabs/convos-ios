@@ -13,7 +13,6 @@ struct ContactsView: View {
     /// same `conversation` + signed `invite` the in-convo share flow uses,
     /// without first navigating into a conversation.
     @State private var inviteConversationViewModel: NewConversationViewModel?
-    @State private var presentingInviteCode: Bool = false
     @State private var presentingInviteShareSheet: Bool = false
 
     private let contactsRepository: any ContactsRepositoryProtocol
@@ -87,9 +86,6 @@ struct ContactsView: View {
                 profileSettingsViewModel: profileSettingsViewModel
             )
             .background(.colorBackgroundSurfaceless)
-        }
-        .fullScreenCover(isPresented: $presentingInviteCode) {
-            inviteCodeOverlay
         }
         .shareSheet(
             isPresented: $presentingInviteShareSheet,
@@ -329,12 +325,6 @@ struct ContactsView: View {
 
     // MARK: - Invite a new contact
 
-    /// The conversation backing the invite actions, vended from the claimed
-    /// warm-cache conversation. Both invite actions read from here.
-    private var conversation: Conversation? {
-        inviteConversationViewModel?.conversationViewModel?.conversation
-    }
-
     /// The signed per-conversation invite for the claimed conversation, the
     /// same one the in-convo share flow reads. Nil until the invite hydrates.
     private var invite: Invite? {
@@ -348,21 +338,6 @@ struct ContactsView: View {
         return [invite.inviteURLString]
     }
 
-    @ViewBuilder
-    private var inviteCodeOverlay: some View {
-        if let conversation, let invite {
-            ConversationShareOverlay(
-                conversation: conversation,
-                invite: invite,
-                isPresented: $presentingInviteCode,
-                topSafeAreaInset: DesignConstants.Spacing.step3x,
-                coreActions: coreActions,
-                mode: .newConvo
-            )
-            .ignoresSafeArea()
-        }
-    }
-
     /// Mints the claimed conversation once per appearance of the tab, mirroring
     /// `ConversationsViewModel.onStartConvo`. Requires a live session; with the
     /// mock session used in previews this is a no-op so the rows stay hidden.
@@ -371,13 +346,22 @@ struct ContactsView: View {
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
+            showsEmbeddedInvite: true,
             coreActions: coreActions
         )
     }
 
+    /// Enters the claimed conversation as a full new-conversation sheet so the
+    /// user lands inside a fresh chat with the invite QR at the top (the
+    /// standard message-list header), mirroring the "Skip" path in
+    /// `ConversationsViewModel.onStartConvo`. The just-entered VM is handed off
+    /// and a fresh claimed conversation is minted so the top-three rows keep
+    /// working for the next invite.
     private func handleShowInviteCode() {
-        guard invite != nil else { return }
-        presentingInviteCode = true
+        guard invite != nil, let enteredViewModel = inviteConversationViewModel else { return }
+        inviteConversationViewModel = nil
+        presentingNewConvo = enteredViewModel
+        claimInviteConversationIfNeeded()
     }
 
     /// Pops the native share sheet directly with the invite link -- no

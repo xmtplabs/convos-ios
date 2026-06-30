@@ -15,9 +15,9 @@ import UIKit
 // The picker's "top three" invite actions (Figma node 4) are owned here too,
 // because they all need the claimed conversation + its signed invite that this
 // flow already holds in `composeConversationViewModel`:
-//   - "Show an invite code" presents `ConversationShareOverlay(mode: .newConvo)`
-//     over the picker, reading the same `conversation` / `invite` the in-convo
-//     share flow uses.
+//   - "Show an invite code" tears the compose flow down and starts a fresh
+//     conversation the user lands inside (with the invite QR at the top of the
+//     chat), via `ConversationsViewModel.onShowInviteCode()`.
 //   - "Send an invite" pops the native share sheet directly with the invite URL.
 //   - "Make an agent" tears down this flow and hands off to the shared
 //     `ConversationsViewModel.onStartAgent()` entry point.
@@ -46,7 +46,6 @@ struct ComposeFlowView: View {
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let contactsRepository: any ContactsRepositoryProtocol
     @State private var pushedConversation: NewConversationViewModel?
-    @State private var presentingInviteCode: Bool = false
     @State private var presentingShareSheet: Bool = false
 
     var body: some View {
@@ -70,20 +69,10 @@ struct ComposeFlowView: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $presentingInviteCode) {
-            inviteCodeOverlay
-        }
         .shareSheet(
             isPresented: $presentingShareSheet,
             items: shareItems
         )
-    }
-
-    /// The conversation backing the compose flow, vended from the claimed
-    /// warm-cache conversation this flow already holds. Both invite actions
-    /// read from here.
-    private var conversation: Conversation? {
-        composeConversationViewModel.conversationViewModel?.conversation
     }
 
     /// The signed per-conversation invite for the claimed conversation, the
@@ -100,24 +89,17 @@ struct ComposeFlowView: View {
         return [invite.inviteURLString]
     }
 
-    @ViewBuilder
-    private var inviteCodeOverlay: some View {
-        if let conversation, let invite {
-            ConversationShareOverlay(
-                conversation: conversation,
-                invite: invite,
-                isPresented: $presentingInviteCode,
-                topSafeAreaInset: DesignConstants.Spacing.step3x,
-                coreActions: composeConversationViewModel.conversationViewModel?.coreActions ?? NoOpCoreActions(),
-                mode: .newConvo
-            )
-            .ignoresSafeArea()
-        }
-    }
-
+    /// Tears down the compose flow and starts a fresh conversation the user
+    /// lands inside, with the invite QR at the top (the standard message-list
+    /// header) -- the same start-and-enter shape as Skip, opted into the
+    /// embedded-invite presentation. The compose flow's own claimed
+    /// conversation backs Skip / Continue and the share sheet, so it can't
+    /// also carry the embedded-invite mode; a dedicated conversation is started
+    /// through the shell instead.
     private func handleShowInviteCode() {
         guard invite != nil else { return }
-        presentingInviteCode = true
+        conversationsViewModel.presentingComposeFlow = false
+        conversationsViewModel.onShowInviteCode()
     }
 
     private func handleSendInvite() {
