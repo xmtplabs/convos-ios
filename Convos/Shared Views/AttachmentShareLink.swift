@@ -5,10 +5,11 @@ import UIKit
 
 /// The resolved share content for an HTML or Markdown attachment, shared by
 /// `AttachmentShareLink` and the message context menu's Share action so the
-/// payload stays identical everywhere. HTML shares the full-page rendered
-/// image only (the share sheet preview stays the square tile); Markdown
-/// shares the underlying file, adding the rendered thumbnail image once it
-/// resolves.
+/// payload stays identical everywhere. HTML shares the underlying `.html`
+/// file (copied to a title-named temp file so the raw on-disk filename is
+/// never exposed); the rendered tile image rides along only as the share
+/// sheet preview thumbnail, never as a second shared file. Markdown shares
+/// the underlying file, adding the rendered thumbnail image once it resolves.
 struct AttachmentSharePayload {
     let items: [URL]
     let title: String
@@ -67,27 +68,16 @@ struct AttachmentSharePayload {
             fileURL: fileURL,
             appearance: appearance
         )
-        // Share the full-page render when available; the square tile stays
-        // the share sheet preview so it reads as a card, not a tall sliver.
-        // The PNG is rendered once and disk-cached, so re-sharing arms
-        // instantly.
-        let fullPageURL: URL? = await HTMLThumbnailRenderer.shared.fullPagePNGURL(
-            for: attachment.key,
-            fileURL: fileURL,
-            appearance: appearance,
-            basename: basename
-        )
-        if let fullPageURL {
-            // Arm even when the tile thumbnail failed - the share sheet
-            // then shows a title-only preview instead of staying dimmed.
-            return AttachmentSharePayload(items: [fullPageURL], title: title, previewImage: thumbnail)
-        }
-        // Full-page render failed; fall back to sharing the tile image.
-        guard let thumbnail,
-              let fallbackURL = await writeSharePNG(image: thumbnail, basename: basename, attachmentKey: attachment.key) else {
+        // Share the actual `.html` file. Copy it to a title-named temp file so
+        // recipients never see the raw on-disk filename, then hand that single
+        // file over as the shared item. The rendered tile rides along only as
+        // the share sheet preview thumbnail (never a second shared file), so
+        // sharing arms as soon as the HTML exists - no wait on the slow
+        // full-page render.
+        guard let htmlURL = await writeShareHTML(fileURL: fileURL, basename: basename, attachmentKey: attachment.key) else {
             return nil
         }
-        return AttachmentSharePayload(items: [fallbackURL], title: title, previewImage: thumbnail)
+        return AttachmentSharePayload(items: [htmlURL], title: title, previewImage: thumbnail)
     }
 
     @MainActor
@@ -185,6 +175,36 @@ struct AttachmentSharePayload {
         }.value
         return written ? url : nil
     }
+
+    /// Copies the cached `.html` attachment to a title-named temp file so the
+    /// shared item carries the artifact's name, not the raw on-disk filename.
+    /// Recipients receive only this HTML file; the rendered image is preview
+    /// metadata, never a shared item.
+    private static func writeShareHTML(fileURL: URL, basename: String, attachmentKey: String) async -> URL? {
+        let ext: String = fileURL.pathExtension.isEmpty ? "html" : fileURL.pathExtension
+        // Namespace by attachment key so same-named attachments cannot
+        // overwrite each other's armed share payload.
+        let url: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("share-" + HTMLThumbnailRenderer.stableKeyComponent(for: attachmentKey), isDirectory: true)
+            .appendingPathComponent("\(basename).\(ext)")
+        let written: Bool = await Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
+                try FileManager.default.copyItem(at: fileURL, to: url)
+                return true
+            } catch {
+                Log.error("AttachmentSharePayload: failed to copy share HTML: \(error)")
+                return false
+            }
+        }.value
+        return written ? url : nil
+    }
 }
 
 /// Share button for HTML and Markdown attachments, used by both the
@@ -240,10 +260,13 @@ struct AttachmentShareLink: View {
                 })
             }
         } else if attachment.isHTMLFile {
-            // HTML shares only the rendered image, so there is nothing to
-            // share until the full-page render lands.
-            Image(systemName: "square.and.arrow.up")
-                .foregroundStyle(.secondary)
+            // The HTML file already exists, so arm sharing immediately on the
+            // raw file rather than dimming while the preview thumbnail and
+            // title-named copy resolve. The richer payload (title-named file +
+            // preview image) swaps in once `resolve` finishes.
+            ShareLink(item: fileURL, preview: SharePreview(fallbackTitle ?? "Attachment")) {
+                Image(systemName: "square.and.arrow.up")
+            }
         } else {
             ShareLink(items: [fileURL], preview: { (_: URL) in
                 SharePreview(attachment.filename ?? fallbackTitle ?? "Attachment")
