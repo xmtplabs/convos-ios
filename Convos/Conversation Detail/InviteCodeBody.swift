@@ -125,6 +125,12 @@ struct InviteCodeBody: View {
         let cardSize: CGFloat = Constant.tileSize
         let qrSize: CGFloat = cardSize - Constant.qrCardPadding * 2.0
         let centerDiameter: CGFloat = qrSize * Constant.qrCenterFraction
+        // The generator clears a square region in the QR matrix (centerSpaceSize),
+        // whose corners read as a square frame around the round avatar. A circular
+        // fillSubtle disc sized to the square's diagonal hides those corners so the
+        // eye only sees a clean circle. sqrt(2) covers the corners of the cleared
+        // square (side == centerDiameter) without enlarging the cleared area.
+        let centerDiscDiameter: CGFloat = centerDiameter * 1.4142135623730951
         return ZStack {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge)
                 .fill(DesignConstants.Colors.fillSubtle)
@@ -136,6 +142,9 @@ struct InviteCodeBody: View {
                     .frame(width: qrSize, height: qrSize)
                     .transition(.opacity)
             }
+            Circle()
+                .fill(DesignConstants.Colors.fillSubtle)
+                .frame(width: centerDiscDiameter, height: centerDiscDiameter)
             ConversationAvatarView(
                 conversation: conversation,
                 conversationImage: conversationImage,
