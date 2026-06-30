@@ -49,14 +49,24 @@ struct ComposeFlowView: View {
     @State private var presentingShareSheet: Bool = false
 
     var body: some View {
-        NavigationStack {
+        // Gate the invite-row closures on a hydrated invite so the rows don't
+        // render tappable-but-dead before the claimed conversation's invite
+        // arrives (the handlers `guard invite != nil` and would no-op).
+        let hasInvite: Bool = invite != nil
+        var showInviteCode: (() -> Void)?
+        var sendInvite: (() -> Void)?
+        if hasInvite {
+            showInviteCode = handleShowInviteCode
+            sendInvite = handleSendInvite
+        }
+        return NavigationStack {
             ContactsPickerView(
                 mode: .compose,
                 contactsRepository: contactsRepository,
                 embedsNavigationStack: false,
                 suggestedAgentsService: SuggestedAgentsService.live(),
-                onShowInviteCode: handleShowInviteCode,
-                onSendInvite: handleSendInvite,
+                onShowInviteCode: showInviteCode,
+                onSendInvite: sendInvite,
                 onMakeAgent: handleMakeAgent,
                 onConfirm: handleProceed
             )
