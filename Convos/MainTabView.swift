@@ -435,7 +435,7 @@ struct MainTabView: View {
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Compose", systemImage: "square.and.pencil") {
+            Button("Compose", systemImage: "plus") {
                 conversationsViewModel.onStartConvo()
             }
             .matchedTransitionSource(id: Constant.composerTransitionId, in: namespace)
