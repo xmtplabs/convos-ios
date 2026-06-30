@@ -462,11 +462,13 @@ struct ContactsPickerActions {
     let onMakeAgent: (() -> Void)?
 }
 
-/// The "Invite new contacts" header plus the available top-three action rows,
-/// rendered as the leading section of the compose picker list so it scrolls
-/// with the contacts beneath it.
-private struct ContactsPickerActionsSection: View {
+/// A header plus the available top-three invite action rows, rendered as the
+/// leading section of a contacts list so it scrolls with the contacts beneath
+/// it. Shared by the compose picker (header "Invite new contacts") and the
+/// Contacts tab (header "Invite a new contact").
+struct ContactsPickerActionsSection: View {
     let actions: ContactsPickerActions
+    var headerTitle: String = "Invite new contacts"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
@@ -500,7 +502,7 @@ private struct ContactsPickerActionsSection: View {
     }
 
     private var header: some View {
-        Text("Invite new contacts")
+        Text(headerTitle)
             .font(.caption)
             .foregroundStyle(.colorTextSecondary)
             .textCase(nil)
