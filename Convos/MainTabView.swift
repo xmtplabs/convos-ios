@@ -357,7 +357,8 @@ struct MainTabView: View {
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
             suggestedAgentsService: SuggestedAgentsService.live(),
-            scrollTarget: $contactsScrollTarget
+            scrollTarget: $contactsScrollTarget,
+            onMakeAgent: { conversationsViewModel.onStartAgent() }
         )
     }
 

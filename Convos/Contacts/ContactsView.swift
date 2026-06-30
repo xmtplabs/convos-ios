@@ -6,6 +6,15 @@ struct ContactsView: View {
     @State private var viewModel: ContactsViewModel
     @State private var presentingPicker: Bool = false
     @State private var presentingNewConvo: NewConversationViewModel?
+    /// Claimed warm-cache conversation (mode `.newConversation`, which already
+    /// has an invite) backing the "Invite a new contact" top-three. Minted on
+    /// appear exactly like `ConversationsViewModel.onStartConvo` does for the
+    /// compose flow, so "Show an invite code" / "Send an invite" can read the
+    /// same `conversation` + signed `invite` the in-convo share flow uses,
+    /// without first navigating into a conversation.
+    @State private var inviteConversationViewModel: NewConversationViewModel?
+    @State private var presentingInviteCode: Bool = false
+    @State private var presentingInviteShareSheet: Bool = false
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
@@ -21,6 +30,11 @@ struct ContactsView: View {
     /// id once it appears. Used by the "See suggested agents" button in the
     /// empty Things state; consumed (set back to nil) after the scroll lands.
     private let scrollTarget: Binding<String?>?
+    /// Launches the agent builder for the "Make an agent" top-three action.
+    /// Make-agent presents from the shell (`MainTabView`), which can't be
+    /// presented from under this tab's stack, so the shell injects a closure
+    /// that calls `ConversationsViewModel.onStartAgent()`. Nil hides the row.
+    private let onMakeAgent: (() -> Void)?
 
     init(
         contactsRepository: any ContactsRepositoryProtocol,
@@ -30,7 +44,8 @@ struct ContactsView: View {
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsComposeButton: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
-        scrollTarget: Binding<String?>? = nil
+        scrollTarget: Binding<String?>? = nil,
+        onMakeAgent: (() -> Void)? = nil
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
             contactsRepository: contactsRepository,
@@ -43,11 +58,13 @@ struct ContactsView: View {
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsComposeButton = showsComposeButton
         self.scrollTarget = scrollTarget
+        self.onMakeAgent = onMakeAgent
     }
 
     var body: some View {
         contactsContent
         .task { await viewModel.loadSuggestedAgentsIfNeeded() }
+        .onAppear(perform: claimInviteConversationIfNeeded)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             Color.colorBackgroundRaisedSecondary
@@ -71,6 +88,13 @@ struct ContactsView: View {
             )
             .background(.colorBackgroundSurfaceless)
         }
+        .fullScreenCover(isPresented: $presentingInviteCode) {
+            inviteCodeOverlay
+        }
+        .shareSheet(
+            isPresented: $presentingInviteShareSheet,
+            items: inviteShareItems
+        )
     }
 
     // MARK: - List
@@ -192,7 +216,38 @@ struct ContactsView: View {
             sectionHeader: { (section: ContactsListSection<ContactsViewModel.Row>) in
                 contactsSectionHeader(for: section)
             },
+            leadingContent: inviteActionsContent,
             listBackground: { Color.colorBackgroundRaisedSecondary }
+        )
+    }
+
+    /// The "Invite a new contact" top-three, pinned above the contacts list
+    /// (same `leadingContent` slot the compose picker uses). Hidden while the
+    /// user is narrowing the list with a search or filter so results read
+    /// cleanly. Reuses `ContactsPickerActionsSection` / `ContactsPickerActionRow`.
+    private var inviteActionsContent: AnyView? {
+        guard !viewModel.isFiltering, let actions = inviteActions else { return nil }
+        return AnyView(
+            ContactsPickerActionsSection(actions: actions, headerTitle: "Invite a new contact")
+        )
+    }
+
+    /// Bundles the available top-three closures. "Show an invite code" and
+    /// "Send an invite" appear once the claimed conversation's invite has
+    /// hydrated; "Make an agent" only when the shell injected a launcher.
+    private var inviteActions: ContactsPickerActions? {
+        let hasInvite: Bool = invite != nil
+        var showInviteCode: (() -> Void)?
+        var sendInvite: (() -> Void)?
+        if hasInvite {
+            showInviteCode = handleShowInviteCode
+            sendInvite = handleSendInvite
+        }
+        guard showInviteCode != nil || sendInvite != nil || onMakeAgent != nil else { return nil }
+        return ContactsPickerActions(
+            onShowInviteCode: showInviteCode,
+            onSendInvite: sendInvite,
+            onMakeAgent: onMakeAgent
         )
     }
 
@@ -270,6 +325,67 @@ struct ContactsView: View {
             suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
+    }
+
+    // MARK: - Invite a new contact
+
+    /// The conversation backing the invite actions, vended from the claimed
+    /// warm-cache conversation. Both invite actions read from here.
+    private var conversation: Conversation? {
+        inviteConversationViewModel?.conversationViewModel?.conversation
+    }
+
+    /// The signed per-conversation invite for the claimed conversation, the
+    /// same one the in-convo share flow reads. Nil until the invite hydrates.
+    private var invite: Invite? {
+        let invite = inviteConversationViewModel?.conversationViewModel?.invite
+        guard let invite, !invite.isEmpty else { return nil }
+        return invite
+    }
+
+    private var inviteShareItems: [Any] {
+        guard let invite else { return [] }
+        return [invite.inviteURLString]
+    }
+
+    @ViewBuilder
+    private var inviteCodeOverlay: some View {
+        if let conversation, let invite {
+            ConversationShareOverlay(
+                conversation: conversation,
+                invite: invite,
+                isPresented: $presentingInviteCode,
+                topSafeAreaInset: DesignConstants.Spacing.step3x,
+                coreActions: coreActions,
+                mode: .newConvo
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    /// Mints the claimed conversation once per appearance of the tab, mirroring
+    /// `ConversationsViewModel.onStartConvo`. Requires a live session; with the
+    /// mock session used in previews this is a no-op so the rows stay hidden.
+    private func claimInviteConversationIfNeeded() {
+        guard inviteConversationViewModel == nil, let session else { return }
+        inviteConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            coreActions: coreActions
+        )
+    }
+
+    private func handleShowInviteCode() {
+        guard invite != nil else { return }
+        presentingInviteCode = true
+    }
+
+    /// Pops the native share sheet directly with the invite link -- no
+    /// intermediate screen, unlike the in-convo flow which routes through the
+    /// Scan/Invite screen first.
+    private func handleSendInvite() {
+        guard invite != nil else { return }
+        presentingInviteShareSheet = true
     }
 
     // MARK: - Actions
