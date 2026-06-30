@@ -85,3 +85,25 @@ extension ConversationView {
         }
     }
 }
+
+extension ConversationView {
+    /// The shared Scan/Invite toggle pinned above the chat for the "Show an
+    /// invite code" new-convo flow. Same `InviteCodeBody` the full-screen
+    /// `InviteCodeOverlay` composes, so the toggle + tabs don't fork. The Scan
+    /// segment's decoded codes route to `onScannedInviteCode` (a brand-new
+    /// convo), not into this conversation. Lives in this extension to keep the
+    /// main `ConversationView` body within the type-body-length budget.
+    @ViewBuilder
+    var embeddedInviteInset: some View {
+        if showsEmbeddedInvite {
+            InviteCodeBody(
+                conversation: viewModel.conversation,
+                encodedURLString: viewModel.invite.inviteURLString,
+                mode: .newConvo,
+                onScannedCode: onScannedInviteCode
+            )
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}

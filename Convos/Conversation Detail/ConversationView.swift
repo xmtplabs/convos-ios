@@ -24,6 +24,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// in normal chat. The Agent Builder passes `.hidden` so the
     /// underlying chat doesn't flash a QR while the user is still drafting.
     var headerMode: MessagesHeaderMode = .standard
+    /// Set by the "Show an invite code" new-convo flow. When true, the chat
+    /// pins the shared `InviteCodeBody` (Scan/Invite segmented toggle) as a top
+    /// `safeAreaInset`, suppresses the duplicate message-list-header QR, and
+    /// drops the lone scan toolbar item (the Scan segment owns scanning). The
+    /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
+    /// brand-new convo rather than scanning into this one.
+    var showsEmbeddedInvite: Bool = false
+    /// Routes a code decoded by the embedded Scan segment to the new-convo join
+    /// path. Nil keeps the embedded viewfinder decode-only.
+    var onScannedInviteCode: ((String) -> Void)?
     /// Shared SwiftUI namespace used by the Agent Builder commit morph.
     /// Set by `AgentBuilderView` so its composer card and the in-stream
     /// summary cell can match-geometry into each other via `glassEffectID`.
@@ -50,6 +60,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// view it (e.g. it was open when the removal landed).
     private var effectiveReadOnly: Bool {
         isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// Read-only surfaces suppress every leading affordance. The embedded
+    /// invite flow hides the message-list-header QR (the embedded
+    /// `InviteCodeBody` shows it instead) while keeping the invite affordance.
+    private var effectiveHeaderMode: MessagesHeaderMode {
+        if effectiveReadOnly { return .suppressed }
+        return showsEmbeddedInvite ? .hidden : headerMode
     }
 
     private func ensureNavigator() {
@@ -308,7 +326,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: effectiveReadOnly ? .suppressed : headerMode,
+            headerMode: effectiveHeaderMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
@@ -352,7 +370,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        if !topBarTrailingHidden {
+        // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
+        // toolbar item is dropped for that flow.
+        if !topBarTrailingHidden && !showsEmbeddedInvite {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -543,6 +563,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )
+        .safeAreaInset(edge: .top) { embeddedInviteInset }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }

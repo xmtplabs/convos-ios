@@ -78,7 +78,9 @@ struct NewConversationView: View {
                             onDeleteConversation: viewModel.deleteConversation,
                             messagesTopBarTrailingItem: viewModel.messagesTopBarTrailingItem,
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
-                            messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
+                            messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
+                            showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
+                            onScannedInviteCode: viewModel.handleScannedCode
                         ) {
                             EmptyView()
                         }
