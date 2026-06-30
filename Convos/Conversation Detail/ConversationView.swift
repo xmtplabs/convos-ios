@@ -62,12 +62,28 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isReadOnly || viewModel.conversation.wasRemoved
     }
 
-    /// Read-only surfaces suppress every leading affordance. The embedded
-    /// invite flow hides the message-list-header QR (the embedded
-    /// `InviteCodeBody` shows it instead) while keeping the invite affordance.
+    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
+    /// It pins above the chat for every conversation that meets the same
+    /// eligibility the legacy message-list QR header used (you created it, it's
+    /// not locked, it's not full) plus the "Show an invite code" new-convo flow.
+    /// The Agent Builder draft (`headerMode == .hidden`) and read-only surfaces
+    /// opt out. When the toggle shows, it owns the QR, so the duplicate
+    /// message-list-header QR is suppressed via `effectiveHeaderMode -> .hidden`.
+    var showsTopOfConvoInvite: Bool {
+        if showsEmbeddedInvite { return true }
+        guard !effectiveReadOnly, headerMode == .standard else { return false }
+        let conversation = viewModel.conversation
+        guard !conversation.isDraft else { return false }
+        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
+    }
+
+    /// Read-only surfaces suppress every leading affordance. When the embedded
+    /// Scan/Invite toggle shows, it hides the message-list-header QR (the
+    /// embedded `InviteCodeBody` shows it instead) while keeping the invite
+    /// affordance.
     private var effectiveHeaderMode: MessagesHeaderMode {
         if effectiveReadOnly { return .suppressed }
-        return showsEmbeddedInvite ? .hidden : headerMode
+        return showsTopOfConvoInvite ? .hidden : headerMode
     }
 
     private func ensureNavigator() {

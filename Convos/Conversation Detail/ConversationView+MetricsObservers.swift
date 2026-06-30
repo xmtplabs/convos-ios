@@ -87,20 +87,26 @@ extension ConversationView {
 }
 
 extension ConversationView {
-    /// The shared Scan/Invite toggle pinned above the chat for the "Show an
-    /// invite code" new-convo flow. Same `InviteCodeBody` the full-screen
-    /// `InviteCodeOverlay` composes, so the toggle + tabs don't fork. The Scan
-    /// segment's decoded codes route to `onScannedInviteCode` (a brand-new
-    /// convo), not into this conversation. Lives in this extension to keep the
-    /// main `ConversationView` body within the type-body-length budget.
+    /// The shared Scan/Invite toggle pinned above the chat. Shows for every
+    /// eligible conversation (see `showsTopOfConvoInvite`) -- existing convos
+    /// you created plus the "Show an invite code" new-convo flow -- as the
+    /// universal top-of-convo invite UI. Same `InviteCodeBody` the full-screen
+    /// `InviteCodeOverlay` composes, so the toggle + tabs don't fork. The Invite
+    /// tab shows this conversation's QR/invite; the Scan segment's decoded codes
+    /// open a brand-new convo (the new-convo flow's `onScannedInviteCode`, or
+    /// `handleScannedCodeInCurrentConversation` for an existing convo), never
+    /// scanning into this conversation. Lives in this extension to keep the main
+    /// `ConversationView` body within the type-body-length budget.
     @ViewBuilder
     var embeddedInviteInset: some View {
-        if showsEmbeddedInvite {
+        if showsTopOfConvoInvite {
+            let inviteMode: InviteCodeMode = showsEmbeddedInvite ? .newConvo : .inConvo
+            let scanHandler: (String) -> Void = onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
             InviteCodeBody(
                 conversation: viewModel.conversation,
                 encodedURLString: viewModel.invite.inviteURLString,
-                mode: .newConvo,
-                onScannedCode: onScannedInviteCode
+                mode: inviteMode,
+                onScannedCode: scanHandler
             )
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .frame(maxWidth: .infinity)
