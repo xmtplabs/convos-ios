@@ -137,15 +137,20 @@ struct AttachmentSharePayload {
         return result.image
     }
 
-    private static func sanitizeFilename(_ raw: String) -> String {
+    static func sanitizeFilename(_ raw: String) -> String {
         let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
         var output: String = ""
         for scalar in raw.unicodeScalars {
             output.append(allowed.contains(scalar) ? Character(scalar) : "_")
         }
-        let trimmed: String = output.trimmingCharacters(in: .whitespaces)
-        let fallback: String = trimmed.isEmpty ? "image" : trimmed
-        return String(fallback.prefix(64))
+        // Trim whitespace plus any leading or trailing dots and underscores so a
+        // title like ".secret" cannot produce a hidden file (".secret.html") or
+        // a trailing-dot name that some filesystems mangle. Cap, then trim once
+        // more in case the cap re-introduced a trailing dot.
+        let strippable: CharacterSet = CharacterSet(charactersIn: "._").union(.whitespaces)
+        let capped: String = String(output.trimmingCharacters(in: strippable).prefix(64))
+        let cleaned: String = capped.trimmingCharacters(in: strippable)
+        return cleaned.isEmpty ? "attachment" : cleaned
     }
 
     private static func writeSharePNG(image: UIImage, basename: String, attachmentKey: String) async -> URL? {
