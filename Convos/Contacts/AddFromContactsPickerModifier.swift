@@ -40,10 +40,14 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
     @State private var presentingShareSheet: Bool = false
+    /// Set by "Send an invite" so the native share sheet is presented from the
+    /// picker's `onDismiss`, once the picker modal has fully gone away. UIKit
+    /// rejects presenting the share sheet while the picker sheet is still up.
+    @State private var pendingShareAfterDismiss: Bool = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isPresented) { pickerSheet }
+            .sheet(isPresented: $isPresented, onDismiss: presentPendingShareSheet) { pickerSheet }
             .shareSheet(isPresented: $presentingShareSheet, items: shareItems)
             .alert(
                 "Couldn't add contacts",
@@ -100,6 +104,15 @@ private struct AddFromContactsPickerModifier: ViewModifier {
 
     private func handleSendInvite() {
         guard !viewModel.invite.isEmpty else { return }
+        pendingShareAfterDismiss = true
+        isPresented = false
+    }
+
+    /// Presents the native share sheet once the picker has dismissed, so the
+    /// share sheet isn't a nested modal under the still-present picker.
+    private func presentPendingShareSheet() {
+        guard pendingShareAfterDismiss else { return }
+        pendingShareAfterDismiss = false
         presentingShareSheet = true
     }
 
