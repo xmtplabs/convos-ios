@@ -176,6 +176,24 @@ struct AttachmentSharePayload {
         return written ? url : nil
     }
 
+    /// Arms the immediate (pre-resolve) HTML share with a correctly
+    /// `.html`-extensioned copy. The raw cached file may carry a missing or
+    /// non-html on-disk extension (when `isHTMLFile` is MIME-only), so sharing
+    /// it directly would deliver a file the recipient's OS opens as plain
+    /// text. This reuses the same copy/extension-forcing as the resolved
+    /// payload, using the fallback title (or the attachment key) as the
+    /// basename. The copy is fast (no render), so sharing still arms as soon
+    /// as the HTML exists.
+    @MainActor
+    static func immediateHTMLShareURL(
+        attachment: HydratedAttachment,
+        fileURL: URL,
+        fallbackTitle: String?
+    ) async -> URL? {
+        let basename: String = sanitizeFilename(fallbackTitle ?? String(attachment.key.prefix(32)))
+        return await writeShareHTML(fileURL: fileURL, basename: basename, attachmentKey: attachment.key)
+    }
+
     /// Copies the cached `.html` attachment to a title-named temp file so the
     /// shared item carries the artifact's name, not the raw on-disk filename.
     /// Recipients receive only this HTML file; the rendered image is preview
@@ -227,6 +245,10 @@ struct AttachmentShareLink: View {
 
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var payload: AttachmentSharePayload?
+    /// A correctly `.html`-extensioned copy of the raw file, armed before the
+    /// slow render so the immediate-share fallback never hands over a
+    /// wrong-extension file.
+    @State private var immediateURL: URL?
 
     static func canShare(_ attachment: HydratedAttachment) -> Bool {
         attachment.isHTMLFile || attachment.isMarkdownFile
@@ -240,6 +262,14 @@ struct AttachmentShareLink: View {
             .accessibilityLabel("Share")
             .task(id: "\(attachment.key)-\(appearanceSuffix)") {
                 payload = nil
+                immediateURL = nil
+                if attachment.isHTMLFile {
+                    immediateURL = await AttachmentSharePayload.immediateHTMLShareURL(
+                        attachment: attachment,
+                        fileURL: fileURL,
+                        fallbackTitle: fallbackTitle
+                    )
+                }
                 payload = await AttachmentSharePayload.resolve(
                     attachment: attachment,
                     fileURL: fileURL,
@@ -267,11 +297,14 @@ struct AttachmentShareLink: View {
                 })
             }
         } else if attachment.isHTMLFile {
-            // The HTML file already exists, so arm sharing immediately on the
-            // raw file rather than dimming while the preview thumbnail and
-            // title-named copy resolve. The richer payload (title-named file +
-            // preview image) swaps in once `resolve` finishes.
-            ShareLink(item: fileURL, preview: SharePreview(fallbackTitle ?? "Attachment")) {
+            // The HTML file already exists, so arm sharing immediately rather
+            // than dimming while the preview thumbnail and title-named copy
+            // resolve. Prefer the correctly `.html`-extensioned copy; fall back
+            // to the raw file only until that fast copy lands, so the share is
+            // never unavailable. The richer payload (title-named file + preview
+            // image) swaps in once `resolve` finishes.
+            let immediateItem: URL = immediateURL ?? fileURL
+            ShareLink(item: immediateItem, preview: SharePreview(fallbackTitle ?? "Attachment")) {
                 Image(systemName: "square.and.arrow.up")
             }
         } else {
