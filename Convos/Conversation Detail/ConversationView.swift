@@ -394,7 +394,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     lockedInfoButton
                 } else {
                     switch messagesTopBarTrailingItem {
-                    case .share: inviteButton
+                    case .share:
+                        // A full conversation can't mint new invite links, so the
+                        // invite affordance is hidden entirely (mirrors
+                        // `showsTopOfConvoInvite`'s `!isFull` gate).
+                        if !viewModel.isFull {
+                            inviteButton
+                        }
                     case .scan: scanInviteButton
                     }
                 }

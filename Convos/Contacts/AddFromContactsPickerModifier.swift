@@ -91,6 +91,9 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     /// at the `ConversationPresenter` level, so dismiss the sheet first, then
     /// flip the view model flag once the dismissal settles.
     private func handleShowInviteCode() {
+        // A full conversation can't mint new invite links, so even if the
+        // sheet is reached, the invite code can't be shown.
+        guard !viewModel.conversation.isFull else { return }
         isPresented = false
         viewModel.shareViewInitialSegment = .invite
         viewModel.presentingShareView = true
@@ -103,6 +106,9 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     }
 
     private func handleSendInvite() {
+        // A full conversation can't share new invite links, so even if the
+        // sheet is reached, the send-invite share is suppressed.
+        guard !viewModel.conversation.isFull else { return }
         guard !viewModel.invite.isEmpty else { return }
         pendingShareAfterDismiss = true
         isPresented = false
