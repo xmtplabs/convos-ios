@@ -404,7 +404,7 @@ struct MainTabView: View {
                         .transition(.blurReplace)
                 }
             }
-            .toolbar { sharedToolbar(for: tab) }
+            .toolbar { sharedToolbar() }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             // `.automatic`, not `.visible`, when no conversation is selected:
             // an explicit `.visible` at the stack root overrides the
@@ -416,19 +416,19 @@ struct MainTabView: View {
             .toolbar(isConversationSelected ? .hidden : .automatic, for: .tabBar)
     }
 
-    /// Shared toolbar (compose + add-agent) applied to each tab's
+    /// Shared toolbar (scan + compose) applied to each tab's
     /// `NavigationStack`. The AppIndicatorPill is *not* a toolbar item —
     /// native toolbars clip the slot height (~44pt) and the pill is taller.
     /// It's rendered as a SwiftUI overlay anchored at top-leading instead
     /// (see `sharedAppIndicatorOverlay`).
     @ToolbarContentBuilder
-    private func sharedToolbar(for tab: ConvosTab) -> some ToolbarContent {
+    private func sharedToolbar() -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             let scanAction = {
                 conversationsViewModel.onJoinConvo()
             }
             Button(action: scanAction) {
-                Image(systemName: "qrcode.viewfinder")
+                Image(systemName: "viewfinder")
             }
             .accessibilityLabel("Scan a code")
             .accessibilityIdentifier("scan-button")
@@ -442,39 +442,6 @@ struct MainTabView: View {
             .accessibilityIdentifier("compose-button")
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
-        // Declared after Compose so it sits at the trailing edge (to the
-        // right of Compose) once the top builder bar has faded on scroll.
-        if showsToolbarBuilderButton(for: tab) {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: openBuilder) {
-                    Image("addAgentIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                }
-                .accessibilityLabel("Make an agent")
-                .accessibilityIdentifier("toolbar-add-agent-button")
-                .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
-            }
-        }
-    }
-
-    /// The compact "add agent" nav-bar button replaces the builder bar once
-    /// it has faded out on scroll. iPhone only (compact width): on iPad the
-    /// bar collapses to its own circle instead, so no nav-bar button. Also
-    /// hidden while the bar is revealed and while a conversation is pushed.
-    ///
-    /// The Contacts tab is the exception: it never shows the builder bar (the
-    /// contacts search bar owns the top), so the "add agent" button lives in
-    /// the nav bar permanently there, on every size class.
-    private func showsToolbarBuilderButton(for tab: ConvosTab) -> Bool {
-        if tab == .contacts {
-            return !isConversationSelected
-        }
-        return horizontalSizeClass == .compact
-            && !isBuilderBarRevealed
-            && !isConversationSelected
     }
 
     /// AppIndicatorPill rendered as an overlay above the entire app
