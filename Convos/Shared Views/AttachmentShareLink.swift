@@ -190,7 +190,13 @@ struct AttachmentSharePayload {
         fileURL: URL,
         fallbackTitle: String?
     ) async -> URL? {
-        let basename: String = sanitizeFilename(fallbackTitle ?? String(attachment.key.prefix(32)))
+        // Prefer the already-cached page title so the immediate-arm filename
+        // matches what the resolved payload would use; only when no title has
+        // resolved yet do we fall back to the supplied title, then the key
+        // prefix. The cached lookup is synchronous (no render), so sharing
+        // still arms as soon as the HTML exists.
+        let cachedTitle: String? = HTMLPageMetadata.shared.cachedTitle(for: attachment.key)
+        let basename: String = sanitizeFilename(cachedTitle ?? fallbackTitle ?? String(attachment.key.prefix(32)))
         return await writeShareHTML(fileURL: fileURL, basename: basename, attachmentKey: attachment.key)
     }
 
