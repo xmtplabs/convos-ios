@@ -181,7 +181,14 @@ struct AttachmentSharePayload {
     /// Recipients receive only this HTML file; the rendered image is preview
     /// metadata, never a shared item.
     private static func writeShareHTML(fileURL: URL, basename: String, attachmentKey: String) async -> URL? {
-        let ext: String = fileURL.pathExtension.isEmpty ? "html" : fileURL.pathExtension
+        // `isHTMLFile` can be true from the MIME type alone, so the cached
+        // file's on-disk extension may be missing or non-html (e.g.
+        // `report.txt`). Force `html` for the shared copy unless the existing
+        // extension is already a valid HTML one, so recipients never get an
+        // HTML payload that opens as plain text.
+        let htmlExtensions: Set<String> = ["html", "htm"]
+        let rawExtension: String = fileURL.pathExtension.lowercased()
+        let ext: String = htmlExtensions.contains(rawExtension) ? rawExtension : "html"
         // Namespace by attachment key so same-named attachments cannot
         // overwrite each other's armed share payload.
         let url: URL = FileManager.default.temporaryDirectory
