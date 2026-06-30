@@ -1,6 +1,5 @@
 import ConvosCore
 import ConvosCoreiOS
-import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -11,14 +10,19 @@ import UIKit
 // - A brand-new conversation: the first-run / empty convo presents the same
 //   wrapper with `mode: .newConvo`; only the captions and nav metadata differ.
 //
-// The Invite tab renders the legacy QR (`QRCodeGenerator`: rounded modules, Q
-// error correction, a 0.25 center hole) on a white rounded card, with the
-// conversation avatar overlaid into the center circle, plus a "Share invite
-// link" button wired to the conversation invite URL and the native share
+// The toggle + Invite/Scan tabs themselves live in `InviteCodeBody`, the single
+// shared implementation. This overlay only composes that body under its floating
+// liquid-glass nav for the full-screen flow; `ConversationView` embeds the same
+// `InviteCodeBody` via a top `safeAreaInset` when a "Show an invite code" convo
+// owns the QR inline. Both share `InviteCodeBody` so the toggle + tabs don't fork.
+//
+// The Invite tab renders the legacy QR glyph (`QRCodeGenerator`: rounded modules,
+// Q error correction, a center hole) on the Figma `fillSubtle` rounded-56 card,
+// with the conversation avatar overlaid into the center circle, plus a "Share
+// invite link" button wired to the conversation invite URL and the native share
 // sheet. The Scan tab swaps the QR tile for the live scanner viewfinder
-// (`QRScannerView`) and a "Scan a screenshot" button that decodes a code
-// picked from the photo library. Both decoded paths feed the same
-// `onScannedCode` handler.
+// (`QRScannerView`) and a "Scan a screenshot" button that decodes a code picked
+// from the photo library. Both decoded paths feed the same `onScannedCode` handler.
 
 /// Variant of the invite-code screen. Mirrors the `ContactCardMode` pattern:
 /// the structure is shared; only caption copy and nav metadata branch on the
@@ -30,9 +34,9 @@ enum InviteCodeMode {
     case newConvo
 }
 
-/// The Scan/Invite toggle screen from the invite design. Owns the segmented
-/// control, the Invite (QR + share-link) tab, and the Scan (viewfinder +
-/// scan-a-screenshot) tab, plus the floating liquid-glass nav.
+/// The Scan/Invite toggle screen from the invite design. Composes the shared
+/// `InviteCodeBody` (segmented control + Invite/Scan tabs) under the floating
+/// liquid-glass nav.
 struct InviteCodeOverlay: View {
     let conversation: Conversation
     let encodedURLString: String
@@ -52,37 +56,9 @@ struct InviteCodeOverlay: View {
     /// Nil hides the action.
     var onAddPeople: (() -> Void)?
 
-    @State private var selection: ScanInviteSegment
     @State private var conversationImage: UIImage?
-    @State private var isShareSheetPresented: Bool = false
-    @State private var scannerViewModel: QRScannerViewModel = QRScannerViewModel()
-    @State private var selectedScreenshot: PhotosPickerItem?
-    @State private var isDecodingScreenshot: Bool = false
-    @State private var qrImage: UIImage?
 
-    @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
-
-    init(
-        conversation: Conversation,
-        encodedURLString: String,
-        mode: InviteCodeMode,
-        initialSegment: ScanInviteSegment = .invite,
-        isPresented: Binding<Bool>,
-        onScannedCode: ((String) -> Void)? = nil,
-        onShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil,
-        onAddPeople: (() -> Void)? = nil
-    ) {
-        self.conversation = conversation
-        self.encodedURLString = encodedURLString
-        self.mode = mode
-        self.initialSegment = initialSegment
-        _isPresented = isPresented
-        self.onScannedCode = onScannedCode
-        self.onShareCompleted = onShareCompleted
-        self.onAddPeople = onAddPeople
-        _selection = State(initialValue: initialSegment)
-    }
 
     var body: some View {
         ZStack {
@@ -97,17 +73,6 @@ struct InviteCodeOverlay: View {
         .background(.colorBackgroundSurfaceless)
         .ignoresSafeArea()
         .cachedImage(for: conversation, into: $conversationImage)
-        .shareSheet(
-            isPresented: $isShareSheetPresented,
-            items: [encodedURLString],
-            onCompletion: onShareCompleted
-        )
-        .onChange(of: scannerViewModel.scannedCode) { _, newValue in
-            handleScannedCode(newValue)
-        }
-        .onChange(of: selectedScreenshot) { _, newValue in
-            handleSelectedScreenshot(newValue)
-        }
     }
 
     private var backdrop: some View {
@@ -115,164 +80,15 @@ struct InviteCodeOverlay: View {
             .ignoresSafeArea()
     }
 
-    // MARK: - Content column
-
     private var contentColumn: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            ScanInviteToggle(selection: $selection)
-            tileView
-            actionButton
-            captionBlock
-        }
-        .frame(width: Constant.columnWidth)
-    }
-
-    @ViewBuilder
-    private var tileView: some View {
-        switch selection {
-        case .invite:
-            inviteQRTile
-        case .scan:
-            viewfinderTile
-        }
-    }
-
-    /// The legacy QR card: the rounded-module `QRCodeGenerator` output on a
-    /// white card (corner radius `.large`), generously padded from the card
-    /// edge, with the conversation avatar overlaid into the center circle. The
-    /// generator leaves a 0.25 center hole; `ConversationAvatarView` fills it
-    /// and provides the avatar -> emoji -> monogram fallback so the center is
-    /// never empty.
-    private var inviteQRTile: some View {
-        let cardSize: CGFloat = Constant.tileSize
-        let qrSize: CGFloat = cardSize - Constant.qrCardPadding * 2.0
-        let centerDiameter: CGFloat = qrSize * Constant.qrCenterFraction
-        return ZStack {
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
-                .fill(.white)
-            if let qrImage {
-                Image(uiImage: qrImage)
-                    .resizable()
-                    .interpolation(.none)
-                    .aspectRatio(1.0, contentMode: .fit)
-                    .frame(width: qrSize, height: qrSize)
-                    .transition(.opacity)
-            }
-            ConversationAvatarView(
-                conversation: conversation,
-                conversationImage: conversationImage,
-                size: centerDiameter
-            )
-            .frame(width: centerDiameter, height: centerDiameter)
-            .clipShape(.circle)
-        }
-        .frame(width: cardSize, height: cardSize)
-        .task(id: qrTaskKey) {
-            await regenerateQR(size: qrSize)
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Invite QR code")
-        .accessibilityIdentifier("invite-qr-code-view")
-    }
-
-    private var qrTaskKey: String {
-        "\(encodedURLString)|\(displayScale)"
-    }
-
-    private func regenerateQR(size: CGFloat) async {
-        let options = QRCodeGenerator.Options(
-            scale: displayScale,
-            displaySize: size,
-            foregroundColor: UIColor(.colorTextPrimary),
-            backgroundColor: UIColor(.white)
+        InviteCodeBody(
+            conversation: conversation,
+            encodedURLString: encodedURLString,
+            mode: mode,
+            initialSegment: initialSegment,
+            onScannedCode: onScannedCode,
+            onShareCompleted: onShareCompleted
         )
-        let generated = await QRCodeGenerator.generate(from: encodedURLString, options: options)
-        guard !Task.isCancelled else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
-            qrImage = generated
-        }
-    }
-
-    private var viewfinderTile: some View {
-        QRScannerView(viewModel: scannerViewModel)
-            .frame(width: Constant.tileSize, height: Constant.tileSize)
-            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge)
-                    .stroke(.black.opacity(0.3), lineWidth: 1.0)
-            )
-            .accessibilityIdentifier("invite-scan-viewfinder")
-    }
-
-    @ViewBuilder
-    private var actionButton: some View {
-        switch selection {
-        case .invite:
-            tileButton(icon: "square.and.arrow.up", title: "Share invite link", action: presentShareSheet)
-                .accessibilityIdentifier("share-invite-link-button")
-        case .scan:
-            tileButton(icon: "photo.fill", title: "Scan a screenshot", action: {})
-                .accessibilityIdentifier("scan-a-screenshot-button")
-                .overlay(screenshotPickerOverlay)
-        }
-    }
-
-    /// A transparent `PhotosPicker` stacked over the "Scan a screenshot"
-    /// button so the styled button stays the visible affordance while the
-    /// picker captures the tap.
-    private var screenshotPickerOverlay: some View {
-        PhotosPicker(
-            selection: $selectedScreenshot,
-            matching: .images,
-            photoLibrary: .shared()
-        ) {
-            Color.clear
-        }
-        .accessibilityLabel("Scan a screenshot")
-    }
-
-    private func tileButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: icon)
-                Text(title)
-                    .font(.callout)
-            }
-            .foregroundStyle(.colorTextPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: Constant.buttonHeight)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
-                    .fill(DesignConstants.Colors.fillSubtle)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var captionBlock: some View {
-        VStack(spacing: DesignConstants.Spacing.stepX) {
-            Text(captionPrimary)
-                .font(.footnote)
-                .foregroundStyle(.colorTextPrimary)
-            Text(captionSecondary)
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .multilineTextAlignment(.center)
-    }
-
-    private var captionPrimary: String {
-        switch selection {
-        case .invite: return "Invite people to this convo by sharing this code"
-        case .scan: return "Scan to invite an agent or join a new convo"
-        }
-    }
-
-    private var captionSecondary: String {
-        switch selection {
-        case .invite: return "They'll be added to your Contacts"
-        case .scan: return "New member will be added to your Contacts"
-        }
     }
 
     // MARK: - Floating nav
@@ -341,44 +157,11 @@ struct InviteCodeOverlay: View {
 
     // MARK: - Actions
 
-    private func presentShareSheet() {
-        isShareSheetPresented = true
-    }
-
     private func dismiss() {
         isPresented = false
     }
 
-    private func handleScannedCode(_ code: String?) {
-        guard let code, let onScannedCode else { return }
-        onScannedCode(code)
-    }
-
-    private func handleSelectedScreenshot(_ item: PhotosPickerItem?) {
-        guard let item, !isDecodingScreenshot else { return }
-        isDecodingScreenshot = true
-        Task {
-            defer {
-                isDecodingScreenshot = false
-                selectedScreenshot = nil
-            }
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let decoded = await QRImageDecoder.decode(image) else { return }
-            handleScannedCode(decoded)
-        }
-    }
-
     private enum Constant {
-        static let columnWidth: CGFloat = 283.0
-        static let tileSize: CGFloat = 280.0
-        /// Padding from the white card edge to the QR, matching the legacy
-        /// card's generous QR-to-container spacing.
-        static let qrCardPadding: CGFloat = 32.0
-        /// Center-avatar diameter as a fraction of the QR, sized to land in
-        /// the generator's 0.25 center hole.
-        static let qrCenterFraction: CGFloat = 0.25
-        static let buttonHeight: CGFloat = 72.0
         static let navHeight: CGFloat = 44.0
         static let navButtonSize: CGFloat = 44.0
         static let navAvatarSize: CGFloat = 36.0
