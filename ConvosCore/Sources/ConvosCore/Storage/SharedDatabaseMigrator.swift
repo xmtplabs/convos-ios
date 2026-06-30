@@ -204,9 +204,7 @@ extension SharedDatabaseMigrator {
         Self.registerRemovedStateMigrations(on: &migrator)
         Self.registerConnectionGrantMigrations(on: &migrator)
         Self.registerJoinAndGenerationMigrations(on: &migrator)
-        Self.registerCleanupMigrations(on: &migrator)
-
-        migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+        Self.registerTailMigrations(on: &migrator)
 
         return migrator
     }
@@ -244,7 +242,10 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
     }
 
-    private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
+    /// Tail migrations registered last so they run after every migration above.
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget. Order within: `dropRevealColumns` then the Profile-table schema.
+    private static func registerTailMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
         migrator.registerMigration(
             "addConversationLocalStateLeftHostedInviteSession",
@@ -258,6 +259,7 @@ extension SharedDatabaseMigrator {
             "addConversationLocalStateHasSharedInvite",
             migrate: Self.addConversationLocalStateHasSharedInvite
         )
+        migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
     }
 
     /// Set-once high-water mark: true once the conversation's invite link

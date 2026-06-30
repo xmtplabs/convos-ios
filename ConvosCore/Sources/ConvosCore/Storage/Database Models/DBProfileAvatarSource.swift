@@ -23,18 +23,6 @@ struct DBProfileAvatarSource: Codable, FetchableRecord, PersistableRecord, Hasha
     var plaintext: Data
     var version: Int64
     var updatedAt: Date
-
-    init(
-        inboxId: String,
-        plaintext: Data,
-        version: Int64,
-        updatedAt: Date
-    ) {
-        self.inboxId = inboxId
-        self.plaintext = plaintext
-        self.version = version
-        self.updatedAt = updatedAt
-    }
 }
 
 extension DBProfileAvatarSource {
