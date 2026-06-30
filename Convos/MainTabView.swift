@@ -423,6 +423,17 @@ struct MainTabView: View {
     @ToolbarContentBuilder
     private func sharedToolbar(for tab: ConvosTab) -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
+            let scanAction = {
+                conversationsViewModel.onJoinConvo()
+            }
+            Button(action: scanAction) {
+                Image(systemName: "qrcode.viewfinder")
+            }
+            .accessibilityLabel("Scan a code")
+            .accessibilityIdentifier("scan-button")
+            .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             Button("Compose", systemImage: "square.and.pencil") {
                 conversationsViewModel.onStartConvo()
             }
