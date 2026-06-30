@@ -67,8 +67,17 @@ emit_failure_summary() {
     local log="$1"
     local label="${2:-Tests}"
 
-    local compile_errors test_failures crash_lines crash_suspects=""
-    compile_errors="$(grep -hE '\.swift:[0-9]+:[0-9]+: error: ' "$log" 2>/dev/null | sort -u || true)"
+    local compile_errors compile_error_locations test_failures crash_lines crash_suspects=""
+    # Any compiler/macro/linker diagnostic, deduped. Matches `file.swift:l:c:
+    # error:`, `macro expansion ...: error:`, and linker `error:` lines -- not
+    # just the file:line:col form (a macro-expansion error reports the message
+    # on a line with no `.swift:` prefix, which the old grep missed).
+    compile_errors="$(grep -hE ': error: ' "$log" 2>/dev/null | sort -u || true)"
+    # Source locations tied to those errors: direct `error:` sites plus the
+    # `note: ... originates here` line a macro error points at (the user's real
+    # call site). Path trimmed to repo-relative for readability.
+    compile_error_locations="$(grep -hE '\.swift:[0-9]+:[0-9]+: (error:|note: .*originates here)' "$log" 2>/dev/null \
+        | grep -hoE '[A-Za-z0-9_/.-]+\.swift:[0-9]+:[0-9]+' | sed -E 's#.*/convos-ios/##' | sort -u || true)"
     # Swift Testing failures carry the ✘ glyph; XCTest failures use
     # "Test Case '...' failed" / ": error: -[Suite test]". Catch both.
     test_failures="$(grep -hE "✘|Test Case .* failed|Test Suite .* failed|: error: -\[" "$log" 2>/dev/null || true)"
@@ -86,6 +95,10 @@ emit_failure_summary() {
         echo "-- compile errors --"
         echo "$compile_errors"
     fi
+    if [[ -n "$compile_error_locations" ]]; then
+        echo "-- at --"
+        echo "$compile_error_locations"
+    fi
     if [[ -n "$test_failures" ]]; then
         echo "-- failed tests / recorded issues --"
         echo "$test_failures"
@@ -98,7 +111,7 @@ emit_failure_summary() {
             echo "$crash_suspects"
         fi
     fi
-    if [[ -z "$compile_errors$test_failures$crash_lines" ]]; then
+    if [[ -z "$compile_errors$compile_error_locations$test_failures$crash_lines" ]]; then
         echo "(no recognized failure markers; see full log)"
     fi
     echo "Full log: $log"
@@ -112,6 +125,11 @@ emit_failure_summary() {
                 echo "**Compile errors**"
                 echo '```'
                 echo "$compile_errors"
+                if [[ -n "$compile_error_locations" ]]; then
+                    echo ""
+                    echo "at:"
+                    echo "$compile_error_locations"
+                fi
                 echo '```'
             fi
             if [[ -n "$test_failures" ]]; then
