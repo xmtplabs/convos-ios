@@ -538,7 +538,14 @@ struct ConversationInfoView: View {
                             isPresented: $presentingShareView,
                             topSafeAreaInset: 0,
                             coreActions: viewModel.coreActions,
-                            onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
+                            onScannedCode: { code in
+                                // The overlay is shown on this local `@State`, but
+                                // the handler only flips the view model's flag, so
+                                // dismiss the local overlay here too -- otherwise it
+                                // stays onscreen after a scan.
+                                presentingShareView = false
+                                viewModel.handleScannedCodeInCurrentConversation(code)
+                            }
                         )
                     }
                 }

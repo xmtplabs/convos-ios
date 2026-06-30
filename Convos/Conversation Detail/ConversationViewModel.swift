@@ -3566,6 +3566,10 @@ extension ConversationViewModel {
     /// the join sheet) is visible.
     func handleScannedCodeInCurrentConversation(_ code: String) {
         presentingShareView = false
+        // Dismissing directly bypasses the Presenter binding setter's segment
+        // reset, so reset it here too -- otherwise the next plain share-overlay
+        // open lands on the scanner instead of the invite tab.
+        shareViewInitialSegment = .invite
         if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
             requestAgentJoin(templateId: templateId)
             return
