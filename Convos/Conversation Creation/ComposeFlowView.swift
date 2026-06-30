@@ -1,5 +1,6 @@
 import ConvosCore
 import SwiftUI
+import UIKit
 
 // MARK: - Module overview
 //
@@ -10,6 +11,16 @@ import SwiftUI
 //      (with none, it opens the new-conversation view directly and this view
 //      is never shown). The picker is hard-wired to `ContactsPickerMode.compose`
 //      -- the mode is owned here, not passed by the caller.
+//
+// The picker's "top three" invite actions (Figma node 4) are owned here too,
+// because they all need the claimed conversation + its signed invite that this
+// flow already holds in `composeConversationViewModel`:
+//   - "Show an invite code" presents `ConversationShareOverlay(mode: .newConvo)`
+//     over the picker, reading the same `conversation` / `invite` the in-convo
+//     share flow uses.
+//   - "Send an invite" pops the native share sheet directly with the invite URL.
+//   - "Make an agent" tears down this flow and hands off to the shared
+//     `ConversationsViewModel.onStartAgent()` entry point.
 //
 // Mirrors the entry-point-map convention used by `ContactsPickerView` /
 // `ContactCardMode` (see CLAUDE.md "View Modes for Multi-Entry-Point Surfaces").
@@ -35,6 +46,8 @@ struct ComposeFlowView: View {
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let contactsRepository: any ContactsRepositoryProtocol
     @State private var pushedConversation: NewConversationViewModel?
+    @State private var presentingInviteCode: Bool = false
+    @State private var presentingShareSheet: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -43,6 +56,9 @@ struct ComposeFlowView: View {
                 contactsRepository: contactsRepository,
                 embedsNavigationStack: false,
                 suggestedAgentsService: SuggestedAgentsService.live(),
+                onShowInviteCode: handleShowInviteCode,
+                onSendInvite: handleSendInvite,
+                onMakeAgent: handleMakeAgent,
                 onConfirm: handleProceed
             )
             .navigationDestination(item: $pushedConversation) { conversationViewModel in
@@ -54,6 +70,67 @@ struct ComposeFlowView: View {
                 )
             }
         }
+        .fullScreenCover(isPresented: $presentingInviteCode) {
+            inviteCodeOverlay
+        }
+        .shareSheet(
+            isPresented: $presentingShareSheet,
+            items: shareItems
+        )
+    }
+
+    /// The conversation backing the compose flow, vended from the claimed
+    /// warm-cache conversation this flow already holds. Both invite actions
+    /// read from here.
+    private var conversation: Conversation? {
+        composeConversationViewModel.conversationViewModel?.conversation
+    }
+
+    /// The signed per-conversation invite for the claimed conversation, the
+    /// same one the in-convo share flow reads. Empty until the invite is
+    /// hydrated.
+    private var invite: Invite? {
+        let invite = composeConversationViewModel.conversationViewModel?.invite
+        guard let invite, !invite.isEmpty else { return nil }
+        return invite
+    }
+
+    private var shareItems: [Any] {
+        guard let invite else { return [] }
+        return [invite.inviteURLString]
+    }
+
+    @ViewBuilder
+    private var inviteCodeOverlay: some View {
+        if let conversation, let invite {
+            ConversationShareOverlay(
+                conversation: conversation,
+                invite: invite,
+                isPresented: $presentingInviteCode,
+                topSafeAreaInset: DesignConstants.Spacing.step3x,
+                coreActions: composeConversationViewModel.conversationViewModel?.coreActions ?? NoOpCoreActions(),
+                mode: .newConvo
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private func handleShowInviteCode() {
+        guard invite != nil else { return }
+        presentingInviteCode = true
+    }
+
+    private func handleSendInvite() {
+        guard invite != nil else { return }
+        presentingShareSheet = true
+    }
+
+    /// Make-an-agent lives behind its own sheet on `MainTabView`, which can't
+    /// present from under this sheet -- tear the compose flow down first, then
+    /// hand off to the shared entry point.
+    private func handleMakeAgent() {
+        conversationsViewModel.presentingComposeFlow = false
+        conversationsViewModel.onStartAgent()
     }
 
     /// Skip (empty selection) opens the claimed conversation as-is; Continue
