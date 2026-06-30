@@ -141,7 +141,8 @@ struct ProfileTablesMigrationTests {
         }
 
         try dbQueue.read { db in
-            #expect(try DBSelfProfile.fetchOne(db, inboxId: "me")?.name == "Me")
+            let selfProfile = try DBSelfProfile.fetchOne(db, inboxId: "me")
+            #expect(selfProfile?.name == "Me")
             let source = try DBProfileAvatarSource.fetchOne(db, inboxId: "me")
             #expect(source?.version == 3)
             #expect(source?.plaintext.count == 16)
@@ -203,8 +204,10 @@ struct ProfileTablesMigrationTests {
         }
 
         try dbQueue.read { db in
-            #expect(try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "conv-1") == nil)
-            #expect(try DBProfilePublishJob.fetchOne(db, id: "job-1") == nil)
+            let avatar = try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "conv-1")
+            #expect(avatar == nil)
+            let job = try DBProfilePublishJob.fetchOne(db, id: "job-1")
+            #expect(job == nil)
         }
     }
 }
