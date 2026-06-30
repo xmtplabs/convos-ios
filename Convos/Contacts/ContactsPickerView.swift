@@ -66,6 +66,14 @@ struct ContactsPickerView: View {
     let onShowInviteCode: (() -> Void)?
     let onSendInvite: (() -> Void)?
     let onMakeAgent: (() -> Void)?
+    /// When set, the nav shows this as a plain centered title instead of the
+    /// `ContactsPickerIndicatorPill`. The in-convo "Invite" sheet (Figma node
+    /// 5562-34019) passes "Invite"; every other entry point leaves it nil and
+    /// keeps the conversation indicator pill.
+    let title: String?
+    /// When set, the nav shows a trailing circular `viewfinder` button that
+    /// opens the scanner. Supplied only by the in-convo "Invite" sheet.
+    let onScanInvite: (() -> Void)?
 
     init(
         mode: ContactsPickerMode,
@@ -75,9 +83,11 @@ struct ContactsPickerView: View {
         pillConversation: Conversation? = nil,
         embedsNavigationStack: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
+        title: String? = nil,
         onShowInviteCode: (() -> Void)? = nil,
         onSendInvite: (() -> Void)? = nil,
         onMakeAgent: (() -> Void)? = nil,
+        onScanInvite: (() -> Void)? = nil,
         onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
@@ -89,9 +99,11 @@ struct ContactsPickerView: View {
         ))
         self.pillConversation = pillConversation
         self.embedsNavigationStack = embedsNavigationStack
+        self.title = title
         self.onShowInviteCode = onShowInviteCode
         self.onSendInvite = onSendInvite
         self.onMakeAgent = onMakeAgent
+        self.onScanInvite = onScanInvite
         self.onConfirm = onConfirm
     }
 
@@ -189,6 +201,28 @@ struct ContactsPickerView: View {
             Button(role: .cancel, action: handleCancel)
         }
         ToolbarItem(placement: .principal) {
+            principalContent
+        }
+        if let onScanInvite {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onScanInvite) {
+                    Image(systemName: "viewfinder")
+                }
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Scan invite code")
+                .accessibilityIdentifier("contacts-picker-scan-button")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var principalContent: some View {
+        if let title {
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorTextPrimary)
+                .accessibilityAddTraits(.isHeader)
+        } else {
             ContactsPickerIndicatorPill(
                 conversation: pillConversation,
                 title: viewModel.pillTitle,
