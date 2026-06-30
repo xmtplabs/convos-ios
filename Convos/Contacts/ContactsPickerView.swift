@@ -471,7 +471,7 @@ struct ContactsPickerActionsSection: View {
     var headerTitle: String = "Invite new contacts"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0.0) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             header
             if let onShowInviteCode = actions.onShowInviteCode {
                 ContactsPickerActionRow(
