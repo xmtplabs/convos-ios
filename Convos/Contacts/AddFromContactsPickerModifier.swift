@@ -39,10 +39,12 @@ private struct AddFromContactsPickerModifier: ViewModifier {
 
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
+    @State private var presentingShareSheet: Bool = false
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented) { pickerSheet }
+            .shareSheet(isPresented: $presentingShareSheet, items: shareItems)
             .alert(
                 "Couldn't add contacts",
                 isPresented: $presentingError,
@@ -64,8 +66,46 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             ),
             contactsRepository: viewModel.messagingService.contactsRepository(),
             alreadyInChatInboxIds: alreadyInChat,
+            title: "Invite",
+            onShowInviteCode: handleShowInviteCode,
+            onSendInvite: handleSendInvite,
+            onMakeAgent: handleMakeAgent,
+            onScanInvite: handleScanInvite,
             onConfirm: handleConfirm
         )
+    }
+
+    /// The current conversation's signed invite link, shared directly by the
+    /// "Send an invite" row. Empty until the invite hydrates.
+    private var shareItems: [Any] {
+        let invite = viewModel.invite
+        guard !invite.isEmpty else { return [] }
+        return [invite.inviteURLString]
+    }
+
+    /// The share overlay (`ConversationShareOverlay`) renders below this sheet
+    /// at the `ConversationPresenter` level, so dismiss the sheet first, then
+    /// flip the view model flag once the dismissal settles.
+    private func handleShowInviteCode() {
+        isPresented = false
+        viewModel.shareViewInitialSegment = .invite
+        viewModel.presentingShareView = true
+    }
+
+    private func handleScanInvite() {
+        isPresented = false
+        viewModel.shareViewInitialSegment = .scan
+        viewModel.presentingShareView = true
+    }
+
+    private func handleSendInvite() {
+        guard !viewModel.invite.isEmpty else { return }
+        presentingShareSheet = true
+    }
+
+    private func handleMakeAgent() {
+        isPresented = false
+        viewModel.presentAgentBuilder()
     }
 
     private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateIds: [String]) {

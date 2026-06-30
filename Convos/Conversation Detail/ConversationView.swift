@@ -358,7 +358,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     lockedInfoButton
                 } else {
                     switch messagesTopBarTrailingItem {
-                    case .share: addToConversationMenu
+                    case .share: inviteButton
                     case .scan: scanInviteButton
                     }
                 }
@@ -378,23 +378,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("lock-info-button")
     }
 
-    private var addToConversationMenu: some View {
-        AddToConversationMenu(
-            isFull: viewModel.isFull,
-            isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
-            onConvoCode: {
-                if viewModel.isFull {
-                    showingFullInfo = true
-                } else {
-                    viewModel.presentingShareView = true
-                }
-            },
-            onInviteAgent: {
-                viewModel.presentAgentBuilder()
-            },
-            onAddFromContacts: handleAddFromContactsTap
-        )
+    /// The in-conversation top-right invite affordance. Opens the "Invite"
+    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
+    /// scoped to this conversation, carrying the three convo-scoped invite
+    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
+    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    private var inviteButton: some View {
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
+        }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
     }
 
     private var handleAddFromContactsTap: () -> Void {
