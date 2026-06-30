@@ -205,25 +205,31 @@ struct AttachmentSharePayload {
         return await writeShareHTML(fileURL: fileURL, basename: basename, attachmentKey: attachment.key)
     }
 
+    /// The on-disk extension to give a shared HTML copy. `isHTMLFile` can be
+    /// true from the MIME type alone, so the cached file's extension may be
+    /// missing or non-html (e.g. `report.txt`); force `html` unless the source
+    /// already carries a valid HTML extension, so recipients never get an HTML
+    /// payload that opens as plain text.
+    static func htmlShareExtension(for fileURL: URL) -> String {
+        let htmlExtensions: Set<String> = ["html", "htm"]
+        let rawExtension: String = fileURL.pathExtension.lowercased()
+        return htmlExtensions.contains(rawExtension) ? rawExtension : "html"
+    }
+
     /// Copies the cached `.html` attachment to a title-named temp file so the
     /// shared item carries the artifact's name, not the raw on-disk filename.
     /// Recipients receive only this HTML file; the rendered image is preview
     /// metadata, never a shared item.
     private static func writeShareHTML(fileURL: URL, basename: String, attachmentKey: String) async -> URL? {
-        // `isHTMLFile` can be true from the MIME type alone, so the cached
-        // file's on-disk extension may be missing or non-html (e.g.
-        // `report.txt`). Force `html` for the shared copy unless the existing
-        // extension is already a valid HTML one, so recipients never get an
-        // HTML payload that opens as plain text.
-        let htmlExtensions: Set<String> = ["html", "htm"]
-        let rawExtension: String = fileURL.pathExtension.lowercased()
-        let ext: String = htmlExtensions.contains(rawExtension) ? rawExtension : "html"
+        let ext: String = htmlShareExtension(for: fileURL)
         // Namespace by attachment key so same-named attachments cannot
         // overwrite each other's armed share payload.
         let url: URL = FileManager.default.temporaryDirectory
             .appendingPathComponent("share-" + HTMLThumbnailRenderer.stableKeyComponent(for: attachmentKey), isDirectory: true)
             .appendingPathComponent("\(basename).\(ext)")
-        let written: Bool = await Task.detached(priority: .utility) {
+        // Sharing is a direct user action on a small file, so copy at
+        // user-initiated priority rather than letting it sit behind utility work.
+        let written: Bool = await Task.detached(priority: .userInitiated) {
             do {
                 try FileManager.default.createDirectory(
                     at: url.deletingLastPathComponent(),
