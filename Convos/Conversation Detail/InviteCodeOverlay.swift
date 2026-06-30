@@ -11,11 +11,13 @@ import UIKit
 // - A brand-new conversation: the first-run / empty convo presents the same
 //   wrapper with `mode: .newConvo`; only the captions and nav metadata differ.
 //
-// The Invite tab renders the stylized QR (`StylizedQRCodeView`) plus a
-// "Share invite link" button wired to the conversation invite URL and the
-// native share sheet. The Scan tab swaps the QR tile for the live scanner
-// viewfinder (`QRScannerView`) and a "Scan a screenshot" button that decodes
-// a code picked from the photo library. Both decoded paths feed the same
+// The Invite tab renders the legacy QR (`QRCodeGenerator`: rounded modules, Q
+// error correction, a 0.25 center hole) on a white rounded card, with the
+// conversation avatar overlaid into the center circle, plus a "Share invite
+// link" button wired to the conversation invite URL and the native share
+// sheet. The Scan tab swaps the QR tile for the live scanner viewfinder
+// (`QRScannerView`) and a "Scan a screenshot" button that decodes a code
+// picked from the photo library. Both decoded paths feed the same
 // `onScannedCode` handler.
 
 /// Variant of the invite-code screen. Mirrors the `ContactCardMode` pattern:
@@ -52,7 +54,9 @@ struct InviteCodeOverlay: View {
     @State private var scannerViewModel: QRScannerViewModel = QRScannerViewModel()
     @State private var selectedScreenshot: PhotosPickerItem?
     @State private var isDecodingScreenshot: Bool = false
+    @State private var qrImage: UIImage?
 
+    @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
 
     var body: some View {
@@ -102,14 +106,65 @@ struct InviteCodeOverlay: View {
     private var tileView: some View {
         switch selection {
         case .invite:
-            StylizedQRCodeView(
-                encodedURLString: encodedURLString,
-                conversation: conversation,
-                conversationImage: conversationImage,
-                tileSize: Constant.tileSize
-            )
+            inviteQRTile
         case .scan:
             viewfinderTile
+        }
+    }
+
+    /// The legacy QR card: the rounded-module `QRCodeGenerator` output on a
+    /// white card (corner radius `.large`), generously padded from the card
+    /// edge, with the conversation avatar overlaid into the center circle. The
+    /// generator leaves a 0.25 center hole; `ConversationAvatarView` fills it
+    /// and provides the avatar -> emoji -> monogram fallback so the center is
+    /// never empty.
+    private var inviteQRTile: some View {
+        let cardSize: CGFloat = Constant.tileSize
+        let qrSize: CGFloat = cardSize - Constant.qrCardPadding * 2.0
+        let centerDiameter: CGFloat = qrSize * Constant.qrCenterFraction
+        return ZStack {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+                .fill(.white)
+            if let qrImage {
+                Image(uiImage: qrImage)
+                    .resizable()
+                    .interpolation(.none)
+                    .aspectRatio(1.0, contentMode: .fit)
+                    .frame(width: qrSize, height: qrSize)
+                    .transition(.opacity)
+            }
+            ConversationAvatarView(
+                conversation: conversation,
+                conversationImage: conversationImage,
+                size: centerDiameter
+            )
+            .frame(width: centerDiameter, height: centerDiameter)
+            .clipShape(.circle)
+        }
+        .frame(width: cardSize, height: cardSize)
+        .task(id: qrTaskKey) {
+            await regenerateQR(size: qrSize)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Invite QR code")
+        .accessibilityIdentifier("invite-qr-code-view")
+    }
+
+    private var qrTaskKey: String {
+        "\(encodedURLString)|\(displayScale)"
+    }
+
+    private func regenerateQR(size: CGFloat) async {
+        let options = QRCodeGenerator.Options(
+            scale: displayScale,
+            displaySize: size,
+            foregroundColor: UIColor(.colorTextPrimary),
+            backgroundColor: UIColor(.white)
+        )
+        let generated = await QRCodeGenerator.generate(from: encodedURLString, options: options)
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            qrImage = generated
         }
     }
 
@@ -292,6 +347,12 @@ struct InviteCodeOverlay: View {
     private enum Constant {
         static let columnWidth: CGFloat = 283.0
         static let tileSize: CGFloat = 280.0
+        /// Padding from the white card edge to the QR, matching the legacy
+        /// card's generous QR-to-container spacing.
+        static let qrCardPadding: CGFloat = 32.0
+        /// Center-avatar diameter as a fraction of the QR, sized to land in
+        /// the generator's 0.25 center hole.
+        static let qrCenterFraction: CGFloat = 0.25
         static let buttonHeight: CGFloat = 72.0
         static let navHeight: CGFloat = 44.0
         static let navButtonSize: CGFloat = 44.0
