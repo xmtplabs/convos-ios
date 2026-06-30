@@ -181,24 +181,25 @@ struct InviteCodeBody: View {
     /// remains scannable.
     @ViewBuilder
     private func inviteCenter(holeDiameter: CGFloat) -> some View {
-        let contentDiameter: CGFloat = holeDiameter * Constant.qrCenterContentFill
+        let imageDiameter: CGFloat = holeDiameter * Constant.qrCenterImageFill
+        let emojiDiameter: CGFloat = holeDiameter * Constant.qrCenterEmojiFill
         if let conversationImage {
             Image(uiImage: conversationImage)
                 .resizable()
                 .scaledToFill()
-                .frame(width: contentDiameter, height: contentDiameter)
+                .frame(width: imageDiameter, height: imageDiameter)
                 .clipShape(.circle)
         } else if let emoji = inviteCenterEmoji {
             Text(emoji)
-                .font(.system(size: contentDiameter))
+                .font(.system(size: emojiDiameter))
                 .frame(width: holeDiameter, height: holeDiameter)
         } else {
             ConversationAvatarView(
                 conversation: conversation,
                 conversationImage: conversationImage,
-                size: contentDiameter
+                size: imageDiameter
             )
-            .frame(width: contentDiameter, height: contentDiameter)
+            .frame(width: imageDiameter, height: imageDiameter)
             .clipShape(.circle)
         }
     }
@@ -366,11 +367,15 @@ struct InviteCodeBody: View {
         /// Vision against the rendered output, occlusion worst-cased); longer
         /// real invites carry more margin.
         static let qrCenterFraction: CGFloat = 0.28
-        /// Emoji/image content size as a fraction of the cleared circular hole
+        /// Photo-avatar content size as a fraction of the cleared circular hole
         /// (`centerDiameter * sqrt(2)`). Below 1.0 so the round content fills
         /// most of the cleared center while leaving a thin card-colored ring and
         /// staying inside the hole, keeping the QR scannable.
-        static let qrCenterContentFill: CGFloat = 0.82
+        static let qrCenterImageFill: CGFloat = 0.82
+        /// Emoji glyph size as a fraction of the cleared hole. A touch smaller
+        /// than the photo fill since an emoji glyph reads larger than a
+        /// full-bleed photo at the same diameter.
+        static let qrCenterEmojiFill: CGFloat = 0.74
         static let buttonHeight: CGFloat = 72.0
     }
 }
