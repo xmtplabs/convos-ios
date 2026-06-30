@@ -537,7 +537,8 @@ struct ConversationInfoView: View {
                             invite: viewModel.invite,
                             isPresented: $presentingShareView,
                             topSafeAreaInset: 0,
-                            coreActions: viewModel.coreActions
+                            coreActions: viewModel.coreActions,
+                            onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
                         )
                     }
                 }

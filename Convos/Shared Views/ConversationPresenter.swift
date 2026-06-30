@@ -98,7 +98,8 @@ struct ConversationPresenter<Content: View>: View {
                         set: { viewModel.presentingShareView = $0 }
                     ),
                     topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions
+                    coreActions: viewModel.coreActions,
+                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)

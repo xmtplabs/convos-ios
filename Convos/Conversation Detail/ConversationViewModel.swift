@@ -3550,6 +3550,28 @@ extension ConversationViewModel {
         )
     }
 
+    /// Routes a code decoded on the in-conversation Scan tab. An agent
+    /// template QR pulls that agent into the current conversation (the same
+    /// `requestAgentJoin` path the chat "+" menu uses); anything else is a
+    /// conversation invite and joins that convo via the existing
+    /// `presentingNewConversationForInvite` join sheet. Both arrivals become
+    /// contacts through the same member-derived contacts mechanism the rest
+    /// of the add-member / add-agent flows rely on. The share overlay is
+    /// dismissed so the resulting action (the chat's agent-join status, or
+    /// the join sheet) is visible.
+    func handleScannedCodeInCurrentConversation(_ code: String) {
+        presentingShareView = false
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            requestAgentJoin(templateId: templateId)
+            return
+        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: code),
+            coreActions: coreActions
+        )
+    }
+
     /// Resolves a shared agent's link to its public profile for the message
     /// card. Vended by the session so the real API-backed resolver swaps in
     /// transparently once it lands.
