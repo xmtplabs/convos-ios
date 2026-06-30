@@ -299,6 +299,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
         showsEmbeddedInvite: Bool = false,
+        defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
@@ -324,9 +325,16 @@ class NewConversationViewModel: Identifiable, Hashable {
             self.pendingAgentTemplateIds = agentTemplateIds
         }
 
-        // Only `.newAgent` defers row visibility to the Make tap; every
-        // other mode shows the conversation as soon as it exists.
-        self.defersVisibilityUntilCommit = if case .newAgent = mode { true } else { false }
+        // `.newAgent` defers row visibility to the Make tap. A claimed
+        // embedded-invite convo (the Contacts tab's "Invite a new contact"
+        // top-three) can opt into the same deferral so its row stays hidden
+        // until the user actually enters it -- otherwise it'd commit on tab
+        // appearance and leave a stray empty convo at the top of chats.
+        if case .newAgent = mode {
+            self.defersVisibilityUntilCommit = true
+        } else {
+            self.defersVisibilityUntilCommit = defersInviteVisibilityUntilEntered
+        }
 
         switch mode {
         case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
@@ -492,7 +500,10 @@ class NewConversationViewModel: Identifiable, Hashable {
                 case .newAgent:
                     shouldCommitNow = false
                 default:
-                    shouldCommitNow = true
+                    // A deferred embedded-invite convo stays hidden until the
+                    // user enters it (`commitConversationVisibility()`), so its
+                    // claimed row doesn't surface as a stray empty convo.
+                    shouldCommitNow = !defersVisibilityUntilCommit
                 }
                 if shouldCommitNow, let existingConversationId {
                     await session.commitClaimedConversation(id: existingConversationId)

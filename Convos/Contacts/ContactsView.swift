@@ -67,6 +67,7 @@ struct ContactsView: View {
         contactsContent
         .task { await viewModel.loadSuggestedAgentsIfNeeded() }
         .onAppear(perform: claimInviteConversationIfNeeded)
+        .onDisappear(perform: discardUnenteredInviteConversation)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             Color.colorBackgroundRaisedSecondary
@@ -138,12 +139,30 @@ struct ContactsView: View {
             if viewModel.isFiltering {
                 filteredEmptyState
             } else if viewModel.isLoadingSuggestedAgents {
-                loadingState
+                emptyStateWithInviteActions { loadingState }
             } else {
-                Color.colorBackgroundRaisedSecondary
+                emptyStateWithInviteActions { Color.colorBackgroundRaisedSecondary }
             }
         } else {
             contactList
+        }
+    }
+
+    /// Pins the "Invite a new contact" top-three above an empty/loading body so
+    /// a user with no contacts still sees the invite actions -- the exact moment
+    /// they need them. The contacts list renders the same actions via its
+    /// `leadingContent`; this covers the branches that don't reach the list.
+    @ViewBuilder
+    private func emptyStateWithInviteActions<Body: View>(@ViewBuilder body: () -> Body) -> some View {
+        if let actions = inviteActionsContent {
+            VStack(spacing: 0) {
+                actions
+                body()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(.colorBackgroundRaisedSecondary)
+        } else {
+            body()
         }
     }
 
@@ -350,8 +369,19 @@ struct ContactsView: View {
             session: session,
             mode: .newConversation,
             showsEmbeddedInvite: true,
+            defersInviteVisibilityUntilEntered: true,
             coreActions: coreActions
         )
+    }
+
+    /// Discards the claimed invite conversation when the user leaves the tab
+    /// without entering it. Because it was minted with deferred visibility it
+    /// never surfaced in the chats list, so this only releases the hidden
+    /// claimed cache row. Re-minted on the next appearance. The entered convo
+    /// (handed off to `dismissedNewConvo`) is untouched.
+    private func discardUnenteredInviteConversation() {
+        inviteConversationViewModel?.cleanUpEmptyEmbeddedInviteIfNeeded()
+        inviteConversationViewModel = nil
     }
 
     /// Enters the claimed conversation as a full new-conversation sheet so the
@@ -363,6 +393,11 @@ struct ContactsView: View {
     private func handleShowInviteCode() {
         guard invite != nil, let enteredViewModel = inviteConversationViewModel else { return }
         inviteConversationViewModel = nil
+        // The claimed convo was minted hidden (deferred visibility) so it
+        // wouldn't surface as a stray empty convo before the user acted. Now
+        // that they're entering it, promote it into the chats list. If they
+        // dismiss without engaging, `cleanUpDismissedNewConvo` discards it.
+        Task { await enteredViewModel.commitConversationVisibility() }
         dismissedNewConvo = enteredViewModel
         presentingNewConvo = enteredViewModel
         claimInviteConversationIfNeeded()
