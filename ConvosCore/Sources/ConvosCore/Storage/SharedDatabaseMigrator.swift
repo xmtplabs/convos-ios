@@ -206,6 +206,8 @@ extension SharedDatabaseMigrator {
         Self.registerJoinAndGenerationMigrations(on: &migrator)
         Self.registerCleanupMigrations(on: &migrator)
 
+        migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+
         return migrator
     }
 
@@ -1231,6 +1233,89 @@ extension SharedDatabaseMigrator {
             index: "idx_agentTemplateContact_displayName",
             on: "agentTemplateContact",
             columns: ["displayName"]
+        )
+    }
+
+    /// Creates the canonical Profile-table schema that replaces per-conversation
+    /// `memberProfile` identity: `profile` (per-person name/kind/metadata),
+    /// `profileAvatar` (per-`(inboxId, conversationId)` encrypted avatar slot),
+    /// `selfProfile` (the local user's authored identity), `profileAvatarSource`
+    /// (the user's plaintext source image), and `profilePublishJob` (durable
+    /// publish queue). Additive: nothing reads these tables until the
+    /// `ProfilesRepository` lands. `avatarContentDigest` / `contentDigest` are
+    /// reserved for the cross-conversation digest optimization (ADR 014) and stay
+    /// nil until that work ships. Extracted as an internal static helper so the
+    /// migration test can drive the real create path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func createProfileTables(_ db: Database) throws {
+        try db.create(table: "profile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("memberKind", .text)
+            t.column("metadata", .jsonText)
+            t.column("profileSource", .text).notNull()
+            t.column("avatarContentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profileAvatar") { t in
+            t.column("inboxId", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("url", .text)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("encryptionKey", .blob)
+            t.column("profileSource", .text).notNull()
+            t.column("contentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["inboxId", "conversationId"])
+        }
+
+        try db.create(table: "selfProfile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("metadata", .jsonText)
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profileAvatarSource") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("plaintext", .blob).notNull()
+            t.column("version", .integer).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profilePublishJob") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("seq", .integer).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("sourceVersion", .integer)
+            t.column("hasAvatar", .boolean).notNull().defaults(to: false)
+            t.column("state", .text).notNull().defaults(to: ProfilePublishJobState.pending.rawValue)
+            t.column("ciphertext", .blob)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("groupKey", .blob)
+            t.column("filename", .text)
+            t.column("uploadedURL", .text)
+            t.column("attemptCount", .integer).notNull().defaults(to: 0)
+            t.column("nextAttemptAt", .datetime).notNull()
+            t.column("lastError", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(
+            index: "profilePublishJob_ready",
+            on: "profilePublishJob",
+            columns: ["state", "nextAttemptAt", "seq"]
+        )
+        try db.create(
+            index: "profilePublishJob_conversationId",
+            on: "profilePublishJob",
+            columns: ["conversationId"]
         )
     }
 }
