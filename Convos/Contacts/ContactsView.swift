@@ -6,6 +6,9 @@ struct ContactsView: View {
     @State private var viewModel: ContactsViewModel
     @State private var presentingPicker: Bool = false
     @State private var presentingNewConvo: NewConversationViewModel?
+    /// Retains the presented new-conversation VM so its empty-invite teardown
+    /// can run on sheet dismiss (`presentingNewConvo` is already nil by then).
+    @State private var dismissedNewConvo: NewConversationViewModel?
     /// Claimed warm-cache conversation (mode `.newConversation`, which already
     /// has an invite) backing the "Invite a new contact" top-three. Minted on
     /// appear exactly like `ConversationsViewModel.onStartConvo` does for the
@@ -80,7 +83,7 @@ struct ContactsView: View {
             contactDetail(for: contact)
         }
         .sheet(isPresented: $presentingPicker) { pickerSheet }
-        .sheet(item: $presentingNewConvo) { vm in
+        .sheet(item: $presentingNewConvo, onDismiss: cleanUpDismissedNewConvo) { vm in
             NewConversationView(
                 viewModel: vm,
                 profileSettingsViewModel: profileSettingsViewModel
@@ -360,8 +363,19 @@ struct ContactsView: View {
     private func handleShowInviteCode() {
         guard invite != nil, let enteredViewModel = inviteConversationViewModel else { return }
         inviteConversationViewModel = nil
+        dismissedNewConvo = enteredViewModel
         presentingNewConvo = enteredViewModel
         claimInviteConversationIfNeeded()
+    }
+
+    /// Runs the empty-invite teardown for a dismissed new-conversation sheet so
+    /// a "Show an invite code" convo the user closed without messaging or
+    /// adding anyone doesn't linger in the chats list. A no-op for convos that
+    /// gained messages / members, or for the picker-confirm path (those aren't
+    /// embedded-invite convos).
+    private func cleanUpDismissedNewConvo() {
+        dismissedNewConvo?.cleanUpEmptyEmbeddedInviteIfNeeded()
+        dismissedNewConvo = nil
     }
 
     /// Pops the native share sheet directly with the invite link -- no
@@ -388,7 +402,7 @@ struct ContactsView: View {
     /// that hosted the picker.
     private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
         guard !memberInboxIds.isEmpty || !agentTemplateIds.isEmpty, let session else { return }
-        presentingNewConvo = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
@@ -396,6 +410,8 @@ struct ContactsView: View {
             ),
             coreActions: coreActions
         )
+        dismissedNewConvo = viewModel
+        presentingNewConvo = viewModel
     }
 }
 

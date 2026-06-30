@@ -428,6 +428,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     }
 
     func cleanUpIfNeeded() {
+        if cleanUpEmptyEmbeddedInviteIfNeeded() { return }
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
         // Defensive: `.existingConversation` flows should already exit
         // via `_reachedReadyState` (useExisting emits .ready). If that
@@ -437,6 +438,33 @@ class NewConversationViewModel: Identifiable, Hashable {
         guard !isExistingConversation else { return }
         _cleanedUp = true
         deleteConversation()
+    }
+
+    /// Discards an embedded-invite conversation ("Show an invite code") that
+    /// the user dismissed without engaging -- nothing sent and nobody joined --
+    /// so the empty convo doesn't pile up in the chats list.
+    ///
+    /// The default `cleanUpIfNeeded` keeps any conversation that reached
+    /// `.ready`, but an embedded-invite convo is warm-claimed with a pre-minted
+    /// invite and reaches `.ready` immediately, so that guard would never fire.
+    /// This gates on real engagement instead -- no sent/received messages and
+    /// no other members -- and discards directly (mirroring `endComposeFlow`'s
+    /// empty-claimed-draft contract). A convo with messages or a joined member
+    /// is kept. Returns true when it handled (kept or discarded) the convo so
+    /// the caller skips the default path.
+    ///
+    /// Message count uses `countMessages`, which counts only real `.messages`
+    /// groups -- the conversation's own self-join membership `.update` row is
+    /// excluded, so a freshly created (but unused) convo still reads as empty.
+    @discardableResult
+    func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
+        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
+        let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
+        let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
+        guard !hasMessages, !hasOtherMembers else { return true }
+        _cleanedUp = true
+        deleteConversation()
+        return true
     }
 
     // MARK: - Inbox Acquisition
