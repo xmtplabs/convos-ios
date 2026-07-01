@@ -90,7 +90,12 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
 
         // Present on the next runloop tick so it happens outside the SwiftUI update pass.
         DispatchQueue.main.async {
-            guard uiViewController.presentedViewController == nil else { return }
+            // `isPresented` can flip to false before this tick runs (e.g. a
+            // backdrop tap dismissing a containing overlay), which clears the
+            // coordinator's controller. Bail when that happened so a cancelled
+            // share can't still pop a stale sheet a frame later.
+            guard coordinator.activityViewController === activityViewController,
+                  uiViewController.presentedViewController == nil else { return }
             uiViewController.present(activityViewController, animated: true) {
                 onPresented?()
             }
