@@ -101,7 +101,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
     /// Polls a dispatched agent's provisioning status. Direct-add callers
     /// use it to obtain `inboxId` when the join response didn't carry one.
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
+    /// `variantId` (dev-only) is appended as a `?variantId=` query param; it is
+    /// load-bearing for variant-built agents because the backend only routes the
+    /// poll to the variant's ephemeral worker when present, so omitting it makes
+    /// the poll hit the default worker, which has no record of the instance.
+    func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse
 
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
@@ -125,17 +129,22 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// `getFeaturedAgentTemplates`.
     func getAgentPromptHints() async throws -> [String]
 
+    /// Lists registered dev-only agent variants (`GET /v2/agent-variants`).
+    /// Authenticated (user JWT) and served only by the dev backend -- elsewhere
+    /// it returns an empty list. Backs the Debug-menu variant picker.
+    func getAgentVariants() async throws -> [ConvosAPI.AgentVariant]
+
     /// Submits an async template generation (`POST /v2/agent-templates/generations`).
     /// Returns 202 with `status: pending` by default; the caller polls
     /// `getAgentTemplateGeneration` for the terminal state. `idempotencyKey`
     /// must be a UUID and is reused across retries of the same submit.
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse
 
     /// Polls a generation's status (`GET /v2/agent-templates/generations/:id`).
@@ -252,12 +261,12 @@ extension ConvosAPIClientProtocol {
     /// have to stub these. The real `ConvosAPIClient` and `MockAPIClient`
     /// override both.
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         throw APIError.invalidRequest
     }
@@ -878,12 +887,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // `timezone` is the creator's device IANA timezone, captured on the main
         // actor by the caller. It seeds the agent's baseline/default zone and is
         // distinct from the per-sender ProfileUpdate "timezone" metadata key.
+        // Prod backstop: strip a leaked dev variant slug from the join options.
+        let safeOptions = options.map {
+            ConvosAPI.AgentJoinOptions(onboarding: $0.onboarding, variantId: prodSafeVariantId($0.variantId))
+        }
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
                 conversationId: conversationId,
                 templateId: templateId,
-                options: options,
+                options: safeOptions,
                 timezone: timezone
             )
         )
@@ -915,9 +928,13 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+    func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse {
         let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
-        var request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET")
+        // `variantId` is load-bearing here: the backend only routes the poll to
+        // the variant's ephemeral worker when it is present, so a variant-built
+        // agent whose poll omits it stalls against the default worker.
+        let queryParameters = Self.agentJoinStatusQueryParameters(variantId: prodSafeVariantId(variantId))
+        var request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET", queryParameters: queryParameters)
         // Bound a single poll: without this a hung GET stalls the caller's
         // registration loop indefinitely, since the loop's own deadline is
         // only checked between iterations and can't interrupt an in-flight
@@ -966,13 +983,28 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return response.hints
     }
 
+    func getAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        // Authenticated GET -- the registry is dev-gated and sends the user JWT.
+        // The response is enveloped (`{ data: [...] }`); on the prod backend the
+        // route serves an empty list.
+        let request = try authenticatedRequest(for: "v2/agent-variants")
+        let response: ConvosAPI.AgentVariantsResponse = try await performRequest(request)
+        if response.data.isEmpty {
+            // A throw would mean a transport/auth failure; an empty list is the
+            // route's intended prod response (or no open variants in dev). Log so
+            // the two are distinguishable when the picker shows nothing.
+            Log.info("getAgentVariants: registry returned an empty list")
+        }
+        return response.data
+    }
+
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         var request = try authenticatedRequest(for: "v2/agent-templates/generations", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -980,10 +1012,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let body = try JSONEncoder().encode(
             ConvosAPI.AgentTemplateGenerationRequest(
                 source: source,
-                inputs: .init(text: text, attachments: attachments.isEmpty ? nil : attachments),
+                inputs: inputs,
                 connections: connections.isEmpty ? nil : connections,
                 clientDeviceId: clientDeviceId,
-                publishStatus: "unlisted"
+                publishStatus: "unlisted",
+                variantId: prodSafeVariantId(variantId)
             )
         )
         request.httpBody = body
@@ -1171,6 +1204,21 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 // MARK: - Agent template generation (split out to keep the class body length in check)
 
 extension ConvosAPIClient {
+    /// Defense-in-depth: drop any dev variant slug in production. The invariant
+    /// is enforced at the source (FeatureFlags hard-locks the selection to nil in
+    /// prod), so nothing should reach here; this keeps the client honest even if
+    /// a future caller isn't gated.
+    func prodSafeVariantId(_ slug: String?) -> String? {
+        environment.isProduction ? nil : slug
+    }
+
+    /// Query parameters for the join-status poll. The dev `variantId` is the
+    /// load-bearing routing key; omitted entirely when nil so a default poll
+    /// stays byte-identical to the pre-variant shape.
+    static func agentJoinStatusQueryParameters(variantId: String?) -> [String: String]? {
+        variantId.map { ["variantId": $0] }
+    }
+
     func getAgentTemplateAttachmentPresignedURL(
         contentType: String,
         contentLength: Int

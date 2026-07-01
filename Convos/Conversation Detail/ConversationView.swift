@@ -66,26 +66,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
-    /// It shows above the chat for every conversation that meets the same
-    /// eligibility the legacy message-list QR header used (you created it, it's
-    /// not locked, it's not full), for the whole active invite session: from
-    /// first entry, through joins and incoming messages, until the host
-    /// navigates back to home and returns (tracked by the persisted
-    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
-    /// session. The "Show an invite code" new-convo flow shows it
-    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
-    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
-    /// the duplicate message-list-header QR is suppressed via
-    /// `effectiveHeaderMode -> .hidden`.
-    var showsTopOfConvoInvite: Bool {
-        if showsEmbeddedInvite { return true }
-        guard !effectiveReadOnly, headerMode == .standard else { return false }
-        let conversation = viewModel.conversation
-        guard !conversation.isDraft else { return false }
-        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
-    }
-
     private func ensureNavigator() {
         guard navigator == nil else { return }
         navigator = ConversationCollector(
@@ -226,7 +206,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// profile. Built once per `ConversationView` lifetime; reads
     /// through the messaging service's contacts repository.
     private var contactOverride: @Sendable (String) -> Contact? {
-        viewModel.messagingService.contactsRepository().contact(for:)
+        // Prefer current member profiles over the lagging contacts table so
+        // system-message and receipt rows stay in sync with the message bubble.
+        Contact.memberAwareResolver(
+            members: viewModel.conversation.members,
+            contactLookup: viewModel.messagingService.contactsRepository().contact(for:)
+        )
     }
 
     private var messagesView: some View {
@@ -796,6 +781,7 @@ struct MemberContactDetailSheetContent: View {
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,
+                variantStamp: member.profile.variant,
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,
@@ -847,6 +833,26 @@ extension ConversationView {
     /// view it (e.g. it was open when the removal landed).
     private var effectiveReadOnly: Bool {
         isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
+    /// It shows above the chat for every conversation that meets the same
+    /// eligibility the legacy message-list QR header used (you created it, it's
+    /// not locked, it's not full), for the whole active invite session: from
+    /// first entry, through joins and incoming messages, until the host
+    /// navigates back to home and returns (tracked by the persisted
+    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
+    /// session. The "Show an invite code" new-convo flow shows it
+    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
+    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
+    /// the duplicate message-list-header QR is suppressed via
+    /// `effectiveHeaderMode -> .hidden`.
+    var showsTopOfConvoInvite: Bool {
+        if showsEmbeddedInvite { return true }
+        guard !effectiveReadOnly, headerMode == .standard else { return false }
+        let conversation = viewModel.conversation
+        guard !conversation.isDraft else { return false }
+        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
     }
 
     /// Read-only surfaces suppress every leading affordance. The inline

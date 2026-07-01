@@ -1224,8 +1224,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let urlString = encryptedRef.url
 
         Task.detached(priority: .background) {
-            // If URL didn't change and we already have a cached image, skip
-            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(for: cacheId) != nil {
+            // If URL didn't change and we already have the bytes, skip. The byte
+            // cache is keyed by URL (cacheAfterUpload writes under urlString), so
+            // probe by URL - probing by cacheId hits the identifier tier and
+            // always misses, re-downloading and re-decrypting every run.
+            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(forURL: urlString) != nil {
                 return
             }
 

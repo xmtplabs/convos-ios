@@ -41,6 +41,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         static let progressPhrases: Column = Column(CodingKeys.progressPhrases)
         static let attachments: Column = Column(CodingKeys.attachments)
         static let connections: Column = Column(CodingKeys.connections)
+        static let variantId: Column = Column(CodingKeys.variantId)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -86,6 +87,12 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     /// generation request. Persisted so a resumed/retried submit sends an
     /// identical body and dedupes. `nil` when no connections.
     var connections: String?
+    /// Dev-only agent variant slug captured once at build start. The same value
+    /// rides the generation (top-level field), join (`options.variantId`), and
+    /// join-status poll (`?variantId=`) calls; reading it off the row keeps all
+    /// three consistent even when the build resumes after a relaunch. `nil` for
+    /// default builds.
+    let variantId: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -94,7 +101,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         case templateId, prompt
         case errorMessage = "error"
         case previewAgentName, previewEmoji, previewDescription, progressPhrases
-        case attachments, connections
+        case attachments, connections, variantId
         case createdAt, updatedAt
     }
 
@@ -113,6 +120,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         progressPhrases: String? = nil,
         attachments: String? = nil,
         connections: String? = nil,
+        variantId: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -130,6 +138,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         self.progressPhrases = progressPhrases
         self.attachments = attachments
         self.connections = connections
+        self.variantId = variantId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

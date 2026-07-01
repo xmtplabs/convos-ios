@@ -322,6 +322,28 @@ struct MessagesGroupView: View {
         .id("merged-thinking-receipt-\(message.differenceIdentifier)")
     }
 
+    /// Dev-only variant ribbon overlaid on the agent contact card's top, clipped
+    /// to its own top corners so the card stays untouched. Non-interactive so
+    /// taps pass through to the card's gesture and open the agent profile, which
+    /// carries the full detail and a working PR link.
+    @ViewBuilder
+    private var variantRibbonOverlay: some View {
+        if !ConfigManager.shared.currentEnvironment.isProduction,
+           let variant = displayGroup.sender.profile.variant {
+            // Top corners match AgentContactCardView's 24pt card radius.
+            AgentVariantRibbon(variant: variant, verticalPadding: DesignConstants.Spacing.stepX)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 24.0,
+                        bottomLeadingRadius: 0.0,
+                        bottomTrailingRadius: 0.0,
+                        topTrailingRadius: 24.0
+                    )
+                )
+                .allowsHitTesting(false)
+        }
+    }
+
     @ViewBuilder
     private func contactCardRow(card: AgentContactCardInfo) -> some View {
         // The card shows its own bottom-leading avatar only when it is the
@@ -353,6 +375,9 @@ struct MessagesGroupView: View {
                         if cardIsLast && !displayGroup.sender.isCurrentUser {
                             avatarOverlay { onTapSender(displayGroup.sender) }
                         }
+                    }
+                    .overlay(alignment: .top) {
+                        variantRibbonOverlay
                     }
 
                 Spacer()

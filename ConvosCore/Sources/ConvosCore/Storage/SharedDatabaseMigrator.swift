@@ -289,6 +289,17 @@ extension SharedDatabaseMigrator {
         }
     }
 
+    /// Additive, nullable column holding the dev-only agent variant slug the
+    /// build was captured under. Persisted on the row so the same value rides
+    /// the generation, join, and join-status-poll calls even across a relaunch
+    /// resume, instead of re-reading the device selection mid-build. `nil` for
+    /// default (non-variant) builds, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationVariant(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "variantId", .text)
+        }
+    }
+
     /// Registers the join-request ledger and the direct-builder generation
     /// table, in this order. Grouped into a helper to keep `makeMigrator`
     /// under the function-length budget; the registration position (last,
@@ -299,6 +310,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationPreview", migrate: Self.addAgentTemplateGenerationPreview)
         migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
         migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
+        migrator.registerMigration("addAgentTemplateGenerationVariant", migrate: Self.addAgentTemplateGenerationVariant)
     }
 
     /// In-flight (or finished) agent-template generation kicked off by the

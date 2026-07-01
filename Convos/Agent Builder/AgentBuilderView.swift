@@ -418,6 +418,12 @@ struct AgentBuilderView: View {
                 .padding(.bottom, DesignConstants.Spacing.step3x)
                 .opacity(viewModel.isRecordingVoiceMemo ? 0 : 1)
 
+            if FeatureFlags.shared.isAgentVariantSelectorEnabled, !viewModel.isRecordingVoiceMemo {
+                AgentVariantSelector()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step3x)
+            }
+
             if viewModel.isRecordingVoiceMemo {
                 Spacer(minLength: 0)
                 recordingControls(focusState: focusState)

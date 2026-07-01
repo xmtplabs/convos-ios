@@ -9,6 +9,15 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+/// Moves a staged invite image into the URL-keyed byte cache under the finalized
+/// invite's real image URL, so the invite card renders it without dropping to a
+/// placeholder or re-downloading. No-op when the text has no parseable image URL.
+private func cacheFinalizedInviteImage(_ image: UIImage, inviteText: String) {
+    guard let invite = MessageInvite.from(text: inviteText),
+          let imageURLString = invite.imageURL?.absoluteString else { return }
+    ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+}
+
 struct PendingInvite {
     let code: String
     var fullURL: String
@@ -1635,7 +1644,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 guard let self, !self.isConversationImageDirty else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.conversationImage = await ImageCache.shared.loadImage(for: self.conversation)
+                    self.conversationImage = await ImageCache.shared.loadImageOrContinuity(for: self.conversation)
                     self.isConversationImageDirty = false
                 }
             }
@@ -1742,7 +1751,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         loadConversationImageTask?.cancel()
         loadConversationImageTask = Task { [weak self] in
             guard let self else { return }
-            let image = await ImageCache.shared.loadImage(for: conversation)
+            let image = await ImageCache.shared.loadImageOrContinuity(for: conversation)
             guard !Task.isCancelled, !self.isConversationImageDirty else { return }
             self.conversationImage = image
             self.isConversationImageDirty = false
@@ -3240,7 +3249,13 @@ extension ConversationViewModel {
         }
 
         if let invite = MessageInvite.from(text: inviteURL) {
-            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.imageURL?.absoluteString ?? invite.inviteSlug)
+            if let imageURLString = invite.imageURL?.absoluteString {
+                ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+            } else {
+                // No upload URL yet: stage the selected image under the invite's
+                // identity so image(for:) shows it until the real URL arrives.
+                _ = ImageCache.shared.prepareForUpload(image, for: invite)
+            }
         }
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
@@ -3257,6 +3272,7 @@ extension ConversationViewModel {
                 if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
                    let pendingMessageId {
                     try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
+                    cacheFinalizedInviteImage(image, inviteText: updatedInvite.inviteURLString)
                 }
             }
         } catch {
@@ -3794,11 +3810,13 @@ extension ConversationViewModel {
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
+        let variantId = Self.selectedAgentVariantSlug()
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
                 conversationId: conversationId,
                 requestId: requestId,
+                variantId: variantId,
                 forceErrorCode: forceErrorCode,
                 session: session
             )
@@ -3884,6 +3902,7 @@ extension ConversationViewModel {
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
+        let variantId = Self.selectedAgentVariantSlug()
         Task { [weak self] in
             var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
@@ -3898,6 +3917,7 @@ extension ConversationViewModel {
                     templateId: join.templateId,
                     conversationId: conversationId,
                     requestId: join.requestId,
+                    variantId: variantId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
@@ -4015,10 +4035,20 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
+    /// The dev-selected agent variant slug to route an agent join, or `nil`.
+    /// Gated on the selector flag so a stale persisted selection can't route
+    /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    private static func selectedAgentVariantSlug() -> String? {
+        FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
+    }
+
     private static func performAgentJoinCall(
         templateId: String?,
         conversationId: String,
         requestId: String,
+        variantId: String?,
         forceErrorCode: Int?,
         session: any SessionManagerProtocol
     ) async -> AgentJoinOutcome {
@@ -4029,10 +4059,13 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
+            let options: ConvosAPI.AgentJoinOptions? = variantId.map {
+                ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0)
+            }
             _ = try await session.addAgentToConversation(
                 conversationId: conversationId,
                 templateId: templateId,
-                options: nil,
+                options: options,
                 forceErrorCode: forceErrorCode
             )
             Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")

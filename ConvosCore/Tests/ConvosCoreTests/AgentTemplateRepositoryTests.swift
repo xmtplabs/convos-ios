@@ -99,7 +99,8 @@ struct AgentTemplateRepositoryTests {
             conversationId: "convo-3",
             slug: "chef.abcd",
             attachments: [attachment],
-            connections: []
+            connections: [],
+            variantId: nil
         )
 
         let row = try await waitForStatus(.failed, conversationId: "convo-3", in: database)
@@ -126,12 +127,12 @@ private final class HappyStubAPIClient: TestStubAPIClient {
     var joinedConversationId: String? { lock.withLock { capturedConversationId } }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         ConvosAPI.AgentTemplateGenerationResponse(
             generationId: "gen-1",
@@ -176,12 +177,12 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
     var joinCalls: Int { lock.withLock { joinCallCount } }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         throw AgentGenerationError.moderationBlocked("not allowed")
     }
@@ -217,12 +218,12 @@ private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
     }
 
     override func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         lock.withLock { generationCallCount += 1 }
         return ConvosAPI.AgentTemplateGenerationResponse(

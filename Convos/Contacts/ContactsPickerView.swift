@@ -168,11 +168,20 @@ struct ContactsPickerView: View {
         }
         .safeAreaBar(edge: .bottom) {
             if viewModel.showsConfirmButton {
-                ContactsPickerConfirmButton(
-                    title: viewModel.confirmButtonTitle,
-                    isEnabled: viewModel.canConfirm,
-                    onTap: handleConfirm
-                )
+                VStack(spacing: DesignConstants.Spacing.step3x) {
+                    // Dev-only: choose the variant the picked agent(s) build under.
+                    // Shown only once an agent is in the selection; the slug is read
+                    // at join time via FeatureFlags, so no plumbing through confirm.
+                    if FeatureFlags.shared.isAgentVariantSelectorEnabled, !viewModel.selectedAgentTemplateIds.isEmpty {
+                        AgentVariantSelector()
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    }
+                    ContactsPickerConfirmButton(
+                        title: viewModel.confirmButtonTitle,
+                        isEnabled: viewModel.canConfirm,
+                        onTap: handleConfirm
+                    )
+                }
             }
         }
     }
