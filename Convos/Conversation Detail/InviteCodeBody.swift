@@ -286,11 +286,25 @@ struct InviteCodeBody: View {
     private func handleScannedCode(_ code: String?) {
         guard let code, let onScannedCode else { return }
         onScannedCode(code)
-        // A scan disables further scanning (`isScanningEnabled = false`); without
-        // re-enabling, the viewfinder goes dead after one code -- including after
-        // a rejected/invalid code. Re-arm so repeated scans keep working. The
-        // 3s minimum-scan-interval in the VM still debounces duplicates.
+        // A scan disables further scanning (`isScanningEnabled = false`). A
+        // recognized invite/agent code hands off to a navigation/join flow, so
+        // re-arming here would let the camera -- still aimed at the same QR --
+        // fire a duplicate scan once the 3s interval elapses, stacking a second
+        // join flow on the first. Re-arm only for an unrecognized payload so a
+        // user who scanned the wrong thing can immediately line up a real code.
+        guard !isRecognizedInviteCode(code) else { return }
         scannerViewModel.resetScanning()
+    }
+
+    /// Whether a scanned payload is a Convos invite or agent-template code the
+    /// scan handler will act on. Used to decide whether re-arming the
+    /// viewfinder after a scan is safe (see `handleScannedCode`).
+    private func isRecognizedInviteCode(_ code: String) -> Bool {
+        if InviteURLDetector.detectInviteURL(in: code) != nil {
+            return true
+        }
+        guard let url = URL(string: code) else { return false }
+        return DeepLinkHandler.agentTemplateId(from: url) != nil
     }
 
     private func handleSelectedScreenshot(_ item: PhotosPickerItem?) {
