@@ -6,6 +6,7 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
     public var pinnedStates: [String: Bool] = [:]
     public var mutedStates: [String: Bool] = [:]
     public var hidesInviteCardStates: [String: Bool] = [:]
+    public var leftHostedInviteSessionStates: [String: Bool] = [:]
 
     public init() {}
 
@@ -23,5 +24,9 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
 
     public func setHidesInviteCard(_ hidesInviteCard: Bool, for conversationId: String) async throws {
         hidesInviteCardStates[conversationId] = hidesInviteCard
+    }
+
+    public func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws {
+        leftHostedInviteSessionStates[conversationId] = leftHostedInviteSession
     }
 }

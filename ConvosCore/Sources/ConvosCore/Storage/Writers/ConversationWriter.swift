@@ -215,6 +215,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isMuted: false,
                 pinnedOrder: nil,
                 hidesInviteCard: false,
+                leftHostedInviteSession: false,
                 wasRemoved: false
             )
             try localState.save(db)
@@ -344,6 +345,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false
         )
         try localState.insert(db, onConflict: .ignore)

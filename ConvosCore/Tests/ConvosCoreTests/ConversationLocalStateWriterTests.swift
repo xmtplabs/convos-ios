@@ -89,6 +89,7 @@ struct ConversationLocalStateWriterTests {
                 isMuted: true,
                 pinnedOrder: 3,
                 hidesInviteCard: false,
+                leftHostedInviteSession: false,
                 wasRemoved: false
             ).insert(db)
         }
@@ -127,6 +128,69 @@ struct ConversationLocalStateWriterTests {
 
         await #expect(throws: ConversationLocalStateWriterError.conversationNotFound) {
             try await writer.setHidesInviteCard(true, for: "missing-convo")
+        }
+    }
+
+    @Test("setLeftHostedInviteSession creates a local-state row when none exists, with other flags defaulting to false")
+    func testSetLeftHostedInviteSessionCreatesRowIfMissing() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        let conversationId = "convo-left-new"
+        try await dbManager.dbWriter.write { db in
+            try Self.seedMinimalConversation(db, id: conversationId)
+        }
+
+        try await writer.setLeftHostedInviteSession(true, for: conversationId)
+
+        let state = try Self.fetchLocalState(dbManager.dbReader, for: conversationId)
+        #expect(state?.leftHostedInviteSession == true)
+        #expect(state?.hidesInviteCard == false)
+        #expect(state?.isPinned == false)
+        #expect(state?.isUnread == false)
+        #expect(state?.isMuted == false)
+        #expect(state?.pinnedOrder == nil)
+    }
+
+    @Test("setLeftHostedInviteSession mutates only its column on an existing row")
+    func testSetLeftHostedInviteSessionLeavesOtherFlagsIntact() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        let conversationId = "convo-left-existing"
+        try await dbManager.dbWriter.write { db in
+            try Self.seedMinimalConversation(db, id: conversationId)
+            try ConversationLocalState(
+                conversationId: conversationId,
+                isPinned: true,
+                isUnread: true,
+                isUnreadUpdatedAt: Date(),
+                isMuted: true,
+                pinnedOrder: 3,
+                hidesInviteCard: true,
+                leftHostedInviteSession: false,
+                wasRemoved: false
+            ).insert(db)
+        }
+
+        try await writer.setLeftHostedInviteSession(true, for: conversationId)
+
+        let state = try Self.fetchLocalState(dbManager.dbReader, for: conversationId)
+        #expect(state?.leftHostedInviteSession == true)
+        #expect(state?.hidesInviteCard == true)
+        #expect(state?.isPinned == true)
+        #expect(state?.isUnread == true)
+        #expect(state?.isMuted == true)
+        #expect(state?.pinnedOrder == 3)
+    }
+
+    @Test("setLeftHostedInviteSession throws conversationNotFound when the conversation row is missing")
+    func testSetLeftHostedInviteSessionRequiresConversation() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        await #expect(throws: ConversationLocalStateWriterError.conversationNotFound) {
+            try await writer.setLeftHostedInviteSession(true, for: "missing-convo")
         }
     }
 }

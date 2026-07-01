@@ -429,6 +429,7 @@ struct ChronologicalSortIdTests {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false
         ).insert(db)
 

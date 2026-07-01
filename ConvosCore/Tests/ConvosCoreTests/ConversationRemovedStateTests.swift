@@ -68,6 +68,7 @@ struct ConversationRemovedStateTests {
             isMuted: false,
             pinnedOrder: isPinned ? 1 : nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: wasRemoved
         ).insert(db)
 

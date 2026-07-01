@@ -216,6 +216,27 @@ extension SharedDatabaseMigrator {
 
     private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
+        migrator.registerMigration(
+            "addConversationLocalStateLeftHostedInviteSession",
+            migrate: Self.addConversationLocalStateLeftHostedInviteSession
+        )
+    }
+
+    /// Per-conversation local flag tracking whether the host has navigated
+    /// away from an active invite session. The inline Invite/Scan card shows
+    /// for a host while this is false and collapses to the regular top cell
+    /// once the host leaves the conversation and returns. Stored locally
+    /// because it's a per-device UI session state, not consensus state.
+    ///
+    /// The column default is false ("not left"), so freshly hosted convos
+    /// lead with the card. Existing rows are back-filled to true ("already
+    /// left") so the newly-inline card does not pop into established hosted
+    /// conversations on upgrade.
+    static func addConversationLocalStateLeftHostedInviteSession(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "leftHostedInviteSession", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: "UPDATE conversationLocalState SET leftHostedInviteSession = 1")
     }
 
     /// Drops the reveal-mode columns now that incoming media always renders

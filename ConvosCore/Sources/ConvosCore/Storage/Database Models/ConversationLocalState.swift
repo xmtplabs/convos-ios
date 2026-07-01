@@ -14,6 +14,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let isMuted: Column = Column(CodingKeys.isMuted)
         static let pinnedOrder: Column = Column(CodingKeys.pinnedOrder)
         static let hidesInviteCard: Column = Column(CodingKeys.hidesInviteCard)
+        static let leftHostedInviteSession: Column = Column(CodingKeys.leftHostedInviteSession)
         static let wasRemoved: Column = Column(CodingKeys.wasRemoved)
     }
 
@@ -24,6 +25,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     let isMuted: Bool
     let pinnedOrder: Int?
     let hidesInviteCard: Bool
+    let leftHostedInviteSession: Bool
     let wasRemoved: Bool
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
@@ -44,6 +46,7 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }
@@ -56,6 +59,7 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }
@@ -68,6 +72,7 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }
@@ -80,6 +85,7 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }
@@ -92,6 +98,20 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
+            wasRemoved: wasRemoved
+        )
+    }
+    func with(leftHostedInviteSession: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }
@@ -104,6 +124,7 @@ extension ConversationLocalState {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved
         )
     }

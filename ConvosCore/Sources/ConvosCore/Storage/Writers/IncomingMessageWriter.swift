@@ -212,6 +212,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 isMuted: false,
                 pinnedOrder: nil,
                 hidesInviteCard: false,
+                leftHostedInviteSession: false,
                 wasRemoved: false
             )
         guard !current.wasRemoved else { return }

@@ -496,6 +496,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false
         ).save(db, onConflict: .ignore)
 

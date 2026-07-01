@@ -61,6 +61,7 @@ struct NSEGroupNotificationDropGuardTests {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: wasRemoved
         ).insert(db)
 

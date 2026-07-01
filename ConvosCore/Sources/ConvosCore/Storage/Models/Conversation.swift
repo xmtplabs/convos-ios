@@ -24,6 +24,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// chat that already has members. The plus-menu "Convo code" entry
     /// still reaches the QR on demand.
     public let hidesInviteCard: Bool
+    /// Per-conversation UI session flag for a host: true once the host has
+    /// navigated back to home from an active invite session. While false the
+    /// inline Invite/Scan card leads the transcript; once true it collapses to
+    /// the regular top cell. Persisted locally so the collapse survives
+    /// relaunches, and app-backgrounding does not flip it.
+    public let leftHostedInviteSession: Bool
     /// True when the local user was removed from this conversation (persisted
     /// from a GroupUpdated removal, cleared when a sync proves membership
     /// again). List queries already exclude removed conversations; this
@@ -90,6 +96,7 @@ public extension Conversation {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             lastMessage: lastMessage,
             imageURL: imageURL,
