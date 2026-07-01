@@ -286,11 +286,19 @@ struct InviteCodeBody: View {
     private func handleScannedCode(_ code: String?) {
         guard let code, let onScannedCode else { return }
         onScannedCode(code)
-        // A scan disables further scanning (`isScanningEnabled = false`). A
-        // recognized invite/agent code hands off to a navigation/join flow, so
-        // re-arming here would let the camera -- still aimed at the same QR --
-        // fire a duplicate scan once the 3s interval elapses, stacking a second
-        // join flow on the first. Re-arm only for an unrecognized payload so a
+        // A scan disables further scanning (`isScanningEnabled = false`). The
+        // in-convo Scan tab stays put behind whatever its handler does (an agent
+        // join updates this chat in place; an invite opens a sheet over it), so
+        // re-arm it for every code -- otherwise the viewfinder is left dead after
+        // one recognized scan until the inset is recreated.
+        if case .inConvo = mode {
+            scannerViewModel.resetScanning()
+            return
+        }
+        // For a new-convo flow a recognized invite/agent code hands off to a
+        // navigation/join flow, so re-arming would let the camera -- still aimed
+        // at the same QR -- fire a duplicate scan once the interval elapses,
+        // stacking a second flow. Re-arm only for an unrecognized payload so a
         // user who scanned the wrong thing can immediately line up a real code.
         guard !isRecognizedInviteCode(code) else { return }
         scannerViewModel.resetScanning()
