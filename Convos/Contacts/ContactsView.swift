@@ -53,6 +53,13 @@ struct ContactsView: View {
     /// presented from under this tab's stack, so the shell injects a closure
     /// that calls `ConversationsViewModel.onStartAgent()`. Nil hides the row.
     private let onMakeAgent: (() -> Void)?
+    /// True while a contact detail is pushed on the host's stack (the shell
+    /// lifts the stack path and mirrors it here). `onDisappear` fires for a
+    /// child push too, not just a real leave, so the claimed invite
+    /// conversation's discard is gated on this: without it, every push into a
+    /// contact detail discarded and re-minted the claimed convo, blanking the
+    /// "Send an invite" row during re-hydration and churning claimed rows.
+    private let hasPushedContactDetail: Bool
 
     init(
         contactsRepository: any ContactsRepositoryProtocol,
@@ -63,7 +70,8 @@ struct ContactsView: View {
         showsComposeButton: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
         scrollTarget: Binding<String?>? = nil,
-        onMakeAgent: (() -> Void)? = nil
+        onMakeAgent: (() -> Void)? = nil,
+        hasPushedContactDetail: Bool = false
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
             contactsRepository: contactsRepository,
@@ -77,6 +85,7 @@ struct ContactsView: View {
         self.showsComposeButton = showsComposeButton
         self.scrollTarget = scrollTarget
         self.onMakeAgent = onMakeAgent
+        self.hasPushedContactDetail = hasPushedContactDetail
     }
 
     var body: some View {
@@ -414,7 +423,13 @@ struct ContactsView: View {
     /// never surfaced in the chats list, so this only releases the hidden
     /// claimed cache row. Re-minted on the next appearance. The entered convo
     /// (handed off to `dismissedNewConvo`) is untouched.
+    ///
+    /// `onDisappear` also fires when a contact detail is pushed on top, which
+    /// is not a real leave -- the claimed convo stays valid and is reused on
+    /// pop, so skip the discard for pushes (mirrors the pop-to-home gating the
+    /// conversation view uses for its invite session).
     private func discardUnenteredInviteConversation() {
+        guard !hasPushedContactDetail else { return }
         inviteConversationViewModel?.cleanUpEmptyEmbeddedInviteIfNeeded()
         inviteConversationViewModel = nil
     }
