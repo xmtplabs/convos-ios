@@ -1131,6 +1131,21 @@ extension NewConversationViewModel {
         conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
     }
 
+    /// A scanned invite joins a different conversation, superseding the one this
+    /// embedded new-convo flow claimed up front. The state machine deletes the
+    /// superseded conversation's local rows during the join, but releasing the
+    /// claimed cache reservation and leaving its published MLS group are this
+    /// VM's responsibility -- otherwise the group is stranded on the network and
+    /// the reservation leaks. Discard the claimed id (and clear it so the joined
+    /// conversation is kept normally on dismiss).
+    private func discardSupersededClaimedConversationIfNeeded(_ result: ConversationReadyResult) {
+        guard let supersededId = claimedConversationId, supersededId != result.conversationId else { return }
+        claimedConversationId = nil
+        Task { [session] in
+            await session.discardClaimedConversation(id: supersededId)
+        }
+    }
+
     @MainActor
     private func handleStateChange(_ state: ConversationStateMachine.State) {
         conversationState = state
@@ -1193,6 +1208,8 @@ extension NewConversationViewModel {
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
+            discardSupersededClaimedConversationIfNeeded(result)
+
             // Deferred-visibility cache-miss path: the state machine created
             // this conversation hidden (`startsUnused`), so adopt its id as
             // the claimed row. Registering the claim keeps
@@ -1210,6 +1227,14 @@ extension NewConversationViewModel {
                         await session.commitClaimedConversation(id: conversationId)
                     }
                 }
+            } else if showsEmbeddedInvite, result.origin == .created, claimedConversationId == nil {
+                // Non-deferred embedded auto-create (home Scan / show-invite-code
+                // on a cache miss): the state machine published a real,
+                // already-visible group but no warm-cache id was claimed up
+                // front. Adopt its id -- no register/commit, the row is already
+                // visible -- so a later scan-join supersession or teardown can
+                // leave the MLS group instead of stranding it on the network.
+                claimedConversationId = result.conversationId
             }
 
             // Agent-template spawn: the conversation now exists with a
