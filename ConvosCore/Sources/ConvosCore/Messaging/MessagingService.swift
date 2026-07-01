@@ -382,6 +382,13 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol {
+        ConversationLeaveWriter(
+            operations: XMTPLeaveGroupOperations(sessionStateManager: sessionStateManager),
+            consentWriter: conversationConsentWriter()
+        )
+    }
+
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {
         ConversationPermissionsRepository(sessionStateManager: sessionStateManager,
                                           databaseReader: databaseReader)
