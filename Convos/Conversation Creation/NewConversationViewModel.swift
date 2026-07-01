@@ -679,9 +679,27 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// once it reaches `.ready` (handled in `handleStateChange`).
     private func startAgentTemplateConversation(templateId: String) {
         pendingAgentTemplateIds = [templateId]
+        // Re-arm the one-shot join guard for this scan: a second distinct
+        // template (reachable via the screenshot picker in the same embedded
+        // convo) is a new batch and must fire, not be swallowed by the previous
+        // scan's latch. A re-emitted `.ready` for the same batch is still
+        // deduped -- `requestPendingAgentJoinsIfReady` sets the latch after it
+        // fires this batch.
+        didTriggerAgentJoin = false
         showingFullScreenScanner = false
-        isCreatingConversation = true
 
+        // The home-scan embedded flow (`.newConversation` + showsEmbeddedInvite)
+        // auto-creates its conversation up front, so the state machine is already
+        // past `.uninitialized` and a second `createConversation()` would be
+        // dropped as an invalid transition -- silently losing the scanned agent.
+        // Route it into that conversation instead: fire now if it is already
+        // ready, otherwise the `.ready` hook picks up `pendingAgentTemplateIds`.
+        guard !autoCreateConversation else {
+            requestPendingAgentJoinsIfReady()
+            return
+        }
+
+        isCreatingConversation = true
         guard conversationStateManager != nil else {
             pendingAgentTemplateCreate = true
             return
@@ -1100,6 +1118,19 @@ extension NewConversationViewModel {
         }
     }
 
+    /// Requests the pending agent-template joins into the current conversation
+    /// once it has reached `.ready`. Shared by the auto-create scan path (which
+    /// can land after `.ready`) and the `.ready` state hook (which fires as soon
+    /// as the conversation exists). One-shot via `didTriggerAgentJoin` so a
+    /// re-emitted `.ready` can't request the joins twice. Uses the batched
+    /// method -- the single-flight `requestAgentJoin(templateId:)` would cancel
+    /// each prior call as the loop advances, leaving only the last to land.
+    private func requestPendingAgentJoinsIfReady() {
+        guard _reachedReadyState, !didTriggerAgentJoin, !pendingAgentTemplateIds.isEmpty else { return }
+        didTriggerAgentJoin = true
+        conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
+    }
+
     @MainActor
     private func handleStateChange(_ state: ConversationStateMachine.State) {
         conversationState = state
@@ -1183,14 +1214,8 @@ extension NewConversationViewModel {
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
-            // pending templateId. Uses the batched method -- the
-            // single-flight `requestAgentJoin(templateId:)` would cancel
-            // each prior call as the loop advances, leaving only the
-            // last to land. One-shot - `.ready` may re-emit.
-            if !pendingAgentTemplateIds.isEmpty, !didTriggerAgentJoin {
-                didTriggerAgentJoin = true
-                conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
-            }
+            // pending templateId (see `requestPendingAgentJoinsIfReady`).
+            requestPendingAgentJoinsIfReady()
 
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
