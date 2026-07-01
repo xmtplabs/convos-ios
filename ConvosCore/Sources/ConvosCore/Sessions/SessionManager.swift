@@ -431,23 +431,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         await unusedConversationCache.releaseClaimedConversationId(conversationId)
         guard !DBConversation.isDraft(id: conversationId) else { return }
 
-        // Leave the XMTP group BEFORE the local row goes away so we don't
-        // orphan it on the network. Cache-claimed conversations are
-        // published in `UnusedConversationCache.runPreparation`, so by
-        // the time the user discards, the group is live with us as the
-        // sole member. Without `leaveGroup`, every cache cycle the user
-        // discards leaves a stranded MLS group on the server — over
-        // time, syncs re-deliver those groups and the chats list can
-        // briefly flash empty rows before the consent filter catches
-        // up.
+        // Deny consent and leave the XMTP group before the local row goes away
+        // so a discarded conversation can't resurface. Cache-claimed
+        // conversations are published in `UnusedConversationCache.runPreparation`,
+        // so by the time the user discards, the group is live with us as the
+        // sole member. `leaveGroup` fails on a solo MLS group ("cannot leave a
+        // group that has only one member"), so on its own it leaves the group on
+        // the network as allowed; syncs then re-deliver it and the discarded
+        // conversation reappears in the chats list on relaunch. Denying consent
+        // is the durable, XMTP-synced suppression the chats list filters on (it
+        // shows only allowed rows), and it is safe whether or not the group can
+        // be left, so it is applied first and unconditionally -- it still lands
+        // even when the best-effort `leaveGroup` throws.
         do {
             let inboxReady = try await loadOrCreateService().sessionStateManager.waitForInboxReadyResult()
-            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId),
-               case .group(let group) = xmtpConversation {
-                try await group.leaveGroup()
+            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId) {
+                try await xmtpConversation.updateConsentState(state: .denied)
+                if case .group(let group) = xmtpConversation {
+                    do {
+                        try await group.leaveGroup()
+                    } catch {
+                        Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). Consent was denied, so it stays filtered out of the chats list.")
+                    }
+                }
             }
         } catch {
-            Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). The group may remain on the network.")
+            Log.error("Failed to deny consent for discarded conversation \(conversationId): \(error). The group may remain on the network as allowed.")
         }
 
         do {
