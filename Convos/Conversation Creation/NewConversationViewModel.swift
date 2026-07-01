@@ -279,6 +279,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     nonisolated(unsafe) private var _reachedJoiningState: Bool = false
     @ObservationIgnored
     private var _cleanedUp: Bool = false
+    /// Set when a teardown was requested before the claimed-conversation id
+    /// settled - a fast dismiss that raced ahead of `prepareNewConversation()`
+    /// / `.ready`. The id-settle sites honor it by discarding the reserved
+    /// transient instead of committing it into the chats list.
+    @ObservationIgnored
+    private var pendingDiscard: Bool = false
     /// Set once this conversation's invite link has actually been shared
     /// externally (native share sheet completed, or the in-convo "Share invite
     /// link" finished). The empty-conversation teardown keys off this so it
@@ -465,6 +471,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     func cleanUpIfNeeded() {
         if cleanUpEmptyEmbeddedInviteIfNeeded() { return }
+        if discardIfEmptyPlainTransient() { return }
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
         // Defensive: `.existingConversation` flows should already exit
         // via `_reachedReadyState` (useExisting emits .ready). If that
@@ -486,10 +493,10 @@ class NewConversationViewModel: Identifiable, Hashable {
             switch mode {
             case .newConversation, .newAgent, .newConversationWithTemplate:
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
-                guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 claimedConversationId = existingConversationId
+                if await honorPendingTeardownAtAcquire(claimedId: existingConversationId) { return }
                 // `.newAgent` defers commit until the user actually taps Make
                 // in the Agent Builder (`AgentBuilderViewModel.commit`) so the
                 // claimed cache row stays hidden from the chats list during
@@ -516,10 +523,10 @@ class NewConversationViewModel: Identifiable, Hashable {
 
             case .newConversationWithMembers(let initialMemberInboxIds, _):
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
-                guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 claimedConversationId = existingConversationId
+                if await honorPendingTeardownAtAcquire(claimedId: existingConversationId) { return }
                 if let existingConversationId {
                     await session.commitClaimedConversation(id: existingConversationId)
                 }
@@ -995,6 +1002,57 @@ extension NewConversationViewModel {
         return true
     }
 
+    /// A plain claimed new-conversation transient (the picker-compose flow, or
+    /// the no-pickable-contacts "Compose" path) commits or creates its
+    /// warm-cache group visible immediately and reaches `.ready`
+    /// instantly-empty, so `cleanUpIfNeeded`'s reached-ready keep-gate can't
+    /// tell it from an engaged convo and would strand it on every cancel.
+    /// Excludes existing conversations, the embedded-invite surface (handled
+    /// by `cleanUpEmptyEmbeddedInviteIfNeeded`), seeded-member and
+    /// agent-template flows, and deferred `.newAgent`.
+    private var isPlainClaimedTransient: Bool {
+        autoCreateConversation
+            && !isExistingConversation
+            && !showsEmbeddedInvite
+            && !startedWithSeededMembers
+            && !defersVisibilityUntilCommit
+            && pendingAgentTemplateIds.isEmpty
+    }
+
+    /// Tears down an empty plain claimed transient by engagement instead of by
+    /// reached-ready, so a warm-cache convo can't leave a stray empty row on
+    /// cancel. Keeps one that holds real weight (a message or another member).
+    /// Returns `true` when it handled (kept or discarded) the convo so the
+    /// caller skips the default path.
+    func discardIfEmptyPlainTransient() -> Bool {
+        guard isPlainClaimedTransient, !_reachedJoiningState, !_cleanedUp else { return false }
+        // Keep a convo whose invite was shared externally (discarding it would
+        // break the recipient's join) or that the user is being navigated into.
+        guard !didShareInvite, !wasNavigatedInto else { return true }
+        let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
+        let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
+        guard !hasMessages, !hasOtherMembers else { return true }
+        _cleanedUp = true
+        deleteConversation()
+        return true
+    }
+
+    /// Called from the inbox-acquisition task once the warm-cache claim id is
+    /// known. If a dismiss raced ahead of the claim - cancelling the task or
+    /// leaving `pendingDiscard` set - leave the reserved MLS group and drop its
+    /// row instead of committing an empty transient into the chats list.
+    /// Returns `true` when it consumed the teardown so the caller stops before
+    /// committing or configuring.
+    func honorPendingTeardownAtAcquire(claimedId: String?) async -> Bool {
+        guard Task.isCancelled || pendingDiscard else { return false }
+        pendingDiscard = false
+        if let claimedId {
+            claimedConversationId = nil
+            await session.discardClaimedConversation(id: claimedId)
+        }
+        return true
+    }
+
     /// Records that this conversation's invite link was shared externally, so
     /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps the conversation instead of
     /// tearing it down and breaking the shared invite.
@@ -1055,6 +1113,10 @@ extension NewConversationViewModel {
 
     func deleteConversation() {
         Log.info("Deleting conversation")
+        // Cancel the in-flight claim so a fast dismiss can't commit its
+        // warm-cache row visible after teardown (the didSet cleanup path
+        // reaches here; `dismissWithDeletion` already cancels it too).
+        inboxAcquisitionTask?.cancel()
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         joinTimeoutTask?.cancel()
@@ -1075,6 +1137,12 @@ extension NewConversationViewModel {
             Task { [session] in
                 await session.discardClaimedConversation(id: claimedId)
             }
+        } else {
+            // The claim hasn't settled yet (fast dismiss before
+            // `prepareNewConversation()` / `.ready` handed back the id).
+            // Record the teardown so the id-settle site discards the reserved
+            // transient instead of committing an empty convo into the list.
+            pendingDiscard = true
         }
     }
 
@@ -1250,6 +1318,21 @@ extension NewConversationViewModel {
 
             discardSupersededClaimedConversationIfNeeded(result)
 
+            // A fast dismiss ran before this created transient reached `.ready`,
+            // so its id wasn't known yet to tear it down (`pendingDiscard`).
+            // Honor that deferred teardown now the id has settled instead of
+            // keeping an empty convo. Scoped to `.created` so a real join is
+            // never discarded.
+            if result.origin == .created, pendingDiscard {
+                pendingDiscard = false
+                let strandedId = claimedConversationId ?? result.conversationId
+                claimedConversationId = nil
+                Task { [session] in
+                    await session.discardClaimedConversation(id: strandedId)
+                }
+                return
+            }
+
             // Deferred-visibility cache-miss path: the state machine created
             // this conversation hidden (`startsUnused`), so adopt its id as
             // the claimed row. Registering the claim keeps
@@ -1267,13 +1350,14 @@ extension NewConversationViewModel {
                         await session.commitClaimedConversation(id: conversationId)
                     }
                 }
-            } else if showsEmbeddedInvite, result.origin == .created, claimedConversationId == nil {
-                // Non-deferred embedded auto-create (home Scan / show-invite-code
-                // on a cache miss): the state machine published a real,
-                // already-visible group but no warm-cache id was claimed up
-                // front. Adopt its id -- no register/commit, the row is already
-                // visible -- so a later scan-join supersession or teardown can
-                // leave the MLS group instead of stranding it on the network.
+            } else if result.origin == .created, claimedConversationId == nil {
+                // Non-deferred auto-create on a cache miss - the embedded
+                // home-scan / show-invite-code surface, or the non-embedded
+                // picker-compose / no-pickable "Compose" path. The state machine
+                // published a real, already-visible group but no warm-cache id
+                // was claimed up front. Adopt its id -- no register/commit, the
+                // row is already visible -- so a later teardown or scan-join
+                // supersession can leave the MLS group instead of stranding it.
                 claimedConversationId = result.conversationId
             }
 
