@@ -144,13 +144,11 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         }
     }
 
-    /// Falls back to `DBMyProfile` (the inbox-wide profile) when no `DBMemberProfile` exists
-    /// for this conversation yet. Avoids an empty-profile flash on draft conversations and
-    /// during the brief window between `.ready` and the activate-sync write.
+    /// Reads the current user's identity from the inbox-wide `DBMyProfile`.
+    /// After the unified-profile cutover self identity is global (no longer
+    /// per-conversation), so the legacy `member_profile` row is not consulted -
+    /// it is kept only as vestigial storage and may be empty.
     private static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
-        if let member = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
-            return member.hydrateProfile()
-        }
         if let global = try DBMyProfile
             .filter(DBMyProfile.Columns.inboxId == inboxId)
             .fetchOne(db) {

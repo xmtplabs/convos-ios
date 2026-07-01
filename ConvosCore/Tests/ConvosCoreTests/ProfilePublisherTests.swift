@@ -52,7 +52,7 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
         return "https://uploads/\(uploads.count)"
     }
 
-    func sendProfileUpdate(name: String?, avatar: PublishedAvatar?, conversationId: String) throws {
+    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) throws {
         if sendFailuresRemaining > 0 {
             sendFailuresRemaining -= 1
             throw FakeSessionError.send

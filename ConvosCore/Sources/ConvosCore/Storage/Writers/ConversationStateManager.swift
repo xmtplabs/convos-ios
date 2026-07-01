@@ -10,7 +10,6 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 
     func resetFromError() async
 
-    var myProfileWriter: any MyProfileWriterProtocol { get }
     var draftConversationRepository: any DraftConversationRepositoryProtocol { get }
     var conversationConsentWriter: any ConversationConsentWriterProtocol { get }
     var conversationLocalStateWriter: any ConversationLocalStateWriterProtocol { get }
@@ -63,7 +62,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     public let conversationMetadataWriter: any ConversationMetadataWriterProtocol
@@ -72,6 +70,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - Private Properties
 
     private let sessionStateManager: any SessionStateManagerProtocol
+    /// Seeds a conversation with the current user's global profile when it
+    /// becomes ready. Injected so the concrete implementation
+    /// (`ProfilesRepository.publishMyProfileToConversation`) stays out of this
+    /// type; defaults to a no-op for tests and mocks.
+    private let profileConversationSeeder: @Sendable (String) async -> Void
     private let stateMachine: ConversationStateMachine
     /// Inbox IDs to add to the conversation as part of the initial create
     /// / resume sequence. The contacts picker flow supplies these when
@@ -96,10 +99,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         conversationId: String? = nil,
         initialMemberInboxIds: [String] = [],
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
-        coreActions: any CoreActions = NoOpCoreActions()
+        coreActions: any CoreActions = NoOpCoreActions(),
+        profileConversationSeeder: @escaping @Sendable (String) async -> Void = { _ in }
     ) {
         self.sessionStateManager = sessionStateManager
         self.initialMemberInboxIds = initialMemberInboxIds
+        self.profileConversationSeeder = profileConversationSeeder
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
@@ -119,11 +124,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             contactSyncCoordinator: contactSyncCoordinator
         )
         self.conversationMetadataWriter = metadataWriter
-
-        self.myProfileWriter = MyProfileWriter(
-            sessionStateManager: sessionStateManager,
-            databaseWriter: databaseWriter
-        )
 
         self.conversationConsentWriter = ConversationConsentWriter(
             sessionStateManager: sessionStateManager,
@@ -215,15 +215,9 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     private func scheduleProfileSync(for conversationId: String) {
         guard !DBConversation.isDraft(id: conversationId) else { return }
-        let writer = myProfileWriter
+        let seeder = profileConversationSeeder
         Task.detached {
-            await ProfileSyncCoordinator.shared.run(conversationId: conversationId) {
-                do {
-                    try await writer.syncFromGlobalProfile(conversationId: conversationId)
-                } catch {
-                    Log.warning("Failed to sync global profile to conversation \(conversationId): \(error.localizedDescription)")
-                }
-            }
+            await seeder(conversationId)
         }
     }
 

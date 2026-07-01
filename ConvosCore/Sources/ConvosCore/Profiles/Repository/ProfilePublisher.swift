@@ -195,8 +195,8 @@ actor ProfilePublisher {
             throw PublishDropError.staleSource
         }
         let published = PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
-        let selfName = try await selfProfileStore.load()?.name
-        try await session.sendProfileUpdate(name: selfName, avatar: published, conversationId: job.conversationId)
+        let selfProfile = try await selfProfileStore.load()
+        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: selfProfile?.metadata, avatar: published, conversationId: job.conversationId)
         let slot = DBProfileAvatar(
             inboxId: selfInboxId,
             conversationId: job.conversationId,
@@ -213,8 +213,8 @@ actor ProfilePublisher {
     private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
         let existing = try await profileStore.avatar(inboxId: selfInboxId, conversationId: job.conversationId)
         let published = publishedAvatar(from: existing)
-        let selfName = try await selfProfileStore.load()?.name
-        try await session.sendProfileUpdate(name: selfName, avatar: published, conversationId: job.conversationId)
+        let selfProfile = try await selfProfileStore.load()
+        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: selfProfile?.metadata, avatar: published, conversationId: job.conversationId)
     }
 
     private func publishedAvatar(from slot: DBProfileAvatar?) -> PublishedAvatar? {

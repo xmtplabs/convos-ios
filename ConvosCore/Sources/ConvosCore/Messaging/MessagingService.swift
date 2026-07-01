@@ -150,10 +150,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     // MARK: My Profile
 
-    func myProfileWriter() -> any MyProfileWriterProtocol {
-        MyProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
-    }
-
     func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
         MyGlobalProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
     }
@@ -208,6 +204,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                     selfProfileStore: selfProfileStore,
                     selfInboxId: selfInboxId
                 ).run()
+                // Android parity: once the canonical stores are seeded, clear the
+                // legacy `member_profile` rows. Identity now lives in `profile` /
+                // `profileAvatar` (others) and `selfProfile` / `DBMyProfile`
+                // (self); nothing reads identity from `member_profile` anymore.
+                // The table is kept (inert), not dropped, matching Android.
+                try await databaseWriter.write { db in
+                    _ = try DBMemberProfile.deleteAll(db)
+                }
             } catch {
                 Log.error("Profile backfill failed: \(error)")
             }
@@ -227,6 +231,19 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     // MARK: New Conversation
 
+    /// Seeds a newly-ready conversation with the current user's global profile
+    /// through the shared repository's durable publisher. Handed to
+    /// `ConversationStateManager` so it does not depend on the repository.
+    private var profileConversationSeeder: @Sendable (String) async -> Void {
+        { [sharedProfilesRepository] conversationId in
+            do {
+                try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+            } catch {
+                Log.warning("Failed to seed profile to conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
     func conversationStateManager() -> any ConversationStateManagerProtocol {
         conversationStateManager(initialMemberInboxIds: [])
     }
@@ -242,7 +259,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             environment: environment,
             initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager,
-            coreActions: coreActions
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
@@ -265,7 +283,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             conversationId: conversationId,
             initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager,
-            coreActions: coreActions
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
@@ -379,7 +398,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     /// instance is what lets a connections write and a timezone write queue
     /// behind each other instead of clobbering the per-sender metadata map.
     private lazy var sharedProfileMetadataWriter: ProfileMetadataWriter = ProfileMetadataWriter(
-        myProfileWriter: myProfileWriter(),
+        profilesRepository: { [sharedProfilesRepository] in sharedProfilesRepository },
         databaseReader: databaseReader
     )
 

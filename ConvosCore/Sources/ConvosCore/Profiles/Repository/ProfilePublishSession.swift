@@ -34,7 +34,7 @@ protocol ProfilePublishSession: Sendable {
     /// Uploads ciphertext, returning the URL it can be fetched from.
     func upload(_ ciphertext: Data, filename: String) async throws -> String
 
-    /// Sends a ProfileUpdate carrying the name and (optional) avatar to one
-    /// conversation.
-    func sendProfileUpdate(name: String?, avatar: PublishedAvatar?, conversationId: String) async throws
+    /// Sends a ProfileUpdate carrying the name, metadata, and (optional) avatar
+    /// to one conversation.
+    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws
 }
