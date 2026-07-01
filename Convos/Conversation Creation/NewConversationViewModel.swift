@@ -228,6 +228,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
+    /// Invoked when a scanned QR resolves into a conversation the user should be
+    /// taken into: a joined invite, or the fresh conversation a scanned agent is
+    /// being added to. The presenter dismisses the scanner and navigates into the
+    /// conversation. The id is settled (the conversation has reached `.ready`).
+    var onScanResolvedConversation: ((String) -> Void)?
     private var cachedInviteCode: String?
     private var consecutiveFailureCount: Int = 0
 
@@ -281,6 +286,16 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// hands -- doing so would break their join.
     @ObservationIgnored
     private var didShareInvite: Bool = false
+    /// Set when the pending state change was triggered by a scanned QR, so a
+    /// successful join / agent-add navigates the user into the resulting
+    /// conversation (and dismisses the scanner). Cleared once navigation fires.
+    @ObservationIgnored
+    private var pendingScanNavigation: Bool = false
+    /// Set when the user is being navigated into this conversation from a scan
+    /// success. The scanner sheet is dismissed but the conversation must survive
+    /// the dismiss teardown -- even before a scanned agent has joined it.
+    @ObservationIgnored
+    private var wasNavigatedInto: Bool = false
     @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
@@ -657,21 +672,6 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     // MARK: - Actions
 
-    func onScanInviteCode() {
-        presentingJoinConversationSheet = true
-    }
-
-    /// Routes a scanned QR payload. A `convos://template/<id>` code
-    /// pivots the scanner into the agent-template spawn flow; anything
-    /// else is treated as a conversation invite, exactly as before.
-    func handleScannedCode(_ code: String) {
-        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
-            startAgentTemplateConversation(templateId: templateId)
-        } else {
-            joinConversation(inviteCode: code)
-        }
-    }
-
     /// Pivots a scanner-mode flow into the agent-template spawn path when
     /// the user scans a template QR. Mirrors the
     /// `.newConversationWithTemplate` deeplink mode: create a fresh
@@ -982,9 +982,11 @@ extension NewConversationViewModel {
     @discardableResult
     func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
         guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
-        // The invite link was shared externally: deleting the conversation now
-        // would break the invite for whoever received it, so keep it.
-        guard !didShareInvite else { return true }
+        // Keep the conversation when its invite was shared externally (deleting
+        // it would break the recipient's join) or when the user is being
+        // navigated into it from a scan (the scanned agent may not have joined
+        // yet, so it can still read as empty here).
+        guard !didShareInvite, !wasNavigatedInto else { return true }
         let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
         let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
         guard !hasMessages, !hasOtherMembers else { return true }
@@ -998,6 +1000,26 @@ extension NewConversationViewModel {
     /// tearing it down and breaking the shared invite.
     func markInviteShared() {
         didShareInvite = true
+    }
+
+    func onScanInviteCode() {
+        presentingJoinConversationSheet = true
+    }
+
+    /// Routes a scanned QR payload. A `convos://template/<id>` code
+    /// pivots the scanner into the agent-template spawn flow; anything
+    /// else is treated as a conversation invite, exactly as before.
+    func handleScannedCode(_ code: String) {
+        // A scan should land the user in the resulting conversation once it is
+        // ready (see `navigateToScannedConversationIfPending`). Non-scan entries
+        // (the `.joinInvite` deep link) call `joinConversation` directly and
+        // never set this, so they keep morphing in place.
+        pendingScanNavigation = true
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            startAgentTemplateConversation(templateId: templateId)
+        } else {
+            joinConversation(inviteCode: code)
+        }
     }
 
     /// Promotes this VM's hidden conversation row into a visible one.
@@ -1129,6 +1151,21 @@ extension NewConversationViewModel {
         guard _reachedReadyState, !didTriggerAgentJoin, !pendingAgentTemplateIds.isEmpty else { return }
         didTriggerAgentJoin = true
         conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
+        // A scanned agent lands in the conversation it was added to. The host
+        // conversation is already `.ready` here, so its id is settled.
+        navigateToScannedConversationIfPending(conversationStateManager?.conversationId ?? "")
+    }
+
+    /// Hands the presenter the conversation a scan resolved to, so it can
+    /// dismiss the scanner and navigate into it. No-op unless the pending state
+    /// change came from a scan and the id is settled. Marks the conversation so
+    /// the scanner-sheet dismissal doesn't tear it down before we land in it.
+    private func navigateToScannedConversationIfPending(_ conversationId: String) {
+        guard pendingScanNavigation, !conversationId.isEmpty,
+              let onScanResolvedConversation else { return }
+        pendingScanNavigation = false
+        wasNavigatedInto = true
+        onScanResolvedConversation(conversationId)
     }
 
     /// A scanned invite joins a different conversation, superseding the one this
@@ -1193,6 +1230,9 @@ extension NewConversationViewModel {
 
             if result.origin == .joined {
                 conversationViewModel?.inviteWasAccepted()
+                // A scanned invite has finished joining -- take the user into the
+                // joined conversation (and dismiss the scanner).
+                navigateToScannedConversationIfPending(result.conversationId)
             } else {
                 conversationViewModel?.isWaitingForInviteAcceptance = false
             }

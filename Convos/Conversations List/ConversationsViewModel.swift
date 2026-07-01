@@ -243,6 +243,11 @@ final class ConversationsViewModel {
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
+    /// A scan-resolved conversation to navigate into that isn't in the list yet
+    /// (a just-joined convo lands via the conversations publisher a beat later).
+    /// Resolved to a selection once the row appears.
+    @ObservationIgnored
+    private var pendingScanNavigationConversationId: String?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -450,13 +455,17 @@ final class ConversationsViewModel {
     /// both reachable (a scanned code opens a brand-new convo to join/add).
     /// Mirrors `onShowInviteCode` but starts on `.scan`.
     func onJoinConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
             showsEmbeddedInvite: true,
             embeddedInviteInitialSegment: .scan,
             coreActions: coreActions
         )
+        viewModel.onScanResolvedConversation = { [weak self] conversationId in
+            self?.navigateToScannedConversation(conversationId)
+        }
+        newConversationViewModel = viewModel
     }
 
     /// Starts and enters a fresh conversation showing the invite QR at the top
@@ -465,12 +474,16 @@ final class ConversationsViewModel {
     /// no-contacts branch of `onStartConvo`, opting the conversation into the
     /// embedded-invite presentation.
     func onShowInviteCode() {
-        newConversationViewModel = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
             showsEmbeddedInvite: true,
             coreActions: coreActions
         )
+        viewModel.onScanResolvedConversation = { [weak self] conversationId in
+            self?.navigateToScannedConversation(conversationId)
+        }
+        newConversationViewModel = viewModel
     }
 
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
@@ -608,6 +621,8 @@ final class ConversationsViewModel {
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
+
+                resolvePendingScanNavigationIfPossible()
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
@@ -787,6 +802,33 @@ final class ConversationsViewModel {
 }
 
 extension ConversationsViewModel {
+    /// Dismisses the scanner sheet and navigates into the conversation a scan
+    /// resolved to, reusing the canonical `selectedConversationId` selection the
+    /// list uses. Deferred one hop so it runs after the presenting VM's `.ready`
+    /// handler unwinds (nil-ing the sheet there would tear down a VM mid-call).
+    /// The just-joined row may not be in `conversations` yet, so it's parked and
+    /// resolved by the conversations publisher once the row lands.
+    private func navigateToScannedConversation(_ conversationId: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingScanNavigationConversationId = conversationId
+            self.newConversationViewModel = nil
+            self.resolvePendingScanNavigationIfPossible()
+        }
+    }
+
+    /// Selects the parked scan-navigation target once its row exists in the list.
+    /// Called after the sheet dismiss and whenever the conversations list
+    /// updates. Selecting drives the same `navigationDestination` push a list tap
+    /// does; the metrics navigator fires via the `selectedConversationId`
+    /// onChange.
+    func resolvePendingScanNavigationIfPossible() {
+        guard let pendingId = pendingScanNavigationConversationId,
+              conversations.contains(where: { $0.id == pendingId }) else { return }
+        pendingScanNavigationConversationId = nil
+        selectedConversationId = pendingId
+    }
+
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
         return .init(session: client.session)
