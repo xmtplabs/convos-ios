@@ -134,6 +134,32 @@ struct ProfileBackfillTests {
         #expect(alice?.name == "Alicia")
     }
 
+    @Test("mirror(_:) reflects a self rename on re-run instead of seeding once")
+    func mirrorUpsertsSelf() async throws {
+        let selfStore = InMemorySelfProfileStore()
+        let backfill = ProfileBackfill(databaseReader: try DatabaseQueue(), profileStore: InMemoryProfileStore(), selfProfileStore: selfStore, selfInboxId: "me")
+
+        try await backfill.mirror([DBMemberProfile(conversationId: "c1", inboxId: "me", name: "Me", avatar: nil)])
+        let seeded = try await selfStore.load()
+        #expect(seeded?.name == "Me")
+
+        try await backfill.mirror([DBMemberProfile(conversationId: "c1", inboxId: "me", name: "Renamed", avatar: nil)])
+        let updated = try await selfStore.load()
+        #expect(updated?.name == "Renamed")
+    }
+
+    @Test("mirror(_:) does not erase an existing self name when the legacy name is blank")
+    func mirrorSelfBlankKeepsExisting() async throws {
+        let selfStore = InMemorySelfProfileStore()
+        try await selfStore.save(DBSelfProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 1)))
+        let backfill = ProfileBackfill(databaseReader: try DatabaseQueue(), profileStore: InMemoryProfileStore(), selfProfileStore: selfStore, selfInboxId: "me")
+
+        try await backfill.mirror([DBMemberProfile(conversationId: "c1", inboxId: "me", name: nil, avatar: nil)])
+
+        let result = try await selfStore.load()
+        #expect(result?.name == "Me")
+    }
+
     @Test("does nothing when there are no legacy rows")
     func emptyIsNoop() async throws {
         let queue = try makeMemberProfileQueue()
