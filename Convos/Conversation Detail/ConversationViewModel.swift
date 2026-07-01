@@ -3575,9 +3575,14 @@ extension ConversationViewModel {
         let convo = conversation
         guard convo.creator.isCurrentUser, !convo.isDraft, !convo.leftHostedInviteSession else { return }
         let conversationId = convo.id
-        Task { [weak self] in
+        // Capture the writer and id locally so the durability-critical persist
+        // still lands even if this view model is deallocated during the pop
+        // (ConversationsViewModel releases it synchronously when the selection
+        // clears, which can happen before this task ticks).
+        let writer = localStateWriter
+        Task {
             do {
-                try await self?.localStateWriter.setLeftHostedInviteSession(true, for: conversationId)
+                try await writer.setLeftHostedInviteSession(true, for: conversationId)
             } catch {
                 Log.error("Failed to persist leftHostedInviteSession for \(conversationId): \(error.localizedDescription)")
             }
