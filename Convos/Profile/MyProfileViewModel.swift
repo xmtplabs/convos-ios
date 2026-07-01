@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 @Observable
 class MyProfileViewModel {
-    private let myProfileWriter: any MyProfileWriterProtocol
+    private let messagingService: any MessagingServiceProtocol
     private let myProfileRepository: any MyProfileRepositoryProtocol
     private(set) var profile: Profile
     private var cancellables: Set<AnyCancellable> = []
@@ -28,11 +28,11 @@ class MyProfileViewModel {
 
     init(
         inboxId: String,
-        myProfileWriter: any MyProfileWriterProtocol,
+        messagingService: any MessagingServiceProtocol,
         myProfileRepository: any MyProfileRepositoryProtocol
     ) {
         self.profile = .empty(inboxId: inboxId)
-        self.myProfileWriter = myProfileWriter
+        self.messagingService = messagingService
         self.myProfileRepository = myProfileRepository
 
         do {
@@ -114,12 +114,16 @@ class MyProfileViewModel {
         editingDisplayName = displayName
         updateDisplayNameTask?.cancel()
         beginUpdate()
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
         updateDisplayNameTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             do {
-                try await unsafeWriter.update(displayName: displayName, conversationId: conversationId)
+                try await repository.publishMyProfile(
+                    displayName: displayName,
+                    avatarBytes: nil,
+                    priorityConversationId: conversationId
+                )
             } catch {
                 Log.error("Error updating profile display name: \(error.localizedDescription)")
             }
@@ -130,13 +134,13 @@ class MyProfileViewModel {
         updateMetadataTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
         updateMetadataTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             await displayNameTask?.value
             do {
-                try await unsafeWriter.update(metadata: profileMetadata, conversationId: conversationId)
+                try await repository.publishMyProfileMetadata(profileMetadata)
             } catch {
                 Log.error("Error updating profile metadata: \(error.localizedDescription)")
             }
@@ -150,7 +154,8 @@ class MyProfileViewModel {
         updateImageTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
+        let avatarBytes = profileImage.jpegData(compressionQuality: 1.0)
         updateImageTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
@@ -158,7 +163,11 @@ class MyProfileViewModel {
             // so the avatar update reads the profile with the correct name
             await displayNameTask?.value
             do {
-                try await unsafeWriter.update(avatar: profileImage, conversationId: conversationId)
+                try await repository.publishMyProfile(
+                    displayName: nil,
+                    avatarBytes: avatarBytes,
+                    priorityConversationId: conversationId
+                )
             } catch {
                 Log.error("Error updating profile image: \(error.localizedDescription)")
             }
@@ -249,7 +258,7 @@ extension MyProfileViewModel {
     static var mock: MyProfileViewModel {
         return .init(
             inboxId: "mock-inbox-id",
-            myProfileWriter: MockMyProfileWriter(),
+            messagingService: MockMessagingService(),
             myProfileRepository: MockMyProfileRepository()
         )
     }

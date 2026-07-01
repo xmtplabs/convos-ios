@@ -173,6 +173,14 @@ class ProfileSettingsViewModel {
             imageAssetIdentifier: assetIdentifier,
             metadata: loadedMetadata
         )
+        // Propagate the global profile through the canonical repository so it
+        // fans out to every conversation via the durable publisher. The
+        // `writer.save` above still owns the edit-side form model (DBMyProfile).
+        try await session?.messagingServiceSync().profilesRepository().publishMyProfile(
+            displayName: resolvedName,
+            avatarBytes: imageData,
+            priorityConversationId: nil
+        )
         // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
         // only refreshed by the async profile observation, so a first-time user
         // who saves a name and then clears + saves again before that fires would

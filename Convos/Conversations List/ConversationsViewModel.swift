@@ -383,6 +383,15 @@ final class ConversationsViewModel {
                             imageAssetIdentifier: imageAssetIdentifier,
                             metadata: nil
                         )
+                        // Propagate the adopted profile through the canonical
+                        // repository so it fans out to every conversation via
+                        // the durable publisher. No image bytes are available on
+                        // the adoption path, so only the display name is sent.
+                        try await session.messagingService().profilesRepository().publishMyProfile(
+                            displayName: displayName,
+                            avatarBytes: nil,
+                            priorityConversationId: nil
+                        )
                         seeded = true
                     } catch {
                         Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")

@@ -3,7 +3,7 @@ import GRDB
 @preconcurrency import XMTPiOS
 
 /// Concrete `ProfilePublishSession` backed by the XMTP client and upload API.
-/// Mirrors the encrypt/upload/send path in `MyProfileWriter`, including the
+/// Encrypts, uploads, and sends the self profile to a conversation, including the
 /// best-effort second channel (writing the profile into group app-data) so
 /// clients that read `ConversationProfile` rather than the `ProfileUpdate`
 /// message still see the identity.
@@ -50,12 +50,14 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
         )
     }
 
-    func sendProfileUpdate(name: String?, avatar: PublishedAvatar?, conversationId: String) async throws {
+    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ProfilePublishSessionError.conversationNotFound(conversationId: conversationId)
         }
+
+        let resolvedMetadata: ProfileMetadata? = (metadata?.isEmpty ?? true) ? nil : metadata
 
         var update = ProfileUpdate()
         if let name {
@@ -67,6 +69,9 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
             ref.salt = avatar.salt
             ref.nonce = avatar.nonce
             update.encryptedImage = ref
+        }
+        if let resolvedMetadata {
+            update.metadata = resolvedMetadata.asProtoMap
         }
         let encoded = try ProfileUpdateCodec().encode(content: update)
         _ = try await group.send(encodedContent: encoded)
@@ -82,7 +87,7 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
             avatarSalt: avatar?.salt,
             avatarNonce: avatar?.nonce,
             avatarKey: avatar?.key
-        )
+        ).with(metadata: resolvedMetadata)
         do {
             try await group.updateProfile(memberProfile)
         } catch {

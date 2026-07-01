@@ -704,33 +704,39 @@ Key deviations from the sketch below, all deliberate:
      reads it), so self-editing keeps working and self identity still propagates
      to peers via `MyProfileWriter`'s ProfileUpdate sends.
 
-### Follow-up PR: global-only self profile + drop `member_profile`
+### Follow-up PR (cv/unified-profile-global-self-and-drop): global-only self profile [done]
 
-Product direction (2026-07-01): drop per-conversation self editing entirely.
-Going forward the current user has a single global profile, identical across all
-conversations; retain at most a first-install UI to set it. Scope:
+Product direction (2026-07-01): dropped per-conversation self editing. The
+current user now has a single global profile, identical across all conversations.
+What shipped:
 
-- Extend the durable publisher to carry self `metadata` in the outgoing
-  `ProfileUpdate` (today it sends name + avatar only), so metadata self-edits
-  (e.g. `ProfileMetadataWriter`) can route through it.
-- Plumb `ProfilesRepository` into `ConversationStateManager`; replace
-  `scheduleProfileSync` -> `syncFromGlobalProfile` with
-  `publishMyProfileToConversation(conversationId)` (also removes the
-  `ProfileSyncCoordinator` usage, then delete that type).
-- Global save sites (`ProfileSettingsViewModel`, the onboarding save in
-  `ConversationsViewModel`) call `publishMyProfile(displayName:avatarBytes:)`.
-- Delete per-conversation self editing: `MyProfileViewModel` + entry points,
-  `MyProfileWriter` (+ protocol, mock, DI), `syncFromGlobalProfile`. Keep
+- [done] Durable publisher carries self `metadata` in the outgoing
+  `ProfileUpdate` (`ProfilePublishSession.sendProfileUpdate`, `ProfilePublisher`,
+  `MessagingProfilePublishSession`); repository gained `publishMyProfileMetadata`.
+- [done] `ConversationStateManager` takes an injected `profileConversationSeeder`
+  (from `MessagingService`); `scheduleProfileSync` now calls
+  `publishMyProfileToConversation`. Removed the `ProfileSyncCoordinator` usage.
+- [done] Global save sites (`ProfileSettingsViewModel.saveAndAwait`, the
+  onboarding/pairing path in `ConversationsViewModel`) call `publishMyProfile`.
+  `ProfileMetadataWriter` routes through `publishMyProfileMetadata`.
+- [done] Per-conversation self editing rerouted to the global publisher:
+  `MyProfileViewModel` now takes a `MessagingServiceProtocol` and its edits call
+  `publishMyProfile` / `publishMyProfileMetadata`. `MyProfileRepository`'s
+  self-read now reads `DBMyProfile` only (ignores `member_profile`).
+- [done] Deleted `MyProfileWriter` (+ protocol, mock), `ProfileSyncCoordinator`;
+  removed `myProfileWriter()` from the messaging/state-manager protocols + DI.
+  `ProfilesRepository` + its publish methods are now `public`. Kept
   `MyGlobalProfileWriter` / `DBMyProfile` as the global edit-side model.
-- Backfill `deleteAll`s `member_profile` after seeding (Android parity); add the
-  migration dropping the legacy identity columns / table.
-   - Self-edits route through `publishMyProfile` /
-     `publishMyProfileToConversation`; retire the legacy `MyProfileWriter`
-     identity path.
-   - Backfill clears `member_profile` after seeding (Android parity), and a
-     migration drops the legacy identity columns/rows in the same PR.
-   - Delete `ProfileSyncCoordinator` and remaining dead identity-mirroring paths.
-   - Verify on simulator against acceptance criteria 1-7; ships alone.
+- [done] `member_profile` clear-and-keep (matches Android, which never actually
+  dropped its equivalent): `MessagingService.startProfileServices` `deleteAll`s
+  `member_profile` after the backfill seeds. The table is kept but inert - no
+  identity reader remains, so residual writes just create unread rows. A physical
+  `DROP TABLE` is deferred as a trivial future migration.
+
+Known residual: a member whose identity exists only in group appData (never sent
+a ProfileUpdate/Snapshot) is gap-filled into the now-inert `member_profile`
+(`ConversationWriter`) rather than the canonical tables, so it would not render.
+Rare; the message-sourced path (the common case) reaches canonical.
 
 ---
 

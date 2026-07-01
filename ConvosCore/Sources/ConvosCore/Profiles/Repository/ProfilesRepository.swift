@@ -10,7 +10,7 @@ import GRDB
 /// rendering onto it. `ProfileBackfill` (separate) seeds the stores from legacy
 /// `DBMemberProfile` rows before `warmUp`, and the durable publisher is attached
 /// via `bind(session:)` for self-publishing.
-actor ProfilesRepository {
+public actor ProfilesRepository {
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
     private let databaseReader: any DatabaseReader
@@ -249,7 +249,7 @@ actor ProfilesRepository {
     /// Records a name and/or new avatar and fans the update out to every
     /// conversation via the durable publish queue. The name is written to the
     /// self profile first so the publisher's jobs send the current name.
-    func publishMyProfile(displayName: String?, avatarBytes: Data?, priorityConversationId: String?) async throws {
+    public func publishMyProfile(displayName: String?, avatarBytes: Data?, priorityConversationId: String?) async throws {
         if let displayName {
             try await updateSelfProfile(SelfProfileEdit(name: .set(displayName)))
         }
@@ -257,8 +257,15 @@ actor ProfilesRepository {
     }
 
     /// Seeds a freshly created or joined conversation with the current profile.
-    func publishMyProfileToConversation(_ conversationId: String) async throws {
+    public func publishMyProfileToConversation(_ conversationId: String) async throws {
         try await publisher.publishConversation(conversationId)
+    }
+
+    /// Records new self metadata and re-publishes it (a name/metadata-only fan-out
+    /// that re-sends the existing avatar) to every conversation.
+    public func publishMyProfileMetadata(_ metadata: ProfileMetadata?) async throws {
+        try await updateSelfProfile(SelfProfileEdit(metadata: .set(metadata)))
+        try await publisher.publish(avatarBytes: nil, priorityConversationId: nil)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the

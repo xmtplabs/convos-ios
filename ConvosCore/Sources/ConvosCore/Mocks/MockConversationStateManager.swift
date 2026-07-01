@@ -47,7 +47,6 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let draftConversationRepository: any DraftConversationRepositoryProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
@@ -57,14 +56,12 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     public init(
         conversationId: String? = nil,
-        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
         draftConversationRepository: (any DraftConversationRepositoryProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
     ) {
         self.conversationIdSubject = .init(conversationId ?? "mock-conversation-\(UUID().uuidString)")
-        self.myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
         self.draftConversationRepository = draftConversationRepository ?? MockDraftConversationRepository()
         self.conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self.conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()

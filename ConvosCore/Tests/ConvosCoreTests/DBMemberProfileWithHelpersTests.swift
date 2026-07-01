@@ -2,11 +2,10 @@
 import Foundation
 import Testing
 
-/// Pins the invariant that every `with(…)` helper on `DBMemberProfile` preserves
-/// the per-conversation `metadata` field. `MyProfileWriter.syncFromGlobalProfile`
-/// only ever rebuilds member rows through these helpers, so as long as each one
-/// copies metadata forward, activate-sync cannot wipe per-conversation metadata
-/// when the global profile is updated.
+/// Pins the invariant that every `with(...)` helper on `DBMemberProfile`
+/// preserves the per-conversation `metadata` field. Inbound merge paths rebuild
+/// member rows through these helpers, so as long as each one copies metadata
+/// forward, an identity update cannot wipe per-conversation metadata.
 @Suite("DBMemberProfile.with(...) preserves metadata")
 struct DBMemberProfileWithHelpersTests {
     private static let baseMetadata: ProfileMetadata = [
