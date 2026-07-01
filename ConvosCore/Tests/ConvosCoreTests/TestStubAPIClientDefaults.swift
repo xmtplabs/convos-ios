@@ -56,7 +56,7 @@ extension ConvosAPIClientProtocol {
     /// unrelated tests don't iterate the poll loop. Tests that exercise the
     /// poll specifically program their own status sequence (see
     /// DirectAddProvisionPollTests).
-    func getAgentJoinStatus(instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse {
+    func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse {
         ConvosAPI.AgentJoinStatusResponse(
             success: true,
             instanceId: instanceId,
@@ -64,6 +64,12 @@ extension ConvosAPIClientProtocol {
             joined: true,
             inboxId: "test-agent-inbox"
         )
+    }
+
+    /// Default for the dev-only variant registry so stubs that don't exercise
+    /// the picker don't have to re-stub it. Empty == no variants registered.
+    func getAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        []
     }
 
     /// Default for the public agent-template detail fetch used by the
@@ -212,12 +218,12 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     }
 
     func createAgentTemplateGeneration(
-        text: String,
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
         source: String,
         clientDeviceId: String?,
         idempotencyKey: String,
-        attachments: [ConvosAPI.AttachmentRef],
-        connections: [String]
+        connections: [String],
+        variantId: String?
     ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
         ConvosAPI.AgentTemplateGenerationResponse(
             generationId: UUID().uuidString,

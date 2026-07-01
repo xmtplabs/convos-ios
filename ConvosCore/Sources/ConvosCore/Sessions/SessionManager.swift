@@ -1154,7 +1154,7 @@ extension SessionManager {
                     forceErrorCode: forceErrorCode
                 )
             },
-            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0) }
+            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0, variantId: options?.variantId) }
         )
         let instanceId = resolved.instanceId
         let agentInboxId = resolved.inboxId
@@ -1330,13 +1330,17 @@ extension SessionManager {
     /// provision/add runs, then resume any in-flight generations persisted
     /// across a relaunch.
     func wireAgentTemplateRepository() {
-        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId in
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId in
             // Throw rather than letting optional chaining return a silent `nil`:
             // the invite step only detects failure via thrown errors, so a
             // no-op `nil` would be recorded as a false `.invited` with no agent
             // actually added.
             guard let self else { throw AgentTemplateJoinError.sessionUnavailable }
-            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil)
+            // A nil variantId leaves options nil so default builds stay
+            // byte-identical; when set, the same slug carries the join routing
+            // and (via options.variantId) the load-bearing join-status poll.
+            let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
+            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: options)
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()
     }

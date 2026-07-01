@@ -50,13 +50,20 @@ public extension ConvosAPI {
         /// directory), matching the website create flow. Always encoded; when the
         /// field is absent the backend defaults to a listed/public template.
         public let publishStatus: String
+        /// Dev-only agent variant slug. A top-level envelope field (sibling of
+        /// `source`/`inputs`, not nested in `inputs`) selecting the variant's
+        /// builder prompt server-side. Omitted from the encoded body when `nil`
+        /// (via `encodeIfPresent`) so default builds stay byte-identical; the
+        /// backend schema is `.strict()`, so the key only belongs at top level.
+        public let variantId: String?
 
-        public init(source: String, inputs: Inputs, connections: [String]? = nil, clientDeviceId: String?, publishStatus: String) {
+        public init(source: String, inputs: Inputs, connections: [String]? = nil, clientDeviceId: String?, publishStatus: String, variantId: String? = nil) {
             self.source = source
             self.inputs = inputs
             self.connections = connections
             self.clientDeviceId = clientDeviceId
             self.publishStatus = publishStatus
+            self.variantId = variantId
         }
     }
 

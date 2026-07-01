@@ -212,9 +212,17 @@ public enum ConvosAPI {
     /// the generic chat persona.
     public struct AgentJoinOptions: Codable, Sendable {
         public let onboarding: String?
+        /// Dev-only agent variant slug, routing the join to the variant's
+        /// ephemeral worker (`variant.assistantWorkerUrl`) server-side. Nested
+        /// here (not top-level) because the join schema is `.strict()`; omitted
+        /// from the encoded body when `nil` (via `encodeIfPresent`) so default
+        /// joins stay byte-identical. The backend strips it before forwarding to
+        /// the worker.
+        public let variantId: String?
 
-        public init(onboarding: String?) {
+        public init(onboarding: String?, variantId: String? = nil) {
             self.onboarding = onboarding
+            self.variantId = variantId
         }
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
