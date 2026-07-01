@@ -204,14 +204,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                     selfProfileStore: selfProfileStore,
                     selfInboxId: selfInboxId
                 ).run()
-                // Android parity: once the canonical stores are seeded, clear the
-                // legacy `member_profile` rows. Identity now lives in `profile` /
-                // `profileAvatar` (others) and `selfProfile` / `DBMyProfile`
-                // (self); nothing reads identity from `member_profile` anymore.
-                // The table is kept (inert), not dropped, matching Android.
-                try await databaseWriter.write { db in
-                    _ = try DBMemberProfile.deleteAll(db)
-                }
             } catch {
                 Log.error("Profile backfill failed: \(error)")
             }
