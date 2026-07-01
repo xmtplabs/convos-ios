@@ -410,7 +410,7 @@ extension MessagingService {
 
         if decodedMessage.isProfileMessage {
             let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
-            await processProfileMessageInNSE(decodedMessage, conversationId: dbConversation.id, group: group)
+            await processProfileMessageInNSE(decodedMessage, conversationId: dbConversation.id, group: group, currentInboxId: currentInboxId)
             return .droppedMessage
         }
 
@@ -655,8 +655,8 @@ extension MessagingService {
 
     private func isMemberAgent(inboxId: String, conversationId: String) async throws -> Bool {
         try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-            return profile?.isAgent ?? false
+            let profile = try DBProfile.fetchOne(db, inboxId: inboxId)
+            return profile?.memberKind?.isAgent ?? false
         }
     }
 
@@ -859,21 +859,23 @@ extension MessagingService {
     private func processProfileMessageInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let contentType = try? message.encodedContent.type else { return }
 
         if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdateInNSE(message, conversationId: conversationId, group: group)
+            await processProfileUpdateInNSE(message, conversationId: conversationId, group: group, currentInboxId: currentInboxId)
         } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshotInNSE(message, conversationId: conversationId, group: group)
+            await processProfileSnapshotInNSE(message, conversationId: conversationId, group: group, currentInboxId: currentInboxId)
         }
     }
 
     private func processProfileUpdateInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
         let receivedAt = message.sentAt
@@ -882,57 +884,22 @@ extension MessagingService {
 
         do {
             try await databaseWriter.write { db in
-                let member = DBMember(inboxId: senderInboxId)
-                try member.save(db)
-
-                var profile = try DBMemberProfile.fetchOne(
-                    db,
+                let metadata = update.profileMetadata
+                try ProfileInboundApplier.apply(
+                    db: db,
                     conversationId: conversationId,
-                    inboxId: senderInboxId
-                ) ?? DBMemberProfile(
-                    conversationId: conversationId,
-                    inboxId: senderInboxId,
-                    name: nil,
-                    avatar: nil
+                    event: ProfileInboundApplier.Incoming(
+                        inboxId: senderInboxId,
+                        source: .profileUpdate,
+                        name: update.hasName ? update.name : nil,
+                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        memberKind: update.memberKind.dbMemberKind,
+                        metadata: metadata.isEmpty ? nil : metadata,
+                        receivedAt: receivedAt
+                    ),
+                    selfInboxId: currentInboxId,
+                    fallbackEncryptionKey: try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 )
-
-                // Never clear an existing name with a name-less/blank update
-                // (see DBMemberProfile.withInboundName).
-                profile = profile.withInboundName(update.hasName ? update.name : nil)
-
-                if update.hasEncryptedImage, update.encryptedImage.isValid {
-                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
-                        existingKey
-                    } else {
-                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-                    }
-                    profile = profile.with(
-                        avatar: update.encryptedImage.url,
-                        salt: update.encryptedImage.salt,
-                        nonce: update.encryptedImage.nonce,
-                        key: encryptionKey
-                    )
-                } else {
-                    profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
-                }
-
-                let priorMemberKind = profile.memberKind
-                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
-
-                if profile.isAgent {
-                    let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                    if verification.isVerified {
-                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                    }
-                }
-
-                if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                   !profile.agentVerification.isVerified {
-                    profile = profile.with(memberKind: priorMemberKind)
-                }
-
-                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -943,7 +910,8 @@ extension MessagingService {
     private func processProfileSnapshotInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
         // Use the message's authored timestamp, not wall-clock `Date()`.
@@ -952,77 +920,32 @@ extension MessagingService {
 
         do {
             try await databaseWriter.write { db in
-                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-
+                let fallbackKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 for memberProfile in snapshot.profiles {
                     let inboxId = memberProfile.inboxIdString
                     guard !inboxId.isEmpty else { continue }
-
-                    let member = DBMember(inboxId: inboxId)
-                    try member.save(db)
-
-                    let existingProfile = try DBMemberProfile.fetchOne(
-                        db,
+                    let metadata = memberProfile.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
                         conversationId: conversationId,
-                        inboxId: inboxId
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileSnapshot,
+                            name: memberProfile.hasName ? memberProfile.name : nil,
+                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            memberKind: memberProfile.memberKind.dbMemberKind,
+                            metadata: metadata.isEmpty ? nil : metadata,
+                            receivedAt: receivedAt
+                        ),
+                        selfInboxId: currentInboxId,
+                        fallbackEncryptionKey: fallbackKey
                     )
-
-                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
-                        continue
-                    }
-
-                    var profile = existingProfile ?? DBMemberProfile(
-                        conversationId: conversationId,
-                        inboxId: inboxId,
-                        name: nil,
-                        avatar: nil
-                    )
-
-                    profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
-
-                    if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: memberProfile.encryptedImage.url,
-                            salt: memberProfile.encryptedImage.salt,
-                            nonce: memberProfile.encryptedImage.nonce,
-                            key: existingProfile?.avatarKey ?? encryptionKey
-                        )
-                    }
-
-                    let priorMemberKind = profile.memberKind
-                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
-
-                    if profile.isAgent {
-                        let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                        if verification.isVerified {
-                            profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                        }
-                    }
-
-                    if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                       !profile.agentVerification.isVerified {
-                        profile = profile.with(memberKind: priorMemberKind)
-                    }
-
-                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.warning("NSE: Failed to process ProfileSnapshot: \(error.localizedDescription)")
         }
-    }
-
-    private static func markConversationHasVerifiedAgentIfNeeded(
-        profile: DBMemberProfile,
-        conversationId: String,
-        db: Database
-    ) throws {
-        guard profile.agentVerification.isConvosAgent,
-              let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAgent else { return }
-        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     // MARK: - Conversation Storage
@@ -1114,30 +1037,31 @@ extension MessagingService {
             return "New Convo"
         }
 
-        let memberProfiles = try DBMemberProfile.fetchAll(
-            db,
-            conversationId: conversationId,
-            inboxIds: currentMemberInboxIds
-        )
+        let profilesByInbox: [String: DBProfile] = try DBProfile
+            .filter(currentMemberInboxIds.contains(DBProfile.Columns.inboxId))
+            .fetchAll(db)
+            .reduce(into: [:]) { $0[$1.inboxId] = $1 }
 
-        if memberProfiles.isEmpty {
+        if profilesByInbox.isEmpty {
             return "New Convo"
         }
 
         // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
         // the contact's display name (the user's global profile snapshot
-        // for this inbox) wins over the per-conversation profile name.
+        // for this inbox) wins over the canonical profile name.
         // Unnamed members are bucketed by agent vs. human so the rendered
         // title matches: anonymous agents read as "Agent" / "Agents",
         // anonymous humans as "Somebody" / "Somebodies".
-        let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
-            if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
-                return (contactName, profile.isAgent)
+        let resolved: [(name: String?, isAgent: Bool)] = try currentMemberInboxIds.map { inboxId -> (name: String?, isAgent: Bool) in
+            let profile = profilesByInbox[inboxId]
+            let isAgent = profile?.memberKind?.isAgent ?? false
+            if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
+                return (contactName, isAgent)
             }
-            if let name = profile.name, !name.isEmpty {
-                return (name, profile.isAgent)
+            if let name = profile?.name, !name.isEmpty {
+                return (name, isAgent)
             }
-            return (nil, profile.isAgent)
+            return (nil, isAgent)
         }
         let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
         let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
@@ -1184,11 +1108,11 @@ extension MessagingService {
         if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
             return contactName
         }
-        let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        let profile = try DBProfile.fetchOne(db, inboxId: inboxId)
         if let name = profile?.name, !name.isEmpty { return name }
         // Mirror `Profile.displayName`: known agents read as "Agent",
         // unknown / human profiles read as "Somebody".
-        return profile?.isAgent == true ? "Agent" : "Somebody"
+        return profile?.memberKind?.isAgent == true ? "Agent" : "Somebody"
     }
 
     // MARK: - Welcome Message Tracking

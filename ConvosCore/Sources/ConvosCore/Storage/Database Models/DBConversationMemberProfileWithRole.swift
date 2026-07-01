@@ -4,23 +4,39 @@ import GRDB
 // MARK: - ConversationMemberProfileWithRole
 
 struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
-    let memberProfile: DBMemberProfile
+    let conversationId: String
+    let inboxId: String
     let role: MemberRole
     let createdAt: Date
-    let inviterProfile: DBMemberProfile?
+    let profile: DBProfile?
+    let avatarSlot: DBProfileAvatar?
+    let inviterProfile: DBProfile?
 }
 
 extension DBConversationMemberProfileWithRole {
+    var isAgent: Bool {
+        profile?.memberKind?.isAgent ?? false
+    }
+
+    var agentVerification: AgentVerification {
+        profile?.memberKind?.agentVerification ?? .unverified
+    }
+
+    func hydratedProfile() -> Profile {
+        Profile.from(profile: profile, avatar: avatarSlot, inboxId: inboxId, conversationId: conversationId)
+    }
+
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {
-        let profile = memberProfile.hydrateProfile()
-        let isAgent = memberProfile.isAgent
+        let invitedByProfile = inviterProfile.map {
+            Profile.from(profile: $0, avatar: nil, inboxId: $0.inboxId, conversationId: conversationId)
+        }
         return .init(
-            profile: profile,
+            profile: hydratedProfile(),
             role: role,
-            isCurrentUser: memberProfile.inboxId == currentInboxId,
+            isCurrentUser: inboxId == currentInboxId,
             isAgent: isAgent,
-            agentVerification: memberProfile.agentVerification,
-            invitedBy: inviterProfile?.hydrateProfile(),
+            agentVerification: agentVerification,
+            invitedBy: invitedByProfile,
             joinedAt: createdAt
         )
     }
@@ -34,11 +50,14 @@ extension DBConversationMemberProfileWithRole {
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(DBConversationMember.Columns.inboxId == inboxId)
             .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
             ])
-            .including(required: DBConversationMember.memberProfile)
-            .including(optional: DBConversationMember.inviterProfile)
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchOne(db)
     }
@@ -52,11 +71,14 @@ extension DBConversationMemberProfileWithRole {
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(inboxIds.contains(DBConversationMember.Columns.inboxId))
             .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
             ])
-            .including(required: DBConversationMember.memberProfile)
-            .including(optional: DBConversationMember.inviterProfile)
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
     }

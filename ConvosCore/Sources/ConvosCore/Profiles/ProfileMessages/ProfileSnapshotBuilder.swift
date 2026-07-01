@@ -178,10 +178,13 @@ public enum ProfileSnapshotBuilder {
         memberInboxIds: [String]
     ) async throws -> [MemberProfile] {
         guard let databaseReader else { return [] }
-        let rows = try await databaseReader.read { db in
-            try DBMemberProfile.fetchAll(db, conversationId: conversationId, inboxIds: memberInboxIds)
+        return try await databaseReader.read { db in
+            let profiles = try DBProfile.fetchAll(db, inboxIds: memberInboxIds)
+            return try profiles.compactMap { profile -> MemberProfile? in
+                let avatar = try DBProfileAvatar.fetchOne(db, inboxId: profile.inboxId, conversationId: conversationId)
+                return profile.snapshotMemberProfile(avatar: avatar)
+            }
         }
-        return rows.compactMap(\.snapshotMemberProfile)
     }
 
     private enum Constant {

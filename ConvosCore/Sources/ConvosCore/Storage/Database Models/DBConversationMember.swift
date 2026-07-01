@@ -47,25 +47,25 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         using: memberForeignKey
     )
 
-    static let memberProfileForeignKey: ForeignKey = ForeignKey(
-        [Columns.conversationId, Columns.inboxId],
-        to: [DBMemberProfile.Columns.conversationId, DBMemberProfile.Columns.inboxId]
+    static let profile: HasOneAssociation<DBConversationMember, DBProfile> = hasOne(
+        DBProfile.self,
+        key: "profile",
+        using: ForeignKey([Columns.inboxId], to: [DBProfile.Columns.inboxId])
     )
 
-    static let memberProfile: HasOneAssociation<DBConversationMember, DBMemberProfile> = hasOne(
-        DBMemberProfile.self,
-        using: memberProfileForeignKey
+    static let avatarSlot: HasOneAssociation<DBConversationMember, DBProfileAvatar> = hasOne(
+        DBProfileAvatar.self,
+        key: "avatarSlot",
+        using: ForeignKey(
+            [Columns.conversationId, Columns.inboxId],
+            to: [DBProfileAvatar.Columns.conversationId, DBProfileAvatar.Columns.inboxId]
+        )
     )
 
-    static let inviterProfileForeignKey: ForeignKey = ForeignKey(
-        [Columns.invitedByInboxId, Columns.conversationId],
-        to: [DBMemberProfile.Columns.inboxId, DBMemberProfile.Columns.conversationId]
-    )
-
-    static let inviterProfile: BelongsToAssociation<DBConversationMember, DBMemberProfile> = belongsTo(
-        DBMemberProfile.self,
+    static let inviterProfileIdentity: BelongsToAssociation<DBConversationMember, DBProfile> = belongsTo(
+        DBProfile.self,
         key: "inviterProfile",
-        using: inviterProfileForeignKey
+        using: ForeignKey([Columns.invitedByInboxId], to: [DBProfile.Columns.inboxId])
     )
 }
 
