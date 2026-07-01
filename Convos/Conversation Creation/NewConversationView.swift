@@ -80,6 +80,7 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
                             showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
+                            embeddedInviteInitialSegment: viewModel.embeddedInviteInitialSegment,
                             onScannedInviteCode: viewModel.handleScannedCode
                         ) {
                             EmptyView()

@@ -167,11 +167,13 @@ struct ContactsPickerView: View {
             }
         }
         .safeAreaBar(edge: .bottom) {
-            ContactsPickerConfirmButton(
-                title: viewModel.confirmButtonTitle,
-                isEnabled: viewModel.canConfirm,
-                onTap: handleConfirm
-            )
+            if viewModel.showsConfirmButton {
+                ContactsPickerConfirmButton(
+                    title: viewModel.confirmButtonTitle,
+                    isEnabled: viewModel.canConfirm,
+                    onTap: handleConfirm
+                )
+            }
         }
     }
 

@@ -15,8 +15,8 @@ enum ContactsPickerMode: Hashable {
     case newConversation
     /// First step of the compose flow (`ComposeFlowView`): the picker is the
     /// root of the host navigation stack and selecting contacts is optional
-    /// (the CTA reads "Skip" with an empty selection), then the new
-    /// conversation is pushed rather than presented.
+    /// (the bottom CTA stays hidden until a contact is picked, then reads
+    /// "Continue"), then the new conversation is pushed rather than presented.
     case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
@@ -151,8 +151,8 @@ final class ContactsPickerViewModel {
     }
 
     var canConfirm: Bool {
-        // Compose always allows proceeding (selection is optional - "Skip"
-        // creates an empty draft); other modes need at least one contact.
+        // Compose allows proceeding once a contact is picked (its CTA is hidden
+        // while empty); other modes need at least one contact too.
         switch mode {
         case .compose:
             return true
@@ -200,10 +200,16 @@ final class ContactsPickerViewModel {
     }
 
     var confirmButtonTitle: String {
-        if case .compose = mode, selectedInboxIds.isEmpty {
-            return "Skip"
-        }
         return "Continue"
+    }
+
+    /// The compose picker hides its bottom CTA until something is selected --
+    /// there is no "Skip" affordance; an empty compose picker is left via the
+    /// top-three invite actions or Cancel. Other modes always show the button
+    /// (disabled until a contact is picked).
+    var showsConfirmButton: Bool {
+        guard case .compose = mode else { return true }
+        return !selectedInboxIds.isEmpty
     }
 
     // MARK: - Mutations

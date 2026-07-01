@@ -31,6 +31,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
     /// brand-new convo rather than scanning into this one.
     var showsEmbeddedInvite: Bool = false
+    /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
+    /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
+    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     /// Routes a code decoded by the embedded Scan segment to the new-convo join
     /// path. Nil keeps the embedded viewfinder decode-only.
     var onScannedInviteCode: ((String) -> Void)?
@@ -44,7 +47,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
-    @State private var isKeyboardVisible: Bool = false
+    /// Internal (not private) so `embeddedInviteInset` in the metrics-observers
+    /// extension can collapse the top invite panel while the keyboard is up.
+    @State var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
     /// presented.
@@ -576,12 +581,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
-        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            dotsHidden: contextMenuPresented,
-            scrollingDisabled: contextMenuPresented,
+            dotsHidden: contextMenuState.isPresented,
+            scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )

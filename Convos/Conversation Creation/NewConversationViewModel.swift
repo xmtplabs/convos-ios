@@ -155,6 +155,10 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
     /// into this one. Drives `trailingItemForReadyState`.
     let showsEmbeddedInvite: Bool
+    /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
+    /// home scan entry (so the viewfinder + "Scan a screenshot" are the first
+    /// thing shown); `.invite` for "Show an invite code" and normal convos.
+    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     private(set) var showingFullScreenScanner: Bool
     var presentingJoinConversationSheet: Bool = false
     var displayError: IdentifiableError? {
@@ -299,12 +303,14 @@ class NewConversationViewModel: Identifiable, Hashable {
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
         showsEmbeddedInvite: Bool = false,
+        embeddedInviteInitialSegment: ScanInviteSegment = .invite,
         defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
         self.showsEmbeddedInvite = showsEmbeddedInvite
+        self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:

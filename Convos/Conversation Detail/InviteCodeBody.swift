@@ -210,45 +210,31 @@ struct InviteCodeBody: View {
     private var actionButton: some View {
         switch selection {
         case .invite:
-            tileButton(icon: "square.and.arrow.up", title: "Share invite link", action: presentShareSheet)
-                .accessibilityIdentifier("share-invite-link-button")
+            let action = presentShareSheet
+            Button(action: action) {
+                TileLabel(icon: "square.and.arrow.up", title: "Share invite link")
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("share-invite-link-button")
         case .scan:
-            tileButton(icon: "photo.fill", title: "Scan a screenshot", action: {})
-                .accessibilityIdentifier("scan-a-screenshot-button")
-                .overlay(screenshotPickerOverlay)
+            screenshotPickerButton
         }
     }
 
-    /// A transparent `PhotosPicker` stacked over the "Scan a screenshot"
-    /// button so the styled button stays the visible affordance while the
-    /// picker captures the tap.
-    private var screenshotPickerOverlay: some View {
+    /// The "Scan a screenshot" affordance is the `PhotosPicker` itself, styled
+    /// as the tile. Wrapping a transparent picker over a separate `Button`
+    /// left the button intercepting the tap, so the picker never opened; making
+    /// the picker the whole control guarantees the tap presents the library.
+    private var screenshotPickerButton: some View {
         PhotosPicker(
             selection: $selectedScreenshot,
             matching: .images,
             photoLibrary: .shared()
         ) {
-            Color.clear
+            TileLabel(icon: "photo.fill", title: "Scan a screenshot")
         }
+        .accessibilityIdentifier("scan-a-screenshot-button")
         .accessibilityLabel("Scan a screenshot")
-    }
-
-    private func tileButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: icon)
-                Text(title)
-                    .font(.callout)
-            }
-            .foregroundStyle(.colorTextPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: Constant.buttonHeight)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
-                    .fill(DesignConstants.Colors.fillSubtle)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private var captionBlock: some View {
@@ -319,6 +305,29 @@ struct InviteCodeBody: View {
                   let image = UIImage(data: data),
                   let decoded = await QRImageDecoder.decode(image) else { return }
             handleScannedCode(decoded)
+        }
+    }
+
+    /// The shared styled tile used by both action affordances. A standalone
+    /// `View` (not a method) so the `PhotosPicker` label closure -- which is
+    /// nonisolated -- can build it without hopping the main actor.
+    private struct TileLabel: View {
+        let icon: String
+        let title: String
+
+        var body: some View {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: icon)
+                Text(title)
+                    .font(.callout)
+            }
+            .foregroundStyle(.colorTextPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: Constant.buttonHeight)
+            .background(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+                    .fill(DesignConstants.Colors.fillSubtle)
+            )
         }
     }
 

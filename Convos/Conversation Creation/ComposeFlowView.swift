@@ -34,12 +34,12 @@ import UIKit
 /// `composeConversationViewModel`.
 ///
 /// Step 1 is the contacts picker in `.compose` mode -- selecting contacts is
-/// optional, so its bottom button reads "Skip" until a contact is picked and
-/// "Continue" after.
+/// optional. The bottom "Continue" button appears only once a contact is
+/// picked; an empty picker is left via the top-three invite actions or Cancel.
 ///
-/// Step 2 pushes the *same* claimed conversation onto this stack: Skip opens
-/// it as-is, Continue first adds the picked contacts. The pushed view shows a
-/// close (X) that tears down the whole flow -- there is no back to the picker.
+/// Step 2 pushes the *same* claimed conversation onto this stack once Continue
+/// adds the picked contacts. The pushed view shows a close (X) that tears down
+/// the whole flow -- there is no back to the picker.
 struct ComposeFlowView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let composeConversationViewModel: NewConversationViewModel

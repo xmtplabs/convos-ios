@@ -66,7 +66,6 @@ struct ContactsPickerActionRow: View {
 
     private var iconTile: some View {
         iconImage
-            .font(.title3)
             .foregroundStyle(.colorTextPrimaryInverted)
             .frame(width: 56.0, height: 56.0)
             .background(
@@ -80,10 +79,24 @@ struct ContactsPickerActionRow: View {
         switch icon {
         case .system(let name):
             Image(systemName: name)
+                .font(.title3)
         case .asset(let name):
+            // A bundled template asset renders at its (small) intrinsic size and
+            // ignores `.font`, so it has to be resized explicitly to fill the
+            // tile like the SF Symbols in the sibling rows do.
             Image(name)
                 .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: Constant.assetGlyphSize, height: Constant.assetGlyphSize)
         }
+    }
+
+    private enum Constant {
+        /// Optical size for the bundled `addAgentIcon` glyph so it reads at the
+        /// same weight as the SF Symbols in the neighboring rows (which render
+        /// at `.title3`) inside the 56pt tile.
+        static let assetGlyphSize: CGFloat = 28.0
     }
 }
 

@@ -99,13 +99,17 @@ extension ConversationView {
     /// `ConversationView` body within the type-body-length budget.
     @ViewBuilder
     var embeddedInviteInset: some View {
-        if showsTopOfConvoInvite {
+        // Collapsed while the keyboard is up so the tall Scan/Invite panel
+        // never eats the room the composer needs (it otherwise left the input
+        // blocked behind the keyboard on iPhone); it returns on dismiss.
+        if showsTopOfConvoInvite && !isKeyboardVisible {
             let inviteMode: InviteCodeMode = showsEmbeddedInvite ? .newConvo : .inConvo
             let scanHandler: (String) -> Void = onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
             InviteCodeBody(
                 conversation: viewModel.conversation,
                 encodedURLString: viewModel.invite.inviteURLString,
                 mode: inviteMode,
+                initialSegment: embeddedInviteInitialSegment,
                 onScannedCode: scanHandler
             )
             .padding(.vertical, DesignConstants.Spacing.step4x)

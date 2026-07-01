@@ -22,6 +22,12 @@ struct ContactsView: View {
     /// conversation from `inviteConversationViewModel` (the share items can no
     /// longer be derived from the live VM once it's handed off).
     @State private var inviteShareURL: String?
+    /// Sticky once the claimed conversation's invite has hydrated at least
+    /// once. Keeps the "Show an invite code" / "Send an invite" rows on screen
+    /// while `handleShowInviteCode` re-mints the claimed conversation (its fresh
+    /// invite is nil for a beat), which otherwise made the section flicker from
+    /// three rows down to one and back.
+    @State private var hasResolvedInvite: Bool = false
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
@@ -73,6 +79,9 @@ struct ContactsView: View {
         .task { await viewModel.loadSuggestedAgentsIfNeeded() }
         .onAppear(perform: claimInviteConversationIfNeeded)
         .onDisappear(perform: discardUnenteredInviteConversation)
+        .onChange(of: invite?.urlSlug) { _, slug in
+            if slug != nil { hasResolvedInvite = true }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             Color.colorBackgroundRaisedSecondary
@@ -259,7 +268,7 @@ struct ContactsView: View {
     /// "Send an invite" appear once the claimed conversation's invite has
     /// hydrated; "Make an agent" only when the shell injected a launcher.
     private var inviteActions: ContactsPickerActions? {
-        let hasInvite: Bool = invite != nil
+        let hasInvite: Bool = invite != nil || hasResolvedInvite
         var showInviteCode: (() -> Void)?
         var sendInvite: (() -> Void)?
         if hasInvite {
