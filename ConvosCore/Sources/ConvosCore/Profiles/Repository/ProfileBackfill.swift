@@ -38,6 +38,14 @@ struct ProfileBackfill {
         let rows = try await databaseReader.read { db in
             try DBMemberProfile.fetchAll(db)
         }
+        try await mirror(rows)
+    }
+
+    /// Mirrors the given legacy rows into the canonical stores. Idempotent: a
+    /// write only happens when the merged value differs from what's stored, so
+    /// this can be re-run on every `memberProfile` change (see
+    /// `ProfileMemberMirror`) without churning writes for unchanged rows.
+    func mirror(_ rows: [DBMemberProfile]) async throws {
         guard !rows.isEmpty else { return }
 
         // Collapse a person's multiple conversation rows into one identity, and
@@ -89,7 +97,7 @@ struct ProfileBackfill {
             source: .contact,
             sentAt: floor
         )
-        if let merged {
+        if let merged, merged != existing {
             try await profileStore.saveAvatar(merged)
         }
     }
@@ -106,7 +114,9 @@ struct ProfileBackfill {
                 source: .contact,
                 sentAt: floor
             )
-            try await profileStore.saveIdentity(merged)
+            if merged != existing {
+                try await profileStore.saveIdentity(merged)
+            }
         }
     }
 }

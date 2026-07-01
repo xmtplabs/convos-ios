@@ -171,6 +171,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 )
                 await renewalManager.performRenewalIfNeeded()
             }
+
+            // Populate the canonical Profile tables in the background: a one-time
+            // backfill from legacy memberProfile, then mirror ongoing writes.
+            // Self-guards on inbox-ready; the new tables stay dormant (nothing
+            // renders from them) until the cutover.
+            Task { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                await self.loadOrCreateService().startProfileMirroring()
+            }
         }
     }
 
@@ -537,6 +546,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         if let existing {
             Log.info("Tearing down authorized inbox")
+            await existing.stopProfileMirroring()
             await existing.stopAndDelete()
             await existing.waitForDeletionComplete()
         }
