@@ -727,16 +727,35 @@ What shipped:
   removed `myProfileWriter()` from the messaging/state-manager protocols + DI.
   `ProfilesRepository` + its publish methods are now `public`. Kept
   `MyGlobalProfileWriter` / `DBMyProfile` as the global edit-side model.
-- [done] `member_profile` clear-and-keep (matches Android, which never actually
-  dropped its equivalent): `MessagingService.startProfileServices` `deleteAll`s
-  `member_profile` after the backfill seeds. The table is kept but inert - no
-  identity reader remains, so residual writes just create unread rows. A physical
-  `DROP TABLE` is deferred as a trivial future migration.
+- [done] `member_profile` is left fully populated. The `deleteAll`-after-backfill
+  clear was removed after PR review: several live subsystems still read
+  `DBMemberProfile` (see "remaining migration work"), so clearing (or dropping)
+  the table is not yet safe. `member_profile` is simply no longer the *rendering*
+  identity source; the un-migrated subsystems keep working off it unchanged.
 
-Known residual: a member whose identity exists only in group appData (never sent
-a ProfileUpdate/Snapshot) is gap-filled into the now-inert `member_profile`
-(`ConversationWriter`) rather than the canonical tables, so it would not render.
-Rare; the message-sourced path (the common case) reaches canonical.
+### Remaining migration work (before any member_profile clear/drop)
+
+The rendering choke point was migrated to the canonical tables, but these live
+paths still read/write `DBMemberProfile` and must move to `DBProfile` /
+`DBProfileAvatar` before `member_profile` can be cleared or dropped:
+
+Readers:
+- `ContactSyncCoordinator.syncConversation` - builds contact snapshots per member.
+- `AssetRenewalURLCollector.collectRenewableAssets` - enumerates avatar assets.
+- `AgentTimezonePublisher.republishTimezoneForAgentConversations` - finds the
+  user's conversations.
+- `AgentBuilderConnectionGrantReplayer.verifiedAgentInboxIds` - filters verified
+  agents (an agent reverified only in `DBProfile` is invisible here).
+
+Write paths (populate `DBMemberProfile` but not canonical, so identity from these
+alone renders as "Somebody"):
+- `InviteJoinRequestsManager` - joiner profile via `ContactsWriter` mirror.
+- `ConversationWriter.persist` appData gap-fill.
+
+Ordering: `IncomingMessageWriter.bootstrapSenderProfile` reads `DBProfile`, but in
+`BatchCatchUp` message persist runs before `ProfileInboundApplier` (detached), so
+a verified agent's grant request can be dropped on cold-launch backlog replay.
+Needs the canonical write to land before the gate is checked.
 
 ---
 
