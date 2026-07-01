@@ -206,6 +206,15 @@ extension SharedDatabaseMigrator {
         Self.registerJoinAndGenerationMigrations(on: &migrator)
         Self.registerCleanupMigrations(on: &migrator)
 
+        // Appended after cleanup so it stays the last-registered migration (see
+        // the ordering note above). Persists the provisioned agent instance id
+        // on the generation row so a retried / relaunched invite resumes the
+        // same instance instead of provisioning a duplicate agent.
+        migrator.registerMigration(
+            "addAgentTemplateGenerationInstanceId",
+            migrate: Self.addAgentTemplateGenerationInstanceId
+        )
+
         return migrator
     }
 
@@ -265,6 +274,16 @@ extension SharedDatabaseMigrator {
     private static func addAgentTemplateGenerationConnections(_ db: Database) throws {
         try db.alter(table: "agentTemplateGeneration") { t in
             t.add(column: "connections", .text)
+        }
+    }
+
+    /// Additive, nullable column holding the backend id of the agent instance
+    /// provisioned for the invite step. `nil` until the invite provisions an
+    /// instance, so existing rows are unaffected. Lets a retried / relaunched
+    /// invite resume that instance instead of provisioning a duplicate.
+    private static func addAgentTemplateGenerationInstanceId(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "agentInstanceId", .text)
         }
     }
 

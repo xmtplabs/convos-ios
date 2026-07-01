@@ -783,7 +783,10 @@ extension AgentBuilderViewModel {
     /// available. Idempotent via `didStartDirectGeneration` so the
     /// `onReachedReady` re-entry can't double-submit.
     private func startDirectGenerationIfReady() {
-        guard !didStartDirectGeneration else { return }
+        guard !didStartDirectGeneration else {
+            Log.info("[MakeAgent] startDirectGenerationIfReady skipped; generation already started for this builder (builderId=\(id))")
+            return
+        }
         guard let prompt = pendingDirectPrompt else { return }
         guard let conversation = newConversationViewModel.conversationViewModel?.conversation else {
             Log.warning("AgentBuilder(direct): no conversation available yet; deferring generation start")
@@ -795,6 +798,7 @@ extension AgentBuilderViewModel {
             return
         }
         didStartDirectGeneration = true
+        Log.info("[MakeAgent] startDirectGenerationIfReady kicking off generation builderId=\(id) conversationId=\(conversation.id) slug=\(slug)")
         pendingDirectPrompt = nil
         let conversationId = conversation.id
         let photos: [PendingPhotoAttachment] = directBuildPhotos()

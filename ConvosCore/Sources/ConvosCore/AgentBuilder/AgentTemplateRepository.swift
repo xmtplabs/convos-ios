@@ -42,11 +42,26 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
     }
 }
 
+/// Persists (or clears, when passed `nil`) the backend id of the agent
+/// instance provisioned for an in-flight join. The join handler calls this the
+/// moment an instance is provisioned -- before the (interruptible) inbox-poll
+/// and member-add -- so a retry or relaunch that lands mid-join can resume the
+/// same instance instead of provisioning a duplicate.
+public typealias AgentTemplateInstanceIdWriter = @Sendable (_ instanceId: String?) async -> Void
+
 /// Performs the agent-join for a finished template. Routed through
 /// `SessionManager.addAgentToConversation` (not the raw API client) so the
 /// direct-add provision/add runs and the agent is added to the conversation
-/// the build targeted.
-public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String) async throws -> Void
+/// the build targeted. `existingInstanceId` is the instance a prior attempt
+/// provisioned (persisted on the generation row); when non-nil the handler
+/// resumes it rather than provisioning again. `writeInstanceId` reports the
+/// provisioned instance back for persistence.
+public typealias AgentTemplateJoinHandler = @Sendable (
+    _ conversationId: String,
+    _ templateId: String,
+    _ existingInstanceId: String?,
+    _ writeInstanceId: AgentTemplateInstanceIdWriter
+) async throws -> Void
 
 /// Errors an `AgentTemplateJoinHandler` can throw when it cannot perform the
 /// join. Surfacing these as thrown errors (rather than returning) keeps the
@@ -185,6 +200,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 Log.error("AgentTemplateRepository: failed to persist generation row: \(error.localizedDescription)")
                 return
             }
+            Log.info("[MakeAgent] startGeneration inserted row key=\(idempotencyKey) conversationId=\(conversationId) slug=\(slug)")
             await self.drive(idempotencyKey: idempotencyKey)
         }
     }
@@ -239,6 +255,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 Log.error("AgentTemplateRepository: resume query failed: \(error.localizedDescription)")
                 return
             }
+            Log.info("[MakeAgent] resumePendingGenerations re-driving \(keys.count) non-terminal row(s): \(keys)")
             for key in keys {
                 Task { await self.drive(idempotencyKey: key) }
             }
@@ -264,10 +281,17 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 
     private func drive(idempotencyKey: String) async {
         let claimed: Bool = inflight.withLock { set in set.insert(idempotencyKey).inserted }
-        guard claimed else { return }
+        guard claimed else {
+            Log.info("[MakeAgent] drive skipped key=\(idempotencyKey); already in-flight in this process")
+            return
+        }
         defer { inflight.withLock { set in _ = set.remove(idempotencyKey) } }
 
-        guard var row = await fetchRow(idempotencyKey: idempotencyKey) else { return }
+        guard var row = await fetchRow(idempotencyKey: idempotencyKey) else {
+            Log.info("[MakeAgent] drive found no row key=\(idempotencyKey)")
+            return
+        }
+        Log.info("[MakeAgent] drive start key=\(idempotencyKey) status=\(row.status) generationId=\(row.generationId ?? "nil") templateId=\(row.templateId ?? "nil") agentInstanceId=\(row.agentInstanceId ?? "nil")")
 
         if row.statusValue == .submitting {
             guard let uploaded = await uploadAttachments(row: row) else { return }
@@ -363,6 +387,15 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Missing template id")
             return
         }
+        let idempotencyKey: String = row.idempotencyKey
+        // Persist / clear the provisioned instance id on the generation row.
+        // Handed to the join handler so the instance is durably recorded the
+        // moment it is provisioned -- before the interruptible inbox-poll and
+        // member-add -- so a retry or relaunch resumes it rather than spawning
+        // a second agent.
+        let writeInstanceId: AgentTemplateInstanceIdWriter = { [weak self] instanceId in
+            _ = await self?.updateRow(idempotencyKey: idempotencyKey) { $0.agentInstanceId = instanceId }
+        }
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
@@ -373,8 +406,13 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 // to the raw client when unset (tests).
                 let handler = joinHandler.withLock { $0 }
                 if let handler {
-                    try await handler(row.conversationId, templateId)
+                    // Re-read the instance id each attempt so a resume picks up
+                    // whatever the previous attempt provisioned (or cleared).
+                    let existingInstanceId: String? = await fetchRow(idempotencyKey: idempotencyKey)?.agentInstanceId
+                    Log.info("[MakeAgent] invite attempt \(attempt + 1)/\(Constant.maxInviteAttempts) key=\(idempotencyKey) template=\(templateId) conversationId=\(row.conversationId) existingInstanceId=\(existingInstanceId ?? "nil") (routing through session join handler)")
+                    try await handler(row.conversationId, templateId, existingInstanceId, writeInstanceId)
                 } else {
+                    Log.info("[MakeAgent] invite attempt \(attempt + 1)/\(Constant.maxInviteAttempts) key=\(idempotencyKey) template=\(templateId) conversationId=\(row.conversationId) (raw apiClient fallback, no resume)")
                     _ = try await apiClient.requestAgentJoin(
                         slug: nil,
                         conversationId: row.conversationId,
@@ -386,27 +424,29 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 }
                 Self.cleanupAttachments(idempotencyKey: row.idempotencyKey)
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
+                let finalInstanceId: String? = await fetchRow(idempotencyKey: idempotencyKey)?.agentInstanceId
+                Log.info("[MakeAgent] invite succeeded key=\(idempotencyKey) template=\(templateId) agentInstanceId=\(finalInstanceId ?? "nil"); row marked invited")
                 return
             } catch let error as APIError {
                 switch error {
                 case .noAgentsAvailable, .agentPoolTimeout, .agentProvisionFailed, .serverError:
-                    Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId): \(error) - \(error.localizedDescription)")
+                    Log.error("[MakeAgent] invite retryable failure key=\(idempotencyKey) template=\(templateId) error=\(error) - \(error.localizedDescription); will retry (attempt \(attempt + 1) of \(Constant.maxInviteAttempts))")
                     attempt += 1
                     await backoff(attempt: attempt)
                     continue
                 default:
-                    Log.error("AgentTemplateRepository: invite failed (non-retryable) for template \(templateId): \(error) - \(error.localizedDescription)")
+                    Log.error("[MakeAgent] invite non-retryable failure key=\(idempotencyKey) template=\(templateId) error=\(error) - \(error.localizedDescription); marking failed")
                     _ = await markFailed(idempotencyKey: row.idempotencyKey, message: error.localizedDescription)
                     return
                 }
             } catch {
-                Log.error("AgentTemplateRepository: invite threw for template \(templateId): \(error.localizedDescription)")
+                Log.error("[MakeAgent] invite threw non-APIError key=\(idempotencyKey) template=\(templateId) error=\(type(of: error)) - \(error.localizedDescription); will retry (attempt \(attempt + 1) of \(Constant.maxInviteAttempts))")
                 attempt += 1
                 await backoff(attempt: attempt)
                 continue
             }
         }
-        Log.error("AgentTemplateRepository: invite exhausted retries for template \(templateId)")
+        Log.error("[MakeAgent] invite exhausted retries key=\(idempotencyKey) template=\(templateId); marking failed")
         _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Agent couldn't join")
     }
 

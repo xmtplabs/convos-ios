@@ -112,6 +112,66 @@ struct AgentTemplateRepositoryTests {
         #expect(api.generationCalls == 0)
         #expect(api.joinCalls == 0)
     }
+
+    /// Regression: backgrounding the app mid-join (the inbox-poll is
+    /// interrupted, so the first attempt throws a retryable error even though
+    /// the agent really was provisioned on the backend) must resume the same
+    /// instance on retry rather than provisioning a second agent. Before the
+    /// fix the invite step re-provisioned on every attempt, so a build that was
+    /// backgrounded during the join phase produced two (or more) back-to-back
+    /// agents with the same name -- the first stuck retrying `herald-attach`,
+    /// the later one succeeding.
+    @Test("Interrupted join resumes the persisted instance instead of provisioning a duplicate")
+    func interruptedJoinResumesInstance() async throws {
+        let database = try makeDatabase()
+        let api = HappyStubAPIClient()
+        let repository = makeRepository(database: database, apiClient: api)
+
+        let recorder = ProvisionRecorder()
+        repository.configureJoinHandler { _, _, existingInstanceId, writeInstanceId in
+            // Resume path: a prior attempt already provisioned this instance, so
+            // no new agent is created -- the poll + add just complete.
+            if let existingInstanceId {
+                await writeInstanceId(existingInstanceId)
+                return
+            }
+            // Fresh provision. Persist the instance id the moment it is known,
+            // then simulate the app being backgrounded during the inbox-poll on
+            // the first attempt: the instance exists on the backend, but this
+            // attempt sees a retryable timeout.
+            let instanceId = recorder.provision()
+            await writeInstanceId(instanceId)
+            if recorder.provisionCount == 1 {
+                throw APIError.agentPoolTimeout
+            }
+        }
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-4", slug: "chef.abcd")
+
+        let row = try await waitForStatus(.invited, conversationId: "convo-4", in: database)
+        #expect(row?.statusValue == .invited)
+        // Provisioned exactly once: the retry resumed the persisted instance
+        // rather than creating a second agent.
+        #expect(recorder.provisionCount == 1)
+        #expect(row?.agentInstanceId == "instance-1")
+    }
+}
+
+/// Thread-safe counter standing in for backend agent provisioning: each
+/// `provision()` mints a new instance id and bumps the count, so a test can
+/// assert an interrupted-then-resumed join only provisions once.
+private final class ProvisionRecorder: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var count: Int = 0
+
+    var provisionCount: Int { lock.withLock { count } }
+
+    func provision() -> String {
+        lock.withLock {
+            count += 1
+            return "instance-\(count)"
+        }
+    }
 }
 
 /// Submit returns pending, the first poll returns done, and the join records

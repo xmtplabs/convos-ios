@@ -41,6 +41,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         static let progressPhrases: Column = Column(CodingKeys.progressPhrases)
         static let attachments: Column = Column(CodingKeys.attachments)
         static let connections: Column = Column(CodingKeys.connections)
+        static let agentInstanceId: Column = Column(CodingKeys.agentInstanceId)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -86,6 +87,14 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     /// generation request. Persisted so a resumed/retried submit sends an
     /// identical body and dedupes. `nil` when no connections.
     var connections: String?
+    /// Backend id of the agent instance provisioned for the invite step, set
+    /// the moment `POST /v2/agents/join` returns an instance. Persisted so a
+    /// retried or relaunched invite resumes that same instance (polls its
+    /// registration + re-adds it) instead of provisioning a fresh one -- the
+    /// backend does not dedupe by conversationId, so re-provisioning spawns a
+    /// duplicate agent and orphans the first. Cleared when the backend reports
+    /// the instance terminally failed, so the next attempt can provision anew.
+    var agentInstanceId: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -94,7 +103,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         case templateId, prompt
         case errorMessage = "error"
         case previewAgentName, previewEmoji, previewDescription, progressPhrases
-        case attachments, connections
+        case attachments, connections, agentInstanceId
         case createdAt, updatedAt
     }
 
@@ -113,6 +122,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         progressPhrases: String? = nil,
         attachments: String? = nil,
         connections: String? = nil,
+        agentInstanceId: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -130,6 +140,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         self.progressPhrases = progressPhrases
         self.attachments = attachments
         self.connections = connections
+        self.agentInstanceId = agentInstanceId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

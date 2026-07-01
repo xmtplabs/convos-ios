@@ -1133,6 +1133,32 @@ extension SessionManager {
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await performAgentJoin(
+            conversationId: conversationId,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode,
+            existingInstanceId: nil,
+            onInstanceProvisioned: nil
+        )
+    }
+
+    /// Core provision + add. `existingInstanceId`, when non-nil, resumes a
+    /// previously provisioned instance -- `awaitProvisionedAgentInbox` skips the
+    /// fresh `POST /v2/agents/join` and polls that instance's registration
+    /// directly, so an interrupted or relaunched join re-adds the same agent
+    /// instead of spawning a duplicate. `onInstanceProvisioned` fires with the
+    /// instance id the instant it is known (fresh provision or resume), before
+    /// the interruptible inbox-poll and member-add, so the caller can persist it
+    /// for a later resume.
+    private func performAgentJoin(
+        conversationId: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?,
+        existingInstanceId: String?,
+        onInstanceProvisioned: (@Sendable (String) async -> Void)?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
         // it is distinct from the per-sender "timezone" ProfileUpdate metadata
@@ -1144,6 +1170,7 @@ extension SessionManager {
         //    messaging service) so the poll loop and its terminal/timeout/
         //    unknown branches are unit-testable — see DirectAddProvisionPollTests.
         let resolved = try await Self.awaitProvisionedAgentInbox(
+            existingInstanceId: existingInstanceId,
             requestJoin: {
                 try await self.apiClient.requestAgentJoin(
                     slug: nil,
@@ -1154,7 +1181,8 @@ extension SessionManager {
                     forceErrorCode: forceErrorCode
                 )
             },
-            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0) }
+            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0) },
+            onProvisioned: onInstanceProvisioned
         )
         let instanceId = resolved.instanceId
         let agentInboxId = resolved.inboxId
@@ -1175,8 +1203,10 @@ extension SessionManager {
         var lastError: Error?
         for attempt in 1...Self.agentAddMaxAttempts {
             do {
+                Log.info("[MakeAgent] addMembers attempt \(attempt)/\(Self.agentAddMaxAttempts) inbox=\(agentInboxId) instance=\(instanceId) conversationId=\(conversationId)")
                 try await messagingService().conversationMetadataWriter()
                     .addMembers([agentInboxId], to: conversationId)
+                Log.info("[MakeAgent] addMembers succeeded inbox=\(agentInboxId) instance=\(instanceId) conversationId=\(conversationId)")
                 // The conversation now has an agent member. Publish this user's
                 // own device timezone into the per-sender ProfileUpdate metadata
                 // (Channel B). Best-effort: a failure must not fail the join.
@@ -1185,7 +1215,7 @@ extension SessionManager {
             } catch {
                 lastError = error
                 Log.error(
-                    "Direct-add: addMembers failed (attempt \(attempt)/\(Self.agentAddMaxAttempts)) "
+                    "[MakeAgent] addMembers failed (attempt \(attempt)/\(Self.agentAddMaxAttempts)) "
                         + "for agent inbox \(agentInboxId), instance \(instanceId), "
                         + "conversation \(conversationId): \(error.localizedDescription)"
                 )
@@ -1194,6 +1224,7 @@ extension SessionManager {
                 }
             }
         }
+        Log.error("[MakeAgent] addMembers exhausted retries inbox=\(agentInboxId) instance=\(instanceId) conversationId=\(conversationId); leaving provisioned-but-unadded instance")
         throw lastError ?? APIError.invalidResponse
     }
 
@@ -1254,33 +1285,83 @@ extension SessionManager {
         sleep: @Sendable (TimeInterval) async throws -> Void = {
             try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
         },
+        existingInstanceId: String? = nil,
         requestJoin: @Sendable () async throws -> ConvosAPI.AgentJoinResponse,
-        fetchStatus: @Sendable (_ instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
+        fetchStatus: @Sendable (_ instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse,
+        onProvisioned: (@Sendable (_ instanceId: String) async -> Void)? = nil
     ) async throws -> ProvisionedAgent {
-        let response = try await requestJoin()
-        guard let instanceId = response.instanceId else {
-            throw APIError.agentProvisionFailed
+        // Resume path: a prior attempt already provisioned this instance, so
+        // poll its registration directly rather than issuing a second
+        // `POST /v2/agents/join` (the backend does not dedupe by conversationId,
+        // so a fresh provision would spawn a duplicate agent). `response` is
+        // synthesized because the resumed instance carries no fresh join body;
+        // only `instanceId` / `inboxId` feed the subsequent add.
+        let response: ConvosAPI.AgentJoinResponse
+        let instanceId: String
+        if let existingInstanceId {
+            Log.info("[MakeAgent] awaitProvisionedAgentInbox resuming existing instance=\(existingInstanceId); skipping POST /v2/agents/join")
+            instanceId = existingInstanceId
+            response = ConvosAPI.AgentJoinResponse(success: true, joined: false, instanceId: existingInstanceId)
+        } else {
+            Log.info("[MakeAgent] awaitProvisionedAgentInbox issuing POST /v2/agents/join (fresh provision)")
+            do {
+                let joinResponse = try await requestJoin()
+                guard let provisionedInstanceId = joinResponse.instanceId else {
+                    Log.error("[MakeAgent] POST /v2/agents/join returned no instanceId (success=\(joinResponse.success) joined=\(joinResponse.joined) inboxId=\(joinResponse.inboxId ?? "nil")); throwing agentProvisionFailed")
+                    throw APIError.agentProvisionFailed
+                }
+                Log.info("[MakeAgent] POST /v2/agents/join returned instance=\(provisionedInstanceId) inboxId=\(joinResponse.inboxId ?? "nil")")
+                response = joinResponse
+                instanceId = provisionedInstanceId
+            } catch {
+                // A thrown error here can mean the request never reached the
+                // backend -- or that it did and the response was lost (e.g. the
+                // app was backgrounded mid-POST). In the latter case the backend
+                // may have provisioned an agent this client will never learn the
+                // id of, so a later retry provisions a duplicate. Logged loudly
+                // so that window is visible in the trace.
+                Log.error("[MakeAgent] POST /v2/agents/join threw before returning an instance: \(type(of: error)) - \(error.localizedDescription); backend may still have provisioned an agent")
+                throw error
+            }
         }
 
+        // Record the instance the moment it is known so a retry / relaunch that
+        // interrupts the poll or add below resumes it instead of re-provisioning.
+        await onProvisioned?(instanceId)
+
         // Fast path: registration completed within the provision call itself.
-        if let inboxId = response.inboxId {
+        // Only a fresh provision can carry an inbox this early; a resume always
+        // polls.
+        if existingInstanceId == nil, let inboxId = response.inboxId {
+            Log.info("[MakeAgent] awaitProvisionedAgentInbox fast path: inbox=\(inboxId) present on provision response instance=\(instanceId)")
             return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
         }
 
         let deadlineDate = now().addingTimeInterval(deadline)
         while now() < deadlineDate {
             try await sleep(pollInterval)
-            let status = try await fetchStatus(instanceId)
+            let status: ConvosAPI.AgentJoinStatusResponse
+            do {
+                status = try await fetchStatus(instanceId)
+            } catch {
+                // Transient poll failure (backgrounded, network blip). The
+                // instance is already persisted, so this bubbles up and the
+                // caller retries by resuming it -- log so the interruption is
+                // visible rather than looking like a silent stall.
+                Log.error("[MakeAgent] GET /v2/agents/join/\(instanceId) threw: \(type(of: error)) - \(error.localizedDescription); propagating for resume")
+                throw error
+            }
+            Log.info("[MakeAgent] poll instance=\(instanceId) status=\(status.provisionStatus) inboxId=\(status.inboxId ?? "nil")")
 
             switch status.provisionStatus {
             case .failed:
                 Log.error(
-                    "Direct-add: provision failed for instance \(instanceId): "
+                    "[MakeAgent] provision failed for instance \(instanceId): "
                         + "\(status.joinFailureReason ?? "no reason given")"
                 )
                 throw APIError.agentProvisionFailed
             case .noAgentsAvailable:
-                Log.error("Direct-add: no agents available for instance \(instanceId)")
+                Log.error("[MakeAgent] no agents available for instance \(instanceId)")
                 throw APIError.noAgentsAvailable
             case .starting, .joined, .ready, .pendingAcceptance:
                 break  // still registering; readiness is signaled by inboxId
@@ -1288,14 +1369,15 @@ extension SessionManager {
                 // A status this build doesn't model — not treated as ready or
                 // as failure. Logged (so it isn't silently missed) while the
                 // deadline bounds the wait.
-                Log.warning("Direct-add: unexpected join status \"\(raw)\" for instance \(instanceId)")
+                Log.warning("[MakeAgent] unexpected join status \"\(raw)\" for instance \(instanceId)")
             }
 
             if let inboxId = status.inboxId {
+                Log.info("[MakeAgent] inbox registered instance=\(instanceId) inbox=\(inboxId); proceeding to addMembers")
                 return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
             }
         }
-        Log.error("Direct-add: timed out awaiting agent inbox for instance \(instanceId)")
+        Log.error("[MakeAgent] timed out awaiting agent inbox for instance \(instanceId); throwing agentPoolTimeout")
         throw APIError.agentPoolTimeout
     }
 }
@@ -1330,14 +1412,58 @@ extension SessionManager {
     /// provision/add runs, then resume any in-flight generations persisted
     /// across a relaunch.
     func wireAgentTemplateRepository() {
-        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId in
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, existingInstanceId, writeInstanceId in
             // Throw rather than letting optional chaining return a silent `nil`:
             // the invite step only detects failure via thrown errors, so a
             // no-op `nil` would be recorded as a false `.invited` with no agent
             // actually added.
             guard let self else { throw AgentTemplateJoinError.sessionUnavailable }
-            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil)
+            try await self.joinAgentTemplateInstance(
+                conversationId: conversationId,
+                templateId: templateId,
+                existingInstanceId: existingInstanceId,
+                writeInstanceId: writeInstanceId
+            )
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()
+    }
+
+    /// Repository-routed agent-template join. Provisions (or resumes
+    /// `existingInstanceId`) and adds the agent, persisting the provisioned
+    /// instance id via `writeInstanceId` so a retry / relaunch resumes it. On a
+    /// terminal provision failure the stored id is cleared so the next attempt
+    /// provisions a fresh instance rather than polling a dead one; an
+    /// `agentPoolTimeout` (inbox not yet registered) keeps the id so the live
+    /// instance is resumed.
+    private func joinAgentTemplateInstance(
+        conversationId: String,
+        templateId: String,
+        existingInstanceId: String?,
+        writeInstanceId: @escaping AgentTemplateInstanceIdWriter
+    ) async throws {
+        Log.info("[MakeAgent] joinAgentTemplateInstance enter conversationId=\(conversationId) template=\(templateId) existingInstanceId=\(existingInstanceId ?? "nil")")
+        do {
+            _ = try await performAgentJoin(
+                conversationId: conversationId,
+                templateId: templateId,
+                options: nil,
+                forceErrorCode: nil,
+                existingInstanceId: existingInstanceId,
+                onInstanceProvisioned: { instanceId in await writeInstanceId(instanceId) }
+            )
+            Log.info("[MakeAgent] joinAgentTemplateInstance succeeded conversationId=\(conversationId) template=\(templateId)")
+        } catch let error as APIError {
+            switch error {
+            case .agentProvisionFailed, .noAgentsAvailable:
+                Log.error("[MakeAgent] joinAgentTemplateInstance terminal provision failure (\(error)); clearing stored instance id so the next attempt provisions fresh")
+                await writeInstanceId(nil)
+            default:
+                Log.error("[MakeAgent] joinAgentTemplateInstance APIError \(error); keeping stored instance id for resume")
+            }
+            throw error
+        } catch {
+            Log.error("[MakeAgent] joinAgentTemplateInstance non-APIError \(type(of: error)) - \(error.localizedDescription); keeping stored instance id for resume")
+            throw error
+        }
     }
 }
