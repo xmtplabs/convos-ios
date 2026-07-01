@@ -110,7 +110,10 @@ extension ConversationView {
                 encodedURLString: viewModel.invite.inviteURLString,
                 mode: inviteMode,
                 initialSegment: embeddedInviteInitialSegment,
-                onScannedCode: scanHandler
+                onScannedCode: scanHandler,
+                onShareCompleted: { _, completed, _ in
+                    if completed { onInviteShared?() }
+                }
             )
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .frame(maxWidth: .infinity)

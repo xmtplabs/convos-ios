@@ -81,7 +81,8 @@ struct NewConversationView: View {
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
                             showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
                             embeddedInviteInitialSegment: viewModel.embeddedInviteInitialSegment,
-                            onScannedInviteCode: viewModel.handleScannedCode
+                            onScannedInviteCode: viewModel.handleScannedCode,
+                            onInviteShared: viewModel.markInviteShared
                         ) {
                             EmptyView()
                         }

@@ -37,6 +37,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Routes a code decoded by the embedded Scan segment to the new-convo join
     /// path. Nil keeps the embedded viewfinder decode-only.
     var onScannedInviteCode: ((String) -> Void)?
+    /// Fires when the embedded invite's "Share invite link" completes, so the
+    /// backing new-convo flow can mark its invite as shared and skip the
+    /// empty-conversation teardown that would otherwise break the shared link.
+    var onInviteShared: (() -> Void)?
     /// Shared SwiftUI namespace used by the Agent Builder commit morph.
     /// Set by `AgentBuilderView` so its composer card and the in-stream
     /// summary cell can match-geometry into each other via `glassEffectID`.
@@ -60,13 +64,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// Read-only when the presenter asks for it (stale/removed device) or
-    /// when the local user was removed from this conversation but can still
-    /// view it (e.g. it was open when the removal landed).
-    private var effectiveReadOnly: Bool {
-        isReadOnly || viewModel.conversation.wasRemoved
-    }
-
     /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
     /// It pins above the chat for every conversation that meets the same
     /// eligibility the legacy message-list QR header used (you created it, it's
@@ -80,15 +77,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         let conversation = viewModel.conversation
         guard !conversation.isDraft else { return false }
         return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-    }
-
-    /// Read-only surfaces suppress every leading affordance. When the embedded
-    /// Scan/Invite toggle shows, it hides the message-list-header QR (the
-    /// embedded `InviteCodeBody` shows it instead) while keeping the invite
-    /// affordance.
-    private var effectiveHeaderMode: MessagesHeaderMode {
-        if effectiveReadOnly { return .suppressed }
-        return showsTopOfConvoInvite ? .hidden : headerMode
     }
 
     private func ensureNavigator() {
@@ -837,6 +825,24 @@ struct AgentShareContactDetailSheetContent: View {
                 profileSettingsViewModel: profileSettingsViewModel
             )
         }
+    }
+}
+
+extension ConversationView {
+    /// Read-only when the presenter asks for it (stale/removed device) or
+    /// when the local user was removed from this conversation but can still
+    /// view it (e.g. it was open when the removal landed).
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// Read-only surfaces suppress every leading affordance. When the embedded
+    /// Scan/Invite toggle shows, it hides the message-list-header QR (the
+    /// embedded `InviteCodeBody` shows it instead) while keeping the invite
+    /// affordance.
+    private var effectiveHeaderMode: MessagesHeaderMode {
+        if effectiveReadOnly { return .suppressed }
+        return showsTopOfConvoInvite ? .hidden : headerMode
     }
 }
 

@@ -22,6 +22,11 @@ struct ContactsView: View {
     /// conversation from `inviteConversationViewModel` (the share items can no
     /// longer be derived from the live VM once it's handed off).
     @State private var inviteShareURL: String?
+    /// Retains the invite conversation across the native "Send an invite" share
+    /// sheet so its outcome decides the conversation's fate: a completed share
+    /// keeps it (committed visible, marked shared); a cancelled share discards
+    /// the still-hidden claimed row so it doesn't linger empty in the chats list.
+    @State private var sharedInviteViewModel: NewConversationViewModel?
     /// Sticky once the claimed conversation's invite has hydrated at least
     /// once. Keeps the "Show an invite code" / "Send an invite" rows on screen
     /// while `handleShowInviteCode` re-mints the claimed conversation (its fresh
@@ -107,7 +112,10 @@ struct ContactsView: View {
         }
         .shareSheet(
             isPresented: $presentingInviteShareSheet,
-            items: inviteShareItems
+            items: inviteShareItems,
+            onCompletion: { _, completed, _ in
+                handleInviteShareCompleted(completed: completed)
+            }
         )
     }
 
@@ -431,21 +439,35 @@ struct ContactsView: View {
     /// intermediate screen, unlike the in-convo flow which routes through the
     /// Scan/Invite screen first.
     ///
-    /// The claimed convo was minted hidden (deferred visibility), so the link
-    /// the user is about to share points at a row that isn't in the chats list
-    /// and that the empty-convo teardown (`discardUnenteredInviteConversation`)
-    /// would discard on leaving the tab -- breaking the invite the moment the
-    /// invitee tries to join. Commit it visible and detach it from the
-    /// auto-discard slot (as `handleShowInviteCode` does on enter), capturing
-    /// the link first so the share sheet keeps its content, then re-mint a fresh
-    /// claimed convo so the top-three keeps working for the next invite.
+    /// The claimed convo was minted hidden (deferred visibility). Capture the
+    /// link, detach the convo from the auto-discard slot into
+    /// `sharedInviteViewModel`, and re-mint a fresh claimed convo so the
+    /// top-three keeps working. The conversation's fate is decided in
+    /// `handleInviteShareCompleted` by the share outcome: only a completed share
+    /// commits it visible (and marks the invite shared so it survives teardown),
+    /// so a cancelled share leaves no stray empty convo in the chats list.
     private func handleSendInvite() {
         guard let invite, let sharedViewModel = inviteConversationViewModel else { return }
         inviteShareURL = invite.inviteURLString
         inviteConversationViewModel = nil
-        Task { await sharedViewModel.commitConversationVisibility() }
+        sharedInviteViewModel = sharedViewModel
         presentingInviteShareSheet = true
         claimInviteConversationIfNeeded()
+    }
+
+    /// Resolves the shared invite conversation once the native share sheet
+    /// closes. A completed share commits it visible and marks its invite shared
+    /// so the empty-convo teardown keeps it; a cancelled share discards the
+    /// still-hidden claimed row so it doesn't linger empty in the chats list.
+    private func handleInviteShareCompleted(completed: Bool) {
+        guard let sharedViewModel = sharedInviteViewModel else { return }
+        sharedInviteViewModel = nil
+        guard completed else {
+            sharedViewModel.cleanUpEmptyEmbeddedInviteIfNeeded()
+            return
+        }
+        sharedViewModel.markInviteShared()
+        Task { await sharedViewModel.commitConversationVisibility() }
     }
 
     // MARK: - Actions

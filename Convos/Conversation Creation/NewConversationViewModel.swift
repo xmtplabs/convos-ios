@@ -274,6 +274,13 @@ class NewConversationViewModel: Identifiable, Hashable {
     nonisolated(unsafe) private var _reachedJoiningState: Bool = false
     @ObservationIgnored
     private var _cleanedUp: Bool = false
+    /// Set once this conversation's invite link has actually been shared
+    /// externally (native share sheet completed, or the in-convo "Share invite
+    /// link" finished). The empty-conversation teardown keys off this so it
+    /// never deletes a conversation whose invite is already in someone else's
+    /// hands -- doing so would break their join.
+    @ObservationIgnored
+    private var didShareInvite: Bool = false
     @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
@@ -452,33 +459,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         guard !isExistingConversation else { return }
         _cleanedUp = true
         deleteConversation()
-    }
-
-    /// Discards an embedded-invite conversation ("Show an invite code") that
-    /// the user dismissed without engaging -- nothing sent and nobody joined --
-    /// so the empty convo doesn't pile up in the chats list.
-    ///
-    /// The default `cleanUpIfNeeded` keeps any conversation that reached
-    /// `.ready`, but an embedded-invite convo is warm-claimed with a pre-minted
-    /// invite and reaches `.ready` immediately, so that guard would never fire.
-    /// This gates on real engagement instead -- no sent/received messages and
-    /// no other members -- and discards directly (mirroring `endComposeFlow`'s
-    /// empty-claimed-draft contract). A convo with messages or a joined member
-    /// is kept. Returns true when it handled (kept or discarded) the convo so
-    /// the caller skips the default path.
-    ///
-    /// Message count uses `countMessages`, which counts only real `.messages`
-    /// groups -- the conversation's own self-join membership `.update` row is
-    /// excluded, so a freshly created (but unused) convo still reads as empty.
-    @discardableResult
-    func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
-        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
-        let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
-        let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
-        guard !hasMessages, !hasOtherMembers else { return true }
-        _cleanedUp = true
-        deleteConversation()
-        return true
     }
 
     // MARK: - Inbox Acquisition
@@ -965,6 +945,43 @@ class NewConversationViewModel: Identifiable, Hashable {
 /// (inherited from the type), so behavior is identical to when these
 /// lived inline.
 extension NewConversationViewModel {
+    /// Discards an embedded-invite conversation ("Show an invite code") that
+    /// the user dismissed without engaging -- nothing sent and nobody joined --
+    /// so the empty convo doesn't pile up in the chats list.
+    ///
+    /// The default `cleanUpIfNeeded` keeps any conversation that reached
+    /// `.ready`, but an embedded-invite convo is warm-claimed with a pre-minted
+    /// invite and reaches `.ready` immediately, so that guard would never fire.
+    /// This gates on real engagement instead -- no sent/received messages and
+    /// no other members -- and discards directly (mirroring `endComposeFlow`'s
+    /// empty-claimed-draft contract). A convo with messages, a joined member,
+    /// or an already-shared invite is kept. Returns true when it handled (kept
+    /// or discarded) the convo so the caller skips the default path.
+    ///
+    /// Message count uses `countMessages`, which counts only real `.messages`
+    /// groups -- the conversation's own self-join membership `.update` row is
+    /// excluded, so a freshly created (but unused) convo still reads as empty.
+    @discardableResult
+    func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
+        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
+        // The invite link was shared externally: deleting the conversation now
+        // would break the invite for whoever received it, so keep it.
+        guard !didShareInvite else { return true }
+        let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
+        let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
+        guard !hasMessages, !hasOtherMembers else { return true }
+        _cleanedUp = true
+        deleteConversation()
+        return true
+    }
+
+    /// Records that this conversation's invite link was shared externally, so
+    /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps the conversation instead of
+    /// tearing it down and breaking the shared invite.
+    func markInviteShared() {
+        didShareInvite = true
+    }
+
     /// Promotes this VM's hidden conversation row into a visible one.
     /// Covers both deferred-visibility shapes: the cache-claimed row
     /// (id known since acquire) and the auto-created `startsUnused` row
@@ -1025,13 +1042,25 @@ extension NewConversationViewModel {
         dismissAction = action
     }
 
+    /// Dismisses the sheet after an error the user backed out of (the error
+    /// sheet's cancel/dismiss). This is an implicit teardown, not a deliberate
+    /// "delete this conversation" -- so a shared embedded invite must survive it
+    /// (deleting it would break the invite already in someone else's hands).
+    /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps a shared/engaged embedded convo
+    /// and discards only an untouched one; non-embedded flows fall through to the
+    /// full deletion. An explicit user delete still routes through
+    /// `deleteConversation()` directly and is unaffected.
     func dismissWithDeletion() {
-        _cleanedUp = true
         displayError = nil
         currentError = nil
         isCreatingConversation = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
         inboxAcquisitionTask?.cancel()
+        guard !cleanUpEmptyEmbeddedInviteIfNeeded() else {
+            dismissAction?()
+            return
+        }
+        _cleanedUp = true
         deleteConversation()
         dismissAction?()
     }
