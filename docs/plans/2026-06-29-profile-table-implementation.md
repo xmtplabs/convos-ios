@@ -729,33 +729,62 @@ What shipped:
   `MyGlobalProfileWriter` / `DBMyProfile` as the global edit-side model.
 - [done] `member_profile` is left fully populated. The `deleteAll`-after-backfill
   clear was removed after PR review: several live subsystems still read
-  `DBMemberProfile` (see "remaining migration work"), so clearing (or dropping)
-  the table is not yet safe. `member_profile` is simply no longer the *rendering*
+  `DBMemberProfile` (see the cleanup checklist), so clearing (or dropping) the
+  table is not yet safe. `member_profile` is simply no longer the *rendering*
   identity source; the un-migrated subsystems keep working off it unchanged.
+- [done] Self-source consistency (PR review): `ProfileBackfill` now also seeds
+  `DBSelfProfile` from the legacy global `DBMyProfile` (fill-only), and
+  `MyProfileRepository` reads self identity from `DBSelfProfile` (the table every
+  self-write path updates) so the editor's own view stays current. This is a
+  stopgap - `DBMyProfile` and `DBSelfProfile` still both exist and overlap; see
+  the cleanup checklist for the consolidation.
 
-### Remaining migration work (before any member_profile clear/drop)
+### Cleanup checklist for a subsequent release
 
-The rendering choke point was migrated to the canonical tables, but these live
-paths still read/write `DBMemberProfile` and must move to `DBProfile` /
-`DBProfileAvatar` before `member_profile` can be cleared or dropped:
+The rendering choke point is on the canonical tables, but the cutover is not
+complete. None of the following block *this* PR (it is additive and safe), but
+they must land before `member_profile` can ever be cleared or dropped, and they
+resolve known rough edges.
 
-Readers:
-- `ContactSyncCoordinator.syncConversation` - builds contact snapshots per member.
-- `AssetRenewalURLCollector.collectRenewableAssets` - enumerates avatar assets.
-- `AgentTimezonePublisher.republishTimezoneForAgentConversations` - finds the
+Migrate the remaining `DBMemberProfile` readers to `DBProfile`/`DBProfileAvatar`:
+- [ ] `ContactSyncCoordinator.syncConversation` - builds contact snapshots per
+  member.
+- [ ] `AssetRenewalURLCollector.collectRenewableAssets` - enumerates avatar
+  assets for renewal.
+- [ ] `AgentTimezonePublisher.republishTimezoneForAgentConversations` - finds the
   user's conversations.
-- `AgentBuilderConnectionGrantReplayer.verifiedAgentInboxIds` - filters verified
-  agents (an agent reverified only in `DBProfile` is invisible here).
+- [ ] `AgentBuilderConnectionGrantReplayer.verifiedAgentInboxIds` - filters
+  verified agents (an agent reverified only in `DBProfile` is invisible here).
 
-Write paths (populate `DBMemberProfile` but not canonical, so identity from these
-alone renders as "Somebody"):
-- `InviteJoinRequestsManager` - joiner profile via `ContactsWriter` mirror.
-- `ConversationWriter.persist` appData gap-fill.
+Migrate the remaining `DBMemberProfile` write paths to canonical (otherwise
+identity introduced only through them renders as "Somebody"):
+- [ ] `InviteJoinRequestsManager` - joiner profile (currently via the
+  `ContactsWriter` mirror).
+- [ ] `ConversationWriter.persist` appData gap-fill, and the appData-only member
+  case generally (member identity that lives only in group appData, never in a
+  ProfileUpdate/Snapshot).
 
-Ordering: `IncomingMessageWriter.bootstrapSenderProfile` reads `DBProfile`, but in
-`BatchCatchUp` message persist runs before `ProfileInboundApplier` (detached), so
-a verified agent's grant request can be dropped on cold-launch backlog replay.
-Needs the canonical write to land before the gate is checked.
+Ordering:
+- [ ] `IncomingMessageWriter.bootstrapSenderProfile` reads `DBProfile`, but in
+  `BatchCatchUp` message persist runs before `ProfileInboundApplier` (detached),
+  so a verified agent's grant request can be dropped on cold-launch backlog
+  replay. Land the canonical write before the trusted-sender gate is checked.
+
+Self-profile consolidation:
+- [ ] Collapse `DBMyProfile` and `DBSelfProfile` into one authoritative self
+  source. Options: fold the editor's raw image bytes into the canonical path and
+  retire `DBMyProfile`, or keep `DBMyProfile` strictly as a local image-bytes
+  cache and make `DBSelfProfile` derived from it on every write. Remove the
+  backfill stopgap once done.
+
+Rendering path:
+- [ ] Wire ViewModels/Views to the repository's reactive reads
+  (`profilePublisher` / `selfProfilePublisher`); today rendering flows through the
+  choke-point GRDB reroute and those publishers are unused.
+
+Then, and only then:
+- [ ] Clear + drop `member_profile` (Android cleared but never dropped; a
+  `deleteAll` after backfill plus a `DROP TABLE` migration).
 
 ---
 

@@ -144,20 +144,20 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         }
     }
 
-    /// Reads the current user's identity from the inbox-wide `DBMyProfile`.
+    /// Reads the current user's identity from the canonical `DBSelfProfile`.
     /// After the unified-profile cutover self identity is global (no longer
-    /// per-conversation), so the legacy `member_profile` row is not consulted -
-    /// it is kept only as vestigial storage and may be empty.
+    /// per-conversation), and every self-write path (`publishMyProfile`, the
+    /// settings editor) updates `DBSelfProfile`, so reading it here keeps the
+    /// editor's own view current. The legacy per-conversation `member_profile`
+    /// row is not consulted.
     private static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
-        if let global = try DBMyProfile
-            .filter(DBMyProfile.Columns.inboxId == inboxId)
-            .fetchOne(db) {
+        if let selfRow = try DBSelfProfile.fetchOne(db, inboxId: inboxId) {
             return Profile(
                 inboxId: inboxId,
                 conversationId: conversationId,
-                name: (global.name?.isEmpty ?? true) ? nil : global.name,
+                name: (selfRow.name?.isEmpty ?? true) ? nil : selfRow.name,
                 avatar: nil,
-                metadata: global.metadata
+                metadata: selfRow.metadata
             )
         }
         return .empty(inboxId: inboxId, conversationId: conversationId)
