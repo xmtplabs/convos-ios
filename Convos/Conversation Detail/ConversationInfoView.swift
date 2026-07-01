@@ -371,11 +371,32 @@ struct ConversationInfoView: View {
         }
     }
 
+    /// Local share-overlay presentation binding. Resets the requested initial
+    /// segment on dismissal (mirroring `ConversationPresenter`'s binding) so
+    /// the next plain convo-code open lands on the Invite tab, not a stale
+    /// Scan request from the contacts picker.
+    private var localShareOverlayBinding: Binding<Bool> {
+        Binding(
+            get: { presentingShareView },
+            set: { newValue in
+                presentingShareView = newValue
+                if !newValue {
+                    viewModel.shareViewInitialSegment = .invite
+                }
+            }
+        )
+    }
+
     var body: some View {
         infoContent
             .addFromContactsPicker(
                 viewModel: viewModel,
-                isPresented: $presentingAddFromContactsPicker
+                isPresented: $presentingAddFromContactsPicker,
+                // This view is itself a presented sheet: the presenter-level
+                // overlay (viewModel.presentingShareView) would open beneath
+                // it, so route the picker's Show-invite-code / Scan rows to
+                // the local in-sheet overlay instead.
+                onPresentShareOverlay: { presentingShareView = true }
             )
             .onAppear {
                 ensureNavigator()
@@ -535,9 +556,14 @@ struct ConversationInfoView: View {
                         ConversationShareOverlay(
                             conversation: viewModel.conversation,
                             invite: viewModel.invite,
-                            isPresented: $presentingShareView,
+                            isPresented: localShareOverlayBinding,
                             topSafeAreaInset: 0,
                             coreActions: viewModel.coreActions,
+                            // Honors the segment the contacts picker's rows
+                            // request (Show invite code -> .invite, Scan ->
+                            // .scan); the toolbar convo-code path leaves the
+                            // view model default (.invite) untouched.
+                            initialSegment: viewModel.shareViewInitialSegment,
                             onScannedCode: { code in
                                 // The overlay is shown on this local `@State`, but
                                 // the handler only flips the view model's flag, so

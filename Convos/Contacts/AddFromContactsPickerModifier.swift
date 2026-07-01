@@ -28,9 +28,15 @@ extension View {
     func addFromContactsPicker(
         viewModel: ConversationViewModel,
         isPresented: Binding<Bool>,
-        onInviteShared: (() -> Void)? = nil
+        onInviteShared: (() -> Void)? = nil,
+        onPresentShareOverlay: (() -> Void)? = nil
     ) -> some View {
-        modifier(AddFromContactsPickerModifier(viewModel: viewModel, isPresented: isPresented, onInviteShared: onInviteShared))
+        modifier(AddFromContactsPickerModifier(
+            viewModel: viewModel,
+            isPresented: isPresented,
+            onInviteShared: onInviteShared,
+            onPresentShareOverlay: onPresentShareOverlay
+        ))
     }
 }
 
@@ -42,6 +48,15 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     /// empty-convo teardown. Nil for existing conversations, which are never
     /// discarded.
     let onInviteShared: (() -> Void)?
+    /// Presents the Scan/Invite overlay for the surface hosting this picker.
+    /// Nil (the chat surface) flips `viewModel.presentingShareView`, which
+    /// drives the `ConversationPresenter`-level overlay. Surfaces that are
+    /// themselves presented sheets (`ConversationInfoView`) pass a closure
+    /// that shows their own in-sheet overlay instead -- the presenter-level
+    /// overlay would open beneath the still-presented sheet and stay
+    /// invisible. The initial segment is set on
+    /// `viewModel.shareViewInitialSegment` before this fires.
+    let onPresentShareOverlay: (() -> Void)?
 
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
@@ -98,22 +113,30 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         return [invite.inviteURLString]
     }
 
-    /// The share overlay (`ConversationShareOverlay`) renders below this sheet
-    /// at the `ConversationPresenter` level, so dismiss the sheet first, then
-    /// flip the view model flag once the dismissal settles.
+    /// The share overlay renders outside this sheet, so dismiss the sheet
+    /// first, then present the overlay for the hosting surface (see
+    /// `onPresentShareOverlay`).
     private func handleShowInviteCode() {
         // A full conversation can't mint new invite links, so even if the
         // sheet is reached, the invite code can't be shown.
         guard !viewModel.conversation.isFull else { return }
         isPresented = false
         viewModel.shareViewInitialSegment = .invite
-        viewModel.presentingShareView = true
+        presentShareOverlay()
     }
 
     private func handleScanInvite() {
         isPresented = false
         viewModel.shareViewInitialSegment = .scan
-        viewModel.presentingShareView = true
+        presentShareOverlay()
+    }
+
+    private func presentShareOverlay() {
+        if let onPresentShareOverlay {
+            onPresentShareOverlay()
+        } else {
+            viewModel.presentingShareView = true
+        }
     }
 
     private func handleSendInvite() {
