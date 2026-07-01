@@ -4,14 +4,26 @@ import Testing
 
 /// Self-removal flow coverage: transfer super admin when the leaver is the
 /// sole super admin, self-remove via `leaveGroup`, then apply the optimistic
-/// consent-hide. These tests pin the call sequence and the super-admin
-/// invariant without standing up a real MLS group.
+/// consent-hide. These tests pin the call sequence, the super-admin invariant,
+/// and the human-preferred / agent-fallback successor policy without standing
+/// up a real MLS group.
 @Suite("ConversationLeaveWriter — transfer-and-leave flow", .serialized)
 struct ConversationLeaveWriterTests {
     private let conversationId = "conv-leave-1"
     private let selfInboxId = "inbox-self"
     private let elder = "inbox-elder"
     private let younger = "inbox-younger"
+
+    private let earliest = Date(timeIntervalSince1970: 1_000)
+    private let latest = Date(timeIntervalSince1970: 3_000)
+
+    private func human(_ inboxId: String, joinedAt: Date?) -> LeaveSuccessorCandidate {
+        LeaveSuccessorCandidate(inboxId: inboxId, isAgent: false, joinedAt: joinedAt)
+    }
+
+    private func agent(_ inboxId: String, joinedAt: Date?) -> LeaveSuccessorCandidate {
+        LeaveSuccessorCandidate(inboxId: inboxId, isAgent: true, joinedAt: joinedAt)
+    }
 
     @Test("Not sole super admin: leave + consent-hide, no super-admin transfer")
     func noTransferWhenAnotherSuperAdminExists() async throws {
@@ -20,7 +32,7 @@ struct ConversationLeaveWriterTests {
 
         try await fixtures.writer.leave(
             conversation: .mock(id: conversationId),
-            tenureOrderedSuccessorInboxIds: [elder, younger]
+            successorCandidates: [human(elder, joinedAt: earliest), human(younger, joinedAt: latest)]
         )
 
         let hasPromote = fixtures.operations.calls.contains { call in
@@ -40,7 +52,7 @@ struct ConversationLeaveWriterTests {
 
         try await fixtures.writer.leave(
             conversation: .mock(id: conversationId),
-            tenureOrderedSuccessorInboxIds: [elder, younger]
+            successorCandidates: [human(elder, joinedAt: earliest)]
         )
 
         let hasPromote = fixtures.operations.calls.contains { call in
@@ -51,24 +63,57 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
-    @Test("Sole super admin: promotes longest-tenured successor before leaving")
+    @Test("Sole super admin: promotes longest-tenured human before leaving")
     func transfersToLongestTenuredBeforeLeaving() async throws {
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([selfInboxId])
 
+        // Input order is younger-first; the writer must still pick the
+        // earlier-joined (longest-tenured) human, elder.
         try await fixtures.writer.leave(
             conversation: .mock(id: conversationId),
-            tenureOrderedSuccessorInboxIds: [elder, younger]
+            successorCandidates: [human(younger, joinedAt: latest), human(elder, joinedAt: earliest)]
         )
 
-        // Order matters: super-admin lookup, promote the first (longest-tenured)
-        // successor, then leave. The consent-hide follows.
         #expect(fixtures.operations.calls == [
             .currentInboxId,
             .superAdminInboxIds(conversationId: conversationId),
             .promoteToSuperAdmin(inboxId: elder, conversationId: conversationId),
             .leaveGroup(conversationId: conversationId)
         ])
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Sole super admin: a human wins over a longer-tenured agent")
+    func humanPreferredOverLongerTenuredAgent() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId])
+
+        // The agent joined earliest, but a human must still be promoted.
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [agent("inbox-agent", joinedAt: earliest), human(younger, joinedAt: latest)]
+        )
+
+        #expect(fixtures.operations.calls.contains(
+            .promoteToSuperAdmin(inboxId: younger, conversationId: conversationId)
+        ))
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Sole super admin with only agents left: falls back to longest-tenured agent")
+    func agentFallbackWhenNoHumansRemain() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId])
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [agent("inbox-agent-new", joinedAt: latest), agent("inbox-agent-old", joinedAt: earliest)]
+        )
+
+        #expect(fixtures.operations.calls.contains(
+            .promoteToSuperAdmin(inboxId: "inbox-agent-old", conversationId: conversationId)
+        ))
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
@@ -79,7 +124,7 @@ struct ConversationLeaveWriterTests {
 
         try await fixtures.writer.leave(
             conversation: .mock(id: conversationId),
-            tenureOrderedSuccessorInboxIds: []
+            successorCandidates: []
         )
 
         let hasPromote = fixtures.operations.calls.contains { call in
@@ -101,7 +146,7 @@ struct ConversationLeaveWriterTests {
 
         try await fixtures.writer.leave(
             conversation: .mock(id: conversationId),
-            tenureOrderedSuccessorInboxIds: [elder]
+            successorCandidates: [human(elder, joinedAt: earliest)]
         )
 
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
@@ -116,7 +161,7 @@ struct ConversationLeaveWriterTests {
         await #expect(throws: StubError.self) {
             try await fixtures.writer.leave(
                 conversation: .mock(id: conversationId),
-                tenureOrderedSuccessorInboxIds: [elder]
+                successorCandidates: [human(elder, joinedAt: earliest)]
             )
         }
         #expect(fixtures.consentWriter.deletedConversations.isEmpty)
@@ -131,7 +176,7 @@ struct ConversationLeaveWriterTests {
         await #expect(throws: StubError.self) {
             try await fixtures.writer.leave(
                 conversation: .mock(id: conversationId),
-                tenureOrderedSuccessorInboxIds: [elder]
+                successorCandidates: [human(elder, joinedAt: earliest)]
             )
         }
 

@@ -4255,17 +4255,17 @@ extension ConversationViewModel {
     /// local hide) so the conversation vanishes immediately while the MLS
     /// remove-commit finalizes async. When the current user is the sole super
     /// admin, the leave writer transfers super admin to the longest-tenured
-    /// remaining member first.
+    /// remaining human member first (agents only as a fallback).
     func leaveGroupConvo() {
         let leaveWriter = leaveWriter
         let conversation = conversation
-        let successorInboxIds = leaveSuccessorInboxIds()
+        let successorCandidates = leaveSuccessorCandidates()
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await leaveWriter.leave(
                     conversation: conversation,
-                    tenureOrderedSuccessorInboxIds: successorInboxIds
+                    successorCandidates: successorCandidates
                 )
                 await MainActor.run {
                     self.presentingConversationSettings = false
@@ -4277,21 +4277,20 @@ extension ConversationViewModel {
         }
     }
 
-    /// Remaining members (excluding the current user) ordered longest-tenured
-    /// first, used by the leave writer to pick a super-admin successor when the
-    /// leaver is the sole super admin. Members with an unknown `joinedAt` sort
-    /// last so known-tenure members are preferred.
-    private func leaveSuccessorInboxIds() -> [String] {
-        let remaining = conversation.members.filter { !$0.isCurrentUser }
-        let sorted = remaining.sorted { (lhs: ConversationMember, rhs: ConversationMember) -> Bool in
-            switch (lhs.joinedAt, rhs.joinedAt) {
-            case let (left?, right?): return left < right
-            case (nil, _?): return false
-            case (_?, nil): return true
-            case (nil, nil): return false
+    /// Remaining members (excluding the current user) as super-admin successor
+    /// candidates. The leave writer applies the human-preferred, agent-fallback
+    /// tenure policy; here we only surface each member's agent flag and join
+    /// time.
+    private func leaveSuccessorCandidates() -> [LeaveSuccessorCandidate] {
+        conversation.members
+            .filter { !$0.isCurrentUser }
+            .map { (member: ConversationMember) -> LeaveSuccessorCandidate in
+                LeaveSuccessorCandidate(
+                    inboxId: member.profile.inboxId,
+                    isAgent: member.isAgent,
+                    joinedAt: member.joinedAt
+                )
             }
-        }
-        return sorted.map { $0.profile.inboxId }
     }
 
     @MainActor

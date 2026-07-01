@@ -8,14 +8,29 @@ public protocol ConversationLeaveWriterProtocol: Sendable {
     /// the MLS remove-commit finalizes async.
     ///
     /// When the leaver is the sole super admin, the super-admin role is first
-    /// transferred to the longest-tenured remaining member so the group always
-    /// keeps at least one super admin. `tenureOrderedSuccessorInboxIds` is the
-    /// remaining membership (excluding the leaver) ordered longest-tenured
-    /// first; the writer promotes the first entry when a transfer is needed.
+    /// transferred to a remaining member so the group always keeps at least
+    /// one super admin. `successorCandidates` is the remaining membership
+    /// (excluding the leaver); the writer applies a human-preferred,
+    /// agent-fallback tenure policy to pick who to promote.
     func leave(
         conversation: Conversation,
-        tenureOrderedSuccessorInboxIds: [String]
+        successorCandidates: [LeaveSuccessorCandidate]
     ) async throws
+}
+
+/// A remaining group member the leave writer may promote to super admin when
+/// the leaver is the sole super admin. Carries just enough for the
+/// human-preferred, agent-fallback tenure policy.
+public struct LeaveSuccessorCandidate: Sendable {
+    public let inboxId: String
+    public let isAgent: Bool
+    public let joinedAt: Date?
+
+    public init(inboxId: String, isAgent: Bool, joinedAt: Date?) {
+        self.inboxId = inboxId
+        self.isAgent = isAgent
+        self.joinedAt = joinedAt
+    }
 }
 
 /// The MLS-level operations the leave writer reaches through to the XMTP SDK.
@@ -99,14 +114,14 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
 
     func leave(
         conversation: Conversation,
-        tenureOrderedSuccessorInboxIds: [String]
+        successorCandidates: [LeaveSuccessorCandidate]
     ) async throws {
         let myInboxId = try await operations.currentInboxId()
 
         try await transferSuperAdminIfNeeded(
             conversationId: conversation.id,
             myInboxId: myInboxId,
-            tenureOrderedSuccessorInboxIds: tenureOrderedSuccessorInboxIds
+            successorCandidates: successorCandidates
         )
 
         // Self-remove from the MLS roster. Benign outcomes are logged and
@@ -129,25 +144,55 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
 
     /// Protects the "group always keeps at least one super admin" invariant.
     /// Only acts when the leaver is the sole super admin, then promotes the
-    /// longest-tenured remaining member before leaving. Awaited rather than
-    /// best-effort: if the transfer can't land we abort the leave rather than
-    /// strand the group with no super admin.
+    /// preferred successor before leaving. Awaited rather than best-effort: if
+    /// the transfer can't land we abort the leave rather than strand the group
+    /// with no super admin.
     private func transferSuperAdminIfNeeded(
         conversationId: String,
         myInboxId: String,
-        tenureOrderedSuccessorInboxIds: [String]
+        successorCandidates: [LeaveSuccessorCandidate]
     ) async throws {
         let superAdmins = try await operations.superAdminInboxIds(conversationId: conversationId)
         let isSoleSuperAdmin = superAdmins.contains(myInboxId) && superAdmins.count == 1
         guard isSoleSuperAdmin else { return }
 
-        guard let successor = tenureOrderedSuccessorInboxIds.first(where: { $0 != myInboxId }) else {
+        let ordered = Self.orderedSuccessorInboxIds(from: successorCandidates, excluding: myInboxId)
+        guard let successor = ordered.first else {
             Log.warning("Leaving \(conversationId) as sole super admin with no successor to promote")
             return
         }
 
         try await operations.promoteToSuperAdmin(inboxId: successor, conversationId: conversationId)
         Log.info("Transferred super admin to \(successor) before leaving \(conversationId)")
+    }
+
+    /// Successor inbox ids in promotion-preference order. Human members come
+    /// first, longest-tenured first (by `joinedAt`, unknown tenure last).
+    /// Agents are only used as a fallback so a creator can still leave a group
+    /// whose only remaining members are agents while the "at least one super
+    /// admin" invariant holds.
+    private static func orderedSuccessorInboxIds(
+        from candidates: [LeaveSuccessorCandidate],
+        excluding myInboxId: String
+    ) -> [String] {
+        let eligible = candidates.filter { $0.inboxId != myInboxId }
+        let humans = eligible.filter { !$0.isAgent }.sorted(by: isLongerTenured)
+        let agents = eligible.filter { $0.isAgent }.sorted(by: isLongerTenured)
+        return (humans + agents).map { $0.inboxId }
+    }
+
+    /// Orders longest-tenured first; a known `joinedAt` always precedes an
+    /// unknown one.
+    private static func isLongerTenured(
+        _ lhs: LeaveSuccessorCandidate,
+        _ rhs: LeaveSuccessorCandidate
+    ) -> Bool {
+        switch (lhs.joinedAt, rhs.joinedAt) {
+        case let (left?, right?): return left < right
+        case (nil, _?): return false
+        case (_?, nil): return true
+        case (nil, nil): return false
+        }
     }
 
     /// libxmtp surfaces MLS failures as FFI errors whose full message is only
