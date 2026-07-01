@@ -387,10 +387,11 @@ struct ContactsView: View {
     /// mock session used in previews this is a no-op so the rows stay hidden.
     private func claimInviteConversationIfNeeded() {
         guard inviteConversationViewModel == nil, let session else { return }
-        // A freshly minted claimed conversation hasn't hydrated its invite yet,
-        // so drop the sticky flag until the new invite resolves -- otherwise the
-        // invite rows stay visible but no-op through the re-hydration window.
-        hasResolvedInvite = false
+        // `hasResolvedInvite` stays sticky across the re-mint on purpose: it
+        // holds the two invite rows on screen while the fresh claimed
+        // conversation's invite is briefly nil, avoiding a 3 -> 1 -> 3 flash of
+        // the top-three. The re-hydration window can't leave a no-op row because
+        // `handleShowInviteCode` no longer requires a resolved invite to enter.
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
@@ -408,7 +409,6 @@ struct ContactsView: View {
     private func discardUnenteredInviteConversation() {
         inviteConversationViewModel?.cleanUpEmptyEmbeddedInviteIfNeeded()
         inviteConversationViewModel = nil
-        hasResolvedInvite = false
     }
 
     /// Enters the claimed conversation as a full new-conversation sheet so the
@@ -418,7 +418,12 @@ struct ContactsView: View {
     /// and a fresh claimed conversation is minted so the top-three rows keep
     /// working for the next invite.
     private func handleShowInviteCode() {
-        guard invite != nil, let enteredViewModel = inviteConversationViewModel else { return }
+        // Enter the claimed conversation even if its invite hasn't hydrated yet:
+        // the embedded QR shows a loading placeholder until the slug resolves, so
+        // the row is never a no-op. Requiring a resolved invite here (with the
+        // rows held visible by the sticky flag) is what produced a dead tap
+        // during the brief re-hydration window.
+        guard let enteredViewModel = inviteConversationViewModel else { return }
         inviteConversationViewModel = nil
         // The claimed convo was minted hidden (deferred visibility) so it
         // wouldn't surface as a stray empty convo before the user acted. Now
