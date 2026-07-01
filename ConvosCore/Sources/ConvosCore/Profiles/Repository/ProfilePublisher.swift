@@ -23,33 +23,42 @@ struct PublishBackoff: Sendable {
 /// loop is never head-of-line blocked. XMTP and upload specifics live behind the
 /// injected `ProfilePublishSession`.
 ///
-/// Not wired into startup yet; the lifecycle PR attaches a session and triggers
-/// drains on a wake timer. Within a process, drains are serialized.
+/// `ProfilesRepository` owns the instance and attaches a session via
+/// `bind(session:)` at startup, which resumes any leftover jobs. Within a
+/// process, drains are serialized.
 actor ProfilePublisher {
     private let publishStore: any ProfilePublishStoreProtocol
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
-    private let selfInboxId: String
+    private let selfInboxIdProvider: @Sendable () async -> String?
     private let now: @Sendable () -> Date
     private let backoff: PublishBackoff
 
     private var session: (any ProfilePublishSession)?
     private var draining: Bool = false
+    private var cachedSelfInboxId: String?
 
     init(
         publishStore: any ProfilePublishStoreProtocol,
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
-        selfInboxId: String,
+        selfInboxIdProvider: @escaping @Sendable () async -> String?,
         now: @escaping @Sendable () -> Date = { Date() },
         backoff: PublishBackoff = .default
     ) {
         self.publishStore = publishStore
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
-        self.selfInboxId = selfInboxId
+        self.selfInboxIdProvider = selfInboxIdProvider
         self.now = now
         self.backoff = backoff
+    }
+
+    private func resolveSelfInboxId() async -> String? {
+        if let cachedSelfInboxId { return cachedSelfInboxId }
+        let resolved = await selfInboxIdProvider()
+        cachedSelfInboxId = resolved
+        return resolved
     }
 
     func attach(session: any ProfilePublishSession) async {
@@ -66,6 +75,7 @@ actor ProfilePublisher {
     /// A nil `avatarBytes` is a name/metadata-only publish that re-sends the
     /// existing avatar for each conversation rather than clearing it.
     func publish(avatarBytes: Data?, priorityConversationId: String?) async throws {
+        guard let selfInboxId = await resolveSelfInboxId() else { return }
         let conversationIds = try await session?.conversationIds() ?? []
         var sourceVersion: Int64?
         var hasAvatar = false
@@ -87,6 +97,7 @@ actor ProfilePublisher {
     /// Seeds a single conversation with the current profile (e.g. a freshly
     /// created or joined group), then drains.
     func publishConversation(_ conversationId: String) async throws {
+        guard let selfInboxId = await resolveSelfInboxId() else { return }
         let source = try await publishStore.source(inboxId: selfInboxId)
         try await enqueueJob(conversationId: conversationId, sourceVersion: source?.version, hasAvatar: source != nil)
         await drainReadyJobs()
@@ -96,8 +107,9 @@ actor ProfilePublisher {
         guard !draining, let session else { return }
         draining = true
         defer { draining = false }
+        guard let selfInboxId = await resolveSelfInboxId() else { return }
         while let job = try? await publishStore.nextReadyJob(now: now()) {
-            await process(job, session: session)
+            await process(job, session: session, selfInboxId: selfInboxId)
         }
     }
 
@@ -128,12 +140,12 @@ actor ProfilePublisher {
 
     // MARK: - Process
 
-    private func process(_ job: DBProfilePublishJob, session: any ProfilePublishSession) async {
+    private func process(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async {
         do {
             if job.hasAvatar {
-                try await processAvatarJob(job, session: session)
+                try await processAvatarJob(job, session: session, selfInboxId: selfInboxId)
             } else {
-                try await processNameOnlyJob(job, session: session)
+                try await processNameOnlyJob(job, session: session, selfInboxId: selfInboxId)
             }
             try? await publishStore.deleteJob(id: job.id)
         } catch is PublishDropError {
@@ -143,7 +155,7 @@ actor ProfilePublisher {
         }
     }
 
-    private func processAvatarJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession) async throws {
+    private func processAvatarJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
         guard let version = job.sourceVersion,
               let source = try await publishStore.source(inboxId: selfInboxId),
               source.version == version else {
@@ -198,7 +210,7 @@ actor ProfilePublisher {
         try await profileStore.saveAvatar(slot)
     }
 
-    private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession) async throws {
+    private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
         let existing = try await profileStore.avatar(inboxId: selfInboxId, conversationId: job.conversationId)
         let published = publishedAvatar(from: existing)
         let selfName = try await selfProfileStore.load()?.name

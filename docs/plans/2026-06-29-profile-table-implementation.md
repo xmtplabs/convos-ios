@@ -591,12 +591,79 @@ stored, so it retires cleanly when the repository becomes the source of truth.
 Each checkpoint compiles and has its package tests passing before stacking the
 next. PR 1 is this design doc.
 
-Progress (consolidated grouping): foundation done = old PRs 1-3 (plan/spec/ADRs,
-models+migration, stores). Engine done = old PRs 4-6 on `profile-table-engine`,
-built in slices and all dormant: merge (ProfileMerge / ProfileDomainEvent /
-SelfProfileEdit), repository (ProfilesRepository + UnifiedProfile), backfill
-(ProfileBackfill), publisher (ProfilePublisher + ProfilePublishSession). Next:
-activate (inbound seam + lifecycle), then cutover, then drop-columns.
+### As shipped (actual Graphite stack)
+
+The plan below was consolidated into fewer, larger PRs during implementation.
+Actual stack:
+
+- **#1126 `unified profile - new database tables/persistence`** [merged into stack]
+  = foundation: DB models, `createProfileTables` migration (with FK
+  `ON DELETE CASCADE` on `profileAvatar`/`profilePublishJob`), `ProfileSource`,
+  `Avatar`, and the three stores. Dormant.
+- **#1128 `unified profile - merge, repository, and unified profile`** = engine:
+  `ProfileMerge` / `ProfileDomainEvent` / `SelfProfileEdit`, `ProfilesRepository`
+  + `UnifiedProfile` (transitional name; replaces the old `Profile` at cutover),
+  `ProfileBackfill`, `ProfilePublisher` + `ProfilePublishSession`. Dormant.
+- **#1129 `unified profile - activate backfill and populate live data`** =
+  activate: `ProfileMemberMirror` (observes `memberProfile`, re-runs the
+  idempotent backfill), `MessagingProfilePublishSession` (concrete session),
+  and the `MessagingService`/`SessionManager` wiring (backfill -> warmUp ->
+  mirror, self-guarded on inbox-ready). First PR that runs at startup; still
+  dormant (nothing renders from the new tables).
+
+Key deviations from the sketch below, all deliberate:
+
+- **Inbound = mirror, not the direct `apply()` seam.** Threading the repo into
+  `StreamProcessor` (two construction sites, async self-inbox) was too risky
+  blind, so during transition a `ValueObservation` mirror populates the new
+  tables from `memberProfile`. The clean direct seam is deferred to the cleanup
+  PR, where `memberProfile` is being removed anyway.
+- **No standalone `ConversationProfileCleaner`.** The migration's FK
+  `ON DELETE CASCADE` already purges a deleted conversation's avatar slots /
+  publish jobs; repo-cache coherence on delete is handled at the cutover via
+  store observation. Resolves the open question as "cascade alone."
+- **Publisher binding deferred.** The concrete session is written, but
+  constructing/binding `ProfilePublisher` + `repository.publishMyProfile` (and
+  its async self-inbox provider rework) lands with the read-surface PR, since
+  it's dormant until self-edits route through it at cutover.
+
+### Remaining PRs (consolidated 4-PR tail)
+
+1. **`unified profile - shadow-compare instrumentation`** [done] -
+   `ProfileShadowComparator`: logs where new `DBProfile` identity disagrees with
+   the legacy `contact` table, per inbox. Read-only; lands early so it bakes on
+   real data before the flip.
+2. **`unified profile - repository read + write (live)`** [in progress] -
+   reactive read publishers, keep the cache live via `ValueObservation` on the
+   profile stores (subsumes the cleaner), fix self-profile staleness (mirror
+   upserts self, not seed-once), and bind the publisher + `publishMyProfile`.
+   Dormant, unit-tested. Prerequisite for the cutover.
+   - Slice 1 [done]: reactive read publishers (`profilePublisher`,
+     `profilesPublisher`, `selfProfilePublisher`) + static `fetchProfile` /
+     `fetchSelfProfile` hydration, ValueObservation-backed (bypass the cache).
+   - Slice 2 [done]: write side. `ProfilePublisher` self-inbox provider rework
+     (String -> async provider, resolved after `draining=true` to avoid
+     reentrancy), `ProfilesRepository` constructs/owns the publisher and exposes
+     `bind`/`unbind`/`publishMyProfile`/`publishMyProfileToConversation`.
+     `MessagingService` adds a `GRDBProfilePublishStore` and binds a
+     `MessagingProfilePublishSession` in `startProfileMirroring`.
+   - Slice 3 [done]: self-profile freshness - `ProfileBackfill.mirror` upserts
+     the self row instead of seeding once, guarded by a content diff, so a legacy
+     rename reflects on re-run while a blank legacy name never erases an existing
+     value.
+3. **`unified profile - cutover (read from repository)`** [risk gate] - flip
+   ViewModels/Views to the repository + `ConversationDisplay` helpers, route
+   self-edits through `publishMyProfile`, delete `memberContactOverride` /
+   `Profile.overlaying`, behind a feature flag. Also does the direct inbound
+   `apply()` seam + removes the mirror, and deletes `ProfileSyncCoordinator` /
+   dead paths. Simulator verification; ships alone.
+4. **`unified profile - drop legacy memberProfile columns`** [risk gate] - gated
+   migration, a release after the cutover is live so every upgrader has run the
+   backfill.
+
+---
+
+### Original per-slice plan (historical reference)
 
 1. `profile-table-plan` - this document. [done]
 2. `profile-table-models-migrations` - DB models (`DBProfile`, `DBProfileAvatar`,

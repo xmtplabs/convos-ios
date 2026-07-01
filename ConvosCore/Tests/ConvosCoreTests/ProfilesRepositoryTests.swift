@@ -1,5 +1,6 @@
 @testable import ConvosCore
 import Foundation
+import GRDB
 import Testing
 
 @Suite("ProfilesRepository")
@@ -11,11 +12,15 @@ struct ProfilesRepositoryTests {
     private func makeRepository(
         profileStore: any ProfileStoreProtocol = InMemoryProfileStore(),
         selfProfileStore: any SelfProfileStoreProtocol = InMemorySelfProfileStore(),
+        publishStore: any ProfilePublishStoreProtocol = InMemoryProfilePublishStore(),
+        databaseReader: (any DatabaseReader)? = nil,
         selfInboxId: String = "me"
-    ) -> ProfilesRepository {
+    ) throws -> ProfilesRepository {
         ProfilesRepository(
             profileStore: profileStore,
             selfProfileStore: selfProfileStore,
+            publishStore: publishStore,
+            databaseReader: try databaseReader ?? DatabaseQueue(),
             selfInboxIdProvider: { selfInboxId }
         )
     }
@@ -43,8 +48,8 @@ struct ProfilesRepositoryTests {
     }
 
     @Test("apply creates identity and avatar, readable via profile()")
-    func applyCreatesProfile() async {
-        let repository = makeRepository()
+    func applyCreatesProfile() async throws {
+        let repository = try makeRepository()
         await repository.warmUp()
         await repository.apply(event(
             inboxId: "alice", conversationId: "c1", name: "Alice",
@@ -57,8 +62,8 @@ struct ProfilesRepositoryTests {
     }
 
     @Test("apply ignores events authored by the current user")
-    func selfEchoIgnored() async {
-        let repository = makeRepository(selfInboxId: "me")
+    func selfEchoIgnored() async throws {
+        let repository = try makeRepository(selfInboxId: "me")
         await repository.warmUp()
         await repository.apply(event(
             inboxId: "me", conversationId: "c1", name: "Myself",
@@ -70,8 +75,8 @@ struct ProfilesRepositoryTests {
     }
 
     @Test("apply respects merge precedence end to end")
-    func applyRespectsPrecedence() async {
-        let repository = makeRepository()
+    func applyRespectsPrecedence() async throws {
+        let repository = try makeRepository()
         await repository.warmUp()
         await repository.apply(event(
             inboxId: "alice", conversationId: "c1", name: "Authoritative",
@@ -93,7 +98,7 @@ struct ProfilesRepositoryTests {
         try await profileStore.saveIdentity(
             DBProfile(inboxId: "bob", name: "Bob", profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1))
         )
-        let repository = makeRepository(profileStore: profileStore)
+        let repository = try makeRepository(profileStore: profileStore)
         await repository.warmUp()
 
         let profile = await repository.profile(inboxId: "bob")
@@ -103,7 +108,7 @@ struct ProfilesRepositoryTests {
     @Test("updateSelfProfile persists and is reflected in selfProfile()")
     func updateSelf() async throws {
         let selfStore = InMemorySelfProfileStore()
-        let repository = makeRepository(selfProfileStore: selfStore)
+        let repository = try makeRepository(selfProfileStore: selfStore)
         await repository.warmUp()
         try await repository.updateSelfProfile(SelfProfileEdit(name: .set("Me")))
 
@@ -114,8 +119,8 @@ struct ProfilesRepositoryTests {
     }
 
     @Test("displayAvatar falls back to the newest slot without a conversation match")
-    func displayAvatarFallback() async {
-        let repository = makeRepository()
+    func displayAvatarFallback() async throws {
+        let repository = try makeRepository()
         await repository.warmUp()
         await repository.apply(event(
             inboxId: "alice", conversationId: "c1", name: "Alice",
@@ -133,8 +138,8 @@ struct ProfilesRepositoryTests {
     }
 
     @Test("purgeConversationAvatars drops only that conversation's slots")
-    func purgeAvatars() async {
-        let repository = makeRepository()
+    func purgeAvatars() async throws {
+        let repository = try makeRepository()
         await repository.warmUp()
         await repository.apply(event(
             inboxId: "alice", conversationId: "c1", name: "Alice",
@@ -150,5 +155,47 @@ struct ProfilesRepositoryTests {
         let profile = await repository.profile(inboxId: "alice")
         #expect(profile.avatars["c1"] == nil)
         #expect(profile.avatars["c2"]?.url == "b")
+    }
+
+    @Test("fetchProfile hydrates identity and avatar from the database")
+    func fetchProfileHydrates() async throws {
+        let queue = try ProfileStoreTestSupport.makeQueue(conversations: ["c1"])
+        let time = Date(timeIntervalSince1970: 1)
+        try await queue.write { db in
+            try DBProfile(inboxId: "alice", name: "Alice", profileSource: .profileUpdate, updatedAt: time).save(db)
+            try DBProfileAvatar(
+                inboxId: "alice", conversationId: "c1", url: "u", salt: salt, nonce: nonce,
+                encryptionKey: key, profileSource: .profileUpdate, updatedAt: time
+            ).save(db)
+        }
+
+        let profile = try await queue.read { db in
+            try ProfilesRepository.fetchProfile(db, inboxId: "alice")
+        }
+        #expect(profile.name == "Alice")
+        #expect(profile.displayAvatar(for: "c1")?.url == "u")
+
+        let missing = try await queue.read { db in
+            try ProfilesRepository.fetchProfile(db, inboxId: "nobody")
+        }
+        #expect(missing.name == nil)
+    }
+
+    @Test("fetchSelfProfile reads the self row, or nil when absent")
+    func fetchSelfProfileReads() async throws {
+        let queue = try ProfileStoreTestSupport.makeQueue()
+        try await queue.write { db in
+            try DBSelfProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 1)).save(db)
+        }
+        let selfProfile = try await queue.read { db in
+            try ProfilesRepository.fetchSelfProfile(db)
+        }
+        #expect(selfProfile?.name == "Me")
+
+        let emptyQueue = try ProfileStoreTestSupport.makeQueue()
+        let none = try await emptyQueue.read { db in
+            try ProfilesRepository.fetchSelfProfile(db)
+        }
+        #expect(none == nil)
     }
 }

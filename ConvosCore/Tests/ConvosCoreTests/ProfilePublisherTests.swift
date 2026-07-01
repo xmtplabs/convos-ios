@@ -102,7 +102,7 @@ struct ProfilePublisherTests {
             publishStore: publishStore,
             profileStore: profileStore,
             selfProfileStore: selfProfileStore,
-            selfInboxId: "me",
+            selfInboxIdProvider: { "me" },
             now: { clock.current },
             backoff: PublishBackoff(base: 1, cap: 5, jitterFraction: 0)
         )

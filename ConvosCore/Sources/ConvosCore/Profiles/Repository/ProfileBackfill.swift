@@ -11,7 +11,11 @@ import GRDB
 /// and non-clobbering: re-running fills only blanks of whatever is already there,
 /// and a value already set by a real `profileUpdate` is never downgraded.
 ///
-/// Not wired into startup yet; the lifecycle PR calls `run()`.
+/// The current user's own row is the exception: the self profile has no source
+/// column and, until the cutover, the legacy `memberProfile` is its sole author,
+/// so the self row is upserted (not seed-once) to reflect renames on re-run.
+///
+/// Also re-run on every `memberProfile` change via `ProfileMemberMirror`.
 struct ProfileBackfill {
     private let databaseReader: any DatabaseReader
     private let profileStore: any ProfileStoreProtocol
@@ -78,12 +82,29 @@ struct ProfileBackfill {
         }
 
         try await backfillIdentities(identityByInbox)
+        try await mirrorSelf(sawSelf: sawSelf, name: selfName, metadata: selfMetadata)
+    }
 
-        if sawSelf, try await selfProfileStore.load() == nil {
+    /// Upserts the self row from the legacy-derived name/metadata. A fresh seed
+    /// uses the floor timestamp (like everything else here); an update reflects a
+    /// legacy rename with a real timestamp. Legacy values win when present but a
+    /// blank never erases an existing value, and the write is skipped when nothing
+    /// changed so re-runs don't churn.
+    private func mirrorSelf(sawSelf: Bool, name: String?, metadata: ProfileMetadata?) async throws {
+        guard sawSelf else { return }
+        let existing = try await selfProfileStore.load()
+        let mergedName = ProfileMerge.nonBlank(name) ?? existing?.name
+        let mergedMetadata = metadata ?? existing?.metadata
+        guard let existing else {
             try await selfProfileStore.save(
-                DBSelfProfile(inboxId: selfInboxId, name: selfName, metadata: selfMetadata, updatedAt: floor)
+                DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: floor)
             )
+            return
         }
+        guard mergedName != existing.name || mergedMetadata != existing.metadata else { return }
+        try await selfProfileStore.save(
+            DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: Date())
+        )
     }
 
     private func backfillAvatar(_ row: DBMemberProfile) async throws {

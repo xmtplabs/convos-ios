@@ -174,9 +174,16 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         databaseReader: databaseReader
     )
 
+    private lazy var profilePublishStore: any ProfilePublishStoreProtocol = GRDBProfilePublishStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
     private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
         profileStore: profileStore,
         selfProfileStore: selfProfileStore,
+        publishStore: profilePublishStore,
+        databaseReader: databaseReader,
         selfInboxIdProvider: { [sessionStateManager] in
             (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
         }
@@ -189,6 +196,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         selfInboxIdProvider: { [sessionStateManager] in
             (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
         }
+    )
+
+    private lazy var profileShadowComparator: ProfileShadowComparator = ProfileShadowComparator(
+        databaseReader: databaseReader,
+        profileStore: profileStore
     )
 
     /// Canonical identity source. Dormant until the cutover - nothing renders
@@ -215,11 +227,20 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             }
         }
         await sharedProfilesRepository.warmUp()
+        await sharedProfilesRepository.bind(
+            session: MessagingProfilePublishSession(
+                sessionStateManager: sessionStateManager,
+                databaseReader: databaseReader
+            )
+        )
         await profileMemberMirror.start()
+        await profileShadowComparator.start()
     }
 
     func stopProfileMirroring() async {
+        await sharedProfilesRepository.unbind()
         await profileMemberMirror.stop()
+        await profileShadowComparator.stop()
     }
 
     // MARK: New Conversation

@@ -1,17 +1,21 @@
 import Combine
 import Foundation
+import GRDB
 
 /// Canonical source of identity (name + avatar) for rendering. Owns a warmed
 /// in-memory cache over the profile stores, merges inbound events by precedence
 /// and recency, and authors the current user's own profile.
 ///
-/// Not wired into sync, startup, or any view yet. `ProfileBackfill` (separate)
-/// seeds the stores from legacy `DBMemberProfile` rows before `warmUp`, and the
-/// durable publisher (separate) is attached for self-publishing.
+/// Seeded and running, but not yet read by any view - the cutover flips
+/// rendering onto it. `ProfileBackfill` (separate) seeds the stores from legacy
+/// `DBMemberProfile` rows before `warmUp`, and the durable publisher is attached
+/// via `bind(session:)` for self-publishing.
 actor ProfilesRepository {
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
+    private let databaseReader: any DatabaseReader
     private let selfInboxIdProvider: @Sendable () async -> String?
+    private let publisher: ProfilePublisher
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
@@ -21,9 +25,9 @@ actor ProfilesRepository {
 
     private let changesRelay: ProfileChangesRelay = .init()
 
-    /// Emits the `inboxId` whose identity or avatar changed. Repos and read
-    /// models subscribe to invalidate; the reactive per-inbox publishers are
-    /// added at the cutover when the ViewModels need them.
+    /// Emits the `inboxId` whose identity or avatar changed. A coarse
+    /// invalidation signal; the per-inbox reactive reads (`profilePublisher`)
+    /// are the preferred subscription for rendering.
     nonisolated var profileChanges: AnyPublisher<String, Never> {
         changesRelay.subject.eraseToAnyPublisher()
     }
@@ -36,11 +40,77 @@ actor ProfilesRepository {
     init(
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
+        publishStore: any ProfilePublishStoreProtocol,
+        databaseReader: any DatabaseReader,
         selfInboxIdProvider: @escaping @Sendable () async -> String?
     ) {
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
+        self.databaseReader = databaseReader
         self.selfInboxIdProvider = selfInboxIdProvider
+        self.publisher = ProfilePublisher(
+            publishStore: publishStore,
+            profileStore: profileStore,
+            selfProfileStore: selfProfileStore,
+            selfInboxIdProvider: selfInboxIdProvider
+        )
+    }
+
+    // MARK: - Reactive reads
+
+    /// Reactive identity for one inbox, hydrated fresh from the stores via
+    /// `ValueObservation`. This is the read path ViewModels subscribe to; it does
+    /// not depend on the in-memory cache, so it is always current.
+    nonisolated func profilePublisher(inboxId: String) -> AnyPublisher<UnifiedProfile, Never> {
+        ValueObservation
+            .tracking { db in try Self.fetchProfile(db, inboxId: inboxId) }
+            .removeDuplicates()
+            .publisher(in: databaseReader, scheduling: .immediate)
+            .catch { _ in Just(UnifiedProfile.empty(inboxId: inboxId)) }
+            .eraseToAnyPublisher()
+    }
+
+    nonisolated func profilesPublisher(inboxIds: [String]) -> AnyPublisher<[String: UnifiedProfile], Never> {
+        ValueObservation
+            .tracking { db -> [String: UnifiedProfile] in
+                var result: [String: UnifiedProfile] = [:]
+                for inboxId in inboxIds {
+                    result[inboxId] = try Self.fetchProfile(db, inboxId: inboxId)
+                }
+                return result
+            }
+            .removeDuplicates()
+            .publisher(in: databaseReader, scheduling: .immediate)
+            .catch { _ in Just([:]) }
+            .eraseToAnyPublisher()
+    }
+
+    nonisolated func selfProfilePublisher() -> AnyPublisher<UnifiedProfile?, Never> {
+        ValueObservation
+            .tracking { db -> UnifiedProfile? in try Self.fetchSelfProfile(db) }
+            .removeDuplicates()
+            .publisher(in: databaseReader, scheduling: .immediate)
+            .catch { _ in Just(nil) }
+            .eraseToAnyPublisher()
+    }
+
+    static func fetchProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile {
+        let identity = try DBProfile.fetchOne(db, inboxId: inboxId)
+        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: inboxId)
+        return UnifiedProfile.hydrate(identity: identity, avatarRows: avatars, inboxId: inboxId)
+    }
+
+    static func fetchSelfProfile(_ db: Database) throws -> UnifiedProfile? {
+        guard let selfRow = try DBSelfProfile.fetchOne(db) else { return nil }
+        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: selfRow.inboxId)
+        return UnifiedProfile(
+            inboxId: selfRow.inboxId,
+            name: selfRow.name,
+            memberKind: nil,
+            metadata: selfRow.metadata,
+            avatars: UnifiedProfile.avatarMap(from: avatars),
+            updatedAt: selfRow.updatedAt
+        )
     }
 
     func warmUp() async {
@@ -162,6 +232,33 @@ actor ProfilesRepository {
         try await selfProfileStore.save(updated)
         cachedSelf = updated
         changesRelay.subject.send(selfId)
+    }
+
+    // MARK: - Self publish
+
+    /// Attaches the XMTP/upload session so the durable publisher can drain. Also
+    /// resumes any jobs left over from a previous run.
+    func bind(session: any ProfilePublishSession) async {
+        await publisher.attach(session: session)
+    }
+
+    func unbind() async {
+        await publisher.detach()
+    }
+
+    /// Records a name and/or new avatar and fans the update out to every
+    /// conversation via the durable publish queue. The name is written to the
+    /// self profile first so the publisher's jobs send the current name.
+    func publishMyProfile(displayName: String?, avatarBytes: Data?, priorityConversationId: String?) async throws {
+        if let displayName {
+            try await updateSelfProfile(SelfProfileEdit(name: .set(displayName)))
+        }
+        try await publisher.publish(avatarBytes: avatarBytes, priorityConversationId: priorityConversationId)
+    }
+
+    /// Seeds a freshly created or joined conversation with the current profile.
+    func publishMyProfileToConversation(_ conversationId: String) async throws {
+        try await publisher.publishConversation(conversationId)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
