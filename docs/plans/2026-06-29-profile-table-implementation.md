@@ -591,8 +591,12 @@ stored, so it retires cleanly when the repository becomes the source of truth.
 Each checkpoint compiles and has its package tests passing before stacking the
 next. PR 1 is this design doc.
 
-Progress: PR 1 done (this doc + spec + ADR 014/015). PR 2 done (models, migration,
-value types, tests). PR 3 is next.
+Progress (consolidated grouping): foundation done = old PRs 1-3 (plan/spec/ADRs,
+models+migration, stores). Engine done = old PRs 4-6 on `profile-table-engine`,
+built in slices and all dormant: merge (ProfileMerge / ProfileDomainEvent /
+SelfProfileEdit), repository (ProfilesRepository + UnifiedProfile), backfill
+(ProfileBackfill), publisher (ProfilePublisher + ProfilePublishSession). Next:
+activate (inbound seam + lifecycle), then cutover, then drop-columns.
 
 1. `profile-table-plan` - this document. [done]
 2. `profile-table-models-migrations` - DB models (`DBProfile`, `DBProfileAvatar`,
