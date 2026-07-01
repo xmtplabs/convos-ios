@@ -87,38 +87,21 @@ extension ConversationView {
 }
 
 extension ConversationView {
-    /// The shared Scan/Invite toggle pinned above the chat. Shows for every
-    /// eligible conversation (see `showsTopOfConvoInvite`) -- existing convos
-    /// you created plus the "Show an invite code" new-convo flow -- as the
-    /// universal top-of-convo invite UI. Same `InviteCodeBody` the full-screen
-    /// `InviteCodeOverlay` composes, so the toggle + tabs don't fork. The Invite
-    /// tab shows this conversation's QR/invite; the Scan segment's decoded codes
-    /// open a brand-new convo (the new-convo flow's `onScannedInviteCode`, or
-    /// `handleScannedCodeInCurrentConversation` for an existing convo), never
-    /// scanning into this conversation. Lives in this extension to keep the main
-    /// `ConversationView` body within the type-body-length budget.
-    @ViewBuilder
-    var embeddedInviteInset: some View {
-        // Collapsed while the keyboard is up so the tall Scan/Invite panel
-        // never eats the room the composer needs (it otherwise left the input
-        // blocked behind the keyboard on iPhone); it returns on dismiss.
-        if showsTopOfConvoInvite && !isKeyboardVisible {
-            let inviteMode: InviteCodeMode = showsEmbeddedInvite ? .newConvo : .inConvo
-            let scanHandler: (String) -> Void = onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
-            let inviteReady: Bool = !viewModel.invite.isEmpty
-            InviteCodeBody(
-                conversation: viewModel.conversation,
-                encodedURLString: viewModel.invite.inviteURLString,
-                mode: inviteMode,
-                initialSegment: embeddedInviteInitialSegment,
-                isInviteReady: inviteReady,
-                onScannedCode: scanHandler,
-                onShareCompleted: { _, completed, _ in
-                    if completed { onInviteShared?() }
-                }
-            )
-            .padding(.vertical, DesignConstants.Spacing.step4x)
-            .frame(maxWidth: .infinity)
+    /// Inputs the inline Invite/Scan card (`InviteCodeBody`) needs beyond what
+    /// the `.invite` cell derives from `invite`/`conversation`. Kept in this
+    /// extension so the main `ConversationView` body stays within the
+    /// type-body-length budget. The Scan segment's decoded codes open a
+    /// brand-new convo (the new-convo flow's `onScannedInviteCode`, or
+    /// `handleScannedCodeInCurrentConversation` for an existing convo).
+    var inviteScanMode: InviteCodeMode {
+        showsEmbeddedInvite ? .newConvo : .inConvo
+    }
+    var inviteScanScannedHandler: (String) -> Void {
+        onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
+    }
+    var onInviteShareCompletedHandler: (UIActivity.ActivityType?, Bool, Error?) -> Void {
+        { _, completed, _ in
+            if completed { onInviteShared?() }
         }
     }
 }

@@ -51,9 +51,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
-    /// Internal (not private) so `embeddedInviteInset` in the metrics-observers
-    /// extension can collapse the top invite panel while the keyboard is up.
-    @State var isKeyboardVisible: Bool = false
+    /// Tracks keyboard visibility so the pager dots hide and the pager-dots
+    /// inset collapses while the keyboard is up.
+    @State private var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
     /// presented.
@@ -348,6 +348,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
+            showsInviteScanCard: showsTopOfConvoInvite,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: embeddedInviteInitialSegment,
+            onScannedInviteCode: inviteScanScannedHandler,
+            onInviteShareCompleted: onInviteShareCompletedHandler,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -582,7 +587,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )
-        .safeAreaInset(edge: .top) { embeddedInviteInset }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
@@ -842,13 +846,12 @@ extension ConversationView {
         isReadOnly || viewModel.conversation.wasRemoved
     }
 
-    /// Read-only surfaces suppress every leading affordance. When the embedded
-    /// Scan/Invite toggle shows, it hides the message-list-header QR (the
-    /// embedded `InviteCodeBody` shows it instead) while keeping the invite
-    /// affordance.
+    /// Read-only surfaces suppress every leading affordance. The inline
+    /// Invite/Scan card now lives in the index-0 `.invite` cell (branched on
+    /// `showsInviteScanCard`), so the header no longer forces `.hidden` to
+    /// dedupe against a pinned overlay.
     private var effectiveHeaderMode: MessagesHeaderMode {
-        if effectiveReadOnly { return .suppressed }
-        return showsTopOfConvoInvite ? .hidden : headerMode
+        effectiveReadOnly ? .suppressed : headerMode
     }
 }
 

@@ -48,6 +48,12 @@ final class MessagesCollectionViewDataSource: NSObject {
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
+    var showsInviteScanCard: Bool = false
+    var inviteScanConversation: Conversation?
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -174,6 +180,16 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
                 self?.memberContactOverride?(inboxId)
+            },
+            showsInviteScanCard: showsInviteScanCard,
+            inviteScanConversation: inviteScanConversation,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: inviteScanInitialSegment,
+            onScannedInviteCode: { [weak self] code in
+                self?.onScannedInviteCode?(code)
+            },
+            onInviteShareCompleted: { [weak self] activityType, completed, error in
+                self?.onInviteShareCompleted?(activityType, completed, error)
             }
         )
         return CellFactory.createCell(

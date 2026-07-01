@@ -41,4 +41,10 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var htmlAttachmentTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }
+    var showsInviteScanCard: Bool { get set }
+    var inviteScanConversation: Conversation? { get set }
+    var inviteScanMode: InviteCodeMode { get set }
+    var inviteScanInitialSegment: ScanInviteSegment { get set }
+    var onScannedInviteCode: ((String) -> Void)? { get set }
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? { get set }
 }
