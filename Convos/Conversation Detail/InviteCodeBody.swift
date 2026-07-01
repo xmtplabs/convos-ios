@@ -21,6 +21,12 @@ struct InviteCodeBody: View {
     let conversation: Conversation
     let encodedURLString: String
     let mode: InviteCodeMode
+    /// Whether this conversation's invite has hydrated. While false, the encoded
+    /// URL is a bare `.../v2?i=` with no slug, so the Invite tab shows a loading
+    /// placeholder and disables sharing instead of rendering an invalid QR/link.
+    /// Always true for existing conversations; only the new-convo flow has a
+    /// pre-hydration window.
+    let isInviteReady: Bool
     /// Segment selected when the body first appears.
     var initialSegment: ScanInviteSegment = .invite
     /// Fired with the decoded payload from either the live viewfinder or a
@@ -46,6 +52,7 @@ struct InviteCodeBody: View {
         encodedURLString: String,
         mode: InviteCodeMode,
         initialSegment: ScanInviteSegment = .invite,
+        isInviteReady: Bool = true,
         onScannedCode: ((String) -> Void)? = nil,
         onShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil
     ) {
@@ -53,6 +60,7 @@ struct InviteCodeBody: View {
         self.encodedURLString = encodedURLString
         self.mode = mode
         self.initialSegment = initialSegment
+        self.isInviteReady = isInviteReady
         self.onScannedCode = onScannedCode
         self.onShareCompleted = onShareCompleted
         _selection = State(initialValue: initialSegment)
@@ -137,25 +145,30 @@ struct InviteCodeBody: View {
         return ZStack {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge)
                 .fill(DesignConstants.Colors.fillSubtle)
-            if let qrImage {
-                Image(uiImage: qrImage)
-                    .resizable()
-                    .interpolation(.none)
-                    .aspectRatio(1.0, contentMode: .fit)
-                    .frame(width: qrSize, height: qrSize)
-                    .mask(qrCenterMask(holeDiameter: centerHoleDiameter))
-                    .transition(.opacity)
+            if isInviteReady {
+                if let qrImage {
+                    Image(uiImage: qrImage)
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(1.0, contentMode: .fit)
+                        .frame(width: qrSize, height: qrSize)
+                        .mask(qrCenterMask(holeDiameter: centerHoleDiameter))
+                        .transition(.opacity)
+                }
+                ConversationAvatarView(
+                    conversation: conversation,
+                    conversationImage: conversationImage,
+                    size: centerHoleDiameter
+                )
+                .frame(width: centerHoleDiameter, height: centerHoleDiameter)
+                .clipShape(.circle)
+            } else {
+                ProgressView()
             }
-            ConversationAvatarView(
-                conversation: conversation,
-                conversationImage: conversationImage,
-                size: centerHoleDiameter
-            )
-            .frame(width: centerHoleDiameter, height: centerHoleDiameter)
-            .clipShape(.circle)
         }
         .frame(width: cardSize, height: cardSize)
         .task(id: qrTaskKey) {
+            guard isInviteReady else { return }
             await regenerateQR(size: qrSize)
         }
         .accessibilityElement()
@@ -215,6 +228,7 @@ struct InviteCodeBody: View {
                 TileLabel(icon: "square.and.arrow.up", title: "Share invite link")
             }
             .buttonStyle(.plain)
+            .disabled(!isInviteReady)
             .accessibilityIdentifier("share-invite-link-button")
         case .scan:
             screenshotPickerButton

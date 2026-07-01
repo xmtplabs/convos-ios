@@ -105,11 +105,13 @@ extension ConversationView {
         if showsTopOfConvoInvite && !isKeyboardVisible {
             let inviteMode: InviteCodeMode = showsEmbeddedInvite ? .newConvo : .inConvo
             let scanHandler: (String) -> Void = onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
+            let inviteReady: Bool = !viewModel.invite.isEmpty
             InviteCodeBody(
                 conversation: viewModel.conversation,
                 encodedURLString: viewModel.invite.inviteURLString,
                 mode: inviteMode,
                 initialSegment: embeddedInviteInitialSegment,
+                isInviteReady: inviteReady,
                 onScannedCode: scanHandler,
                 onShareCompleted: { _, completed, _ in
                     if completed { onInviteShared?() }
