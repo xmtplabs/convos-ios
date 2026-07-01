@@ -189,31 +189,17 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
     )
 
-    private lazy var profileMemberMirror: ProfileMemberMirror = ProfileMemberMirror(
-        databaseReader: databaseReader,
-        profileStore: profileStore,
-        selfProfileStore: selfProfileStore,
-        selfInboxIdProvider: { [sessionStateManager] in
-            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
-        }
-    )
-
-    private lazy var profileShadowComparator: ProfileShadowComparator = ProfileShadowComparator(
-        databaseReader: databaseReader,
-        profileStore: profileStore
-    )
-
-    /// Canonical identity source. Dormant until the cutover - nothing renders
-    /// from it yet.
+    /// Canonical identity source. Inbound writes land here directly via
+    /// `ProfileInboundApplier`; reads are flipped onto it at the cutover.
     func profilesRepository() -> ProfilesRepository {
         sharedProfilesRepository
     }
 
-    /// Seeds the canonical stores from legacy `memberProfile` (one-time
-    /// backfill), warms the repository cache, and starts mirroring ongoing
-    /// `memberProfile` writes. Self-guards on inbox-ready, so it is safe to call
-    /// early. The new tables stay dormant until the cutover.
-    func startProfileMirroring() async {
+    /// One-time backfill of the canonical stores from any legacy `memberProfile`
+    /// rows that predate the direct inbound seam, then warms the repository cache
+    /// and attaches the durable publish session. Self-guards on inbox-ready, so
+    /// it is safe to call early.
+    func startProfileServices() async {
         if let selfInboxId = (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId {
             do {
                 try await ProfileBackfill(
@@ -233,14 +219,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                 databaseReader: databaseReader
             )
         )
-        await profileMemberMirror.start()
-        await profileShadowComparator.start()
     }
 
-    func stopProfileMirroring() async {
+    func stopProfileServices() async {
         await sharedProfilesRepository.unbind()
-        await profileMemberMirror.stop()
-        await profileShadowComparator.stop()
     }
 
     // MARK: New Conversation

@@ -1090,8 +1090,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let conversationId = conversation.id
             let encryptionKey = try? conversation.imageEncryptionKey
 
-            var latestUpdates: [String: ProfileUpdate] = [:]
-            var latestSnapshot: ProfileSnapshot?
+            var latestUpdates: [String: (update: ProfileUpdate, sentAt: Date)] = [:]
+            var latestSnapshot: (snapshot: ProfileSnapshot, sentAt: Date)?
 
             for message in messages {
                 guard let contentType = try? message.encodedContent.type else { continue }
@@ -1100,9 +1100,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                     guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
                     let inboxId = message.senderInboxId
                     guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
-                    latestUpdates[inboxId] = update
+                    latestUpdates[inboxId] = (update, message.sentAt)
                 } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
-                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                    guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { continue }
+                    latestSnapshot = (snapshot, message.sentAt)
                 }
             }
 
@@ -1110,104 +1111,56 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let resolvedSnapshot = latestSnapshot
 
             try await databaseWriter.write { db in
-                for (inboxId, update) in resolvedUpdates {
-                    let profileMetadata = update.profileMetadata
-                    try Self.applyProfileData(
-                        db: db, conversationId: conversationId, inboxId: inboxId,
-                        name: update.hasName ? update.name : nil,
-                        encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
-                        memberKind: update.memberKind.dbMemberKind,
-                        metadata: profileMetadata.isEmpty ? nil : profileMetadata,
+                let selfInboxId = try DBInbox.currentInboxId(db)
+                for (inboxId, entry) in resolvedUpdates {
+                    let metadata = entry.update.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
+                        conversationId: conversationId,
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileUpdate,
+                            name: entry.update.hasName ? entry.update.name : nil,
+                            avatar: .fillIfPresent(entry.update.hasEncryptedImage ? entry.update.encryptedImage : nil),
+                            memberKind: entry.update.memberKind.dbMemberKind,
+                            metadata: metadata.isEmpty ? nil : metadata,
+                            receivedAt: entry.sentAt
+                        ),
+                        selfInboxId: selfInboxId,
                         fallbackEncryptionKey: encryptionKey
                     )
                 }
 
-                if let snapshot = resolvedSnapshot {
-                    for memberProfile in snapshot.profiles {
+                if let resolvedSnapshot {
+                    for memberProfile in resolvedSnapshot.snapshot.profiles {
                         let inboxId = memberProfile.inboxIdString
                         guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
-
-                        let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-                        guard existing?.name == nil, existing?.avatar == nil else { continue }
-
-                        let snapshotMetadata = memberProfile.profileMetadata
-                        try Self.applyProfileData(
-                            db: db, conversationId: conversationId, inboxId: inboxId,
-                            name: memberProfile.hasName ? memberProfile.name : nil,
-                            encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
-                            memberKind: memberProfile.memberKind.dbMemberKind,
-                            metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
+                        let metadata = memberProfile.profileMetadata
+                        try ProfileInboundApplier.apply(
+                            db: db,
+                            conversationId: conversationId,
+                            event: ProfileInboundApplier.Incoming(
+                                inboxId: inboxId,
+                                source: .profileSnapshot,
+                                name: memberProfile.hasName ? memberProfile.name : nil,
+                                avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                                memberKind: memberProfile.memberKind.dbMemberKind,
+                                metadata: metadata.isEmpty ? nil : metadata,
+                                receivedAt: resolvedSnapshot.sentAt
+                            ),
+                            selfInboxId: selfInboxId,
                             fallbackEncryptionKey: encryptionKey
                         )
                     }
                 }
             }
 
-            let profileCount = latestUpdates.count + (latestSnapshot?.profiles.count ?? 0)
+            let profileCount = latestUpdates.count + (latestSnapshot?.snapshot.profiles.count ?? 0)
             if profileCount > 0 {
                 Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
             }
         } catch {
             Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
-        }
-    }
-
-    private static func applyProfileData( // swiftlint:disable:this function_parameter_count
-        db: Database,
-        conversationId: String,
-        inboxId: String,
-        name: String?,
-        encryptedImage: EncryptedProfileImageRef?,
-        memberKind: DBMemberKind?,
-        metadata: ProfileMetadata? = nil,
-        fallbackEncryptionKey: Data?
-    ) throws {
-        let member = DBMember(inboxId: inboxId)
-        try member.save(db)
-
-        var profile = try DBMemberProfile.fetchOne(
-            db, conversationId: conversationId, inboxId: inboxId
-        ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
-
-        // Never clear an existing name with a name-less/blank update. This is
-        // the catch-up/history apply path (cold launch, reconnect, conversation
-        // open, backfill) (see DBMemberProfile.withInboundName).
-        profile = profile.withInboundName(name)
-
-        if let image = encryptedImage, image.isValid {
-            profile = profile.with(
-                avatar: image.url, salt: image.salt, nonce: image.nonce,
-                key: profile.avatarKey ?? fallbackEncryptionKey
-            )
-        }
-
-        if let metadata, !metadata.isEmpty {
-            profile = profile.with(metadata: metadata)
-        }
-
-        let priorMemberKind = profile.memberKind
-        if let memberKind {
-            profile = profile.with(memberKind: memberKind)
-
-            if memberKind == .agent {
-                let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                if verification.isVerified {
-                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                }
-            }
-        }
-
-        if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-           !profile.agentVerification.isVerified {
-            profile = profile.with(memberKind: priorMemberKind)
-        }
-
-        try profile.save(db)
-
-        if profile.agentVerification.isConvosAgent,
-           let conversation = try DBConversation.fetchOne(db, id: conversationId),
-           !conversation.hasHadVerifiedAgent {
-            try conversation.with(hasHadVerifiedAgent: true).save(db)
         }
     }
 

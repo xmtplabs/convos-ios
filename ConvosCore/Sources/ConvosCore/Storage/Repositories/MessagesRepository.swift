@@ -408,16 +408,26 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }()
 
     static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
-        let rows = try DBMemberProfile
-            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+        let rows = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
+                DBConversationMember.Columns.role,
+                DBConversationMember.Columns.createdAt,
+            ])
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
+            .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
         var result: [String: MemberProfileInfo] = [:]
         for row in rows {
             result[row.inboxId] = MemberProfileInfo(
                 inboxId: row.inboxId,
                 conversationId: conversationId,
-                name: row.name,
-                avatar: row.avatar,
+                name: row.profile?.name,
+                avatar: row.avatarSlot?.url,
                 isAgent: row.isAgent,
                 agentVerification: row.agentVerification
             )
@@ -787,24 +797,13 @@ struct MemberProfileCache {
 
     init(
         activeProfiles: [DBConversationMemberProfileWithRole],
-        allProfiles: [DBMemberProfile],
         currentInboxId: String
     ) {
         var map: [String: ConversationMember] = [:]
-        map.reserveCapacity(max(activeProfiles.count, allProfiles.count))
+        map.reserveCapacity(activeProfiles.count)
 
         for profile in activeProfiles {
-            map[profile.memberProfile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
-        }
-
-        for profile in allProfiles where map[profile.inboxId] == nil {
-            map[profile.inboxId] = ConversationMember(
-                profile: profile.hydrateProfile(),
-                role: .member,
-                isCurrentUser: profile.inboxId == currentInboxId,
-                isAgent: profile.isAgent,
-                agentVerification: profile.agentVerification
-            )
+            map[profile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
         }
 
         profilesByInboxId = map
@@ -848,7 +847,8 @@ fileprivate extension Database {
                 optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([DBConversationMember.Columns.role])
-                    .including(optional: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
             )
             .including(required: DBConversation.localState)
             .including(optional: DBConversation.agentBuilderSummary)
@@ -856,11 +856,14 @@ fileprivate extension Database {
                 all: DBConversation._members
                     .forKey("conversationMembers")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
@@ -869,7 +872,8 @@ fileprivate extension Database {
 }
 
 private struct LightweightCreatorDetails: Codable, FetchableRecord, Hashable {
-    let memberProfile: DBMemberProfile?
+    let profile: DBProfile?
+    let avatarSlot: DBProfileAvatar?
     let role: MemberRole
 }
 
@@ -887,15 +891,21 @@ private extension LightweightConversationDetails {
             $0.hydrateConversationMember(currentInboxId: currentInboxId)
         }
         let creator: ConversationMember
-        if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
-            let hydratedProfile = profile.hydrateProfile()
-            let isAgent = profile.isAgent
+        if let creatorDetails = conversationCreator {
+            let hydratedProfile = Profile.from(
+                profile: creatorDetails.profile,
+                avatar: creatorDetails.avatarSlot,
+                inboxId: conversation.creatorId,
+                conversationId: conversation.id
+            )
+            let isAgent = creatorDetails.profile?.memberKind?.isAgent ?? false
+            let agentVerification = creatorDetails.profile?.memberKind?.agentVerification ?? .unverified
             creator = ConversationMember(
                 profile: hydratedProfile,
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == currentInboxId,
+                isCurrentUser: conversation.creatorId == currentInboxId,
                 isAgent: isAgent,
-                agentVerification: profile.agentVerification
+                agentVerification: agentVerification
             )
         } else {
             creator = ConversationMember(
@@ -975,21 +985,19 @@ fileprivate extension Database {
         let activeMemberProfiles = try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
             ])
-            .including(required: DBConversationMember.memberProfile)
-            .including(optional: DBConversationMember.inviterProfile)
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
-            .fetchAll(self)
-
-        let historicalMemberProfiles = try DBMemberProfile
-            .filter(DBMemberProfile.Columns.conversationId == conversationId)
             .fetchAll(self)
 
         let memberProfileCache = MemberProfileCache(
             activeProfiles: activeMemberProfiles,
-            allProfiles: historicalMemberProfiles,
             currentInboxId: currentInboxId
         )
 

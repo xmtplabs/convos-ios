@@ -12,10 +12,12 @@ import GRDB
 /// and a value already set by a real `profileUpdate` is never downgraded.
 ///
 /// The current user's own row is the exception: the self profile has no source
-/// column and, until the cutover, the legacy `memberProfile` is its sole author,
-/// so the self row is upserted (not seed-once) to reflect renames on re-run.
+/// column, so the self row is upserted (not seed-once) to reflect renames when
+/// the backfill is re-run.
 ///
-/// Also re-run on every `memberProfile` change via `ProfileMemberMirror`.
+/// Runs once at startup. Inbound profile events no longer flow through here -
+/// they write the canonical stores directly via `ProfileInboundApplier` - so
+/// this only migrates rows that predate the direct seam.
 struct ProfileBackfill {
     private let databaseReader: any DatabaseReader
     private let profileStore: any ProfileStoreProtocol
@@ -46,9 +48,8 @@ struct ProfileBackfill {
     }
 
     /// Mirrors the given legacy rows into the canonical stores. Idempotent: a
-    /// write only happens when the merged value differs from what's stored, so
-    /// this can be re-run on every `memberProfile` change (see
-    /// `ProfileMemberMirror`) without churning writes for unchanged rows.
+    /// write only happens when the merged value differs from what's stored, so a
+    /// re-run does not churn writes for unchanged rows.
     func mirror(_ rows: [DBMemberProfile]) async throws {
         guard !rows.isEmpty else { return }
 

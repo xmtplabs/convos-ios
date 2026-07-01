@@ -350,17 +350,29 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -496,9 +508,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
@@ -514,9 +532,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: MessageSenderOnly.self)
                     .fetchAll(db)
@@ -575,17 +599,29 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -594,11 +630,14 @@ struct MessagesRepositoryBenchmarkTests {
                 _ = try DBConversationMember
                     .filter(DBConversationMember.Columns.conversationId == conversationId)
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
                     .asRequest(of: DBConversationMemberProfileWithRole.self)
                     .fetchAll(db)
                 let t2 = CFAbsoluteTimeGetCurrent()
@@ -611,9 +650,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(all: DBMessage.reactions)
                     .including(optional: DBMessage.sourceMessage)
@@ -630,9 +675,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)

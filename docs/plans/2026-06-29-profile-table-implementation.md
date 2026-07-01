@@ -633,7 +633,7 @@ Key deviations from the sketch below, all deliberate:
    `ProfileShadowComparator`: logs where new `DBProfile` identity disagrees with
    the legacy `contact` table, per inbox. Read-only; lands early so it bakes on
    real data before the flip.
-2. **`unified profile - repository read + write (live)`** [in progress] -
+2. **`unified profile - repository read + write (live)`** [done] -
    reactive read publishers, keep the cache live via `ValueObservation` on the
    profile stores (subsumes the cleaner), fix self-profile staleness (mirror
    upserts self, not seed-once), and bind the publisher + `publishMyProfile`.
@@ -651,15 +651,86 @@ Key deviations from the sketch below, all deliberate:
      the self row instead of seeding once, guarded by a content diff, so a legacy
      rename reflects on re-run while a blank legacy name never erases an existing
      value.
-3. **`unified profile - cutover (read from repository)`** [risk gate] - flip
-   ViewModels/Views to the repository + `ConversationDisplay` helpers, route
-   self-edits through `publishMyProfile`, delete `memberContactOverride` /
-   `Profile.overlaying`, behind a feature flag. Also does the direct inbound
-   `apply()` seam + removes the mirror, and deletes `ProfileSyncCoordinator` /
-   dead paths. Simulator verification; ships alone.
-4. **`unified profile - drop legacy memberProfile columns`** [risk gate] - gated
-   migration, a release after the cutover is live so every upgrader has run the
-   backfill.
+3. **`unified profile - cutover (hard, no flag)`** [risk gate, next] - single
+   all-at-once PR matching Android's shape (no feature flag, no mirror). With
+   near-zero users we accept Android's stated backfill-must-complete risk and
+   fold the destructive drop in.
+
+   Decision (2026-06-30): deduced from `convos-client` that Android shipped a
+   hard cutover - `ProfileBackfill.run()` runs unconditionally at `Core.start()`
+   before `warmUp`, `StreamProcessor` writes only the new tables via
+   `profilesRepository.apply(...)`, backfill `deleteAll()`s `member_profile`, and
+   there is no feature flag. Android deferred only the physical table drop (still
+   present at their v30). We go further and fold the drop in, because no user has
+   run an older backfill, so there is no upgrader-rollback path to preserve.
+
+   Scope (by slice):
+   - [done] Direct inbound seam: all three inbound paths (`StreamProcessor`,
+     the NSE extension, `ConversationWriter` history) write the canonical stores
+     via a shared, in-transaction `ProfileInboundApplier` instead of
+     `DBMemberProfile`. Reuses `ProfileMerge`; preserves agent attestation via a
+     transient probe; prior-verified is now per-inbox; history now carries each
+     message's `sentAt`; inbound no longer mirrors to `contact`. Unit-tested
+     (attestation left to Docker integration).
+   - [done] Delete `ProfileMemberMirror` + `ProfileShadowComparator` and their
+     wiring; `startProfileMirroring`/`stopProfileMirroring` renamed to
+     `startProfileServices`/`stopProfileServices` (backfill + warmUp + publisher
+     bind only - no ongoing mirror).
+   - [done] Flip message/member rendering: rerouted the choke point
+     `DBConversationMemberProfileWithRole` (+ `DBConversation`/`DBMessage`
+     association chains, `fetchMemberProfiles`, `MemberProfileCache`,
+     `LightweightCreatorDetails`) to read `profile` + `profileAvatar` via new
+     `DBConversationMember.profile`/`avatarSlot`/`inviterProfileIdentity`
+     associations. Added `Profile.from(profile:avatar:inboxId:conversationId:)`.
+     Joins are now `.including(optional:)` so members without a profile row still
+     render. Fixed `IncomingMessageWriter.bootstrapSenderProfile` (trusted-sender
+     agent gate) to read the canonical `profile` table. `memberContactOverride`
+     stays on `contact` (it's the contacts-feature name override, orthogonal).
+     Behavior deltas: departed/historical member fallback dropped (renders
+     `.empty` placeholder); creator uses real role not forced `.superAdmin`;
+     `imageSourceContentDigest` is nil (minor avatar-cache-continuity loss).
+   - [done] Rerouted the remaining `DBMemberProfile` readers that hit an empty
+     table: NSE notification names (`MessagingService+PushNotifications`
+     `isMemberAgent` / group-title builder / `notificationMemberDisplayName`),
+     outgoing `ProfileSnapshotBuilder` (new `DBProfile.snapshotMemberProfile`),
+     `AgentVerificationWriter` (per-inbox now; marks `hasHadVerifiedAgent` across
+     all the agent's conversations), and the `StreamProcessor` display-name
+     fallback. `EncryptedImagePrefetcher` needed no change - its input is
+     transient `DBMemberProfile`s built from XMTP group metadata, not the DB
+     table. Also fixed `IncomingMessageWriter.bootstrapSenderProfile`.
+   - [done] `cv/unified-profile-cutover` ends here. Everyone's identity now
+     reads and writes through the canonical tables. `member_profile` lingers only
+     as vestigial local bookkeeping for the current user's own edits (nothing
+     reads it), so self-editing keeps working and self identity still propagates
+     to peers via `MyProfileWriter`'s ProfileUpdate sends.
+
+### Follow-up PR: global-only self profile + drop `member_profile`
+
+Product direction (2026-07-01): drop per-conversation self editing entirely.
+Going forward the current user has a single global profile, identical across all
+conversations; retain at most a first-install UI to set it. Scope:
+
+- Extend the durable publisher to carry self `metadata` in the outgoing
+  `ProfileUpdate` (today it sends name + avatar only), so metadata self-edits
+  (e.g. `ProfileMetadataWriter`) can route through it.
+- Plumb `ProfilesRepository` into `ConversationStateManager`; replace
+  `scheduleProfileSync` -> `syncFromGlobalProfile` with
+  `publishMyProfileToConversation(conversationId)` (also removes the
+  `ProfileSyncCoordinator` usage, then delete that type).
+- Global save sites (`ProfileSettingsViewModel`, the onboarding save in
+  `ConversationsViewModel`) call `publishMyProfile(displayName:avatarBytes:)`.
+- Delete per-conversation self editing: `MyProfileViewModel` + entry points,
+  `MyProfileWriter` (+ protocol, mock, DI), `syncFromGlobalProfile`. Keep
+  `MyGlobalProfileWriter` / `DBMyProfile` as the global edit-side model.
+- Backfill `deleteAll`s `member_profile` after seeding (Android parity); add the
+  migration dropping the legacy identity columns / table.
+   - Self-edits route through `publishMyProfile` /
+     `publishMyProfileToConversation`; retire the legacy `MyProfileWriter`
+     identity path.
+   - Backfill clears `member_profile` after seeding (Android parity), and a
+     migration drops the legacy identity columns/rows in the same PR.
+   - Delete `ProfileSyncCoordinator` and remaining dead identity-mirroring paths.
+   - Verify on simulator against acceptance criteria 1-7; ships alone.
 
 ---
 

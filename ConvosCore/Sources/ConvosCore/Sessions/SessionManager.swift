@@ -173,12 +173,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             }
 
             // Populate the canonical Profile tables in the background: a one-time
-            // backfill from legacy memberProfile, then mirror ongoing writes.
-            // Self-guards on inbox-ready; the new tables stay dormant (nothing
-            // renders from them) until the cutover.
+            // one-time backfill from any legacy memberProfile rows, warm the
+            // cache, and attach the publish session. Self-guards on inbox-ready;
+            // reads are flipped onto the repository at the cutover.
             Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                await self.loadOrCreateService().startProfileMirroring()
+                await self.loadOrCreateService().startProfileServices()
             }
         }
     }
@@ -546,7 +546,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         if let existing {
             Log.info("Tearing down authorized inbox")
-            await existing.stopProfileMirroring()
+            await existing.stopProfileServices()
             await existing.stopAndDelete()
             await existing.waitForDeletionComplete()
         }
