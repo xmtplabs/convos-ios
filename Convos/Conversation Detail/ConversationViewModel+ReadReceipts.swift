@@ -10,7 +10,6 @@ extension ConversationViewModel {
         isViewingConversation = false
         pendingReadReceiptTask?.cancel()
         pendingReadReceiptTask = nil
-        markInviteSessionEndedIfHosting()
     }
 
     func sendReadReceiptIfNeeded() {
