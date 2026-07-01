@@ -17,6 +17,11 @@ struct ContactsView: View {
     /// without first navigating into a conversation.
     @State private var inviteConversationViewModel: NewConversationViewModel?
     @State private var presentingInviteShareSheet: Bool = false
+    /// Invite link captured when "Send an invite" fires, so the share sheet
+    /// keeps its content after `handleSendInvite` detaches the claimed
+    /// conversation from `inviteConversationViewModel` (the share items can no
+    /// longer be derived from the live VM once it's handed off).
+    @State private var inviteShareURL: String?
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
@@ -356,8 +361,8 @@ struct ContactsView: View {
     }
 
     private var inviteShareItems: [Any] {
-        guard let invite else { return [] }
-        return [invite.inviteURLString]
+        guard let inviteShareURL else { return [] }
+        return [inviteShareURL]
     }
 
     /// Mints the claimed conversation once per appearance of the tab, mirroring
@@ -416,9 +421,22 @@ struct ContactsView: View {
     /// Pops the native share sheet directly with the invite link -- no
     /// intermediate screen, unlike the in-convo flow which routes through the
     /// Scan/Invite screen first.
+    ///
+    /// The claimed convo was minted hidden (deferred visibility), so the link
+    /// the user is about to share points at a row that isn't in the chats list
+    /// and that the empty-convo teardown (`discardUnenteredInviteConversation`)
+    /// would discard on leaving the tab -- breaking the invite the moment the
+    /// invitee tries to join. Commit it visible and detach it from the
+    /// auto-discard slot (as `handleShowInviteCode` does on enter), capturing
+    /// the link first so the share sheet keeps its content, then re-mint a fresh
+    /// claimed convo so the top-three keeps working for the next invite.
     private func handleSendInvite() {
-        guard invite != nil else { return }
+        guard let invite, let sharedViewModel = inviteConversationViewModel else { return }
+        inviteShareURL = invite.inviteURLString
+        inviteConversationViewModel = nil
+        Task { await sharedViewModel.commitConversationVisibility() }
         presentingInviteShareSheet = true
+        claimInviteConversationIfNeeded()
     }
 
     // MARK: - Actions
