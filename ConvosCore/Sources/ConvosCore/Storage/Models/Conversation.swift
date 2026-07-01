@@ -84,6 +84,48 @@ public extension Conversation {
         members.first(where: { $0.profile.variant != nil })?.profile.variant
     }
 
+    /// Copy of this conversation with `leftHostedInviteSession` replaced.
+    /// Used to optimistically end a hosted invite session in memory while the
+    /// persisting GRDB write is still in flight, so an instant back-out and
+    /// re-entry reads the ended state instead of flashing the inline card.
+    func withLeftHostedInviteSession(_ ended: Bool) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: members,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: ended,
+            wasRemoved: wasRemoved,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
+    }
+
     /// Copy of this conversation with `members` replaced. Used by the
     /// optimistic contacts-picker flows to overlay synthetic members onto
     /// a DB-emitted conversation so the chat header keeps rendering the

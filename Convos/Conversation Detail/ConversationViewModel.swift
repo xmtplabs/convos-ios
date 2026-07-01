@@ -3591,6 +3591,13 @@ extension ConversationViewModel {
         let convo = conversation
         guard convo.creator.isCurrentUser, !convo.isDraft, !convo.leftHostedInviteSession else { return }
         let conversationId = convo.id
+        // Flip the in-memory conversation synchronously before the async
+        // persist: an instant back-out and re-entry otherwise builds the next
+        // detail view model from the stale in-memory row and flashes the big
+        // inline card until the GRDB write round-trips. The caller mirrors
+        // this copy into the conversations list (see
+        // `ConversationsViewModel.endHostedInviteSessionOnPop`).
+        conversation = convo.withLeftHostedInviteSession(true)
         // Capture the writer and id locally so the durability-critical persist
         // still lands even if this view model is deallocated during the pop
         // (ConversationsViewModel releases it synchronously when the selection

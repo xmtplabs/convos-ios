@@ -104,7 +104,7 @@ struct ConversationsView: View {
                 // active invite session should end so the inline card collapses
                 // to the regular top cell on re-entry.
                 if newValue == nil {
-                    viewModel.selectedConversationViewModel?.markInviteSessionEndedIfHosting()
+                    viewModel.endHostedInviteSessionOnPop()
                 }
                 viewModel.selectedConversationId = newValue?.conversation.id
             }

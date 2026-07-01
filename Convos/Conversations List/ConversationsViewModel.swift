@@ -716,6 +716,20 @@ final class ConversationsViewModel {
         }
     }
 
+    /// Ends the selected host conversation's invite session on a real
+    /// pop-to-home and mirrors the flipped flag into the in-memory list.
+    /// The persist is async (GRDB); without the mirror, an instant re-entry
+    /// builds the next detail view model from the stale list row and the big
+    /// inline Invite/Scan card flashes until the write round-trips.
+    func endHostedInviteSessionOnPop() {
+        guard let detailViewModel = selectedConversationViewModel else { return }
+        detailViewModel.markInviteSessionEndedIfHosting()
+        let endedConversation = detailViewModel.conversation
+        guard endedConversation.leftHostedInviteSession,
+              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
+        conversations[index] = endedConversation
+    }
+
     private func markConversationAsRead(_ conversation: Conversation) {
         let conversationId = conversation.id
 
