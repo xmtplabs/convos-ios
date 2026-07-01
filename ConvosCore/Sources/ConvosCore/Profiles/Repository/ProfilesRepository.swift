@@ -18,13 +18,13 @@ actor ProfilesRepository {
     private var cachedSelf: DBSelfProfile?
     private var warmedUp: Bool = false
 
-    private let changesSubject: PassthroughSubject<String, Never> = .init()
+    private let changesRelay: ProfileChangesRelay = .init()
 
     /// Emits the `inboxId` whose identity or avatar changed. Repos and read
     /// models subscribe to invalidate; the reactive per-inbox publishers are
     /// added at the cutover when the ViewModels need them.
     nonisolated var profileChanges: AnyPublisher<String, Never> {
-        changesSubject.eraseToAnyPublisher()
+        changesRelay.subject.eraseToAnyPublisher()
     }
 
     init(
@@ -128,7 +128,7 @@ actor ProfilesRepository {
         }
 
         if changed {
-            changesSubject.send(event.inboxId)
+            changesRelay.subject.send(event.inboxId)
         }
     }
 
@@ -139,7 +139,7 @@ actor ProfilesRepository {
         let updated = edit.applied(to: existing, updatedAt: Date())
         try await selfProfileStore.save(updated)
         cachedSelf = updated
-        changesSubject.send(selfInboxId)
+        changesRelay.subject.send(selfInboxId)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
@@ -154,4 +154,12 @@ actor ProfilesRepository {
             Log.error("ProfilesRepository.purgeConversationAvatars failed: \(error)")
         }
     }
+}
+
+/// Holds the change subject so the actor can vend it from a nonisolated context.
+/// `PassthroughSubject` is not `Sendable`, so it cannot be an actor-isolated
+/// `let` read from `nonisolated`. This box is safe: the subject is only sent to
+/// from inside the actor and only read (to build the publisher) via `subject`.
+private final class ProfileChangesRelay: @unchecked Sendable {
+    let subject: PassthroughSubject<String, Never> = .init()
 }
