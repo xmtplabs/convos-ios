@@ -263,8 +263,9 @@ struct AttachmentShareLink: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var payload: AttachmentSharePayload?
     /// A correctly `.html`-extensioned copy of the raw file, armed before the
-    /// slow render so the immediate-share fallback never hands over a
-    /// wrong-extension file.
+    /// slow render. The immediate (pre-resolve) HTML share stays disabled until
+    /// this lands, so a share is never armed with the raw cached file, whose
+    /// on-disk extension may be missing or non-html.
     @State private var immediateURL: URL?
 
     static func canShare(_ attachment: HydratedAttachment) -> Bool {
@@ -314,22 +315,31 @@ struct AttachmentShareLink: View {
                 })
             }
         } else if attachment.isHTMLFile {
-            // The HTML file already exists, so arm sharing immediately rather
-            // than dimming while the preview thumbnail and title-named copy
-            // resolve. Prefer the correctly `.html`-extensioned copy; fall back
-            // to the raw file only until that fast copy lands, so the share is
-            // never unavailable. The richer payload (title-named file + preview
-            // image) swaps in once `resolve` finishes.
-            let immediateItem: URL = immediateURL ?? fileURL
-            ShareLink(item: immediateItem, preview: SharePreview(fallbackTitle ?? "Attachment")) {
-                Image(systemName: "square.and.arrow.up")
-            }
+            htmlImmediateShareLink
         } else {
             ShareLink(items: [fileURL], preview: { (_: URL) in
                 SharePreview(attachment.filename ?? fallbackTitle ?? "Attachment")
             }, label: {
                 Image(systemName: "square.and.arrow.up")
             })
+        }
+    }
+
+    /// The pre-resolve HTML share affordance. It only arms once the correctly
+    /// `.html`-extensioned copy exists (`immediateURL`); until then it shows a
+    /// dimmed, non-tappable placeholder rather than sharing the raw cached
+    /// file, whose on-disk extension may be missing or non-html and would be
+    /// delivered as plain text. The copy is fast (no render), so this state is
+    /// brief, and the richer payload swaps in once `resolve` finishes.
+    @ViewBuilder
+    private var htmlImmediateShareLink: some View {
+        if let immediateURL {
+            ShareLink(item: immediateURL, preview: SharePreview(fallbackTitle ?? "Attachment")) {
+                Image(systemName: "square.and.arrow.up")
+            }
+        } else {
+            Image(systemName: "square.and.arrow.up")
+                .opacity(0.4)
         }
     }
 }
