@@ -45,6 +45,26 @@ struct ProfileBackfill {
             try DBMemberProfile.fetchAll(db)
         }
         try await mirror(rows)
+        try await seedSelfFromGlobalProfile()
+    }
+
+    /// Seeds the canonical self profile from the legacy global profile
+    /// (`DBMyProfile`), where an existing user's name/metadata lives when they
+    /// never had a self `member_profile` row. Fill-only: it never overwrites a
+    /// value already authored through the canonical path (`publishMyProfile`).
+    private func seedSelfFromGlobalProfile() async throws {
+        let global = try await databaseReader.read { db in
+            try DBMyProfile.filter(DBMyProfile.Columns.inboxId == selfInboxId).fetchOne(db)
+        }
+        guard let global else { return }
+        let existing = try await selfProfileStore.load()
+        let mergedName = ProfileMerge.nonBlank(existing?.name) ?? ProfileMerge.nonBlank(global.name)
+        let mergedMetadata = existing?.metadata ?? global.metadata
+        guard mergedName != nil || mergedMetadata != nil else { return }
+        guard existing == nil || mergedName != existing?.name || mergedMetadata != existing?.metadata else { return }
+        try await selfProfileStore.save(
+            DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: existing?.updatedAt ?? floor)
+        )
     }
 
     /// Mirrors the given legacy rows into the canonical stores. Idempotent: a
