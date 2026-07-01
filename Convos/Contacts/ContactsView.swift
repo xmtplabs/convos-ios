@@ -280,7 +280,15 @@ struct ContactsView: View {
         var showInviteCode: (() -> Void)?
         var sendInvite: (() -> Void)?
         if hasInvite {
+            // "Show an invite code" enters the claimed convo even before the
+            // invite hydrates (embedded QR shows a placeholder), so it stays on
+            // the sticky flag. "Send an invite" pops the share sheet with the
+            // invite URL and is a no-op until a real invite exists, so gate it on
+            // `invite != nil` to avoid a dead tap during the re-mint rehydration
+            // window.
             showInviteCode = handleShowInviteCode
+        }
+        if invite != nil {
             sendInvite = handleSendInvite
         }
         guard showInviteCode != nil || sendInvite != nil || onMakeAgent != nil else { return nil }
