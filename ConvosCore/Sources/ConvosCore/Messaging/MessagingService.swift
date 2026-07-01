@@ -162,6 +162,66 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         MyGlobalProfileRepository(sessionStateManager: sessionStateManager, databaseReader: databaseReader)
     }
 
+    // MARK: Profiles (canonical Profile table, transition)
+
+    private lazy var profileStore: any ProfileStoreProtocol = GRDBProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var selfProfileStore: any SelfProfileStoreProtocol = GRDBSelfProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
+        profileStore: profileStore,
+        selfProfileStore: selfProfileStore,
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    private lazy var profileMemberMirror: ProfileMemberMirror = ProfileMemberMirror(
+        databaseReader: databaseReader,
+        profileStore: profileStore,
+        selfProfileStore: selfProfileStore,
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    /// Canonical identity source. Dormant until the cutover - nothing renders
+    /// from it yet.
+    func profilesRepository() -> ProfilesRepository {
+        sharedProfilesRepository
+    }
+
+    /// Seeds the canonical stores from legacy `memberProfile` (one-time
+    /// backfill), warms the repository cache, and starts mirroring ongoing
+    /// `memberProfile` writes. Self-guards on inbox-ready, so it is safe to call
+    /// early. The new tables stay dormant until the cutover.
+    func startProfileMirroring() async {
+        if let selfInboxId = (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId {
+            do {
+                try await ProfileBackfill(
+                    databaseReader: databaseReader,
+                    profileStore: profileStore,
+                    selfProfileStore: selfProfileStore,
+                    selfInboxId: selfInboxId
+                ).run()
+            } catch {
+                Log.error("Profile backfill failed: \(error)")
+            }
+        }
+        await sharedProfilesRepository.warmUp()
+        await profileMemberMirror.start()
+    }
+
+    func stopProfileMirroring() async {
+        await profileMemberMirror.stop()
+    }
+
     // MARK: New Conversation
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {

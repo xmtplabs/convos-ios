@@ -106,6 +106,34 @@ struct ProfileBackfillTests {
         #expect(alice?.profileSource == .profileUpdate)
     }
 
+    @Test("mirror(_:) populates the stores from provided rows")
+    func mirrorFromRows() async throws {
+        let profileStore = InMemoryProfileStore()
+        let selfStore = InMemorySelfProfileStore()
+        let backfill = ProfileBackfill(databaseReader: try DatabaseQueue(), profileStore: profileStore, selfProfileStore: selfStore, selfInboxId: "me")
+
+        try await backfill.mirror([
+            DBMemberProfile(conversationId: "c1", inboxId: "alice", name: "Alice", avatar: "u", avatarSalt: salt, avatarNonce: nonce, avatarKey: key),
+        ])
+
+        let alice = try await profileStore.identity(inboxId: "alice")
+        #expect(alice?.name == "Alice")
+        let avatar = try await profileStore.avatar(inboxId: "alice", conversationId: "c1")
+        #expect(avatar?.url == "u")
+    }
+
+    @Test("mirror(_:) tracks a changed value on re-run")
+    func mirrorTracksChange() async throws {
+        let profileStore = InMemoryProfileStore()
+        let backfill = ProfileBackfill(databaseReader: try DatabaseQueue(), profileStore: profileStore, selfProfileStore: InMemorySelfProfileStore(), selfInboxId: "me")
+
+        try await backfill.mirror([DBMemberProfile(conversationId: "c1", inboxId: "alice", name: "Alice", avatar: nil)])
+        try await backfill.mirror([DBMemberProfile(conversationId: "c1", inboxId: "alice", name: "Alicia", avatar: nil)])
+
+        let alice = try await profileStore.identity(inboxId: "alice")
+        #expect(alice?.name == "Alicia")
+    }
+
     @Test("does nothing when there are no legacy rows")
     func emptyIsNoop() async throws {
         let queue = try makeMemberProfileQueue()

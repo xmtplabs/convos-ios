@@ -13,7 +13,11 @@ struct ProfilesRepositoryTests {
         selfProfileStore: any SelfProfileStoreProtocol = InMemorySelfProfileStore(),
         selfInboxId: String = "me"
     ) -> ProfilesRepository {
-        ProfilesRepository(profileStore: profileStore, selfProfileStore: selfProfileStore, selfInboxId: selfInboxId)
+        ProfilesRepository(
+            profileStore: profileStore,
+            selfProfileStore: selfProfileStore,
+            selfInboxIdProvider: { selfInboxId }
+        )
     }
 
     private func setAvatar(_ url: String) -> IncomingAvatar {

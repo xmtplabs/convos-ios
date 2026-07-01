@@ -11,11 +11,12 @@ import Foundation
 actor ProfilesRepository {
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
-    private let selfInboxId: String
+    private let selfInboxIdProvider: @Sendable () async -> String?
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
     private var cachedSelf: DBSelfProfile?
+    private var cachedSelfInboxId: String?
     private var warmedUp: Bool = false
 
     private let changesRelay: ProfileChangesRelay = .init()
@@ -27,18 +28,24 @@ actor ProfilesRepository {
         changesRelay.subject.eraseToAnyPublisher()
     }
 
+    /// `selfInboxIdProvider` resolves the current user's inbox id, which becomes
+    /// available asynchronously (after inbox-ready). The repository caches the
+    /// first non-nil result. This lets the DI construct the repository
+    /// synchronously while the inbox id resolves lazily, matching the
+    /// `ConnectionServicesStore` pattern.
     init(
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
-        selfInboxId: String
+        selfInboxIdProvider: @escaping @Sendable () async -> String?
     ) {
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
-        self.selfInboxId = selfInboxId
+        self.selfInboxIdProvider = selfInboxIdProvider
     }
 
     func warmUp() async {
         guard !warmedUp else { return }
+        _ = await resolveSelfInboxId()
         do {
             for identity in try await profileStore.allIdentities() {
                 identities[identity.inboxId] = identity
@@ -51,6 +58,13 @@ actor ProfilesRepository {
         } catch {
             Log.error("ProfilesRepository.warmUp failed: \(error)")
         }
+    }
+
+    private func resolveSelfInboxId() async -> String? {
+        if let cachedSelfInboxId { return cachedSelfInboxId }
+        let resolved = await selfInboxIdProvider()
+        cachedSelfInboxId = resolved
+        return resolved
     }
 
     // MARK: - Reads
@@ -87,7 +101,12 @@ actor ProfilesRepository {
     /// Events authored by the current user are ignored - self identity is held
     /// in `selfProfile`, not `DBProfile`.
     func apply(_ event: ProfileDomainEvent) async {
-        guard event.inboxId != selfInboxId else { return }
+        // Skip the current user's own echoed profile; self identity lives in
+        // `selfProfile`. If the inbox id isn't resolvable yet, process the event
+        // rather than risk dropping another member's data.
+        if let selfId = await resolveSelfInboxId(), event.inboxId == selfId {
+            return
+        }
         var changed = false
 
         let existingIdentity = identities[event.inboxId]
@@ -135,11 +154,14 @@ actor ProfilesRepository {
     // MARK: - Self write
 
     func updateSelfProfile(_ edit: SelfProfileEdit) async throws {
-        let existing = cachedSelf ?? DBSelfProfile(inboxId: selfInboxId, updatedAt: .distantPast)
+        guard let selfId = await resolveSelfInboxId() else {
+            throw ProfilesRepositoryError.selfInboxUnavailable
+        }
+        let existing = cachedSelf ?? DBSelfProfile(inboxId: selfId, updatedAt: .distantPast)
         let updated = edit.applied(to: existing, updatedAt: Date())
         try await selfProfileStore.save(updated)
         cachedSelf = updated
-        changesRelay.subject.send(selfInboxId)
+        changesRelay.subject.send(selfId)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
@@ -162,4 +184,8 @@ actor ProfilesRepository {
 /// from inside the actor and only read (to build the publisher) via `subject`.
 private final class ProfileChangesRelay: @unchecked Sendable {
     let subject: PassthroughSubject<String, Never> = .init()
+}
+
+enum ProfilesRepositoryError: Error {
+    case selfInboxUnavailable
 }
