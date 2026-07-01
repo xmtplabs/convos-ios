@@ -778,9 +778,65 @@ Self-profile consolidation:
   backfill stopgap once done.
 
 Rendering path:
-- [ ] Wire ViewModels/Views to the repository's reactive reads
-  (`profilePublisher` / `selfProfilePublisher`); today rendering flows through the
-  choke-point GRDB reroute and those publishers are unused.
+- [x] One avatar image per person across conversations. Avatars are stored
+  per-conversation (encrypted per group key), but rendering now joins the
+  `profileAvatarLatest` view - the newest `profileAvatar` row per inbox - via the
+  `DBConversationMember.avatarSlot` association (keyed by inboxId), so every
+  surface shows a person's latest avatar consistently. Each avatar row is
+  self-contained (url + salt + nonce + key) and always from a conversation the
+  local user shares with that person, so it decrypts anywhere. This is the
+  pragmatic alternative to the ADR 014 content-digest dedup.
+- [ ] **HIGH-VALUE FOLLOW-UP - wire ALL avatar/identity rendering to the reactive
+  per-inbox path (`profilePublisher` / `selfProfilePublisher`), like the contact
+  photo (`InboxProfileAvatarView`) already does.** Today most rendering flows
+  through the choke-point GRDB snapshot reroute; the reactive publishers are only
+  used by the contact photo. Moving everything onto the reactive per-inbox path
+  makes every surface live-update consistently and lets us delete the
+  snapshot-baked avatar plumbing (`ConversationAvatarView`'s `.cachedImage(for:
+  conversation)` path, the per-conversation avatar baked into the list snapshot,
+  and eventually the `profileAvatarLatest` view once `displayAvatar(for: nil)` is
+  the render path).
+
+  **Known bug this fixes: conversation-list preview photos for multiple DMs with
+  the same person can show stale/mismatched avatars.** Repro: two DMs with the
+  same person; that person updates their photo; only one of the two list preview
+  photos updates (the other lags until you open/close that conversation, which
+  forces a fresh fetch). Root cause: the list preview avatar is baked into the
+  conversation-list snapshot (`Conversation.avatarType = .profile(...)` ->
+  `imageCacheURL`), so a cell only refreshes when the list observation re-fires
+  AND the diffable data source reloads that specific cell - which does not happen
+  reliably when only a member's `profileAvatar` changed and nothing else about the
+  conversation did. Rendering the DM preview via the reactive `profilePublisher`
+  (as `InboxProfileAvatarView` does) decouples it from the list snapshot and makes
+  it live-update, resolving this for free. Not worth a risky one-off patch to the
+  shared `ConversationAvatarView`; fix it as part of this deliberate pass with
+  simulator verification.
+
+Contact / Profile deduplication (`Contact` is now largely redundant with
+`Profile`; identity should always come from the `Profile` DB and listen for
+`Profile` changes):
+- [x] Contact no longer overrides `Profile` name/image. The override entry
+  points are neutered no-ops: `Profile.overlaying(contact:)` returns self,
+  `Contact.memberAwareResolver` / the `.memberContactOverride(_:)` modifier /
+  `memberNameOverride` all yield nil. Contact name/image are effectively unused
+  for rendering (contact is still used for blocking / relationship state).
+- [x] Contact photo renders from the canonical profile. `ContactAvatarView` now
+  delegates to a reactive `InboxProfileAvatarView(inboxId:)` that subscribes to
+  `ProfilesRepository.profilePublisher(inboxId:)` (injected via a
+  `\.profilesRepository` SwiftUI environment key at `MainTabView`) and renders the
+  newest avatar per inbox, sharing the `inboxId`-keyed image cache with the chat
+  surfaces. Required widening `ProfilesRepository.profilePublisher`, `UnifiedProfile`
+  (partial), and `Avatar` (+ `salt`/`nonce`/`key` accessors) to `public`.
+- [ ] Remove the neutered plumbing entirely: delete `Profile+ContactOverlay.swift`
+  (`overlaying`, `liveOverride`, `memberAwareResolver`) and the
+  `memberContactOverride` / `memberNameOverride` environment carriers, and drop
+  the now-dead resolver threading through the message view controller + list
+  cells. Point remaining contact-specific UI (`ContactDetailView` name/subtitle,
+  contact cards) directly at the `Profile` DB (the photo is done above).
+- [ ] Remove the name / image columns from the `contact` table (`displayName`,
+  `avatarURL`, `avatarSalt`, `avatarNonce`, `avatarKey`, `profileEmoji`,
+  agent-verification/template fields) once every contact-specific surface reads
+  from `Profile`. Keep relationship-only state (`addedAt`, block state, etc.).
 
 Then, and only then:
 - [ ] Clear + drop `member_profile` (Android cleared but never dropped; a

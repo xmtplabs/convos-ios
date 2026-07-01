@@ -1,3 +1,4 @@
+import Combine
 import ConvosCore
 import CryptoKit
 import Foundation
@@ -78,14 +79,73 @@ struct ContactAvatarView: View {
     let contact: Contact
 
     var body: some View {
-        AvatarView(
+        InboxProfileAvatarView(
+            inboxId: contact.inboxId,
             fallbackName: contact.resolvedDisplayName,
-            cacheableObject: contact,
-            placeholderImage: nil,
             placeholderEmoji: contact.profileEmoji,
-            placeholderImageName: nil,
             agentVerification: contact.agentVerification ?? .unverified
         )
+    }
+}
+
+/// Avatar keyed by inbox id that renders the canonical avatar from the unified
+/// profile system (newest avatar across every conversation) and stays in sync
+/// with profile changes via `ProfilesRepository.profilePublisher`. Sharing the
+/// `Profile.imageCacheIdentifier == inboxId` key means this shares the
+/// encrypted-image cache with the chat surfaces (message bubbles, members
+/// list), so an update flowing through the repository invalidates once and
+/// every consumer picks up the new image.
+///
+/// When no repository is injected (previews / uninjected subtrees) the view
+/// falls through to the placeholder for the empty profile rather than crashing.
+struct InboxProfileAvatarView: View {
+    let inboxId: String
+    let fallbackName: String
+    let placeholderEmoji: String?
+    let agentVerification: AgentVerification
+
+    @Environment(\.profilesRepository) private var repository: ProfilesRepository?
+    @State private var renderedProfile: Profile?
+
+    var body: some View {
+        let cacheable: Profile = renderedProfile ?? Profile.empty(inboxId: inboxId)
+        AvatarView(
+            fallbackName: fallbackName,
+            cacheableObject: cacheable,
+            placeholderImage: nil,
+            placeholderEmoji: placeholderEmoji,
+            placeholderImageName: nil,
+            agentVerification: agentVerification
+        )
+        .task(id: inboxId) {
+            await observeProfile(for: inboxId)
+        }
+    }
+
+    /// Subscribes to the unified profile for `subscribedInboxId` and maps each
+    /// emission into a `Profile` for the shared avatar cache. Awaiting the
+    /// publisher's async `values` sequence keeps the subscription tied to the
+    /// view's lifetime (cancelled when the task is torn down or `inboxId`
+    /// changes) without the resubscription churn a recomputed `onReceive`
+    /// publisher would cause. No repository (previews) leaves the placeholder.
+    private func observeProfile(for subscribedInboxId: String) async {
+        guard let repository else { return }
+        let stream = repository.profilePublisher(inboxId: subscribedInboxId).values
+        for await unified in stream {
+            let avatar: Avatar? = unified.displayAvatar(for: nil)
+            let profile = Profile(
+                inboxId: unified.inboxId,
+                conversationId: "",
+                name: unified.name,
+                avatar: avatar?.url,
+                avatarSalt: avatar?.salt,
+                avatarNonce: avatar?.nonce,
+                avatarKey: avatar?.key,
+                isAgent: unified.isAgent,
+                metadata: unified.metadata
+            )
+            renderedProfile = profile
+        }
     }
 }
 

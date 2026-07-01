@@ -11,6 +11,7 @@ enum ProfileStoreTestSupport {
             t.column("id", .text).notNull().primaryKey()
         }
         try SharedDatabaseMigrator.createProfileTables(db)
+        try SharedDatabaseMigrator.createProfileAvatarLatestView(db)
     }
 
     static func seedConversations(_ db: Database, ids: [String]) throws {

@@ -13,7 +13,7 @@ import Foundation
 ///
 /// Not wired into rendering yet; introduced ahead of the `ProfilesRepository`
 /// and the avatar surfaces that will consume it.
-enum Avatar: Hashable, Sendable {
+public enum Avatar: Hashable, Sendable {
     case plain(url: String, updatedAt: Date)
     case encrypted(url: String, salt: Data, nonce: Data, key: Data, updatedAt: Date)
 
@@ -36,7 +36,7 @@ enum Avatar: Hashable, Sendable {
         return .plain(url: url, updatedAt: updatedAt)
     }
 
-    var url: String {
+    public var url: String {
         switch self {
         case let .plain(url, _):
             return url
@@ -45,7 +45,38 @@ enum Avatar: Hashable, Sendable {
         }
     }
 
-    var updatedAt: Date {
+    /// AES-256-GCM salt for an encrypted avatar; nil for a plain (bare-URL)
+    /// avatar. Paired with `nonce` and `key`, these feed a `Profile`'s
+    /// `avatarSalt`/`avatarNonce`/`avatarKey` so the shared image cache can
+    /// decrypt the ciphertext at `url`.
+    public var salt: Data? {
+        switch self {
+        case .plain:
+            return nil
+        case let .encrypted(_, salt, _, _, _):
+            return salt
+        }
+    }
+
+    public var nonce: Data? {
+        switch self {
+        case .plain:
+            return nil
+        case let .encrypted(_, _, nonce, _, _):
+            return nonce
+        }
+    }
+
+    public var key: Data? {
+        switch self {
+        case .plain:
+            return nil
+        case let .encrypted(_, _, _, key, _):
+            return key
+        }
+    }
+
+    public var updatedAt: Date {
         switch self {
         case let .plain(_, updatedAt):
             return updatedAt

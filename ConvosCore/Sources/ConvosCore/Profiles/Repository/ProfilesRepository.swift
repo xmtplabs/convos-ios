@@ -61,11 +61,11 @@ public actor ProfilesRepository {
     /// Reactive identity for one inbox, hydrated fresh from the stores via
     /// `ValueObservation`. This is the read path ViewModels subscribe to; it does
     /// not depend on the in-memory cache, so it is always current.
-    nonisolated func profilePublisher(inboxId: String) -> AnyPublisher<UnifiedProfile, Never> {
+    public nonisolated func profilePublisher(inboxId: String) -> AnyPublisher<UnifiedProfile, Never> {
         ValueObservation
             .tracking { db in try Self.fetchProfile(db, inboxId: inboxId) }
             .removeDuplicates()
-            .publisher(in: databaseReader, scheduling: .immediate)
+            .publisher(in: databaseReader)
             .catch { _ in Just(UnifiedProfile.empty(inboxId: inboxId)) }
             .eraseToAnyPublisher()
     }
@@ -80,7 +80,7 @@ public actor ProfilesRepository {
                 return result
             }
             .removeDuplicates()
-            .publisher(in: databaseReader, scheduling: .immediate)
+            .publisher(in: databaseReader)
             .catch { _ in Just([:]) }
             .eraseToAnyPublisher()
     }
@@ -89,7 +89,7 @@ public actor ProfilesRepository {
         ValueObservation
             .tracking { db -> UnifiedProfile? in try Self.fetchSelfProfile(db) }
             .removeDuplicates()
-            .publisher(in: databaseReader, scheduling: .immediate)
+            .publisher(in: databaseReader)
             .catch { _ in Just(nil) }
             .eraseToAnyPublisher()
     }

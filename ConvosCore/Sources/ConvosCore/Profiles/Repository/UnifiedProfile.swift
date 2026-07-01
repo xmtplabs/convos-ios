@@ -7,12 +7,12 @@ import Foundation
 /// Temporary name: `Profile` is still the conversation-scoped presentation type
 /// in use until the cutover. This type replaces it then (renamed to `Profile`
 /// or kept), so `UnifiedProfile` is intentionally transitional.
-struct UnifiedProfile: Identifiable, Hashable, Sendable {
-    var id: String { inboxId }
-    let inboxId: String
-    let name: String?
+public struct UnifiedProfile: Identifiable, Hashable, Sendable {
+    public var id: String { inboxId }
+    public let inboxId: String
+    public let name: String?
     let memberKind: DBMemberKind?
-    let metadata: ProfileMetadata?
+    public let metadata: ProfileMetadata?
     let avatars: [String: Avatar]
     let updatedAt: Date
 
@@ -32,14 +32,14 @@ struct UnifiedProfile: Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    var isAgent: Bool {
+    public var isAgent: Bool {
         memberKind?.isAgent ?? false
     }
 
     /// The avatar to show for a conversation: that conversation's slot if
     /// present, otherwise the most recently updated slot across all
     /// conversations. nil when the person has no (non-cleared) avatar anywhere.
-    func displayAvatar(for conversationId: String?) -> Avatar? {
+    public func displayAvatar(for conversationId: String?) -> Avatar? {
         if let conversationId, let slot = avatars[conversationId] {
             return slot
         }

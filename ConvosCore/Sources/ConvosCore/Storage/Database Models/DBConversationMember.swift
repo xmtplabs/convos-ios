@@ -53,13 +53,13 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         using: ForeignKey([Columns.inboxId], to: [DBProfile.Columns.inboxId])
     )
 
-    static let avatarSlot: HasOneAssociation<DBConversationMember, DBProfileAvatar> = hasOne(
-        DBProfileAvatar.self,
+    // Joins the newest avatar per inbox (the `profileAvatarLatest` view), keyed by
+    // inboxId only, so a person's latest avatar renders consistently across every
+    // conversation rather than each conversation's own per-conversation slot.
+    static let avatarSlot: HasOneAssociation<DBConversationMember, DBProfileAvatarLatest> = hasOne(
+        DBProfileAvatarLatest.self,
         key: "avatarSlot",
-        using: ForeignKey(
-            [Columns.conversationId, Columns.inboxId],
-            to: [DBProfileAvatar.Columns.conversationId, DBProfileAvatar.Columns.inboxId]
-        )
+        using: ForeignKey([Columns.inboxId], to: [DBProfileAvatarLatest.Columns.inboxId])
     )
 
     static let inviterProfileIdentity: BelongsToAssociation<DBConversationMember, DBProfile> = belongsTo(

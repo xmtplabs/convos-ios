@@ -873,7 +873,7 @@ fileprivate extension Database {
 
 private struct LightweightCreatorDetails: Codable, FetchableRecord, Hashable {
     let profile: DBProfile?
-    let avatarSlot: DBProfileAvatar?
+    let avatarSlot: DBProfileAvatarLatest?
     let role: MemberRole
 }
 
@@ -894,7 +894,7 @@ private extension LightweightConversationDetails {
         if let creatorDetails = conversationCreator {
             let hydratedProfile = Profile.from(
                 profile: creatorDetails.profile,
-                avatar: creatorDetails.avatarSlot,
+                avatar: creatorDetails.avatarSlot?.asProfileAvatar,
                 inboxId: conversation.creatorId,
                 conversationId: conversation.id
             )
