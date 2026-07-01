@@ -38,7 +38,6 @@ struct InviteCodeBody: View {
 
     @State private var selection: ScanInviteSegment
     @State private var conversationImage: UIImage?
-    @State private var isShareSheetPresented: Bool = false
     @State private var scannerViewModel: QRScannerViewModel = QRScannerViewModel()
     @State private var selectedScreenshot: PhotosPickerItem?
     @State private var isDecodingScreenshot: Bool = false
@@ -75,11 +74,6 @@ struct InviteCodeBody: View {
         }
         .frame(width: Constant.columnWidth)
         .cachedImage(for: conversation, into: $conversationImage)
-        .shareSheet(
-            isPresented: $isShareSheetPresented,
-            items: [encodedURLString],
-            onCompletion: onShareCompleted
-        )
         .onChange(of: scannerViewModel.scannedCode) { _, newValue in
             handleScannedCode(newValue)
         }
@@ -279,8 +273,33 @@ struct InviteCodeBody: View {
 
     // MARK: - Actions
 
+    /// Presents the native share sheet from the top-most view controller
+    /// rather than a `UIViewControllerRepresentable` background. This body
+    /// renders inside a `UIHostingConfiguration` cell (the inline invite
+    /// card), where view controller representables are unsupported: UIKit
+    /// draws a yellow/red placeholder view behind the card instead of
+    /// hosting the controller.
     private func presentShareSheet() {
-        isShareSheetPresented = true
+        guard let presenter = UIApplication.shared.topMostViewController() else { return }
+        let activityViewController = UIActivityViewController(
+            activityItems: [encodedURLString],
+            applicationActivities: nil
+        )
+        if let popover = activityViewController.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.maxY,
+                width: 0,
+                height: 0
+            )
+            popover.permittedArrowDirections = .up
+        }
+        let onShareCompleted = onShareCompleted
+        activityViewController.completionWithItemsHandler = { activityType, completed, _, error in
+            onShareCompleted?(activityType, completed, error)
+        }
+        presenter.present(activityViewController, animated: true)
     }
 
     private func handleScannedCode(_ code: String?) {
