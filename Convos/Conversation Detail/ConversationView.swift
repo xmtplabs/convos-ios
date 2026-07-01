@@ -65,23 +65,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
-    /// It pins above the chat for every conversation that meets the same
+    /// It shows above the chat for every conversation that meets the same
     /// eligibility the legacy message-list QR header used (you created it, it's
-    /// not locked, it's not full) and only while the conversation is still
-    /// empty, plus the "Show an invite code" new-convo flow. The block hides
-    /// the instant the first real message lands so it never obscures the chat.
-    /// Pure system/membership rows ("X joined") don't count as content, so a
-    /// convo with only join markers keeps showing it. The Agent Builder draft
-    /// (`headerMode == .hidden`) and read-only surfaces opt out. When the toggle
-    /// shows, it owns the QR, so the duplicate message-list-header QR is
-    /// suppressed via `effectiveHeaderMode -> .hidden`.
+    /// not locked, it's not full), for the whole active invite session: from
+    /// first entry, through joins and incoming messages, until the host
+    /// navigates back to home and returns (tracked by the persisted
+    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
+    /// session. The "Show an invite code" new-convo flow shows it
+    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
+    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
+    /// the duplicate message-list-header QR is suppressed via
+    /// `effectiveHeaderMode -> .hidden`.
     var showsTopOfConvoInvite: Bool {
         if showsEmbeddedInvite { return true }
         guard !effectiveReadOnly, headerMode == .standard else { return false }
         let conversation = viewModel.conversation
         guard !conversation.isDraft else { return false }
-        let hasNoRealMessages: Bool = viewModel.messages.countMessages == 0
-        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && hasNoRealMessages
+        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
     }
 
     private func ensureNavigator() {

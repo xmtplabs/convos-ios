@@ -3564,6 +3564,26 @@ extension ConversationViewModel {
     /// of the add-member / add-agent flows rely on. The share overlay is
     /// dismissed so the resulting action (the chat's agent-join status, or
     /// the join sheet) is visible.
+    /// Ends the host's active invite session when the host navigates back to
+    /// home from a hosted conversation, so the inline Invite/Scan card
+    /// collapses to the regular top cell on return. Persisted so the collapse
+    /// survives relaunches. Guarded to host-only, non-draft, and idempotent
+    /// (skips when already ended). SwiftUI does not fire the driving
+    /// `onDisappear` on app backgrounding, so backgrounding never ends the
+    /// session. Mirrors `NewConversationViewModel.persistHidesInviteCardIfNeeded`.
+    func markInviteSessionEndedIfHosting() {
+        let convo = conversation
+        guard convo.creator.isCurrentUser, !convo.isDraft, !convo.leftHostedInviteSession else { return }
+        let conversationId = convo.id
+        Task { [weak self] in
+            do {
+                try await self?.localStateWriter.setLeftHostedInviteSession(true, for: conversationId)
+            } catch {
+                Log.error("Failed to persist leftHostedInviteSession for \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
     func handleScannedCodeInCurrentConversation(_ code: String) {
         presentingShareView = false
         // Dismissing directly bypasses the Presenter binding setter's segment
