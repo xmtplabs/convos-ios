@@ -1147,13 +1147,17 @@ extension NewConversationViewModel {
     /// re-emitted `.ready` can't request the joins twice. Uses the batched
     /// method -- the single-flight `requestAgentJoin(templateId:)` would cancel
     /// each prior call as the loop advances, leaving only the last to land.
-    private func requestPendingAgentJoinsIfReady() {
+    private func requestPendingAgentJoinsIfReady(conversationId: String? = nil) {
         guard _reachedReadyState, !didTriggerAgentJoin, !pendingAgentTemplateIds.isEmpty else { return }
         didTriggerAgentJoin = true
         conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
-        // A scanned agent lands in the conversation it was added to. The host
-        // conversation is already `.ready` here, so its id is settled.
-        navigateToScannedConversationIfPending(conversationStateManager?.conversationId ?? "")
+        // A scanned agent lands in the conversation it was added to. The
+        // `.ready` hook passes the id straight off the ready result: the state
+        // manager's own `conversationId` is updated by a separate observer of
+        // the same state sequence, so reading it here could race and navigate
+        // to a stale draft id. The already-ready scan path passes nil and
+        // falls back to the manager, whose id is settled by then.
+        navigateToScannedConversationIfPending(conversationId ?? conversationStateManager?.conversationId ?? "")
     }
 
     /// Hands the presenter the conversation a scan resolved to, so it can
@@ -1280,7 +1284,7 @@ extension NewConversationViewModel {
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
             // pending templateId (see `requestPendingAgentJoinsIfReady`).
-            requestPendingAgentJoinsIfReady()
+            requestPendingAgentJoinsIfReady(conversationId: result.conversationId)
 
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
