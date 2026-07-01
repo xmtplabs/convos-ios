@@ -104,4 +104,28 @@ extension ConversationView {
             if completed { onInviteShared?() }
         }
     }
+
+    /// Minimal pinned fallback for the `showsEmbeddedInvite` new-convo flows
+    /// during their pre-creation draft window. The inline `.invite` cell is
+    /// gated on a non-draft conversation, so a brand-new draft convo has no
+    /// transcript to host the card yet; this inset covers that narrow window
+    /// only, and the inline cell takes over once the convo is created.
+    /// Collapsed while the keyboard is up so the tall panel never squeezes the
+    /// composer.
+    @ViewBuilder
+    var draftEmbeddedInviteInset: some View {
+        if showsEmbeddedInvite, viewModel.conversation.isDraft, !isKeyboardVisible {
+            InviteCodeBody(
+                conversation: viewModel.conversation,
+                encodedURLString: viewModel.invite.inviteURLString,
+                mode: inviteScanMode,
+                initialSegment: embeddedInviteInitialSegment,
+                isInviteReady: !viewModel.invite.isEmpty,
+                onScannedCode: inviteScanScannedHandler,
+                onShareCompleted: onInviteShareCompletedHandler
+            )
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity)
+        }
+    }
 }

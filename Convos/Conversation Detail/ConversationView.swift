@@ -51,9 +51,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
-    /// Tracks keyboard visibility so the pager dots hide and the pager-dots
-    /// inset collapses while the keyboard is up.
-    @State private var isKeyboardVisible: Bool = false
+    /// Tracks keyboard visibility so the pager dots hide, the pager-dots inset
+    /// collapses, and the draft-window invite inset collapses while the
+    /// keyboard is up. Internal so `draftEmbeddedInviteInset` in the
+    /// metrics-observers extension can read it.
+    @State var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
     /// presented.
@@ -587,6 +589,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )
+        .safeAreaInset(edge: .top) { draftEmbeddedInviteInset }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
