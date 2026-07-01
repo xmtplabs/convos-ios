@@ -300,6 +300,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
+    private let leaveWriter: any ConversationLeaveWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
@@ -1317,6 +1318,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
@@ -1414,6 +1416,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
@@ -4245,6 +4248,50 @@ extension ConversationViewModel {
                 Log.error("Error blocking and leaving convo: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Self-removes the current user from this group: `leaveGroup()` plus the
+    /// optimistic consent-hide (consent `.denied` + push-topic unsubscribe +
+    /// local hide) so the conversation vanishes immediately while the MLS
+    /// remove-commit finalizes async. When the current user is the sole super
+    /// admin, the leave writer transfers super admin to the longest-tenured
+    /// remaining member first.
+    func leaveGroupConvo() {
+        let leaveWriter = leaveWriter
+        let conversation = conversation
+        let successorInboxIds = leaveSuccessorInboxIds()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await leaveWriter.leave(
+                    conversation: conversation,
+                    tenureOrderedSuccessorInboxIds: successorInboxIds
+                )
+                await MainActor.run {
+                    self.presentingConversationSettings = false
+                    self.conversation.postLeftConversationNotification()
+                }
+            } catch {
+                Log.error("Error leaving convo: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Remaining members (excluding the current user) ordered longest-tenured
+    /// first, used by the leave writer to pick a super-admin successor when the
+    /// leaver is the sole super admin. Members with an unknown `joinedAt` sort
+    /// last so known-tenure members are preferred.
+    private func leaveSuccessorInboxIds() -> [String] {
+        let remaining = conversation.members.filter { !$0.isCurrentUser }
+        let sorted = remaining.sorted { (lhs: ConversationMember, rhs: ConversationMember) -> Bool in
+            switch (lhs.joinedAt, rhs.joinedAt) {
+            case let (left?, right?): return left < right
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return false
+            }
+        }
+        return sorted.map { $0.profile.inboxId }
     }
 
     @MainActor
