@@ -279,6 +279,7 @@ struct MainTabView: View {
 
     var body: some View {
         bodyCore
+            .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
             .environment(promptHints)
             .task {
                 await promptHints.loadOnLaunch()

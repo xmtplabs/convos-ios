@@ -86,3 +86,48 @@ extension DBProfileAvatar {
         try filter(Columns.inboxId == inboxId).fetchAll(db)
     }
 }
+
+/// Read-only projection of the most recently updated `profileAvatar` row per
+/// inbox, backed by the `profileAvatarLatest` view (see
+/// `SharedDatabaseMigrator.createProfileAvatarLatestView`). The rendering avatar
+/// association joins this so a person's latest avatar renders consistently across
+/// every conversation, instead of each conversation's own per-conversation slot.
+struct DBProfileAvatarLatest: Codable, FetchableRecord, TableRecord, Hashable {
+    static let databaseTableName: String = "profileAvatarLatest"
+
+    enum Columns {
+        static let inboxId: Column = Column(CodingKeys.inboxId)
+        static let conversationId: Column = Column(CodingKeys.conversationId)
+        static let url: Column = Column(CodingKeys.url)
+        static let salt: Column = Column(CodingKeys.salt)
+        static let nonce: Column = Column(CodingKeys.nonce)
+        static let encryptionKey: Column = Column(CodingKeys.encryptionKey)
+        static let profileSource: Column = Column(CodingKeys.profileSource)
+        static let contentDigest: Column = Column(CodingKeys.contentDigest)
+        static let updatedAt: Column = Column(CodingKeys.updatedAt)
+    }
+
+    let inboxId: String
+    let conversationId: String
+    var url: String?
+    var salt: Data?
+    var nonce: Data?
+    var encryptionKey: Data?
+    var profileSource: ProfileSource
+    var contentDigest: String?
+    var updatedAt: Date
+
+    var asProfileAvatar: DBProfileAvatar {
+        DBProfileAvatar(
+            inboxId: inboxId,
+            conversationId: conversationId,
+            url: url,
+            salt: salt,
+            nonce: nonce,
+            encryptionKey: encryptionKey,
+            profileSource: profileSource,
+            contentDigest: contentDigest,
+            updatedAt: updatedAt
+        )
+    }
+}

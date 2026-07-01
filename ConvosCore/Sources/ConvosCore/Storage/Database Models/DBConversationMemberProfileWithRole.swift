@@ -9,7 +9,7 @@ struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
     let role: MemberRole
     let createdAt: Date
     let profile: DBProfile?
-    let avatarSlot: DBProfileAvatar?
+    let avatarSlot: DBProfileAvatarLatest?
     let inviterProfile: DBProfile?
 }
 
@@ -23,7 +23,7 @@ extension DBConversationMemberProfileWithRole {
     }
 
     func hydratedProfile() -> Profile {
-        Profile.from(profile: profile, avatar: avatarSlot, inboxId: inboxId, conversationId: conversationId)
+        Profile.from(profile: profile, avatar: avatarSlot?.asProfileAvatar, inboxId: inboxId, conversationId: conversationId)
     }
 
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {

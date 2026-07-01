@@ -220,6 +220,25 @@ extension SharedDatabaseMigrator {
     private static func registerTailMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
         migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+        migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
+    }
+
+    /// Creates the `profileAvatarLatest` view: the most recently updated
+    /// `profileAvatar` row per inbox. The rendering avatar association reads
+    /// through this view so every conversation shows a person's latest avatar
+    /// (one image per person) rather than the per-conversation slot. Each avatar
+    /// row is self-contained (url + salt + nonce + encryptionKey), so its image
+    /// decrypts correctly regardless of which conversation is being rendered.
+    static func createProfileAvatarLatestView(_ db: Database) throws {
+        try db.execute(sql: """
+            CREATE VIEW IF NOT EXISTS profileAvatarLatest AS
+            SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt
+            FROM profileAvatar AS pa
+            WHERE updatedAt = (
+                SELECT MAX(updatedAt) FROM profileAvatar WHERE inboxId = pa.inboxId
+            )
+            GROUP BY inboxId
+            """)
     }
 
     /// Drops the reveal-mode columns now that incoming media always renders
