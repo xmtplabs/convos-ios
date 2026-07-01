@@ -94,8 +94,15 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
             // backdrop tap dismissing a containing overlay), which clears the
             // coordinator's controller. Bail when that happened so a cancelled
             // share can't still pop a stale sheet a frame later.
-            guard coordinator.activityViewController === activityViewController,
-                  uiViewController.presentedViewController == nil else { return }
+            guard coordinator.activityViewController === activityViewController else { return }
+            // Another controller is already presenting from this host (e.g. a
+            // sibling sheet). Clear our controller before bailing so the guard at
+            // the top of `updateUIViewController` doesn't treat the share as
+            // presented forever and silently drop the next attempt.
+            guard uiViewController.presentedViewController == nil else {
+                coordinator.activityViewController = nil
+                return
+            }
             uiViewController.present(activityViewController, animated: true) {
                 onPresented?()
             }
