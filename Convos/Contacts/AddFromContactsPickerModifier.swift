@@ -27,28 +27,29 @@ extension View {
     /// inline-disabled in the list.
     func addFromContactsPicker(
         viewModel: ConversationViewModel,
-        isPresented: Binding<Bool>
+        isPresented: Binding<Bool>,
+        onInviteShared: (() -> Void)? = nil
     ) -> some View {
-        modifier(AddFromContactsPickerModifier(viewModel: viewModel, isPresented: isPresented))
+        modifier(AddFromContactsPickerModifier(viewModel: viewModel, isPresented: isPresented, onInviteShared: onInviteShared))
     }
 }
 
 private struct AddFromContactsPickerModifier: ViewModifier {
     @Bindable var viewModel: ConversationViewModel
     @Binding var isPresented: Bool
+    /// Called when the "Send an invite" share completes successfully, so a
+    /// fresh embedded-invite conversation records the share and survives the
+    /// empty-convo teardown. Nil for existing conversations, which are never
+    /// discarded.
+    let onInviteShared: (() -> Void)?
 
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
     @State private var presentingShareSheet: Bool = false
-    /// Set by "Send an invite" so the native share sheet is presented from the
-    /// picker's `onDismiss`, once the picker modal has fully gone away. UIKit
-    /// rejects presenting the share sheet while the picker sheet is still up.
-    @State private var pendingShareAfterDismiss: Bool = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isPresented, onDismiss: presentPendingShareSheet) { pickerSheet }
-            .shareSheet(isPresented: $presentingShareSheet, items: shareItems)
+            .sheet(isPresented: $isPresented) { pickerSheet }
             .alert(
                 "Couldn't add contacts",
                 isPresented: $presentingError,
@@ -76,6 +77,16 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             onMakeAgent: handleMakeAgent,
             onScanInvite: handleScanInvite,
             onConfirm: handleConfirm
+        )
+        // Hosted inside the picker sheet so "Send an invite" presents the share
+        // sheet directly over the picker, rather than dismissing the picker
+        // first and presenting from the parent once the modal settles.
+        .shareSheet(
+            isPresented: $presentingShareSheet,
+            items: shareItems,
+            onCompletion: { _, completed, _ in
+                if completed { onInviteShared?() }
+            }
         )
     }
 
@@ -110,15 +121,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         // sheet is reached, the send-invite share is suppressed.
         guard !viewModel.conversation.isFull else { return }
         guard !viewModel.invite.isEmpty else { return }
-        pendingShareAfterDismiss = true
-        isPresented = false
-    }
-
-    /// Presents the native share sheet once the picker has dismissed, so the
-    /// share sheet isn't a nested modal under the still-present picker.
-    private func presentPendingShareSheet() {
-        guard pendingShareAfterDismiss else { return }
-        pendingShareAfterDismiss = false
         presentingShareSheet = true
     }
 

@@ -653,7 +653,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .addFromContactsPicker(
             viewModel: viewModel,
-            isPresented: $presentingAddFromContactsPicker
+            isPresented: $presentingAddFromContactsPicker,
+            onInviteShared: onInviteShared
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
