@@ -444,6 +444,27 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     invitedByInboxId: currentInboxId
                 )
                 try conversationMember.save(db)
+
+                // Seed a per-conversation profile name from the adder's contact
+                // record so the ProfileSnapshot sent below advertises the
+                // directly-added member's name to every other member (agents
+                // especially) instead of "Somebody", until the member
+                // self-attests via their own ProfileUpdate 
+                // Names only. Fill-only: never overwrite an existing profile,
+                // and skip contacts with no stored name. A later ProfileUpdate
+                // from the member wins via the normal inbound name-preservation.
+                let existingProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: memberInboxId)
+                if existingProfile?.name == nil,
+                   let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: memberInboxId) {
+                    let seededProfile = (existingProfile ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: memberInboxId,
+                        name: nil,
+                        avatar: nil
+                    )).with(name: contactName)
+                    try seededProfile.save(db)
+                }
+
                 Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
             }
         }
