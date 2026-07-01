@@ -387,6 +387,10 @@ struct ContactsView: View {
     /// mock session used in previews this is a no-op so the rows stay hidden.
     private func claimInviteConversationIfNeeded() {
         guard inviteConversationViewModel == nil, let session else { return }
+        // A freshly minted claimed conversation hasn't hydrated its invite yet,
+        // so drop the sticky flag until the new invite resolves -- otherwise the
+        // invite rows stay visible but no-op through the re-hydration window.
+        hasResolvedInvite = false
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
@@ -404,6 +408,7 @@ struct ContactsView: View {
     private func discardUnenteredInviteConversation() {
         inviteConversationViewModel?.cleanUpEmptyEmbeddedInviteIfNeeded()
         inviteConversationViewModel = nil
+        hasResolvedInvite = false
     }
 
     /// Enters the claimed conversation as a full new-conversation sheet so the
