@@ -192,7 +192,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// profile. Built once per `ConversationView` lifetime; reads
     /// through the messaging service's contacts repository.
     private var contactOverride: @Sendable (String) -> Contact? {
-        viewModel.messagingService.contactsRepository().contact(for:)
+        // Prefer current member profiles over the lagging contacts table so
+        // system-message and receipt rows stay in sync with the message bubble.
+        Contact.memberAwareResolver(
+            members: viewModel.conversation.members,
+            contactLookup: viewModel.messagingService.contactsRepository().contact(for:)
+        )
     }
 
     private var messagesView: some View {
