@@ -887,12 +887,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // `timezone` is the creator's device IANA timezone, captured on the main
         // actor by the caller. It seeds the agent's baseline/default zone and is
         // distinct from the per-sender ProfileUpdate "timezone" metadata key.
+        // Prod backstop: strip a leaked dev variant slug from the join options.
+        let safeOptions = options.map {
+            ConvosAPI.AgentJoinOptions(onboarding: $0.onboarding, variantId: prodSafeVariantId($0.variantId))
+        }
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
                 conversationId: conversationId,
                 templateId: templateId,
-                options: options,
+                options: safeOptions,
                 timezone: timezone
             )
         )
@@ -929,7 +933,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // `variantId` is load-bearing here: the backend only routes the poll to
         // the variant's ephemeral worker when it is present, so a variant-built
         // agent whose poll omits it stalls against the default worker.
-        let queryParameters: [String: String]? = variantId.map { ["variantId": $0] }
+        let queryParameters = Self.agentJoinStatusQueryParameters(variantId: prodSafeVariantId(variantId))
         var request = try authenticatedRequest(for: "v2/agents/join/\(encoded)", method: "GET", queryParameters: queryParameters)
         // Bound a single poll: without this a hung GET stalls the caller's
         // registration loop indefinitely, since the loop's own deadline is
@@ -1012,7 +1016,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
                 connections: connections.isEmpty ? nil : connections,
                 clientDeviceId: clientDeviceId,
                 publishStatus: "unlisted",
-                variantId: variantId
+                variantId: prodSafeVariantId(variantId)
             )
         )
         request.httpBody = body
@@ -1200,6 +1204,21 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 // MARK: - Agent template generation (split out to keep the class body length in check)
 
 extension ConvosAPIClient {
+    /// Defense-in-depth: drop any dev variant slug in production. The invariant
+    /// is enforced at the source (FeatureFlags hard-locks the selection to nil in
+    /// prod), so nothing should reach here; this keeps the client honest even if
+    /// a future caller isn't gated.
+    func prodSafeVariantId(_ slug: String?) -> String? {
+        environment.isProduction ? nil : slug
+    }
+
+    /// Query parameters for the join-status poll. The dev `variantId` is the
+    /// load-bearing routing key; omitted entirely when nil so a default poll
+    /// stays byte-identical to the pre-variant shape.
+    static func agentJoinStatusQueryParameters(variantId: String?) -> [String: String]? {
+        variantId.map { ["variantId": $0] }
+    }
+
     func getAgentTemplateAttachmentPresignedURL(
         contentType: String,
         contentLength: Int

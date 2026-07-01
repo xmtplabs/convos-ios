@@ -67,8 +67,15 @@ struct AgentVariantPlumbingTests {
 
     // MARK: - Join-status poll query param
 
-    @Test("Join-status poll path carries the load-bearing variantId query param")
-    func joinStatusPollCarriesVariantIdQueryParam() throws {
+    @Test("Join-status poll query carries the persisted variantId, omitted when nil")
+    func joinStatusPollThreadsPersistedVariantId() throws {
+        // The slug persisted on the row (carried through the join options) is what
+        // getAgentJoinStatus turns into the load-bearing `?variantId=` query param.
+        #expect(ConvosAPIClient.agentJoinStatusQueryParameters(variantId: "pr-1234") == ["variantId": "pr-1234"])
+        // No selection -> no query param, so a default poll stays byte-identical.
+        #expect(ConvosAPIClient.agentJoinStatusQueryParameters(variantId: nil) == nil)
+
+        // And the constructed parameters actually land in the request URL.
         let api = ConvosAPIClientFactory.client(
             environment: .local(config: ConvosConfiguration(
                 apiBaseURL: "https://api.example.com",
@@ -80,7 +87,7 @@ struct AgentVariantPlumbingTests {
         let request = try api.request(
             for: "v2/agents/join/inst-1",
             method: "GET",
-            queryParameters: ["variantId": "pr-1234"]
+            queryParameters: ConvosAPIClient.agentJoinStatusQueryParameters(variantId: "pr-1234")
         )
         #expect(request.url?.query?.contains("variantId=pr-1234") == true)
     }
