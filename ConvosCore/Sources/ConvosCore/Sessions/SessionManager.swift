@@ -436,7 +436,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         // published in `UnusedConversationCache.runPreparation`, so by
         // the time the user discards, the group is live with us as the
         // sole member. Without `leaveGroup`, every cache cycle the user
-        // discards leaves a stranded MLS group on the server — over
+        // discards leaves a stranded MLS group on the server - over
         // time, syncs re-deliver those groups and the chats list can
         // briefly flash empty rows before the consent filter catches
         // up.
