@@ -190,6 +190,11 @@ extension Data {
 
     /// Decompress DEFLATE-compressed data with size metadata
     /// Format: [size: 4 bytes big-endian][compressed data] (marker already stripped)
+    ///
+    /// The compressed body is raw DEFLATE when written by this app (Apple's
+    /// `COMPRESSION_ZLIB` emits no zlib header, despite the name) but
+    /// zlib-wrapped when written by convos-cli/herald (Node's `deflateSync`).
+    /// Accept both: try raw first, then retry past a detected zlib header.
     func decompressedWithSize(maxSize: UInt32, maxCompressionRatio: UInt32 = 100) -> Data? {
         guard count >= 5 else { return nil }
 
@@ -208,26 +213,48 @@ extension Data {
         let compressionRatio = originalSize / UInt32(compressedData.count)
         guard compressionRatio <= maxCompressionRatio else { return nil }
 
-        return compressedData.withUnsafeBytes { bytes in
+        if let decompressed = Data.rawInflate(compressedData, originalSize: Int(originalSize)) {
+            return decompressed
+        }
+
+        // zlib header: a CMF/FLG byte pair with compression method 8
+        // (deflate) whose big-endian value is a multiple of 31. Skip it and
+        // inflate the raw stream inside; the trailing 4-byte adler32 checksum
+        // is simply never read (the decoder stops at the declared size).
+        let headerBytes = Array(compressedData.prefix(2))
+        if headerBytes.count == 2,
+           headerBytes[0] & 0x0F == 8,
+           (UInt16(headerBytes[0]) << 8 | UInt16(headerBytes[1])).isMultiple(of: 31) {
+            return Data.rawInflate(compressedData.dropFirst(2), originalSize: Int(originalSize))
+        }
+
+        return nil
+    }
+
+    /// Inflate a raw DEFLATE stream into exactly `originalSize` bytes, or nil.
+    private static func rawInflate(_ source: Data, originalSize: Int) -> Data? {
+        guard !source.isEmpty, originalSize > 0 else { return nil }
+
+        return source.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return nil }
 
             let sourceBuffer = UnsafeBufferPointer<UInt8>(
                 start: baseAddress.assumingMemoryBound(to: UInt8.self),
-                count: compressedData.count
+                count: source.count
             )
 
             guard let sourceBaseAddress = sourceBuffer.baseAddress else { return nil }
 
-            let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(originalSize))
+            let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: originalSize)
             defer { destinationBuffer.deallocate() }
 
             let decompressedSize = compression_decode_buffer(
-                destinationBuffer, Int(originalSize),
-                sourceBaseAddress, compressedData.count,
+                destinationBuffer, originalSize,
+                sourceBaseAddress, source.count,
                 nil, COMPRESSION_ZLIB
             )
 
-            guard decompressedSize > 0, decompressedSize == Int(originalSize) else {
+            guard decompressedSize > 0, decompressedSize == originalSize else {
                 return nil
             }
 
