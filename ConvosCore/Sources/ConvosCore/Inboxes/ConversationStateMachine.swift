@@ -981,10 +981,28 @@ extension ConversationStateMachine {
             return
         }
 
-        Log.debug("Cleaning up previous conversation: \(previousResult.conversationId)")
+        // An engaged previous conversation (customized metadata, chat
+        // messages, or a member now or ever) is user data, not a disposable
+        // pre-claimed draft: joining another conversation from inside it
+        // must not destroy it. The view-model layer's engagement-gated
+        // discard handles the cache-claim release for kept rows.
+        let previousConversationId = previousResult.conversationId
+        let isEngaged = (try? await databaseWriter.read { db in
+            try ConversationEngagement.isEngaged(
+                db,
+                conversationId: previousConversationId,
+                currentInboxId: DBInbox.currentInboxId(db)
+            )
+        }) ?? true
+        guard !isEngaged else {
+            Log.info("Keeping engaged previous conversation: \(previousConversationId)")
+            return
+        }
+
+        Log.debug("Cleaning up previous conversation: \(previousConversationId)")
         do {
             try await cleanUp(
-                conversationId: previousResult.conversationId,
+                conversationId: previousConversationId,
                 client: client,
                 apiClient: apiClient
             )

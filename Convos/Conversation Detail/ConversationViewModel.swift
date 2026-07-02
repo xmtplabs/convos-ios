@@ -412,6 +412,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private(set) var conversation: Conversation {
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+            latchEverHadOtherMembersIfNeeded()
             syncVerifiedAgentToRepo()
             trackAssistantJoinedIfNeeded(oldValue: oldValue)
             presentingConversationForked = shouldPresentConversationForked
@@ -428,6 +429,33 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
         }
+    }
+
+    /// Invoked synchronously the moment a metadata edit (name, description,
+    /// or image) is about to be written -- before the async writer task
+    /// spawns, and only when a change will actually be written. Wired by
+    /// `NewConversationViewModel` in its inner-VM forwarding block so the
+    /// engagement latch survives the inbox-acquisition VM swap; the latch
+    /// keeps a customized minted conversation from being discarded on
+    /// dismiss even when the write has not landed in the database yet.
+    @ObservationIgnored
+    var onMetadataEdited: (() -> Void)?
+    /// Invoked the first time the conversation gains a member besides the
+    /// local user. Wired like `onMetadataEdited`; feeds the engagement
+    /// latch so a joined-then-left member still keeps the conversation.
+    @ObservationIgnored
+    var onMemberJoined: (() -> Void)?
+    /// Latched true the first time `membersWithoutCurrent` becomes
+    /// non-empty; never reset for this VM's lifetime. The members table
+    /// only mirrors current membership, so this is the in-session record
+    /// that someone was here even if they left again.
+    @ObservationIgnored
+    private(set) var everHadOtherMembers: Bool = false
+
+    private func latchEverHadOtherMembersIfNeeded() {
+        guard !everHadOtherMembers, !conversation.membersWithoutCurrent.isEmpty else { return }
+        everHadOtherMembers = true
+        onMemberJoined?()
     }
 
     /// Set to `false` by the Agent Builder right before `Make` is tapped
@@ -523,10 +551,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let name = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let desc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let toggle = _editingIncludeInfoInPublicPreview
+        let willWriteName = !name.isEmpty && name != (conversation.name ?? "")
+        let willWriteDesc = !desc.isEmpty && desc != (conversation.description ?? "")
+        if willWriteName || willWriteDesc {
+            onMetadataEdited?()
+        }
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
-            if !name.isEmpty, name != (conversation.name ?? "") { try? await metadataWriter.updateName(name, for: conversation.id) }
-            if !desc.isEmpty, desc != (conversation.description ?? "") { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
+            if willWriteName { try? await metadataWriter.updateName(name, for: conversation.id) }
+            if willWriteDesc { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
             if let toggle, toggle != conversation.includeInfoInPublicPreview { self.updateIncludeInfoInPublicPreview(toggle) }
         }
     }
@@ -2655,6 +2688,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingConversationName = trimmedConversationName
 
         if trimmedConversationName != (conversation.name ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -2669,6 +2703,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
 
         if isConversationImageDirty, let conversationImage = conversationImage {
+            onMetadataEdited?()
             // Key by the conversation id, not `imageCacheIdentifier`: before
             // the image upload persists, that identifier resolves to the other
             // member's inbox id and would cache this image as their avatar.
@@ -2692,6 +2727,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingDescription = trimmedConversationDescription
 
         if trimmedConversationDescription != (conversation.description ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -3759,14 +3795,19 @@ extension ConversationViewModel {
         isUpdatingPublicPreview = true
         let pendingName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let willWriteName = !pendingName.isEmpty && pendingName != (conversation.name ?? "")
+        let willWriteDesc = !pendingDesc.isEmpty && pendingDesc != (conversation.description ?? "")
+        if willWriteName || willWriteDesc {
+            onMetadataEdited?()
+        }
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
             defer { self.isUpdatingPublicPreview = false }
             do {
-                if !pendingName.isEmpty, pendingName != (conversation.name ?? "") {
+                if willWriteName {
                     try await metadataWriter.updateName(pendingName, for: conversation.id)
                 }
-                if !pendingDesc.isEmpty, pendingDesc != (conversation.description ?? "") {
+                if willWriteDesc {
                     try await metadataWriter.updateDescription(pendingDesc, for: conversation.id)
                 }
                 try await metadataWriter.updateIncludeInfoInPublicPreview(enabled, for: conversation.id)
