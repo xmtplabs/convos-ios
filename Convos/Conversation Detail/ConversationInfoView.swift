@@ -88,6 +88,11 @@ struct ConversationInfoView: View {
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// Invite code scanned from the in-sheet Scan/Invite overlay, parked until
+    /// this sheet finishes dismissing so the join sheet (presented by
+    /// `ConversationView` beneath) isn't dropped mid-dismissal. Delivered by
+    /// `onDisappear` via `deliverPendingScannedCodeIfNeeded`.
+    @State private var pendingScannedCode: String?
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
@@ -371,6 +376,36 @@ struct ConversationInfoView: View {
         }
     }
 
+    /// Routes a code scanned from the in-sheet Scan/Invite overlay. The
+    /// overlay is shown on this view's local `@State`, but the view model
+    /// handler only flips its own flag, so the local overlay is dismissed here
+    /// too. A regular invite code then opens the join flow via
+    /// `presentingNewConversationForInvite`, whose sheet hangs off
+    /// `ConversationView` beneath this sheet and cannot present while the info
+    /// sheet is up (setting it mid-dismissal gets dropped by SwiftUI too) --
+    /// so the code is parked in `pendingScannedCode`, the info sheet is
+    /// dismissed, and `onDisappear` hands the code over once the dismissal has
+    /// fully settled. Agent-template codes join in place with no
+    /// presentation, so the info sheet stays.
+    private func handleOverlayScannedCode(_ code: String) {
+        presentingShareView = false
+        let isAgentTemplate = URL(string: code).flatMap(DeepLinkHandler.agentTemplateId(from:)) != nil
+        guard !isAgentTemplate else {
+            viewModel.handleScannedCodeInCurrentConversation(code)
+            return
+        }
+        pendingScannedCode = code
+        dismiss()
+    }
+
+    /// Hands a parked scanned code to the view model once this sheet has left
+    /// the hierarchy, so the resulting join sheet presents cleanly.
+    private func deliverPendingScannedCodeIfNeeded() {
+        guard let code = pendingScannedCode else { return }
+        pendingScannedCode = nil
+        viewModel.handleScannedCodeInCurrentConversation(code)
+    }
+
     /// Local share-overlay presentation binding. Resets the requested initial
     /// segment on dismissal (mirroring `ConversationPresenter`'s binding) so
     /// the next plain convo-code open lands on the Invite tab, not a stale
@@ -404,6 +439,7 @@ struct ConversationInfoView: View {
             }
             .onDisappear {
                 navigator?.closed(context: navState.closeContext())
+                deliverPendingScannedCodeIfNeeded()
             }
             .onChange(of: presentingEditView) { oldValue, newValue in
                 handleEditViewChanged(from: oldValue, to: newValue)
@@ -565,12 +601,7 @@ struct ConversationInfoView: View {
                             // view model default (.invite) untouched.
                             initialSegment: viewModel.shareViewInitialSegment,
                             onScannedCode: { code in
-                                // The overlay is shown on this local `@State`, but
-                                // the handler only flips the view model's flag, so
-                                // dismiss the local overlay here too -- otherwise it
-                                // stays onscreen after a scan.
-                                presentingShareView = false
-                                viewModel.handleScannedCodeInCurrentConversation(code)
+                                handleOverlayScannedCode(code)
                             }
                         )
                     }
