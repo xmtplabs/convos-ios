@@ -58,6 +58,26 @@ struct ContactsPickerView: View {
     /// The compose flow passes `false` so the picker is the root of the host
     /// navigation stack and pushes the new conversation instead.
     let embedsNavigationStack: Bool
+    /// Compose-only "top three" invite actions rendered above the contacts
+    /// list (Figma node 4). All nil (the default) hides the whole "Invite new
+    /// contacts" section, which is how the other three entry points render --
+    /// only the compose flow (`ComposeFlowView`) supplies these, since they
+    /// need the claimed conversation + invite it owns.
+    let onShowInviteCode: (() -> Void)?
+    let onSendInvite: (() -> Void)?
+    let onMakeAgent: (() -> Void)?
+    /// Shows a trailing spinner on the "Send an invite" row while the caller
+    /// prepares the invite (the row stays visible and tappable; readiness is
+    /// the caller's concern, handled at tap time).
+    let sendInviteShowsProgress: Bool
+    /// When set, the nav shows this as a plain centered title instead of the
+    /// `ContactsPickerIndicatorPill`. The in-convo "Invite" sheet (Figma node
+    /// 5562-34019) passes "Invite"; every other entry point leaves it nil and
+    /// keeps the conversation indicator pill.
+    let title: String?
+    /// When set, the nav shows a trailing circular `viewfinder` button that
+    /// opens the scanner. Supplied only by the in-convo "Invite" sheet.
+    let onScanInvite: (() -> Void)?
 
     init(
         mode: ContactsPickerMode,
@@ -67,6 +87,12 @@ struct ContactsPickerView: View {
         pillConversation: Conversation? = nil,
         embedsNavigationStack: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
+        title: String? = nil,
+        sendInviteShowsProgress: Bool = false,
+        onShowInviteCode: (() -> Void)? = nil,
+        onSendInvite: (() -> Void)? = nil,
+        onMakeAgent: (() -> Void)? = nil,
+        onScanInvite: (() -> Void)? = nil,
         onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
@@ -78,6 +104,12 @@ struct ContactsPickerView: View {
         ))
         self.pillConversation = pillConversation
         self.embedsNavigationStack = embedsNavigationStack
+        self.title = title
+        self.sendInviteShowsProgress = sendInviteShowsProgress
+        self.onShowInviteCode = onShowInviteCode
+        self.onSendInvite = onSendInvite
+        self.onMakeAgent = onMakeAgent
+        self.onScanInvite = onScanInvite
         self.onConfirm = onConfirm
     }
 
@@ -123,13 +155,14 @@ struct ContactsPickerView: View {
     private var content: some View {
         ContactsPickerList(
             viewModel: viewModel,
+            actions: pickerActions,
             onToggle: handleToggle
         )
         .safeAreaBar(edge: .top) {
             VStack(spacing: 0.0) {
                 ContactsSearchBar(
                     query: $viewModel.searchQuery,
-                    placeholder: "Contacts",
+                    placeholder: searchPlaceholder,
                     accessibilityIdentifier: "contacts-picker-search-field",
                     filter: $viewModel.filter
                 )
@@ -140,21 +173,44 @@ struct ContactsPickerView: View {
             }
         }
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                // Dev-only: choose the variant the picked agent(s) build under.
-                // Shown only once an agent is in the selection; the slug is read
-                // at join time via FeatureFlags, so no plumbing through confirm.
-                if FeatureFlags.shared.isAgentVariantSelectorEnabled, !viewModel.selectedAgentTemplateIds.isEmpty {
-                    AgentVariantSelector()
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+            if viewModel.showsConfirmButton {
+                VStack(spacing: DesignConstants.Spacing.step3x) {
+                    // Dev-only: choose the variant the picked agent(s) build under.
+                    // Shown only once an agent is in the selection; the slug is read
+                    // at join time via FeatureFlags, so no plumbing through confirm.
+                    if FeatureFlags.shared.isAgentVariantSelectorEnabled, !viewModel.selectedAgentTemplateIds.isEmpty {
+                        AgentVariantSelector()
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    }
+                    ContactsPickerConfirmButton(
+                        title: viewModel.confirmButtonTitle,
+                        isEnabled: viewModel.canConfirm,
+                        onTap: handleConfirm
+                    )
                 }
-                ContactsPickerConfirmButton(
-                    title: viewModel.confirmButtonTitle,
-                    isEnabled: viewModel.canConfirm,
-                    onTap: handleConfirm
-                )
             }
         }
+    }
+
+    /// The compose picker labels its search "People and agents" (Figma node 4);
+    /// the other entry points keep "Contacts".
+    private var searchPlaceholder: String {
+        viewModel.mode.isCompose ? "People and agents" : "Contacts"
+    }
+
+    /// Bundles the optional top-three closures into the list's actions model.
+    /// Nil when none were supplied, which hides the whole "Invite new contacts"
+    /// section.
+    private var pickerActions: ContactsPickerActions? {
+        guard onShowInviteCode != nil || onSendInvite != nil || onMakeAgent != nil else {
+            return nil
+        }
+        return ContactsPickerActions(
+            onShowInviteCode: onShowInviteCode,
+            onSendInvite: onSendInvite,
+            onMakeAgent: onMakeAgent,
+            sendInviteShowsProgress: sendInviteShowsProgress
+        )
     }
 
     @ToolbarContentBuilder
@@ -163,6 +219,28 @@ struct ContactsPickerView: View {
             Button(role: .cancel, action: handleCancel)
         }
         ToolbarItem(placement: .principal) {
+            principalContent
+        }
+        if let onScanInvite {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onScanInvite) {
+                    Image(systemName: "viewfinder")
+                }
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Scan invite code")
+                .accessibilityIdentifier("contacts-picker-scan-button")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var principalContent: some View {
+        if let title {
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorTextPrimary)
+                .accessibilityAddTraits(.isHeader)
+        } else {
             ContactsPickerIndicatorPill(
                 conversation: pillConversation,
                 title: viewModel.pillTitle,
@@ -294,11 +372,22 @@ private struct ContactsPickerIndicatorPill: View {
 
 private struct ContactsPickerList: View {
     @Bindable var viewModel: ContactsPickerViewModel
+    /// The compose top-three invite actions. Nil hides the "Invite new
+    /// contacts" section entirely (every non-compose entry point).
+    let actions: ContactsPickerActions?
     let onToggle: (String) -> Void
 
     var body: some View {
         content
             .task { await viewModel.loadSuggestedAgentsIfNeeded() }
+    }
+
+    /// The top-three actions are pinned above the list whenever they exist and
+    /// the user is not actively narrowing the list with a text search or
+    /// filter. While filtering, the section is hidden so the list reads purely
+    /// as matching results.
+    private var showsActions: Bool {
+        actions != nil && !viewModel.isFiltering
     }
 
     @ViewBuilder
@@ -308,6 +397,10 @@ private struct ContactsPickerList: View {
                 loadingState
             } else if viewModel.isFiltering {
                 filteredEmptyState
+            } else if showsActions {
+                // No contacts yet, but the invite actions still belong at the
+                // top -- render the list with only the leading section.
+                list
             } else {
                 emptyState
             }
@@ -331,8 +424,14 @@ private struct ContactsPickerList: View {
             sectionHeader: { (section: ContactsListSection<ContactsPickerViewModel.Row>) in
                 sectionHeader(for: section)
             },
+            leadingContent: leadingActionsContent,
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
+    }
+
+    private var leadingActionsContent: AnyView? {
+        guard showsActions, let actions else { return nil }
+        return AnyView(ContactsPickerActionsSection(actions: actions))
     }
 
     @ViewBuilder
@@ -404,6 +503,72 @@ private struct ContactsPickerList: View {
     }
 }
 
+// MARK: - Top-three invite actions
+
+/// The compose picker's "top three" invite actions (Figma node 4). Any closure
+/// can be nil to hide its row; the parent only constructs this when at least
+/// one is supplied.
+struct ContactsPickerActions {
+    let onShowInviteCode: (() -> Void)?
+    let onSendInvite: (() -> Void)?
+    let onMakeAgent: (() -> Void)?
+    /// Shows a trailing spinner on the "Send an invite" row while the caller
+    /// prepares the invite (the Contacts tab mints its claimed conversation on
+    /// demand, so the signed invite can lag the tap by a beat).
+    var sendInviteShowsProgress: Bool = false
+}
+
+/// A header plus the available top-three invite action rows, rendered as the
+/// leading section of a contacts list so it scrolls with the contacts beneath
+/// it. Shared by the compose picker (header "Invite new contacts") and the
+/// Contacts tab (header "Invite a new contact").
+struct ContactsPickerActionsSection: View {
+    let actions: ContactsPickerActions
+    var headerTitle: String = "Invite new contacts"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            header
+            if let onShowInviteCode = actions.onShowInviteCode {
+                ContactsPickerActionRow(
+                    icon: .system("qrcode"),
+                    title: "Show an invite code",
+                    accessibilityIdentifier: "picker-action-show-invite-code",
+                    action: onShowInviteCode
+                )
+            }
+            if let onSendInvite = actions.onSendInvite {
+                ContactsPickerActionRow(
+                    icon: .system("square.and.arrow.up"),
+                    title: "Send an invite",
+                    subtitle: "Via Airdrop, link or app",
+                    accessibilityIdentifier: "picker-action-send-invite",
+                    showsProgress: actions.sendInviteShowsProgress,
+                    action: onSendInvite
+                )
+            }
+            if let onMakeAgent = actions.onMakeAgent {
+                ContactsPickerActionRow(
+                    icon: .asset("addAgentIcon"),
+                    title: "Make an agent",
+                    accessibilityIdentifier: "picker-action-make-agent",
+                    action: onMakeAgent
+                )
+            }
+        }
+    }
+
+    private var header: some View {
+        Text(headerTitle)
+            .font(.caption)
+            .foregroundStyle(.colorTextSecondary)
+            .textCase(nil)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.stepX)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // MARK: - Confirm CTA
 
 private struct ContactsPickerConfirmButton: View {
@@ -437,6 +602,17 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(),
+        onConfirm: { _, _ in }
+    )
+}
+
+#Preview("Compose (top three)") {
+    ContactsPickerView(
+        mode: .compose,
+        contactsRepository: MockContactsRepository(),
+        onShowInviteCode: {},
+        onSendInvite: {},
+        onMakeAgent: {},
         onConfirm: { _, _ in }
     )
 }

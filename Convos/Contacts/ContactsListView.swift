@@ -36,21 +36,33 @@ struct ContactsListView<Row: Identifiable, RowContent: View, SectionHeader: View
     private let rowContent: (Row) -> RowContent
     private let sectionHeader: (ContactsListSection<Row>) -> SectionHeader
     private let listBackground: ListBackground
+    /// Optional section rendered above the alphabetical sections, inside the
+    /// same `List` so it scrolls with the rest (the compose picker's "Invite
+    /// new contacts" top-three actions). Nil for surfaces that show only
+    /// contacts.
+    private let leadingContent: AnyView?
 
     init(
         sections: [ContactsListSection<Row>],
         @ViewBuilder rowContent: @escaping (Row) -> RowContent,
         @ViewBuilder sectionHeader: @escaping (ContactsListSection<Row>) -> SectionHeader,
+        leadingContent: AnyView? = nil,
         @ViewBuilder listBackground: () -> ListBackground
     ) {
         self.sections = sections
         self.rowContent = rowContent
         self.sectionHeader = sectionHeader
+        self.leadingContent = leadingContent
         self.listBackground = listBackground()
     }
 
     var body: some View {
         List {
+            if let leadingContent {
+                leadingContent
+                    .listRowBackground(listBackground)
+                    .listRowSeparator(.hidden)
+            }
             ForEach(sections) { section in
                 SwiftUI.Section(header: sectionHeader(section)) {
                     ForEach(section.rows) { row in
@@ -74,12 +86,14 @@ extension ContactsListView where SectionHeader == ContactsListSectionHeader {
     init(
         sections: [ContactsListSection<Row>],
         @ViewBuilder rowContent: @escaping (Row) -> RowContent,
+        leadingContent: AnyView? = nil,
         @ViewBuilder listBackground: () -> ListBackground
     ) {
         self.init(
             sections: sections,
             rowContent: rowContent,
             sectionHeader: { ContactsListSectionHeader(title: $0.title) },
+            leadingContent: leadingContent,
             listBackground: listBackground
         )
     }

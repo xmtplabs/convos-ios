@@ -86,19 +86,27 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
                 case .invite(let invite):
-                    VStack(spacing: DesignConstants.Spacing.step4x) {
-                        if config.headerMode == .standard, !config.hidesInviteCard {
-                            InviteView(invite: invite)
-                        }
-                        NewConvoIdentityView(
-                            onCopyLink: config.onCopyInviteLink,
-                            onConvoCode: config.onConvoCode,
-                            onInviteAgent: config.onInviteAgent,
-                            isAgentJoinPending: config.isAgentJoinPending
+                    if config.showsInviteScanCard, let conversation = config.inviteScanConversation {
+                        MessagesListItemTypeCell.inviteScanCardContent(
+                            invite: invite,
+                            conversation: conversation,
+                            config: config
                         )
+                    } else {
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            if config.headerMode == .standard, !config.hidesInviteCard {
+                                InviteView(invite: invite)
+                            }
+                            NewConvoIdentityView(
+                                onCopyLink: config.onCopyInviteLink,
+                                onConvoCode: config.onConvoCode,
+                                onInviteAgent: config.onInviteAgent,
+                                isAgentJoinPending: config.isAgentJoinPending
+                            )
+                        }
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
                     }
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -180,6 +188,31 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     // because their argument lists trip the long-function-body type-check
     // budget when inlined. Mirrors the same shape as the `MessagesGroupView`
     // extraction noted in PR #930.
+
+    /// The full inline Invite/Scan card (segmented toggle + QR / live
+    /// viewfinder + "Share invite link") rendered as the index-0 `.invite`
+    /// cell for an active hosted invite session. Reuses the same
+    /// `InviteCodeBody` the full-screen `InviteCodeOverlay` composes, so the
+    /// toggle + tabs don't fork. Extracted to keep the `setup` switch body
+    /// under the type-check budget.
+    @ViewBuilder
+    fileprivate static func inviteScanCardContent(
+        invite: Invite,
+        conversation: Conversation,
+        config: CellConfig
+    ) -> some View {
+        InviteCodeBody(
+            conversation: conversation,
+            encodedURLString: invite.inviteURLString,
+            mode: config.inviteScanMode,
+            initialSegment: config.inviteScanInitialSegment,
+            isInviteReady: !invite.isEmpty,
+            onScannedCode: config.onScannedInviteCode,
+            onShareCompleted: config.onInviteShareCompleted
+        )
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .frame(maxWidth: .infinity)
+    }
 
     @ViewBuilder
     fileprivate static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {

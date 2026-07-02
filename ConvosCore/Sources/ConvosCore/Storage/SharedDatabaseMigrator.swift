@@ -209,6 +209,34 @@ extension SharedDatabaseMigrator {
         return migrator
     }
 
+    /// Set-once high-water mark: true once a conversation has ever had a
+    /// member besides the local inbox. Member rows are deleted on departure
+    /// sync, so without this flag a joined-then-left conversation is
+    /// indistinguishable from an untouched draft - and the engagement gate
+    /// (`ConversationEngagement`) would let implicit cleanup discard it.
+    ///
+    /// The column defaults to false; the backfill flags conversations that
+    /// currently hold a member row for an inbox other than the local one.
+    /// Departed-member history cannot be reconstructed on upgrade, so
+    /// pre-migration joined-then-left conversations start false - they are
+    /// still protected by their messages or metadata in practice. Extracted
+    /// as an internal static helper so the migration test can exercise the
+    /// real upgrade path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasHadOtherMembers(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasHadOtherMembers", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: """
+            UPDATE conversationLocalState
+            SET hasHadOtherMembers = 1
+            WHERE conversationId IN (
+                SELECT conversationId FROM conversation_members
+                WHERE inboxId NOT IN (SELECT inboxId FROM inbox)
+            )
+            """)
+    }
+
     private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
@@ -216,6 +244,55 @@ extension SharedDatabaseMigrator {
 
     private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
+        migrator.registerMigration(
+            "addConversationLocalStateLeftHostedInviteSession",
+            migrate: Self.addConversationLocalStateLeftHostedInviteSession
+        )
+        migrator.registerMigration(
+            "addConversationLocalStateHasHadOtherMembers",
+            migrate: Self.addConversationLocalStateHasHadOtherMembers
+        )
+        migrator.registerMigration(
+            "addConversationLocalStateHasSharedInvite",
+            migrate: Self.addConversationLocalStateHasSharedInvite
+        )
+    }
+
+    /// Set-once high-water mark: true once the conversation's invite link
+    /// was shared externally. The share signal previously lived only in a
+    /// view-model latch, so the database-gated discard layers could destroy
+    /// a conversation whose invite was already in a recipient's hands (e.g.
+    /// share the embedded invite, then scan into another conversation - the
+    /// superseded-claim discard reads only database state).
+    ///
+    /// The column defaults to false with no backfill: shares were never
+    /// recorded anywhere queryable (the latch was in-memory only), so
+    /// pre-existing shares cannot be reconstructed on upgrade. Those
+    /// conversations are typically protected by their other engagement
+    /// signals (messages, members, metadata) in practice. Extracted as an
+    /// internal static helper so the migration test can exercise the real
+    /// upgrade path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasSharedInvite(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasSharedInvite", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    /// Per-conversation local flag tracking whether the host has navigated
+    /// away from an active invite session. The inline Invite/Scan card shows
+    /// for a host while this is false and collapses to the regular top cell
+    /// once the host leaves the conversation and returns. Stored locally
+    /// because it's a per-device UI session state, not consensus state.
+    ///
+    /// The column default is false ("not left"), so freshly hosted convos
+    /// lead with the card. Existing rows are back-filled to true ("already
+    /// left") so the newly-inline card does not pop into established hosted
+    /// conversations on upgrade.
+    static func addConversationLocalStateLeftHostedInviteSession(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "leftHostedInviteSession", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: "UPDATE conversationLocalState SET leftHostedInviteSession = 1")
     }
 
     /// Drops the reveal-mode columns now that incoming media always renders

@@ -76,18 +76,30 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// by the cache again.
     func registerClaimedConversation(id conversationId: String) async
 
-    /// Drops a conversation that was claimed via `prepareNewConversation()` but
-    /// never engaged with by the user — typically called from the new-
-    /// conversation / Agent Builder X-cancel path when no messages have
-    /// been sent. Deletes the local `DBConversation` row and its dependent
-    /// rows (members, profiles, local state) so the conversation disappears
-    /// from the conversations list, and releases the in-memory cache claim
-    /// so the next prewarm runs. The single-inbox refactor turned the
-    /// older `session.deleteInbox` cleanup into a no-op (it would destroy the
-    /// user's account); this is the replacement scoped to a single
-    /// conversation. Draft ids are a no-op — drafts don't have on-disk rows
-    /// the user can see.
+    /// Drops a conversation that was claimed via `prepareNewConversation()`,
+    /// unconditionally — the entry point for the explicit user Delete action
+    /// and the Agent Builder's deliberate cancel. Implicit dismiss-cleanup
+    /// should call `discardClaimedConversationIfUnengaged` instead so an
+    /// engaged conversation is kept. Deletes the local `DBConversation` row
+    /// and its dependent rows (members, profiles, local state) so the
+    /// conversation disappears from the conversations list, and releases the
+    /// in-memory cache claim so the next prewarm runs. The single-inbox
+    /// refactor turned the older `session.deleteInbox` cleanup into a no-op
+    /// (it would destroy the user's account); this is the replacement scoped
+    /// to a single conversation. Draft ids are a no-op — drafts don't have
+    /// on-disk rows the user can see.
     func discardClaimedConversation(id conversationId: String) async
+
+    /// Engagement-gated variant of `discardClaimedConversation` for implicit
+    /// cleanup paths (sheet dismiss, flow teardown, superseded claims). Reads
+    /// `ConversationEngagement.isEngaged` first: an engaged conversation
+    /// (customized metadata, chat messages, another member now or ever, or a
+    /// shared invite link) is
+    /// committed visible and kept instead of destroyed; an untouched one goes
+    /// through the full discard. Explicit user deletes should keep calling
+    /// the unconditional `discardClaimedConversation` - a deliberate delete
+    /// must never be silently overridden by the gate.
+    func discardClaimedConversationIfUnengaged(id conversationId: String) async
 
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>

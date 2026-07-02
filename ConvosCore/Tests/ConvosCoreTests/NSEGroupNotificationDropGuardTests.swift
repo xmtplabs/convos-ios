@@ -61,7 +61,10 @@ struct NSEGroupNotificationDropGuardTests {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
-            wasRemoved: wasRemoved
+            leftHostedInviteSession: false,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         var memberInboxIds: [String] = [otherInboxId]

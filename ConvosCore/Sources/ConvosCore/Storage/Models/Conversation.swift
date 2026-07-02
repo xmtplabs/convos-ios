@@ -24,6 +24,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// chat that already has members. The plus-menu "Convo code" entry
     /// still reaches the QR on demand.
     public let hidesInviteCard: Bool
+    /// Per-conversation UI session flag for a host: true once the host has
+    /// navigated back to home from an active invite session. While false the
+    /// inline Invite/Scan card leads the transcript; once true it collapses to
+    /// the regular top cell. Persisted locally so the collapse survives
+    /// relaunches, and app-backgrounding does not flip it.
+    public let leftHostedInviteSession: Bool
     /// True when the local user was removed from this conversation (persisted
     /// from a GroupUpdated removal, cleared when a sync proves membership
     /// again). List queries already exclude removed conversations; this
@@ -78,6 +84,48 @@ public extension Conversation {
         members.first(where: { $0.profile.variant != nil })?.profile.variant
     }
 
+    /// Copy of this conversation with `leftHostedInviteSession` replaced.
+    /// Used to optimistically end a hosted invite session in memory while the
+    /// persisting GRDB write is still in flight, so an instant back-out and
+    /// re-entry reads the ended state instead of flashing the inline card.
+    func withLeftHostedInviteSession(_ ended: Bool) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: members,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: ended,
+            wasRemoved: wasRemoved,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
+    }
+
     /// Copy of this conversation with `members` replaced. Used by the
     /// optimistic contacts-picker flows to overlay synthetic members onto
     /// a DB-emitted conversation so the chat header keeps rendering the
@@ -100,6 +148,7 @@ public extension Conversation {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             lastMessage: lastMessage,
             imageURL: imageURL,
