@@ -18,7 +18,7 @@ Keep a minted conversation if any of the following hold; otherwise it is a trans
 
 - it ever had two members, even if the second member later left;
 - the user put content in it (a sent message);
-- the user customized any metadata: name, description, image, or emoji (all four exist as `DBConversation` columns; there is no per-conversation color in the schema);
+- the user customized any metadata: name, description, or image (there is no per-conversation color in the schema, and the conversation emoji is auto-assigned -- see below);
 - existing keeps: the invite was shared externally, or a scanned code was handled.
 
 Explicit user deletes stay unconditional. Only implicit dismiss-cleanup goes through the engagement gate.
@@ -27,7 +27,8 @@ Unsent composer drafts do not count. Draft text lives only in memory (`Conversat
 
 ## What the database gives us
 
-- Fresh mint defaults: a pooled row is written with `name`, `description`, `imageURLString`, and `conversationEmoji` all nil (`UnusedConversationCache.writeUnusedConversationRow`). "New Convo" is a UI-only fallback, never materialized in the database. "Customized" is therefore cleanly detectable as non-nil, non-empty on any of the four columns. All customization paths funnel through `ConversationMetadataWriter` and always persist to `DBConversation`.
+- Fresh mint defaults: a pooled row is written with `name`, `description`, `imageURLString`, and `conversationEmoji` all nil (`UnusedConversationCache.writeUnusedConversationRow`). "New Convo" is a UI-only fallback, never materialized in the database. "Customized" is therefore detectable as non-nil, non-empty on the name, description, and image columns. All customization paths funnel through `ConversationMetadataWriter` and always persist to `DBConversation`.
+- One exception, found during validation: `conversationEmoji` is auto-assigned to every minted conversation at creation (`ensureConversationEmoji` in the conversation state machine, seeded from the conversation id), so a non-nil emoji says nothing about user intent and is excluded from the predicate. There is no in-app emoji editor today; if one lands, it must latch engagement at the view-model layer, and the predicate can learn to compare against the auto-assigned value.
 - Messages: real messages persist as `DBMessage` rows; membership changes persist as `contentType == .update` rows. The view-model-side message count only counts chat content (the `.messages` grouping in `MessagesListItemType`), so a database-side count must mirror that exclusion.
 - Members: the members table mirrors current membership only. Departed members' rows are deleted on network sync (`ConversationWriter`) and on explicit removal (`ConversationMetadataWriter.removeMembers`). There is no "ever had two members" record in queryable columns, so a high-water mark is needed.
 
@@ -40,7 +41,7 @@ Two candidate shapes, each with a blind spot the other covers:
 
 Chosen: hybrid. The database-derived predicate is the authoritative gate inside the terminal discard, and a thin synchronous latch on the view model covers the in-flight-write race.
 
-1. `ConversationEngagement.isEngaged(db:conversationId:currentInboxId:)` in ConvosCore -- the single predicate: any of `name`/`description`/`conversationEmoji` non-nil and non-empty, `imageURLString` non-nil, real-message count greater than zero (excluding `.update` and other non-chat content types, mirroring the `.messages` grouping filter), non-self member count greater than zero, or `hasHadOtherMembers` true.
+1. `ConversationEngagement.isEngaged(db:conversationId:currentInboxId:)` in ConvosCore -- the single predicate: any of `name`/`description`/`imageURLString` non-nil and non-empty, real-message count greater than zero (excluding `.update` and other non-chat content types, mirroring the `.messages` grouping filter), non-self member count greater than zero, or `hasHadOtherMembers` true.
 2. `SessionManager.discardClaimedConversationIfUnengaged(id:)` -- a new protocol method next to `discardClaimedConversation`. It checks the predicate before `updateConsentState(.denied)`: a kept conversation must never get consent-denied, or it vanishes from the list anyway. Engaged -> commit the claimed conversation (ensures visibility; safe if already committed) and return without deleting. Unengaged -> the existing discard body. The unconditional `discardClaimedConversation` stays for explicit user deletes and the Agent Builder's deliberate cancel.
 3. On the view model, the flag pile (`didShareInvite`, `didHandleScannedCode`) consolidates into a single `EngagementLatches` OptionSet (`.sharedInvite`, `.scannedCode`, `.customizedMetadata`, `.memberJoined`), with the existing mark methods kept as facades so call sites do not churn. The `cleanUpEmptyEmbeddedInviteIfNeeded` keep-guard becomes: any latch set, or messages present, or other members present.
 4. `.customizedMetadata` wiring: `ConversationViewModel` gains an `onMetadataEdited` callback, invoked synchronously (before spawning the write task, and only when a change will actually be written) from the name-edit branches and the pending public-preview name/description writes. `NewConversationViewModel` wires it in its inner view-model forwarding block so it survives inner-VM swaps, following the `onInviteShared` precedent.

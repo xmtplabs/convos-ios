@@ -153,20 +153,29 @@ struct ConversationEngagementTests {
         let results: [Bool] = try dbManager.dbWriter.write { db in
             try Self.seedPoolConversation(db: db, id: "named", name: "Keep Me")
             try Self.seedPoolConversation(db: db, id: "described", description: "About us")
-            try Self.seedPoolConversation(db: db, id: "emojied", emoji: "🎉")
             try Self.seedPoolConversation(db: db, id: "pictured", imageURLString: "https://example.com/pic.jpg")
-            return try ["named", "described", "emojied", "pictured"].map { (id: String) -> Bool in
+            return try ["named", "described", "pictured"].map { (id: String) -> Bool in
                 try Self.isEngaged(db, id: id)
             }
         }
-        #expect(results == [true, true, true, true])
+        #expect(results == [true, true, true])
+    }
+
+    @Test("The auto-assigned conversation emoji does not count as customization")
+    func autoAssignedEmojiNotEngaged() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let engaged = try dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "convo", emoji: "🎉")
+            return try Self.isEngaged(db, id: "convo")
+        }
+        #expect(engaged == false)
     }
 
     @Test("Empty-string metadata does not count as customization")
     func emptyStringMetadataNotEngaged() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let engaged = try dbManager.dbWriter.write { db in
-            try Self.seedPoolConversation(db: db, id: "convo", name: "", description: "", emoji: "")
+            try Self.seedPoolConversation(db: db, id: "convo", name: "", description: "", imageURLString: "")
             return try Self.isEngaged(db, id: "convo")
         }
         #expect(engaged == false)

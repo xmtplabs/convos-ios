@@ -5,11 +5,11 @@ import GRDB
 /// "engaged" - i.e. whether implicit dismiss-cleanup is allowed to discard
 /// it. A freshly pooled row is written with all-nil metadata
 /// (`UnusedConversationCache.writeUnusedConversationRow`), no messages, and
-/// the creator as its only member, so engagement is detectable as any
+/// the creator as its only member, so engagement is detectable as a
 /// deviation from that baseline:
 ///
-/// - any metadata customization: non-nil, non-empty `name`, `description`,
-///   or `conversationEmoji`, or a non-nil `imageURLString`;
+/// - metadata customization: non-nil, non-empty `name`, `description`, or
+///   `imageURLString`;
 /// - any chat message (the `.messages` grouping notion the messages list
 ///   counts - system rows like membership updates do not qualify);
 /// - another member right now, or ever
@@ -60,16 +60,24 @@ enum ConversationEngagement {
         return try hasChatMessages(db, conversationId: conversationId)
     }
 
-    /// Non-nil, non-empty on any of the four customizable columns. The pool
+    /// Non-nil, non-empty on any of the user-customizable columns. The pool
     /// writes them all nil; "New Convo" is a UI-only fallback that never
     /// reaches the database. Empty strings can appear when a user reverts a
     /// customization (e.g. clears the name), and count as not customized so
     /// a reverted conversation found on a later launch is discardable again.
+    ///
+    /// `conversationEmoji` is deliberately excluded: every minted
+    /// conversation gets an auto-assigned emoji at creation
+    /// (`ensureConversationEmoji` in the conversation state machine), so a
+    /// non-nil emoji says nothing about user intent. There is no in-app
+    /// emoji editor today; if one lands, it must latch engagement at the
+    /// view-model layer (`onMetadataEdited`) and this check can learn to
+    /// compare against the auto-assigned value.
     static func hasCustomizedMetadata(_ conversation: DBConversation) -> Bool {
-        if isNonEmpty(conversation.name) || isNonEmpty(conversation.description) || isNonEmpty(conversation.conversationEmoji) {
+        if isNonEmpty(conversation.name) || isNonEmpty(conversation.description) {
             return true
         }
-        return conversation.imageURLString != nil
+        return isNonEmpty(conversation.imageURLString)
     }
 
     private static func hasChatMessages(_ db: Database, conversationId: String) throws -> Bool {
