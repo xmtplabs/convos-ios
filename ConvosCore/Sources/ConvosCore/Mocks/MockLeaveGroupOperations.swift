@@ -4,12 +4,13 @@ import os
 /// In-memory stub for `LeaveGroupOperationsProtocol`. Records the sequence of
 /// MLS-level calls the leave writer makes and lets tests inject the super-admin
 /// roster and per-step failures, enough to assert the super-admin-transfer ->
-/// leaveGroup flow without standing up a real XMTP group.
+/// self-demotion -> leaveGroup flow without standing up a real XMTP group.
 final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked Sendable {
     enum Call: Equatable, Sendable {
         case currentInboxId
         case superAdminInboxIds(conversationId: String)
         case promoteToSuperAdmin(inboxId: String, conversationId: String)
+        case demoteFromSuperAdmin(inboxId: String, conversationId: String)
         case leaveGroup(conversationId: String)
     }
 
@@ -20,6 +21,7 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
         var inboxId: String = "inbox-self"
         var superAdmins: [String] = []
         var promoteError: (any Error)?
+        var demoteError: (any Error)?
         var leaveError: (any Error)?
     }
 
@@ -35,6 +37,10 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
 
     func failPromote(with error: any Error) {
         lock.withLock { $0.promoteError = error }
+    }
+
+    func failDemote(with error: any Error) {
+        lock.withLock { $0.demoteError = error }
     }
 
     func failLeave(with error: any Error) {
@@ -59,6 +65,14 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
         let error: (any Error)? = lock.withLock { state in
             state.calls.append(.promoteToSuperAdmin(inboxId: inboxId, conversationId: conversationId))
             return state.promoteError
+        }
+        if let error { throw error }
+    }
+
+    func demoteFromSuperAdmin(inboxId: String, conversationId: String) async throws {
+        let error: (any Error)? = lock.withLock { state in
+            state.calls.append(.demoteFromSuperAdmin(inboxId: inboxId, conversationId: conversationId))
+            return state.demoteError
         }
         if let error { throw error }
     }

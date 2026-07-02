@@ -3,10 +3,11 @@ import Foundation
 import Testing
 
 /// Self-removal flow coverage: transfer super admin when the leaver is the
-/// sole super admin, self-remove via `leaveGroup`, then apply the optimistic
-/// consent-hide. These tests pin the call sequence, the super-admin invariant,
-/// and the human-preferred / agent-fallback successor policy without standing
-/// up a real MLS group.
+/// sole super admin, demote a super-admin leaver (the protocol rejects a
+/// super admin's `leaveGroup`), self-remove via `leaveGroup`, then apply the
+/// optimistic consent-hide. These tests pin the call sequence, the
+/// super-admin invariant, and the human-preferred / agent-fallback successor
+/// policy without standing up a real MLS group.
 @Suite("ConversationLeaveWriter — transfer-and-leave flow", .serialized)
 struct ConversationLeaveWriterTests {
     private let conversationId = "conv-leave-1"
@@ -25,7 +26,7 @@ struct ConversationLeaveWriterTests {
         LeaveSuccessorCandidate(inboxId: inboxId, isAgent: true, joinedAt: joinedAt)
     }
 
-    @Test("Not sole super admin: leave + consent-hide, no super-admin transfer")
+    @Test("Not sole super admin: demote self + leave + consent-hide, no transfer")
     func noTransferWhenAnotherSuperAdminExists() async throws {
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([selfInboxId, elder])
@@ -40,12 +41,15 @@ struct ConversationLeaveWriterTests {
             return false
         }
         #expect(!hasPromote)
+        #expect(fixtures.operations.calls.contains(
+            .demoteFromSuperAdmin(inboxId: selfInboxId, conversationId: conversationId)
+        ))
         #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
         #expect(fixtures.consentWriter.deletedConversations.first?.id == conversationId)
     }
 
-    @Test("Not a super admin: leave + consent-hide, no transfer")
+    @Test("Not a super admin: leave + consent-hide, no transfer, no demotion")
     func noTransferWhenNotSuperAdmin() async throws {
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([elder])
@@ -59,11 +63,16 @@ struct ConversationLeaveWriterTests {
             if case .promoteToSuperAdmin = call { return true }
             return false
         }
+        let hasDemote = fixtures.operations.calls.contains { call in
+            if case .demoteFromSuperAdmin = call { return true }
+            return false
+        }
         #expect(!hasPromote)
+        #expect(!hasDemote)
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
-    @Test("Sole super admin: promotes longest-tenured human before leaving")
+    @Test("Sole super admin: promotes longest-tenured human, demotes self, then leaves")
     func transfersToLongestTenuredBeforeLeaving() async throws {
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([selfInboxId])
@@ -79,6 +88,7 @@ struct ConversationLeaveWriterTests {
             .currentInboxId,
             .superAdminInboxIds(conversationId: conversationId),
             .promoteToSuperAdmin(inboxId: elder, conversationId: conversationId),
+            .demoteFromSuperAdmin(inboxId: selfInboxId, conversationId: conversationId),
             .leaveGroup(conversationId: conversationId)
         ])
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
@@ -117,7 +127,7 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
-    @Test("Sole super admin with no successor: leaves without transfer")
+    @Test("Sole super admin with no successor: leaves without transfer or demotion")
     func soleSuperAdminNoSuccessor() async throws {
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([selfInboxId])
@@ -131,7 +141,12 @@ struct ConversationLeaveWriterTests {
             if case .promoteToSuperAdmin = call { return true }
             return false
         }
+        let hasDemote = fixtures.operations.calls.contains { call in
+            if case .demoteFromSuperAdmin = call { return true }
+            return false
+        }
         #expect(!hasPromote)
+        #expect(!hasDemote)
         #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
@@ -185,6 +200,24 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.consentWriter.deletedConversations.isEmpty)
     }
 
+    @Test("Self-demotion failure aborts the leave before leaveGroup")
+    func demoteFailureAbortsLeave() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId, elder])
+        fixtures.operations.failDemote(with: StubError.demoteFailed)
+
+        await #expect(throws: StubError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+        }
+
+        let hasLeave = fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId))
+        #expect(!hasLeave)
+        #expect(fixtures.consentWriter.deletedConversations.isEmpty)
+    }
+
     // MARK: - Fixtures
 
     private final class Fixtures {
@@ -209,6 +242,7 @@ struct ConversationLeaveWriterTests {
     private enum StubError: Error {
         case leaveFailed
         case promoteFailed
+        case demoteFailed
     }
 
     private struct BenignLeaveError: Error, CustomStringConvertible {

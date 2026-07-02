@@ -7,9 +7,11 @@ public protocol ConversationLeaveWriterProtocol: Sendable {
     /// unsubscribe + local row hide) so the conversation leaves the UI while
     /// the MLS remove-commit finalizes async.
     ///
-    /// When the leaver is the sole super admin, the super-admin role is first
-    /// transferred to a remaining member so the group always keeps at least
-    /// one super admin. `successorCandidates` is the remaining membership
+    /// The protocol forbids a super admin from leaving (and from being
+    /// removed), so a super-admin leaver is demoted first. When the leaver is
+    /// also the sole super admin, the role is transferred to a remaining
+    /// member before the demotion so the group always keeps at least one
+    /// super admin. `successorCandidates` is the remaining membership
     /// (excluding the leaver); the writer applies a human-preferred,
     /// agent-fallback tenure policy to pick who to promote.
     func leave(
@@ -35,13 +37,14 @@ public struct LeaveSuccessorCandidate: Sendable {
 
 /// The MLS-level operations the leave writer reaches through to the XMTP SDK.
 /// Factored out so tests can assert the call sequence (super-admin transfer ->
-/// `leaveGroup`) without standing up a real MLS group. Production
-/// implementation is `XMTPLeaveGroupOperations`; `MockLeaveGroupOperations`
-/// backs the unit tests.
+/// self-demotion -> `leaveGroup`) without standing up a real MLS group.
+/// Production implementation is `XMTPLeaveGroupOperations`;
+/// `MockLeaveGroupOperations` backs the unit tests.
 protocol LeaveGroupOperationsProtocol: Sendable {
     func currentInboxId() async throws -> String
     func superAdminInboxIds(conversationId: String) async throws -> [String]
     func promoteToSuperAdmin(inboxId: String, conversationId: String) async throws
+    func demoteFromSuperAdmin(inboxId: String, conversationId: String) async throws
     func leaveGroup(conversationId: String) async throws
 }
 
@@ -75,6 +78,11 @@ struct XMTPLeaveGroupOperations: LeaveGroupOperationsProtocol {
     func promoteToSuperAdmin(inboxId: String, conversationId: String) async throws {
         let (_, group) = try await findGroupConversation(conversationId: conversationId)
         try await group.addSuperAdmin(inboxId: inboxId)
+    }
+
+    func demoteFromSuperAdmin(inboxId: String, conversationId: String) async throws {
+        let (_, group) = try await findGroupConversation(conversationId: conversationId)
+        try await group.removeSuperAdmin(inboxId: inboxId)
     }
 
     func leaveGroup(conversationId: String) async throws {
@@ -118,7 +126,7 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
     ) async throws {
         let myInboxId = try await operations.currentInboxId()
 
-        try await transferSuperAdminIfNeeded(
+        try await relinquishSuperAdminIfNeeded(
             conversationId: conversation.id,
             myInboxId: myInboxId,
             successorCandidates: successorCandidates
@@ -142,28 +150,37 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
         try await consentWriter.delete(conversation: conversation)
     }
 
-    /// Protects the "group always keeps at least one super admin" invariant.
-    /// Only acts when the leaver is the sole super admin, then promotes the
-    /// preferred successor before leaving. Awaited rather than best-effort: if
-    /// the transfer can't land we abort the leave rather than strand the group
-    /// with no super admin.
-    private func transferSuperAdminIfNeeded(
+    /// The protocol rejects `leaveGroup()` while the leaver is a super admin
+    /// (super admins cannot be removed), so a super-admin leaver must be
+    /// demoted before the leave. Protects the "group always keeps at least
+    /// one super admin" invariant: when the leaver is the sole super admin,
+    /// the preferred successor is promoted before the self-demotion. Awaited
+    /// rather than best-effort: if the transfer or demotion can't land we
+    /// abort the leave rather than strand the group with no super admin or
+    /// fail the leave at the MLS layer.
+    private func relinquishSuperAdminIfNeeded(
         conversationId: String,
         myInboxId: String,
         successorCandidates: [LeaveSuccessorCandidate]
     ) async throws {
         let superAdmins = try await operations.superAdminInboxIds(conversationId: conversationId)
-        let isSoleSuperAdmin = superAdmins.contains(myInboxId) && superAdmins.count == 1
-        guard isSoleSuperAdmin else { return }
+        guard superAdmins.contains(myInboxId) else { return }
 
-        let ordered = Self.orderedSuccessorInboxIds(from: successorCandidates, excluding: myInboxId)
-        guard let successor = ordered.first else {
-            Log.warning("Leaving \(conversationId) as sole super admin with no successor to promote")
-            return
+        if superAdmins.count == 1 {
+            let ordered = Self.orderedSuccessorInboxIds(from: successorCandidates, excluding: myInboxId)
+            guard let successor = ordered.first else {
+                // No one left to promote: the leaver is effectively the last
+                // member, so keep the role and let `leaveGroup()` resolve it
+                // (the 1 -> 0 commit is rejected as a benign error).
+                Log.warning("Leaving \(conversationId) as sole super admin with no successor to promote")
+                return
+            }
+            try await operations.promoteToSuperAdmin(inboxId: successor, conversationId: conversationId)
+            Log.info("Transferred super admin to \(successor) before leaving \(conversationId)")
         }
 
-        try await operations.promoteToSuperAdmin(inboxId: successor, conversationId: conversationId)
-        Log.info("Transferred super admin to \(successor) before leaving \(conversationId)")
+        try await operations.demoteFromSuperAdmin(inboxId: myInboxId, conversationId: conversationId)
+        Log.info("Demoted self from super admin before leaving \(conversationId)")
     }
 
     /// Successor inbox ids in promotion-preference order. Human members come
