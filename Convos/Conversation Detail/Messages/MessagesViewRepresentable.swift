@@ -51,6 +51,14 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
     var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
+    /// When true the index-0 `.invite` cell renders the full inline
+    /// Invite/Scan card (`InviteCodeBody`) for an active hosted session,
+    /// instead of the regular inviter QR + menu.
+    var showsInviteScanCard: Bool = false
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -147,6 +155,11 @@ let menuPresented = contextMenuState.isPresented
             messagesViewController.restoreBottomInsetAfterContextMenu()
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
+        messagesViewController.showsInviteScanCard = showsInviteScanCard
+        messagesViewController.inviteScanMode = inviteScanMode
+        messagesViewController.inviteScanInitialSegment = inviteScanInitialSegment
+        messagesViewController.onScannedInviteCode = onScannedInviteCode
+        messagesViewController.onInviteShareCompleted = onInviteShareCompleted
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,

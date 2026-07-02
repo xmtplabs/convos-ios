@@ -43,7 +43,12 @@ enum InviteURLDetector {
             let potentialCode = trimmedText.replacingOccurrences(of: "*", with: "")
             if isLikelyInviteCode(potentialCode),
                (try? SignedInvite.fromURLSafeSlug(potentialCode)) != nil {
-                let fullURL = "https://\(ConfigManager.shared.associatedDomain)/i/\(potentialCode)"
+                // Build the bare-code fallback URL in the same shape invite
+                // generation emits (`/v2?i=`, see `Invite.inviteURLString`) so a
+                // freshly detected code matches the link the app produces.
+                // Both shapes still parse (`URL.convosInviteCode` accepts
+                // `/v2?i=` and `/i/`), so old `/i/` links keep resolving.
+                let fullURL = "https://\(ConfigManager.shared.associatedDomain)/v2?i=\(potentialCode)"
                 foundInvite = InviteURLDetectionResult(code: potentialCode, fullURL: fullURL, range: text.startIndex..<text.endIndex)
             }
         }

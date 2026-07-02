@@ -36,13 +36,20 @@ extension UIViewController {
 }
 
 extension UIApplication {
+    /// The top-most view controller of the active UI. Scoped to the
+    /// foreground-active window scene's key window so multi-window contexts
+    /// (iPad split view / Stage Manager) resolve the window the user is
+    /// actually interacting with; falls back to the first window of any
+    /// connected scene when no foreground-active key window exists (e.g.
+    /// during scene transitions).
     func topMostViewController() -> UIViewController? {
-        UIApplication.shared
+        let windowScenes = UIApplication.shared
             .connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first?
-            .rootViewController?
-            .topMostViewController()
+        let activeScenes = windowScenes.filter { $0.activationState == .foregroundActive }
+        let window: UIWindow? = activeScenes.compactMap(\.keyWindow).first
+            ?? activeScenes.flatMap(\.windows).first
+            ?? windowScenes.flatMap(\.windows).first
+        return window?.rootViewController?.topMostViewController()
     }
 }

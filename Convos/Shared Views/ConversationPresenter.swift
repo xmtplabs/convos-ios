@@ -95,10 +95,17 @@ struct ConversationPresenter<Content: View>: View {
                     invite: viewModel.invite,
                     isPresented: Binding(
                         get: { viewModel.presentingShareView },
-                        set: { viewModel.presentingShareView = $0 }
+                        set: { newValue in
+                            viewModel.presentingShareView = newValue
+                            if !newValue {
+                                viewModel.shareViewInitialSegment = .invite
+                            }
+                        }
                     ),
                     topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions
+                    coreActions: viewModel.coreActions,
+                    initialSegment: viewModel.shareViewInitialSegment,
+                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)

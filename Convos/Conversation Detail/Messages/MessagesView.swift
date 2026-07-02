@@ -103,6 +103,14 @@ struct MessagesView<BottomBarContent: View>: View {
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
+    /// When true the index-0 `.invite` cell renders the full inline
+    /// Invite/Scan card (`InviteCodeBody`) for an active hosted session.
+    /// Mirrors `ConversationView.showsTopOfConvoInvite`.
+    var showsInviteScanCard: Bool = false
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -168,6 +176,11 @@ struct MessagesView<BottomBarContent: View>: View {
                     sentAt: sentAt
                 )
             },
+            showsInviteScanCard: showsInviteScanCard,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: inviteScanInitialSegment,
+            onScannedInviteCode: onScannedInviteCode,
+            onInviteShareCompleted: onInviteShareCompleted,
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
             // `safeAreaBar` below), so the controller must not wait for a

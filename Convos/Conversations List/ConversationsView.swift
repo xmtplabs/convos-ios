@@ -97,6 +97,15 @@ struct ConversationsView: View {
         Binding(
             get: { viewModel.selectedConversationViewModel },
             set: { newValue in
+                // A nil transition here is the unambiguous "popped back to
+                // home" event: it fires only on an actual pop of the pushed
+                // ConversationView, never on a tab switch, modal-sheet
+                // dismiss, or app backgrounding. That is exactly when a host's
+                // active invite session should end so the inline card collapses
+                // to the regular top cell on re-entry.
+                if newValue == nil {
+                    viewModel.endHostedInviteSessionOnPop()
+                }
                 viewModel.selectedConversationId = newValue?.conversation.id
             }
         )

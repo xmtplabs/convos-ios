@@ -24,6 +24,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// in normal chat. The Agent Builder passes `.hidden` so the
     /// underlying chat doesn't flash a QR while the user is still drafting.
     var headerMode: MessagesHeaderMode = .standard
+    /// Set by the "Show an invite code" new-convo flow. When true, the chat
+    /// pins the shared `InviteCodeBody` (Scan/Invite segmented toggle) as a top
+    /// `safeAreaInset`, suppresses the duplicate message-list-header QR, and
+    /// drops the lone scan toolbar item (the Scan segment owns scanning). The
+    /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
+    /// brand-new convo rather than scanning into this one.
+    var showsEmbeddedInvite: Bool = false
+    /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
+    /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
+    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
+    /// Routes a code decoded by the embedded Scan segment to the new-convo join
+    /// path. Nil keeps the embedded viewfinder decode-only.
+    var onScannedInviteCode: ((String) -> Void)?
+    /// Fires when the embedded invite's "Share invite link" completes, so the
+    /// backing new-convo flow can mark its invite as shared and skip the
+    /// empty-conversation teardown that would otherwise break the shared link.
+    var onInviteShared: (() -> Void)?
     /// Shared SwiftUI namespace used by the Agent Builder commit morph.
     /// Set by `AgentBuilderView` so its composer card and the in-stream
     /// summary cell can match-geometry into each other via `glassEffectID`.
@@ -34,7 +51,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
-    @State private var isKeyboardVisible: Bool = false
+    /// Tracks keyboard visibility so the pager dots hide, the pager-dots inset
+    /// collapses, and the draft-window invite inset collapses while the
+    /// keyboard is up. Internal so `draftEmbeddedInviteInset` in the
+    /// metrics-observers extension can read it.
+    @State var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
     /// presented.
@@ -44,13 +65,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
-
-    /// Read-only when the presenter asks for it (stale/removed device) or
-    /// when the local user was removed from this conversation but can still
-    /// view it (e.g. it was open when the removal landed).
-    private var effectiveReadOnly: Bool {
-        isReadOnly || viewModel.conversation.wasRemoved
-    }
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -76,6 +90,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
+        // Moving into the Scan/Invite overlay must leave the keyboard down.
+        // The composer's first responder lives across the messages view
+        // controller's UIKit boundary, so clear both layers: the coordinator
+        // (so no focus-restore logic re-raises it) and the actual first
+        // responder. The invite picker sheet additionally re-resigns on its
+        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
+        // restores the composer's first responder when the sheet finishes
+        // dismissing.
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
     }
 
@@ -313,7 +337,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: effectiveReadOnly ? .suppressed : headerMode,
+            headerMode: effectiveHeaderMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
@@ -321,6 +345,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
+            showsInviteScanCard: showsTopOfConvoInvite,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: embeddedInviteInitialSegment,
+            onScannedInviteCode: inviteScanScannedHandler,
+            onInviteShareCompleted: onInviteShareCompletedHandler,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -357,13 +386,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        if !topBarTrailingHidden {
+        // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
+        // toolbar item is dropped for that flow.
+        if !topBarTrailingHidden && !showsEmbeddedInvite {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
                 } else {
                     switch messagesTopBarTrailingItem {
-                    case .share: addToConversationMenu
+                    case .share:
+                        // A full conversation can't mint new invite links, so the
+                        // invite affordance is hidden entirely (mirrors
+                        // `showsTopOfConvoInvite`'s `!isFull` gate).
+                        if !viewModel.isFull {
+                            inviteButton
+                        }
                     case .scan: scanInviteButton
                     }
                 }
@@ -383,23 +420,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("lock-info-button")
     }
 
-    private var addToConversationMenu: some View {
-        AddToConversationMenu(
-            isFull: viewModel.isFull,
-            isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
-            onConvoCode: {
-                if viewModel.isFull {
-                    showingFullInfo = true
-                } else {
-                    viewModel.presentingShareView = true
-                }
-            },
-            onInviteAgent: {
-                viewModel.presentAgentBuilder()
-            },
-            onAddFromContacts: handleAddFromContactsTap
-        )
+    /// The in-conversation top-right invite affordance. Opens the "Invite"
+    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
+    /// scoped to this conversation, carrying the three convo-scoped invite
+    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
+    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    private var inviteButton: some View {
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
+        }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
     }
 
     private var handleAddFromContactsTap: () -> Void {
@@ -544,15 +576,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
-        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            dotsHidden: contextMenuPresented,
-            scrollingDisabled: contextMenuPresented,
+            dotsHidden: contextMenuState.isPresented,
+            scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )
+        .safeAreaInset(edge: .top) { draftEmbeddedInviteInset }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
@@ -623,7 +655,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .addFromContactsPicker(
             viewModel: viewModel,
-            isPresented: $presentingAddFromContactsPicker
+            isPresented: $presentingAddFromContactsPicker,
+            onInviteShared: onInviteShared
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
@@ -801,6 +834,43 @@ struct AgentShareContactDetailSheetContent: View {
                 profileSettingsViewModel: profileSettingsViewModel
             )
         }
+    }
+}
+
+extension ConversationView {
+    /// Read-only when the presenter asks for it (stale/removed device) or
+    /// when the local user was removed from this conversation but can still
+    /// view it (e.g. it was open when the removal landed).
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
+    /// It shows above the chat for every conversation that meets the same
+    /// eligibility the legacy message-list QR header used (you created it, it's
+    /// not locked, it's not full), for the whole active invite session: from
+    /// first entry, through joins and incoming messages, until the host
+    /// navigates back to home and returns (tracked by the persisted
+    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
+    /// session. The "Show an invite code" new-convo flow shows it
+    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
+    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
+    /// the duplicate message-list-header QR is suppressed via
+    /// `effectiveHeaderMode -> .hidden`.
+    var showsTopOfConvoInvite: Bool {
+        if showsEmbeddedInvite { return true }
+        guard !effectiveReadOnly, headerMode == .standard else { return false }
+        let conversation = viewModel.conversation
+        guard !conversation.isDraft else { return false }
+        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
+    }
+
+    /// Read-only surfaces suppress every leading affordance. The inline
+    /// Invite/Scan card now lives in the index-0 `.invite` cell (branched on
+    /// `showsInviteScanCard`), so the header no longer forces `.hidden` to
+    /// dedupe against a pinned overlay.
+    private var effectiveHeaderMode: MessagesHeaderMode {
+        effectiveReadOnly ? .suppressed : headerMode
     }
 }
 

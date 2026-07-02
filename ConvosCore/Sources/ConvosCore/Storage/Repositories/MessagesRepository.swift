@@ -934,6 +934,7 @@ private extension LightweightConversationDetails {
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
             hidesInviteCard: conversationLocalState.hidesInviteCard,
+            leftHostedInviteSession: conversationLocalState.leftHostedInviteSession,
             wasRemoved: conversationLocalState.wasRemoved,
             lastMessage: nil,
             imageURL: imageURL,

@@ -77,6 +77,17 @@ struct CellConfig {
     /// monogram). Returns nil for non-contacts, in which case the
     /// renderer falls back to the per-conversation profile.
     let memberContactOverride: (String) -> Contact?
+    /// When true the `.invite` cell renders the full inline Invite/Scan card
+    /// (`InviteCodeBody`) instead of the regular inviter QR + menu. Mirrors
+    /// `ConversationView.showsTopOfConvoInvite`.
+    let showsInviteScanCard: Bool
+    /// The conversation the inline Invite/Scan card renders for. Nil when the
+    /// card is not shown; the `.invite` cell guards on it.
+    let inviteScanConversation: Conversation?
+    let inviteScanMode: InviteCodeMode
+    let inviteScanInitialSegment: ScanInviteSegment
+    let onScannedInviteCode: (String) -> Void
+    let onInviteShareCompleted: (UIActivity.ActivityType?, Bool, Error?) -> Void
 }
 
 // swiftlint:disable force_cast
