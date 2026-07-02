@@ -124,20 +124,23 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
         conversation: Conversation,
         successorCandidates: [LeaveSuccessorCandidate]
     ) async throws {
-        let myInboxId = try await operations.currentInboxId()
-
-        try await relinquishSuperAdminIfNeeded(
-            conversationId: conversation.id,
-            myInboxId: myInboxId,
-            successorCandidates: successorCandidates
-        )
-
         // Self-remove from the MLS roster. Benign outcomes are logged and
         // swallowed so the optimistic consent-hide below still runs and the
         // conversation leaves the UI regardless:
         // - we're the last member, so libxmtp rejects the 1 -> 0 commit,
-        // - a concurrent remove already took us out of the group.
+        // - the group is already gone locally or another admin removed us
+        //   first (conversationNotFound / NotFound::MlsGroup) -- the leave's
+        //   goal is already achieved, only the local hide remains.
+        // The benign filter covers the whole flow because the not-found case
+        // also surfaces from the pre-leave super-admin lookup, not just from
+        // leaveGroup itself.
         do {
+            let myInboxId = try await operations.currentInboxId()
+            try await relinquishSuperAdminIfNeeded(
+                conversationId: conversation.id,
+                myInboxId: myInboxId,
+                successorCandidates: successorCandidates
+            )
             try await operations.leaveGroup(conversationId: conversation.id)
         } catch {
             guard Self.isBenignLeaveError(error) else { throw error }
@@ -213,11 +216,17 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
     }
 
     /// libxmtp surfaces MLS failures as FFI errors whose full message is only
-    /// visible via `String(describing:)`. Two benign cases on self-leave:
+    /// visible via `String(describing:)`. Benign cases on self-leave:
     /// - `LeaveCantProcessed` / "only one member": we're the last member and
     ///   the 1 -> 0 invariant rejects the commit.
     /// - `NotFound::MlsGroup`: a concurrent remove already took us out.
+    /// - `conversationNotFound`: the client no longer has the group at all
+    ///   (another admin removed us and the welcome/group was purged); the
+    ///   local hide is all that's left to do.
     private static func isBenignLeaveError(_ error: any Error) -> Bool {
+        if case ConversationLeaveError.conversationNotFound = error {
+            return true
+        }
         let description = String(describing: error)
         return description.contains("LeaveCantProcessed")
             || description.contains("cannot leave a group that has only one member")

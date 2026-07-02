@@ -167,6 +167,56 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
+    @Test("Group already gone at leaveGroup: consent-hide still runs")
+    func conversationNotFoundOnLeaveStillHides() async throws {
+        // Another admin removed us first (or the group was purged); the
+        // leave's goal is already achieved and only the local hide remains.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: ConversationLeaveError.conversationNotFound(conversationId))
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(elder, joinedAt: earliest)]
+        )
+
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+        #expect(fixtures.consentWriter.deletedConversations.first?.id == conversationId)
+    }
+
+    @Test("Group already gone at the super-admin lookup: consent-hide still runs")
+    func conversationNotFoundOnSuperAdminLookupStillHides() async throws {
+        // The not-found can surface from the pre-leave super-admin check,
+        // before leaveGroup is ever reached; it must be benign there too.
+        let fixtures = Fixtures()
+        fixtures.operations.failSuperAdmins(with: ConversationLeaveError.conversationNotFound(conversationId))
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(elder, joinedAt: earliest)]
+        )
+
+        let hasLeave = fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId))
+        #expect(!hasLeave)
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Concurrent removal (NotFound::MlsGroup) is benign; consent-hide still runs")
+    func concurrentRemovalStillHides() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "GenericError: GroupError NotFound::MlsGroup"
+        ))
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(elder, joinedAt: earliest)]
+        )
+
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
     @Test("Non-benign leaveGroup error propagates and skips the consent-hide")
     func nonBenignLeaveErrorPropagates() async throws {
         let fixtures = Fixtures()

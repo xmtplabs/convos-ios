@@ -20,6 +20,7 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
         var calls: [Call] = []
         var inboxId: String = "inbox-self"
         var superAdmins: [String] = []
+        var superAdminsError: (any Error)?
         var promoteError: (any Error)?
         var demoteError: (any Error)?
         var leaveError: (any Error)?
@@ -33,6 +34,10 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
 
     func setSuperAdmins(_ ids: [String]) {
         lock.withLock { $0.superAdmins = ids }
+    }
+
+    func failSuperAdmins(with error: any Error) {
+        lock.withLock { $0.superAdminsError = error }
     }
 
     func failPromote(with error: any Error) {
@@ -55,10 +60,14 @@ final class MockLeaveGroupOperations: LeaveGroupOperationsProtocol, @unchecked S
     }
 
     func superAdminInboxIds(conversationId: String) async throws -> [String] {
-        lock.withLock { state in
+        let result: Result<[String], any Error> = lock.withLock { state in
             state.calls.append(.superAdminInboxIds(conversationId: conversationId))
-            return state.superAdmins
+            if let error = state.superAdminsError {
+                return .failure(error)
+            }
+            return .success(state.superAdmins)
         }
+        return try result.get()
     }
 
     func promoteToSuperAdmin(inboxId: String, conversationId: String) async throws {
