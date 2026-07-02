@@ -156,7 +156,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// into this one. Drives `trailingItemForReadyState`.
     let showsEmbeddedInvite: Bool
     /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
-    /// home scan entry (so the viewfinder + "Scan a screenshot" are the first
+    /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
     /// thing shown); `.invite` for "Show an invite code" and normal convos.
     var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     private(set) var showingFullScreenScanner: Bool

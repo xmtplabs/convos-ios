@@ -2,7 +2,7 @@ import CoreImage
 import UIKit
 
 /// Decodes the first QR payload found in a still image, used by the invite
-/// screen's "Scan a screenshot" affordance to read a code the user picked
+/// screen's "Or scan from camera roll" affordance to read a code the user picked
 /// from their photo library. Runs the Core Image QR detector off the main
 /// thread; mirrors the live scanner, which feeds its decoded string into the
 /// same `handleScannedCode` handler.

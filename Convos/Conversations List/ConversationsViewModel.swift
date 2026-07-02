@@ -451,7 +451,7 @@ final class ConversationsViewModel {
     }
 
     /// The home scan button lands on the embedded Scan/Invite screen with the
-    /// Scan segment active, so the live viewfinder and "Scan a screenshot" are
+    /// Scan segment active, so the live viewfinder and "Or scan from camera roll" are
     /// both reachable (a scanned code opens a brand-new convo to join/add).
     /// Mirrors `onShowInviteCode` but starts on `.scan`.
     func onJoinConvo() {

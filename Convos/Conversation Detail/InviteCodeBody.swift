@@ -7,7 +7,7 @@ import UIKit
 
 // The embeddable core of the invite-code screen: the Scan/Invite segmented
 // toggle plus its two tabs (Invite = legacy QR card + "Share invite link";
-// Scan = live viewfinder + "Scan a screenshot"), without any full-screen nav
+// Scan = live viewfinder + "Or scan from camera roll"), without any full-screen nav
 // chrome. `InviteCodeOverlay` composes this under its floating liquid-glass
 // nav for the full-screen flow; `ConversationView` embeds it via a top
 // `safeAreaInset` when a "Show an invite code" convo owns the QR inline. Both
@@ -229,20 +229,22 @@ struct InviteCodeBody: View {
         }
     }
 
-    /// The "Scan a screenshot" affordance is the `PhotosPicker` itself, styled
-    /// as the tile. Wrapping a transparent picker over a separate `Button`
-    /// left the button intercepting the tap, so the picker never opened; making
-    /// the picker the whole control guarantees the tap presents the library.
+    /// The "Or scan from camera roll" affordance is the `PhotosPicker` itself,
+    /// styled as the tile. Wrapping a transparent picker over a separate
+    /// `Button` left the button intercepting the tap, so the picker never
+    /// opened; making the picker the whole control guarantees the tap presents
+    /// the library. The accessibility identifier keeps its historical name so
+    /// existing UI tests stay stable.
     private var screenshotPickerButton: some View {
         PhotosPicker(
             selection: $selectedScreenshot,
             matching: .images,
             photoLibrary: .shared()
         ) {
-            TileLabel(icon: "photo.fill", title: "Scan a screenshot")
+            TileLabel(icon: "photo.fill", title: "Or scan from camera roll")
         }
         .accessibilityIdentifier("scan-a-screenshot-button")
-        .accessibilityLabel("Scan a screenshot")
+        .accessibilityLabel("Or scan from camera roll")
     }
 
     private var captionBlock: some View {

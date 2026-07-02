@@ -21,7 +21,7 @@ import UIKit
 // with the conversation avatar overlaid into the center circle, plus a "Share
 // invite link" button wired to the conversation invite URL and the native share
 // sheet. The Scan tab swaps the QR tile for the live scanner viewfinder
-// (`QRScannerView`) and a "Scan a screenshot" button that decodes a code picked
+// (`QRScannerView`) and an "Or scan from camera roll" button that decodes a code picked
 // from the photo library. Both decoded paths feed the same `onScannedCode` handler.
 
 /// Variant of the invite-code screen. Mirrors the `ContactCardMode` pattern:
