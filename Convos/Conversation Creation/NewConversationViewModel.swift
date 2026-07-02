@@ -1387,11 +1387,28 @@ extension NewConversationViewModel {
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)
+            releaseScanLatchIfJoinConclusivelyDead()
 
         case .error(let error):
             consecutiveFailureCount += 1
             handleErrorState(error)
+            releaseScanLatchIfJoinConclusivelyDead()
         }
+    }
+
+    /// `.scannedCode` latches at scan-recognition time so a mid-join dismiss
+    /// cannot cancel the in-flight join (`tearDownAbandonedFlowTasks`) or
+    /// discard the conversation it lands in. When the join or spawn dies
+    /// conclusively - the failure surface offers no retry - that protection
+    /// has nothing left to protect, and keeping the latch would make the
+    /// error-sheet dismiss keep an untouched conversation that the
+    /// "+"-sheet/home-scan flows already committed visible: a lingering
+    /// empty convo in the chats list. A retryable failure keeps the latch,
+    /// since a retry relaunches the join and needs the same mid-join
+    /// dismiss protection.
+    private func releaseScanLatchIfJoinConclusivelyDead() {
+        guard displayError?.retryAction == nil else { return }
+        engagement.remove(.scannedCode)
     }
 
     private func applyGlobalConversationDefaultsIfNeeded(using stateManager: any ConversationStateManagerProtocol) async {

@@ -21,7 +21,7 @@ Keep a minted conversation if any of the following hold; otherwise it is a trans
 - the user customized any metadata: name, description, or image (there is no per-conversation color in the schema, and the conversation emoji is auto-assigned -- see below);
 - the user flipped the "Include info with invites" toggle off its default;
 - the invite was shared externally: latched on the view model and persisted as `ConversationLocalState.hasSharedInvite`, because the database-gated discard layers (the superseded-claim discard when a later scan joins a different conversation, and the state machine's previous-conversation cleanup) cannot see view-model latches and destroying the conversation would break the invite already in a recipient's hands;
-- a scanned code was handled (view-model latch only; it protects the in-flight join from a mid-join dismiss).
+- a scanned code was handled (view-model latch only; it protects the in-flight join from a mid-join dismiss). The latch is released when the join dies conclusively -- a failure surfaced with no retry path -- so a recognized-but-failed scan does not strand a visible empty conversation on dismiss.
 
 Explicit user deletes stay unconditional. Only implicit dismiss-cleanup goes through the engagement gate.
 
