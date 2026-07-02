@@ -99,17 +99,6 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    /// The claimed conversation backing the Compose flow. Created upfront by
-    /// `onStartConvo()` (mode `.newConversation`, which claims a warm-cached
-    /// conversation that already has an invite) so the contacts picker can
-    /// show that conversation's convo code in its empty state, and reused as
-    /// the destination the picker pushes on Skip / Continue. Cleared (and
-    /// torn down if it stayed empty) by `endComposeFlow()`.
-    var composeConversationViewModel: NewConversationViewModel? {
-        didSet {
-            oldValue?.cleanUpIfNeeded()
-        }
-    }
     var agentBuilderViewModel: AgentBuilderViewModel? {
         didSet {
             // Mirrors `newConversationViewModel.didSet`'s cleanup: when
@@ -127,9 +116,10 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    /// Drives the Compose flow sheet: the contacts picker is the root and
-    /// the claimed `composeConversationViewModel` is pushed onto it on Skip /
-    /// Continue. Distinct from `newConversationViewModel` (scanner / join /
+    /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
+    /// is the root, and every conversation is minted on intent inside the flow
+    /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
+    /// opening it. Distinct from `newConversationViewModel` (scanner / join /
     /// template), so the two never drive overlapping presentations.
     var presentingComposeFlow: Bool = false
     var presentingExplodeInfo: Bool = false
@@ -415,10 +405,11 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Compose opens the contacts picker first (optional selection), then
-    /// pushes the conversation on Skip / Continue (`ComposeFlowView`). With no
-    /// contacts to pick from, the picker would be pointless -- so we skip it
-    /// and open the new-conversation view directly, like the pre-picker flow.
+    /// Compose opens the contacts picker first (optional selection); the flow
+    /// mints a conversation only on intent (`ComposeFlowView`), so opening and
+    /// cancelling the picker claims nothing. With no contacts to pick from,
+    /// the picker would be pointless -- so we skip it and open the
+    /// new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
         // Count the contacts the picker would actually show (excludes agents,
         // blocked, and unnamed) -- the raw contact count includes those, so
@@ -433,21 +424,7 @@ final class ConversationsViewModel {
             )
             return
         }
-        composeConversationViewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            coreActions: coreActions
-        )
         presentingComposeFlow = true
-    }
-
-    /// Tears down the Compose flow when its sheet is dismissed. Clearing
-    /// `composeConversationViewModel` runs its `didSet` cleanup (which keeps a
-    /// conversation that already has content / members and discards an empty
-    /// claimed draft).
-    func endComposeFlow() {
-        presentingComposeFlow = false
-        composeConversationViewModel = nil
     }
 
     /// The home scan button lands on the embedded Scan/Invite screen with the

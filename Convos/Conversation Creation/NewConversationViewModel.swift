@@ -976,8 +976,8 @@ extension NewConversationViewModel {
     /// `.ready`, but an embedded-invite convo is warm-claimed with a pre-minted
     /// invite and reaches `.ready` immediately, so that guard would never fire.
     /// This gates on real engagement instead -- no sent/received messages and
-    /// no other members -- and discards directly (mirroring `endComposeFlow`'s
-    /// empty-claimed-draft contract). A convo with messages, a joined member,
+    /// no other members -- and discards directly. A convo with messages, a
+    /// joined member,
     /// or an already-shared invite is kept. Returns true when it handled (kept
     /// or discarded) the convo so the caller skips the default path.
     ///

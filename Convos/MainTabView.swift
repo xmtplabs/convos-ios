@@ -983,23 +983,18 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow, onDismiss: {
-                conversationsViewModel.endComposeFlow()
-            }, content: {
-                if let composeViewModel = conversationsViewModel.composeConversationViewModel {
-                    ComposeFlowView(
-                        conversationsViewModel: conversationsViewModel,
-                        composeConversationViewModel: composeViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
-                    )
-                    .background(.colorBackgroundSurfaceless)
-                    .presentationSizing(.page)
-                    .navigationTransition(
-                        .zoom(sourceID: "composer-transition-source", in: namespace)
-                    )
-                }
-            })
+            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow) {
+                ComposeFlowView(
+                    conversationsViewModel: conversationsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "composer-transition-source", in: namespace)
+                )
+            }
             .sheet(item: $thingsAgentContactMember) { member in
                 thingsAgentContactSheet(for: member)
             }
