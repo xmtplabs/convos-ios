@@ -139,4 +139,66 @@ struct ConversationUpdateTests {
         let update = metadataUpdate(creator: creator, field: .description, newValue: "")
         #expect(update.summary == "You removed the convo description")
     }
+
+    // MARK: - summary for removals: self-leave vs admin removal
+
+    private func member(
+        inboxId: String,
+        name: String?,
+        isCurrentUser: Bool = false
+    ) -> ConversationMember {
+        ConversationMember(
+            profile: Profile(
+                inboxId: inboxId,
+                conversationId: "convo-1",
+                name: name,
+                avatar: nil
+            ),
+            role: .member,
+            isCurrentUser: isCurrentUser
+        )
+    }
+
+    private func removalUpdate(
+        creator: ConversationMember,
+        removed: ConversationMember
+    ) -> ConversationUpdate {
+        ConversationUpdate(
+            creator: creator,
+            addedMembers: [],
+            removedMembers: [removed],
+            metadataChanges: []
+        )
+    }
+
+    @Test("summary renders a plain 'left' for another member's self-leave")
+    func summarySelfLeaveByOtherMember() {
+        // A self-leave stores the leaver as both initiator and removed member.
+        let bob = member(inboxId: "bob", name: "Bob")
+        let update = removalUpdate(creator: bob, removed: bob)
+        #expect(update.summary == "Bob left")
+    }
+
+    @Test("summary credits the remover for an admin removal")
+    func summaryAdminRemovalCreditsRemover() {
+        let admin = member(inboxId: "admin", name: "Alice")
+        let bob = member(inboxId: "bob", name: "Bob")
+        let update = removalUpdate(creator: admin, removed: bob)
+        #expect(update.summary == "Bob left · Removed by Alice")
+    }
+
+    @Test("summary renders 'You left the convo' for the current user's self-leave")
+    func summarySelfLeaveByCurrentUser() {
+        let me = member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let update = removalUpdate(creator: me, removed: me)
+        #expect(update.summary == "You left the convo")
+    }
+
+    @Test("summary renders 'You were removed' when an admin removes the current user")
+    func summaryAdminRemovalOfCurrentUser() {
+        let admin = member(inboxId: "admin", name: "Alice")
+        let me = member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let update = removalUpdate(creator: admin, removed: me)
+        #expect(update.summary == "You were removed from the convo")
+    }
 }

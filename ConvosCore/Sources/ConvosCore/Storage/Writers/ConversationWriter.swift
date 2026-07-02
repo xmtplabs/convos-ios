@@ -354,8 +354,20 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
         try localState.insert(db, onConflict: .ignore)
 
+        // A member with a pending-leave marker is still in the MLS roster
+        // until an authorized client finalizes their remove-commit, but the
+        // UI must treat them as gone; exclude them from the persisted rows
+        // so a re-sync can't resurrect a leaver the ingest path dropped.
+        let mlsMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        let departedInboxIds = try Self.reconcileMemberDepartures(
+            conversationId: prepared.dbConversation.id,
+            mlsMemberInboxIds: mlsMemberInboxIds,
+            in: db
+        )
+        let activeMembers = prepared.dbMembers.filter { !departedInboxIds.contains($0.inboxId) }
+
         // Remove conversation_members rows for members no longer in the group
-        let currentMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        let currentMemberInboxIds = Set(activeMembers.map(\.inboxId))
         if !currentMemberInboxIds.isEmpty {
             try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == prepared.dbConversation.id)
@@ -375,7 +387,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             in: db
         )
 
-        try saveMembers(prepared.dbMembers, in: db)
+        try saveMembers(activeMembers, in: db)
 
         // Fill gaps from the group's app-data profiles. The canonical write is
         // what rendering reads; the legacy `DBMemberProfile` write is kept
@@ -474,6 +486,34 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let mergedAvatar, mergedAvatar != existingAvatar {
             try mergedAvatar.save(db)
         }
+    }
+
+    /// Reconciles pending-leave markers against a freshly synced MLS member
+    /// list. Markers whose inbox is no longer in the roster have served their
+    /// purpose (the remove-commit finalized) and are deleted so a later
+    /// rejoin can't be masked by a stale marker. The remaining markers name
+    /// leavers whose removal is still pending; their inbox ids are returned
+    /// so the caller can exclude them from the persisted member rows. Static
+    /// so the marker lifecycle is unit-testable without constructing the full
+    /// writer.
+    static func reconcileMemberDepartures(
+        conversationId: String,
+        mlsMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws -> Set<String> {
+        let departures = try DBMemberDeparture
+            .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+            .fetchAll(db)
+        guard !departures.isEmpty else { return [] }
+
+        let staleInboxIds = departures.map(\.inboxId).filter { !mlsMemberInboxIds.contains($0) }
+        if !staleInboxIds.isEmpty {
+            try DBMemberDeparture
+                .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+                .filter(staleInboxIds.contains(DBMemberDeparture.Columns.inboxId))
+                .deleteAll(db)
+        }
+        return Set(departures.map(\.inboxId)).intersection(mlsMemberInboxIds)
     }
 
     /// Clears a persisted removed marker once a synced member list proves the

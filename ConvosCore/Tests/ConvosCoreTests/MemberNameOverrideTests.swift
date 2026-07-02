@@ -157,7 +157,7 @@ struct MemberNameOverrideTests {
         let result = update.summary { inboxId in
             inboxId == "removed" ? "Bob" : nil
         }
-        #expect(result == "Bob left")
+        #expect(result == "Bob left · Removed by Admin")
     }
 
     @Test("Self-joiner shows You regardless of override")

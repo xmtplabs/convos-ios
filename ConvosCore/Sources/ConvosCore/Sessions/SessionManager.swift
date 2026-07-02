@@ -986,6 +986,7 @@ extension SessionManager {
         try DBAgentTemplate.deleteAll(db)
         try DBMessage.deleteAll(db)
         try DBMemberProfile.deleteAll(db)
+        try DBMemberDeparture.deleteAll(db)
         try DBConversationMember.deleteAll(db)
         try DBContact.deleteAll(db)
         try DBMember.deleteAll(db)
