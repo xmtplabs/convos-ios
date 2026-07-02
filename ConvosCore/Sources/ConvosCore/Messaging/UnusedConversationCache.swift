@@ -498,7 +498,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).save(db, onConflict: .ignore)
 
         return dbConversation

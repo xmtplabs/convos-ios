@@ -70,7 +70,8 @@ struct ConversationRemovedStateTests {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for inboxId in [currentInboxId, otherInboxId] {

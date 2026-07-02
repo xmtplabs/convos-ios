@@ -321,7 +321,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// `session.discardClaimedConversationIfUnengaged`) backstops any path
     /// that misses a latch. See `EngagementLatches` for what each case means.
     @ObservationIgnored
-    private var engagement: EngagementLatches = []
+    private(set) var engagement: EngagementLatches = []
     /// Set when the pending state change was triggered by a scanned QR, so a
     /// successful join / agent-add navigates the user into the resulting
     /// conversation (and dismisses the scanner). Cleared once navigation fires.
@@ -459,11 +459,12 @@ class NewConversationViewModel: Identifiable, Hashable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
+        showsEmbeddedInvite: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
-        self.showsEmbeddedInvite = false
+        self.showsEmbeddedInvite = showsEmbeddedInvite
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -1028,8 +1029,29 @@ extension NewConversationViewModel {
     /// Records that this conversation's invite link was shared externally, so
     /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps the conversation instead of
     /// tearing it down and breaking the shared invite.
+    ///
+    /// The latch covers this VM's synchronous dismiss path; the persisted
+    /// `hasSharedInvite` write covers the database-gated discard layers that
+    /// cannot see VM latches - the superseded-claim discard when a later scan
+    /// joins a different conversation, the state machine's
+    /// previous-conversation cleanup during that join, and any check after
+    /// this VM is gone.
     func markInviteShared() {
         engagement.insert(.sharedInvite)
+        persistHasSharedInvite()
+    }
+
+    private func persistHasSharedInvite() {
+        guard let conversationStateManager else { return }
+        let conversationId = claimedConversationId ?? conversationStateManager.conversationId
+        guard !conversationId.isEmpty else { return }
+        Task { [conversationStateManager] in
+            do {
+                try await conversationStateManager.conversationLocalStateWriter.setHasSharedInvite(true, for: conversationId)
+            } catch {
+                Log.error("Failed to persist hasSharedInvite for \(conversationId): \(error.localizedDescription)")
+            }
+        }
     }
 
     func onScanInviteCode() {

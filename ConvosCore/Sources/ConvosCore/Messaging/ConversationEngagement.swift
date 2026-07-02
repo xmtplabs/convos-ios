@@ -15,7 +15,10 @@ import GRDB
 ///   counts - system rows like membership updates do not qualify);
 /// - another member right now, or ever
 ///   (`ConversationLocalState.hasHadOtherMembers` survives the member's
-///   row being deleted on departure sync).
+///   row being deleted on departure sync);
+/// - the invite link was shared externally
+///   (`ConversationLocalState.hasSharedInvite` - destroying the
+///   conversation would break the invite already in a recipient's hands).
 ///
 /// Unsent composer drafts deliberately do not count: draft text is not
 /// persisted anywhere, so keeping the conversation for one would surface an
@@ -55,7 +58,7 @@ enum ConversationEngagement {
         let localState = try ConversationLocalState
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .fetchOne(db)
-        if localState?.hasHadOtherMembers == true {
+        if localState?.hasHadOtherMembers == true || localState?.hasSharedInvite == true {
             return true
         }
         return try hasChatMessages(db, conversationId: conversationId)

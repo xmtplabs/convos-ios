@@ -252,6 +252,30 @@ extension SharedDatabaseMigrator {
             "addConversationLocalStateHasHadOtherMembers",
             migrate: Self.addConversationLocalStateHasHadOtherMembers
         )
+        migrator.registerMigration(
+            "addConversationLocalStateHasSharedInvite",
+            migrate: Self.addConversationLocalStateHasSharedInvite
+        )
+    }
+
+    /// Set-once high-water mark: true once the conversation's invite link
+    /// was shared externally. The share signal previously lived only in a
+    /// view-model latch, so the database-gated discard layers could destroy
+    /// a conversation whose invite was already in a recipient's hands (e.g.
+    /// share the embedded invite, then scan into another conversation - the
+    /// superseded-claim discard reads only database state).
+    ///
+    /// The column defaults to false with no backfill: shares were never
+    /// recorded anywhere queryable (the latch was in-memory only), so
+    /// pre-existing shares cannot be reconstructed on upgrade. Those
+    /// conversations are typically protected by their other engagement
+    /// signals (messages, members, metadata) in practice. Extracted as an
+    /// internal static helper so the migration test can exercise the real
+    /// upgrade path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasSharedInvite(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasSharedInvite", .boolean).notNull().defaults(to: false)
+        }
     }
 
     /// Per-conversation local flag tracking whether the host has navigated

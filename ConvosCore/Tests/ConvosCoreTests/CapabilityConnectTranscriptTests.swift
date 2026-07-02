@@ -599,7 +599,8 @@ private struct HydrationHarness {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for (index, inboxId) in ([currentInboxId] + otherInboxIds).enumerated() {

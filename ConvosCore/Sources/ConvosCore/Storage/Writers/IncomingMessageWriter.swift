@@ -214,7 +214,8 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
                 wasRemoved: false,
-                hasHadOtherMembers: false
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             )
         guard !current.wasRemoved else { return }
         // Unpinning here frees the pin slot a hidden conversation would

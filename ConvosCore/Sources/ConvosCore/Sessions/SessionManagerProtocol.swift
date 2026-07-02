@@ -93,7 +93,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// Engagement-gated variant of `discardClaimedConversation` for implicit
     /// cleanup paths (sheet dismiss, flow teardown, superseded claims). Reads
     /// `ConversationEngagement.isEngaged` first: an engaged conversation
-    /// (customized metadata, chat messages, another member now or ever) is
+    /// (customized metadata, chat messages, another member now or ever, or a
+    /// shared invite link) is
     /// committed visible and kept instead of destroyed; an untouched one goes
     /// through the full discard. Explicit user deletes should keep calling
     /// the unconditional `discardClaimedConversation` - a deliberate delete

@@ -20,7 +20,8 @@ Keep a minted conversation if any of the following hold; otherwise it is a trans
 - the user put content in it (a sent message);
 - the user customized any metadata: name, description, or image (there is no per-conversation color in the schema, and the conversation emoji is auto-assigned -- see below);
 - the user flipped the "Include info with invites" toggle off its default;
-- existing keeps: the invite was shared externally, or a scanned code was handled.
+- the invite was shared externally: latched on the view model and persisted as `ConversationLocalState.hasSharedInvite`, because the database-gated discard layers (the superseded-claim discard when a later scan joins a different conversation, and the state machine's previous-conversation cleanup) cannot see view-model latches and destroying the conversation would break the invite already in a recipient's hands;
+- a scanned code was handled (view-model latch only; it protects the in-flight join from a mid-join dismiss).
 
 Explicit user deletes stay unconditional. Only implicit dismiss-cleanup goes through the engagement gate.
 
@@ -43,7 +44,7 @@ Two candidate shapes, each with a blind spot the other covers:
 
 Chosen: hybrid. The database-derived predicate is the authoritative gate inside the terminal discard, and a thin synchronous latch on the view model covers the in-flight-write race.
 
-1. `ConversationEngagement.isEngaged(db:conversationId:currentInboxId:)` in ConvosCore -- the single predicate: any of `name`/`description`/`imageURLString` non-nil and non-empty, `includeInfoInPublicPreview` off its minted-true default, real-message count greater than zero (excluding `.update` and other non-chat content types, mirroring the `.messages` grouping filter), non-self member count greater than zero, or `hasHadOtherMembers` true.
+1. `ConversationEngagement.isEngaged(db:conversationId:currentInboxId:)` in ConvosCore -- the single predicate: any of `name`/`description`/`imageURLString` non-nil and non-empty, `includeInfoInPublicPreview` off its minted-true default, real-message count greater than zero (excluding `.update` and other non-chat content types, mirroring the `.messages` grouping filter), non-self member count greater than zero, `hasHadOtherMembers` true, or `hasSharedInvite` true.
 2. `SessionManager.discardClaimedConversationIfUnengaged(id:)` -- a new protocol method next to `discardClaimedConversation`. It checks the predicate before `updateConsentState(.denied)`: a kept conversation must never get consent-denied, or it vanishes from the list anyway. Engaged -> commit the claimed conversation (ensures visibility; safe if already committed) and return without deleting. Unengaged -> the existing discard body. The unconditional `discardClaimedConversation` stays for explicit user deletes and the Agent Builder's deliberate cancel.
 3. On the view model, the flag pile (`didShareInvite`, `didHandleScannedCode`) consolidates into a single `EngagementLatches` OptionSet (`.sharedInvite`, `.scannedCode`, `.customizedMetadata`, `.memberJoined`), with the existing mark methods kept as facades so call sites do not churn. The `cleanUpEmptyEmbeddedInviteIfNeeded` keep-guard becomes: any latch set, or messages present, or other members present.
 4. `.customizedMetadata` wiring: `ConversationViewModel` gains an `onMetadataEdited` callback, invoked synchronously (before spawning the write task, and only when a change will actually be written) from the name-edit branches, the pending public-preview name/description writes, and the include-info toggle itself. `NewConversationViewModel` wires it in its inner view-model forwarding block so it survives inner-VM swaps, following the `onInviteShared` precedent.
@@ -62,6 +63,8 @@ Chosen instead: an explicit set-once flag `hasHadOtherMembers` on `ConversationL
 - Migration: add the column defaulting false, backfilled true where a non-self `DBConversationMember` row exists.
 
 The in-session latch makes the flag's timeliness non-critical; the flag exists for cross-session correctness (app killed after a member joined and left; discard decided on a later launch or by a different surface).
+
+The shared-invite signal needs the same treatment for a different reason: the discard layers that destroy a superseded claim (scan into another conversation) are database-only -- `discardSupersededClaimedConversationIfNeeded` routes straight to the session's engagement gate, and the state machine's `cleanUpPreviousConversationIfNeeded` runs inside ConvosCore where no view-model latch is visible. A shared invite whose only record is the `.sharedInvite` latch dies with those layers, breaking the invite in the recipient's hands. So `markInviteShared` also persists a set-once `ConversationLocalState.hasSharedInvite`, written through the local-state writer and read by the predicate. The migration adds the column defaulting false with no backfill: shares were never recorded anywhere queryable before this column existed, so pre-existing shares cannot be reconstructed on upgrade (those conversations are typically kept by their other engagement signals in practice).
 
 ## Edge cases
 

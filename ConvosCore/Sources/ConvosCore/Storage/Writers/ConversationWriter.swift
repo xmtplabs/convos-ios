@@ -217,7 +217,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
                 wasRemoved: false,
-                hasHadOtherMembers: false
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             )
             try localState.save(db)
 
@@ -348,7 +349,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         )
         try localState.insert(db, onConflict: .ignore)
 

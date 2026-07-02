@@ -15,11 +15,18 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     // MARK: - Inbox Management
 
+    /// Recorded arguments for the claim-lifecycle methods, in call order, so
+    /// tests can assert which discard shape a flow routed through.
+    public private(set) var committedConversationIds: [String] = []
+    public private(set) var discardedConversationIds: [String] = []
+    public private(set) var discardedIfUnengagedConversationIds: [String] = []
+
     public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
         (service: mockMessagingService, conversationId: nil)
     }
 
     public func commitClaimedConversation(id conversationId: String) async {
+        committedConversationIds.append(conversationId)
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {
@@ -29,9 +36,11 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     }
 
     public func discardClaimedConversation(id conversationId: String) async {
+        discardedConversationIds.append(conversationId)
     }
 
     public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        discardedIfUnengagedConversationIds.append(conversationId)
     }
 
     public func deleteAllInboxes() async throws {

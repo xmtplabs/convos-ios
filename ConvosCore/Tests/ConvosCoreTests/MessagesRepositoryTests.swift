@@ -497,7 +497,8 @@ struct MessagesRepositoryTests {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         try DBConversationMember(

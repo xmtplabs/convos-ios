@@ -78,7 +78,8 @@ struct MessagesRepositoryBenchmarkTests {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for (i, inboxId) in memberInboxIds.enumerated() {

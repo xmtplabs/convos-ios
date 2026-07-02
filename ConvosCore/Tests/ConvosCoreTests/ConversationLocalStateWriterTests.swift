@@ -91,7 +91,8 @@ struct ConversationLocalStateWriterTests {
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
                 wasRemoved: false,
-                hasHadOtherMembers: false
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             ).insert(db)
         }
 
@@ -171,7 +172,8 @@ struct ConversationLocalStateWriterTests {
                 hidesInviteCard: true,
                 leftHostedInviteSession: false,
                 wasRemoved: false,
-                hasHadOtherMembers: false
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             ).insert(db)
         }
 
@@ -193,6 +195,74 @@ struct ConversationLocalStateWriterTests {
 
         await #expect(throws: ConversationLocalStateWriterError.conversationNotFound) {
             try await writer.setLeftHostedInviteSession(true, for: "missing-convo")
+        }
+    }
+
+    @Test("setHasSharedInvite creates a local-state row when none exists, with other flags defaulting to false")
+    func testSetHasSharedInviteCreatesRowIfMissing() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        let conversationId = "convo-shared-new"
+        try await dbManager.dbWriter.write { db in
+            try Self.seedMinimalConversation(db, id: conversationId)
+        }
+
+        try await writer.setHasSharedInvite(true, for: conversationId)
+
+        let state = try Self.fetchLocalState(dbManager.dbReader, for: conversationId)
+        #expect(state?.hasSharedInvite == true)
+        #expect(state?.hasHadOtherMembers == false)
+        #expect(state?.hidesInviteCard == false)
+        #expect(state?.isPinned == false)
+        #expect(state?.isUnread == false)
+        #expect(state?.isMuted == false)
+        #expect(state?.pinnedOrder == nil)
+    }
+
+    @Test("setHasSharedInvite mutates only its column on an existing row")
+    func testSetHasSharedInviteLeavesOtherFlagsIntact() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        let conversationId = "convo-shared-existing"
+        try await dbManager.dbWriter.write { db in
+            try Self.seedMinimalConversation(db, id: conversationId)
+            try ConversationLocalState(
+                conversationId: conversationId,
+                isPinned: true,
+                isUnread: true,
+                isUnreadUpdatedAt: Date(),
+                isMuted: true,
+                pinnedOrder: 3,
+                hidesInviteCard: true,
+                leftHostedInviteSession: true,
+                wasRemoved: false,
+                hasHadOtherMembers: true,
+                hasSharedInvite: false
+            ).insert(db)
+        }
+
+        try await writer.setHasSharedInvite(true, for: conversationId)
+
+        let state = try Self.fetchLocalState(dbManager.dbReader, for: conversationId)
+        #expect(state?.hasSharedInvite == true)
+        #expect(state?.hasHadOtherMembers == true)
+        #expect(state?.leftHostedInviteSession == true)
+        #expect(state?.hidesInviteCard == true)
+        #expect(state?.isPinned == true)
+        #expect(state?.isUnread == true)
+        #expect(state?.isMuted == true)
+        #expect(state?.pinnedOrder == 3)
+    }
+
+    @Test("setHasSharedInvite throws conversationNotFound when the conversation row is missing")
+    func testSetHasSharedInviteRequiresConversation() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationLocalStateWriter(databaseWriter: dbManager.dbWriter)
+
+        await #expect(throws: ConversationLocalStateWriterError.conversationNotFound) {
+            try await writer.setHasSharedInvite(true, for: "missing-convo")
         }
     }
 }

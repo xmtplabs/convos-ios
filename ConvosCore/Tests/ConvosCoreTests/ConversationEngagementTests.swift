@@ -36,6 +36,7 @@ struct ConversationEngagementTests {
         includeInfoInPublicPreview: Bool = true,
         isUnused: Bool = true,
         hasHadOtherMembers: Bool = false,
+        hasSharedInvite: Bool = false,
         includeOtherMember: Bool = false
     ) throws {
         try seedInbox(db: db)
@@ -75,7 +76,8 @@ struct ConversationEngagementTests {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         ).insert(db)
 
         var memberInboxIds: [String] = [currentInboxId]
@@ -253,6 +255,16 @@ struct ConversationEngagementTests {
         #expect(engaged == true)
     }
 
+    @Test("hasSharedInvite keeps a shared-invite conversation engaged")
+    func hasSharedInviteEngages() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let engaged = try dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "convo", hasSharedInvite: true)
+            return try Self.isEngaged(db, id: "convo")
+        }
+        #expect(engaged == true)
+    }
+
     // MARK: - markHasHadOtherMembersIfNeeded
 
     @Test("Synced member list with another inbox latches the flag")
@@ -362,6 +374,30 @@ struct ConversationEngagementTests {
         }
     }
 
+    @Test("hasSharedInvite migration adds the column defaulting false, with no backfill")
+    func hasSharedInviteMigrationDefaultsFalse() throws {
+        let dbQueue = try DatabaseQueue()
+        try dbQueue.write { db in
+            // Minimal prior schema: only the table the migration touches.
+            try db.create(table: "conversationLocalState") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+            }
+            try db.execute(sql: "INSERT INTO conversationLocalState (conversationId) VALUES ('existing')")
+
+            try SharedDatabaseMigrator.addConversationLocalStateHasSharedInvite(db)
+        }
+
+        try dbQueue.read { db in
+            // Shares were never recorded anywhere queryable pre-migration,
+            // so every existing row starts false.
+            let existing = try Bool.fetchOne(
+                db,
+                sql: "SELECT hasSharedInvite FROM conversationLocalState WHERE conversationId = 'existing'"
+            )
+            #expect(existing == false)
+        }
+    }
+
     // MARK: - Guarded discard
 
     @Test("Guarded discard keeps an engaged conversation, commits it visible, and never denies consent")
@@ -412,6 +448,30 @@ struct ConversationEngagementTests {
 
         let conversation = try await dbManager.dbReader.read { db in
             try DBConversation.fetchOne(db, key: "toggled")
+        }
+        #expect(conversation != nil)
+        #expect(conversation?.isUnused == false)
+        #expect(conversation?.consent == .allowed)
+    }
+
+    @Test("Guarded discard keeps a conversation whose only engagement is a shared invite")
+    func guardedDiscardKeepsSharedInviteConversation() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let session = SessionManager(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader,
+            environment: .tests,
+            identityStore: MockKeychainIdentityStore(),
+            platformProviders: .mock
+        )
+        try await dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "shared", isUnused: true, hasSharedInvite: true)
+        }
+
+        await session.discardClaimedConversationIfUnengaged(id: "shared")
+
+        let conversation = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, key: "shared")
         }
         #expect(conversation != nil)
         #expect(conversation?.isUnused == false)

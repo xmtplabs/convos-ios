@@ -7,6 +7,7 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
     public var mutedStates: [String: Bool] = [:]
     public var hidesInviteCardStates: [String: Bool] = [:]
     public var leftHostedInviteSessionStates: [String: Bool] = [:]
+    public var hasSharedInviteStates: [String: Bool] = [:]
 
     public init() {}
 
@@ -28,5 +29,9 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
 
     public func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws {
         leftHostedInviteSessionStates[conversationId] = leftHostedInviteSession
+    }
+
+    public func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws {
+        hasSharedInviteStates[conversationId] = hasSharedInvite
     }
 }

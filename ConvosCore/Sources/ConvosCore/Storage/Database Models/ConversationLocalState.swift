@@ -17,6 +17,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let leftHostedInviteSession: Column = Column(CodingKeys.leftHostedInviteSession)
         static let wasRemoved: Column = Column(CodingKeys.wasRemoved)
         static let hasHadOtherMembers: Column = Column(CodingKeys.hasHadOtherMembers)
+        static let hasSharedInvite: Column = Column(CodingKeys.hasSharedInvite)
     }
 
     let conversationId: String
@@ -35,6 +36,16 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     /// clobber it; deleted with the conversation. Read by
     /// `ConversationEngagement.isEngaged`.
     let hasHadOtherMembers: Bool
+    /// Set-once high-water mark: true once this conversation's invite link
+    /// was shared externally (share sheet completed or the link was
+    /// copied). The share signal otherwise lives only in a view-model
+    /// latch that dies with the view model, so this persisted flag is what
+    /// keeps the database-gated discard layers (superseded-scan discard,
+    /// the state machine's previous-conversation cleanup) from destroying
+    /// a conversation whose invite is already in a recipient's hands.
+    /// Local-only, so network sync can never clobber it; deleted with the
+    /// conversation. Read by `ConversationEngagement.isEngaged`.
+    let hasSharedInvite: Bool
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -56,7 +67,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -70,7 +82,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -84,7 +97,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -98,7 +112,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(hidesInviteCard: Bool) -> Self {
@@ -112,7 +127,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(leftHostedInviteSession: Bool) -> Self {
@@ -126,7 +142,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(wasRemoved: Bool) -> Self {
@@ -140,7 +157,8 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
     func with(hasHadOtherMembers: Bool) -> Self {
@@ -154,7 +172,23 @@ extension ConversationLocalState {
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
-            hasHadOtherMembers: hasHadOtherMembers
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
+        )
+    }
+    func with(hasSharedInvite: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite
         )
     }
 }

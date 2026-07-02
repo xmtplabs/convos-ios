@@ -15,6 +15,11 @@ public struct ConversationReadyResult: Sendable {
 
     public let conversationId: String
     public let origin: Origin
+
+    public init(conversationId: String, origin: Origin) {
+        self.conversationId = conversationId
+        self.origin = origin
+    }
 }
 
 /// State machine managing conversation creation and joining flows
