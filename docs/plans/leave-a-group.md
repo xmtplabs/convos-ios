@@ -55,3 +55,7 @@ The removal can stay pending until an authorized client finalizes the remove-com
 - The optimistic hide reuses the same local hide + push-unsubscribe already used when declining/hiding a conversation; leaving simply adds the real `leaveGroup()` call on top.
 - "Longest-tenured" uses local member join order (the protocol member exposes no join timestamp).
 - The protocol's roster query does not filter pending leavers -- the pending-leave marker layer is what keeps member lists consistent between the request and the finalization.
+- The conversation must stay fully usable for the remaining members after the creator leaves. No query or hydration path may require the creator to still be a member: dropping the creator's member row must degrade to a placeholder creator identity, never hide the conversation.
+- If the group is already gone when the leave runs (another admin removed the user first, or the local group was purged), treat it as success: skip the protocol calls and complete the local hide.
+- Only real, committed members are eligible super-admin successors. Presentation-only placeholders (for example optimistic agent members still provisioning) have no network identity and must be excluded from the candidate list.
+- Leaving applies to groups only; the affordance is hidden for DMs (the protocol rejects a DM leave).
