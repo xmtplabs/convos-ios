@@ -47,26 +47,24 @@ struct ComposeFlowView: View {
     let contactsRepository: any ContactsRepositoryProtocol
     @State private var pushedConversation: NewConversationViewModel?
     @State private var presentingShareSheet: Bool = false
+    /// Set when "Send an invite" was tapped before the claimed conversation's
+    /// signed invite hydrated. Shows a spinner on the row and lets the
+    /// `invite?.urlSlug` observer pop the share sheet the moment the invite
+    /// arrives, so the tap is never a silent no-op. The rows themselves are
+    /// always visible ("static menu, dynamic action") -- readiness is handled
+    /// at tap time, never by hiding rows.
+    @State private var isPreparingInviteShare: Bool = false
 
     var body: some View {
-        // Gate the invite-row closures on a hydrated invite so the rows don't
-        // render tappable-but-dead before the claimed conversation's invite
-        // arrives (the handlers `guard invite != nil` and would no-op).
-        let hasInvite: Bool = invite != nil
-        var showInviteCode: (() -> Void)?
-        var sendInvite: (() -> Void)?
-        if hasInvite {
-            showInviteCode = handleShowInviteCode
-            sendInvite = handleSendInvite
-        }
-        return NavigationStack {
+        NavigationStack {
             ContactsPickerView(
                 mode: .compose,
                 contactsRepository: contactsRepository,
                 embedsNavigationStack: false,
                 suggestedAgentsService: SuggestedAgentsService.live(),
-                onShowInviteCode: showInviteCode,
-                onSendInvite: sendInvite,
+                sendInviteShowsProgress: isPreparingInviteShare,
+                onShowInviteCode: handleShowInviteCode,
+                onSendInvite: handleSendInvite,
                 onMakeAgent: handleMakeAgent,
                 onConfirm: handleProceed
             )
@@ -78,6 +76,9 @@ struct ComposeFlowView: View {
                     onClose: { conversationsViewModel.presentingComposeFlow = false }
                 )
             }
+        }
+        .onChange(of: invite?.urlSlug) { _, slug in
+            handleInviteSlugChanged(slug)
         }
         .shareSheet(
             isPresented: $presentingShareSheet,
@@ -107,13 +108,28 @@ struct ComposeFlowView: View {
     /// also carry the embedded-invite mode; a dedicated conversation is started
     /// through the shell instead.
     private func handleShowInviteCode() {
-        guard invite != nil else { return }
+        // Needs no hydrated invite: the destination convo mints its own and
+        // shows a loading QR until it arrives.
         conversationsViewModel.presentingComposeFlow = false
         conversationsViewModel.onShowInviteCode()
     }
 
+    /// Pops the native share sheet with the invite link. If the invite hasn't
+    /// hydrated yet, the row shows a spinner and `handleInviteSlugChanged`
+    /// presents the share sheet the moment the signed invite arrives.
     private func handleSendInvite() {
-        guard invite != nil else { return }
+        guard invite != nil else {
+            isPreparingInviteShare = true
+            return
+        }
+        presentingShareSheet = true
+    }
+
+    /// Continues a pending "Send an invite" once the claimed conversation's
+    /// signed invite hydrates.
+    private func handleInviteSlugChanged(_ slug: String?) {
+        guard slug != nil, isPreparingInviteShare else { return }
+        isPreparingInviteShare = false
         presentingShareSheet = true
     }
 

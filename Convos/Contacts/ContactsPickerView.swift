@@ -66,6 +66,10 @@ struct ContactsPickerView: View {
     let onShowInviteCode: (() -> Void)?
     let onSendInvite: (() -> Void)?
     let onMakeAgent: (() -> Void)?
+    /// Shows a trailing spinner on the "Send an invite" row while the caller
+    /// prepares the invite (the row stays visible and tappable; readiness is
+    /// the caller's concern, handled at tap time).
+    let sendInviteShowsProgress: Bool
     /// When set, the nav shows this as a plain centered title instead of the
     /// `ContactsPickerIndicatorPill`. The in-convo "Invite" sheet (Figma node
     /// 5562-34019) passes "Invite"; every other entry point leaves it nil and
@@ -84,6 +88,7 @@ struct ContactsPickerView: View {
         embedsNavigationStack: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
         title: String? = nil,
+        sendInviteShowsProgress: Bool = false,
         onShowInviteCode: (() -> Void)? = nil,
         onSendInvite: (() -> Void)? = nil,
         onMakeAgent: (() -> Void)? = nil,
@@ -100,6 +105,7 @@ struct ContactsPickerView: View {
         self.pillConversation = pillConversation
         self.embedsNavigationStack = embedsNavigationStack
         self.title = title
+        self.sendInviteShowsProgress = sendInviteShowsProgress
         self.onShowInviteCode = onShowInviteCode
         self.onSendInvite = onSendInvite
         self.onMakeAgent = onMakeAgent
@@ -202,7 +208,8 @@ struct ContactsPickerView: View {
         return ContactsPickerActions(
             onShowInviteCode: onShowInviteCode,
             onSendInvite: onSendInvite,
-            onMakeAgent: onMakeAgent
+            onMakeAgent: onMakeAgent,
+            sendInviteShowsProgress: sendInviteShowsProgress
         )
     }
 
