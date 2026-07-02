@@ -328,4 +328,95 @@ struct MemberDepartureTests {
         }
         #expect(departed.isEmpty)
     }
+
+    // MARK: - Creator departure
+
+    @Test("Creator departure keeps the conversation visible in the detailed query")
+    func testCreatorDepartureKeepsConversationVisible() throws {
+        // The detailed conversation query joins the creator's member row.
+        // When the creator self-leaves, the departure ingest deletes that row
+        // on every other member's device; the join must be optional or the
+        // conversation silently disappears from the list and detail views
+        // (the user-visible "conversation was deleted" bug).
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            // seedConversation sets creatorId to currentInboxId; here the
+            // leaver must be the creator, so seed with the creator flipped.
+            try DBMember(inboxId: Self.currentInboxId).save(db, onConflict: .ignore)
+            try DBInbox(
+                inboxId: Self.currentInboxId,
+                clientId: "client-current",
+                createdAt: Date()
+            ).save(db, onConflict: .ignore)
+            try DBMember(inboxId: Self.leaverInboxId).save(db, onConflict: .ignore)
+            try DBConversation(
+                id: "convo",
+                clientConversationId: "client-convo",
+                inviteTag: "tag-convo",
+                creatorId: Self.leaverInboxId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAgent: false
+            ).insert(db)
+            try ConversationLocalState(
+                conversationId: "convo",
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date(),
+                isMuted: false,
+                pinnedOrder: nil,
+                hidesInviteCard: false,
+                wasRemoved: false
+            ).insert(db)
+            for inboxId in [Self.currentInboxId, Self.leaverInboxId] {
+                try DBConversationMember(
+                    conversationId: "convo",
+                    inboxId: inboxId,
+                    role: inboxId == Self.leaverInboxId ? .superAdmin : .member,
+                    consent: .allowed,
+                    createdAt: Date(),
+                    invitedByInboxId: nil
+                ).insert(db)
+                try DBMemberProfile(
+                    conversationId: "convo",
+                    inboxId: inboxId,
+                    name: nil,
+                    avatar: nil
+                ).insert(db)
+            }
+
+            try IncomingMessageWriter.applyMemberDeparture(
+                conversationId: "convo",
+                inboxId: Self.leaverInboxId,
+                dateNs: 1_000,
+                in: db
+            )
+        }
+
+        try dbManager.dbReader.read { db in
+            let details = try DBConversation
+                .filter(DBConversation.Columns.id == "convo")
+                .detailedConversationQuery()
+                .fetchOne(db)
+            let hydrated = try #require(details?.hydrateConversation(currentInboxId: Self.currentInboxId))
+            #expect(hydrated.creator.profile.inboxId == Self.leaverInboxId)
+            #expect(!hydrated.creator.isCurrentUser)
+            #expect(hydrated.members.map(\.profile.inboxId) == [Self.currentInboxId])
+        }
+    }
 }

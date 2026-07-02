@@ -5,7 +5,11 @@ import GRDB
 
 struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hashable {
     let conversation: DBConversation
-    let conversationCreator: DBConversationMemberProfileWithRole
+    /// Nil when the creator's `conversation_members` row is gone -- a creator
+    /// who left the group. The conversation must still hydrate for the
+    /// remaining members; hydration falls back to a minimal member built from
+    /// `conversation.creatorId`.
+    let conversationCreator: DBConversationMemberProfileWithRole?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLastMessageWithSource: DBLastMessageWithSource?
     let conversationLocalState: ConversationLocalState
@@ -22,7 +26,7 @@ struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hasha
 
     init(
         conversation: DBConversation,
-        conversationCreator: DBConversationMemberProfileWithRole,
+        conversationCreator: DBConversationMemberProfileWithRole?,
         conversationMembers: [DBConversationMemberProfileWithRole],
         conversationLastMessageWithSource: DBLastMessageWithSource?,
         conversationLocalState: ConversationLocalState,
@@ -43,7 +47,15 @@ struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hasha
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.conversation = try container.decode(DBConversation.self, forKey: .conversation)
-        self.conversationCreator = try container.decode(DBConversationMemberProfileWithRole.self, forKey: .conversationCreator)
+        // Lenient: the creator scope is joined optionally (a departed
+        // creator has no member row), and a partially-null scope (member row
+        // without its profile row) must degrade to the fallback creator
+        // rather than fail the whole conversations fetch.
+        do {
+            self.conversationCreator = try container.decodeIfPresent(DBConversationMemberProfileWithRole.self, forKey: .conversationCreator)
+        } catch {
+            self.conversationCreator = nil
+        }
         self.conversationMembers = try container.decode([DBConversationMemberProfileWithRole].self, forKey: .conversationMembers)
         self.conversationLastMessageWithSource = try container.decodeIfPresent(DBLastMessageWithSource.self, forKey: .conversationLastMessageWithSource)
         self.conversationLocalState = try container.decode(ConversationLocalState.self, forKey: .conversationLocalState)
