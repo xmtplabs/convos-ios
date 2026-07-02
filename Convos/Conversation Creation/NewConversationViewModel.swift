@@ -291,11 +291,16 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// conversation (and dismisses the scanner). Cleared once navigation fires.
     @ObservationIgnored
     private var pendingScanNavigation: Bool = false
-    /// Set when the user is being navigated into this conversation from a scan
-    /// success. The scanner sheet is dismissed but the conversation must survive
-    /// the dismiss teardown -- even before a scanned agent has joined it.
+    /// Set the moment a recognized code is scanned, never cleared for this
+    /// VM's lifetime. A conversation that has processed a scan is no longer an
+    /// untouched embedded-invite draft -- a scanned agent may not have joined
+    /// yet (so it still reads as empty) and a scanned invite join may still be
+    /// in flight -- so the empty-convo teardown must keep it. Deliberately
+    /// independent of `onScanResolvedConversation`: surfaces that present this
+    /// VM without the navigation callback (the Contacts tab's embedded-invite
+    /// sheet) still get the protection.
     @ObservationIgnored
-    private var wasNavigatedInto: Bool = false
+    private var didHandleScannedCode: Bool = false
     @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
@@ -983,10 +988,10 @@ extension NewConversationViewModel {
     func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
         guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
         // Keep the conversation when its invite was shared externally (deleting
-        // it would break the recipient's join) or when the user is being
-        // navigated into it from a scan (the scanned agent may not have joined
-        // yet, so it can still read as empty here).
-        guard !didShareInvite, !wasNavigatedInto else { return true }
+        // it would break the recipient's join) or when a scan was processed
+        // through it (a scanned agent may not have joined yet, so it can still
+        // read as empty here).
+        guard !didShareInvite, !didHandleScannedCode else { return true }
         let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
         let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
         guard !hasMessages, !hasOtherMembers else { return true }
@@ -1016,8 +1021,17 @@ extension NewConversationViewModel {
         // never set this, so they keep morphing in place.
         pendingScanNavigation = true
         if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            // Marked at scan time, for recognized codes only, so the
+            // empty-convo teardown keeps this conversation even when no
+            // navigation callback is wired (see `didHandleScannedCode`). An
+            // unrecognized payload never joins anything, so its convo stays
+            // eligible for the normal empty-dismiss cleanup.
+            didHandleScannedCode = true
             startAgentTemplateConversation(templateId: templateId)
         } else {
+            if InviteURLDetector.detectInviteURL(in: code) != nil {
+                didHandleScannedCode = true
+            }
             joinConversation(inviteCode: code)
         }
     }
@@ -1169,13 +1183,13 @@ extension NewConversationViewModel {
 
     /// Hands the presenter the conversation a scan resolved to, so it can
     /// dismiss the scanner and navigate into it. No-op unless the pending state
-    /// change came from a scan and the id is settled. Marks the conversation so
-    /// the scanner-sheet dismissal doesn't tear it down before we land in it.
+    /// change came from a scan and the id is settled. The conversation survives
+    /// the scanner-sheet dismissal regardless -- `handleScannedCode` already
+    /// marked it (`didHandleScannedCode`) at scan time.
     private func navigateToScannedConversationIfPending(_ conversationId: String) {
         guard pendingScanNavigation, !conversationId.isEmpty,
               let onScanResolvedConversation else { return }
         pendingScanNavigation = false
-        wasNavigatedInto = true
         onScanResolvedConversation(conversationId)
     }
 
