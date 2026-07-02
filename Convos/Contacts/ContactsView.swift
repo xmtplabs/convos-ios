@@ -448,10 +448,11 @@ struct ContactsView: View {
     }
 
     /// Runs the empty-invite teardown for a dismissed new-conversation sheet so
-    /// a "Show an invite code" convo the user closed without messaging or
-    /// adding anyone doesn't linger in the chats list. A no-op for convos that
-    /// gained messages / members, or for the picker-confirm path (those aren't
-    /// embedded-invite convos).
+    /// a "Show an invite code" convo the user closed without engaging doesn't
+    /// linger in the chats list. A no-op for engaged convos -- messages,
+    /// members now or ever, customized metadata, shared invite, scanned code
+    /// (see `EngagementLatches` / `ConversationEngagement`) -- and for the
+    /// picker-confirm path (those aren't embedded-invite convos).
     private func cleanUpDismissedNewConvo() {
         dismissedNewConvo?.cleanUpEmptyEmbeddedInviteIfNeeded()
         dismissedNewConvo = nil

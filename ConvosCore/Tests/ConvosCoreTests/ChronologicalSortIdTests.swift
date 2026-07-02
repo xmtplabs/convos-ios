@@ -430,7 +430,8 @@ struct ChronologicalSortIdTests {
             pinnedOrder: nil,
             hidesInviteCard: false,
             leftHostedInviteSession: false,
-            wasRemoved: false
+            wasRemoved: false,
+            hasHadOtherMembers: false
         ).insert(db)
 
         try DBConversationMember(

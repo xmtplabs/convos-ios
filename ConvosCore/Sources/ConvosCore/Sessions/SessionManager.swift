@@ -928,6 +928,44 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 }
 
+// MARK: - Engagement-gated discard
+
+extension SessionManager {
+    public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        guard !DBConversation.isDraft(id: conversationId) else {
+            await discardClaimedConversation(id: conversationId)
+            return
+        }
+        let isEngaged: Bool
+        do {
+            isEngaged = try await databaseReader.read { db in
+                try ConversationEngagement.isEngaged(
+                    db,
+                    conversationId: conversationId,
+                    currentInboxId: DBInbox.currentInboxId(db)
+                )
+            }
+        } catch {
+            // Destroying user data on a failed read is worse than leaving a
+            // row behind, so an engagement check that errors keeps the
+            // conversation.
+            Log.error("Engagement check failed for \(conversationId), keeping the conversation: \(error)")
+            isEngaged = true
+        }
+        guard isEngaged else {
+            await discardClaimedConversation(id: conversationId)
+            return
+        }
+        // The engaged path must never reach the consent-deny in
+        // `discardClaimedConversation`: the chats list filters on allowed
+        // consent, so deny-then-keep would hide the kept conversation anyway.
+        // Committing ensures visibility (idempotent if already committed) and
+        // releases the cache claim.
+        await commitClaimedConversation(id: conversationId)
+        Log.info("Kept engaged claimed conversation \(conversationId) instead of discarding it")
+    }
+}
+
 // MARK: - Stale-stranger GC
 
 extension SessionManager {

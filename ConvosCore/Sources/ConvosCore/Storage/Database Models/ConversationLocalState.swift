@@ -16,6 +16,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let hidesInviteCard: Column = Column(CodingKeys.hidesInviteCard)
         static let leftHostedInviteSession: Column = Column(CodingKeys.leftHostedInviteSession)
         static let wasRemoved: Column = Column(CodingKeys.wasRemoved)
+        static let hasHadOtherMembers: Column = Column(CodingKeys.hasHadOtherMembers)
     }
 
     let conversationId: String
@@ -27,6 +28,13 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     let hidesInviteCard: Bool
     let leftHostedInviteSession: Bool
     let wasRemoved: Bool
+    /// Set-once high-water mark: true once the conversation has ever had a
+    /// member besides the local inbox. Current membership rows are deleted
+    /// when a member leaves, so this is the only queryable record of a
+    /// joined-then-departed member. Local-only, so network sync can never
+    /// clobber it; deleted with the conversation. Read by
+    /// `ConversationEngagement.isEngaged`.
+    let hasHadOtherMembers: Bool
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -47,7 +55,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -60,7 +69,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -73,7 +83,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -86,7 +97,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(hidesInviteCard: Bool) -> Self {
@@ -99,7 +111,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(leftHostedInviteSession: Bool) -> Self {
@@ -112,7 +125,8 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
     func with(wasRemoved: Bool) -> Self {
@@ -125,7 +139,22 @@ extension ConversationLocalState {
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
             leftHostedInviteSession: leftHostedInviteSession,
-            wasRemoved: wasRemoved
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
+        )
+    }
+    func with(hasHadOtherMembers: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers
         )
     }
 }

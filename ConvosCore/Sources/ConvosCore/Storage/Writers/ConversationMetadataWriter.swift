@@ -446,6 +446,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 try conversationMember.save(db)
                 Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
             }
+            try ConversationWriter.markHasHadOtherMembersIfNeeded(
+                conversationId: conversationId,
+                currentMemberInboxIds: Set(memberInboxIds),
+                in: db
+            )
         }
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
