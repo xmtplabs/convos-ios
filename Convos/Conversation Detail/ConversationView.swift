@@ -90,6 +90,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
+        // Moving into the Scan/Invite overlay must leave the keyboard down.
+        // The composer's first responder lives across the messages view
+        // controller's UIKit boundary, so clear both layers: the coordinator
+        // (so no focus-restore logic re-raises it) and the actual first
+        // responder. The invite picker sheet additionally re-resigns on its
+        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
+        // restores the composer's first responder when the sheet finishes
+        // dismissing.
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
     }
 

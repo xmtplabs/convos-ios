@@ -1,5 +1,6 @@
 import ConvosCore
 import SwiftUI
+import UIKit
 
 // MARK: - Module overview
 //
@@ -64,7 +65,7 @@ private struct AddFromContactsPickerModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isPresented) { pickerSheet }
+            .sheet(isPresented: $isPresented, onDismiss: handlePickerDismissed) { pickerSheet }
             .alert(
                 "Couldn't add contacts",
                 isPresented: $presentingError,
@@ -136,6 +137,18 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             onPresentShareOverlay()
         } else {
             viewModel.presentingShareView = true
+        }
+    }
+
+    /// The picker can dismiss into the Scan/Invite overlay (its scan button or
+    /// "Show an invite code" row). UIKit restores the composer's first
+    /// responder when the sheet finishes dismissing, which popped the keyboard
+    /// up under the overlay -- resign it again once the dismissal settles so
+    /// the keyboard stays down. A plain cancel keeps the default restoration.
+    private func handlePickerDismissed() {
+        guard viewModel.presentingShareView else { return }
+        DispatchQueue.main.async {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
     }
 
