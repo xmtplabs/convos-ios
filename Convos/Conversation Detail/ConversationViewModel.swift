@@ -929,6 +929,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
+    /// Self-removal is a group-only operation (the protocol forbids leaving
+    /// a DM); gates the Leave affordance in the info view.
+    var canLeaveConversation: Bool {
+        conversation.kind == .group
+    }
     var isUpdatingPublicPreview: Bool = false
     private var _editingIncludeInfoInPublicPreview: Bool?
     var includeInfoInPublicPreview: Bool {

@@ -491,7 +491,9 @@ struct ConversationInfoView: View {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
             }
 
-            leaveSection
+            if viewModel.canLeaveConversation {
+                leaveSection
+            }
 
             debugInfoSection
         }
