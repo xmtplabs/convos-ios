@@ -209,6 +209,34 @@ extension SharedDatabaseMigrator {
         return migrator
     }
 
+    /// Set-once high-water mark: true once a conversation has ever had a
+    /// member besides the local inbox. Member rows are deleted on departure
+    /// sync, so without this flag a joined-then-left conversation is
+    /// indistinguishable from an untouched draft - and the engagement gate
+    /// (`ConversationEngagement`) would let implicit cleanup discard it.
+    ///
+    /// The column defaults to false; the backfill flags conversations that
+    /// currently hold a member row for an inbox other than the local one.
+    /// Departed-member history cannot be reconstructed on upgrade, so
+    /// pre-migration joined-then-left conversations start false - they are
+    /// still protected by their messages or metadata in practice. Extracted
+    /// as an internal static helper so the migration test can exercise the
+    /// real upgrade path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasHadOtherMembers(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasHadOtherMembers", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: """
+            UPDATE conversationLocalState
+            SET hasHadOtherMembers = 1
+            WHERE conversationId IN (
+                SELECT conversationId FROM conversation_members
+                WHERE inboxId NOT IN (SELECT inboxId FROM inbox)
+            )
+            """)
+    }
+
     private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
@@ -219,6 +247,10 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration(
             "addConversationLocalStateLeftHostedInviteSession",
             migrate: Self.addConversationLocalStateLeftHostedInviteSession
+        )
+        migrator.registerMigration(
+            "addConversationLocalStateHasHadOtherMembers",
+            migrate: Self.addConversationLocalStateHasHadOtherMembers
         )
     }
 

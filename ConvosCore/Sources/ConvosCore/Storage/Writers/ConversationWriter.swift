@@ -216,7 +216,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 pinnedOrder: nil,
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
-                wasRemoved: false
+                wasRemoved: false,
+                hasHadOtherMembers: false
             )
             try localState.save(db)
 
@@ -346,7 +347,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             pinnedOrder: nil,
             hidesInviteCard: false,
             leftHostedInviteSession: false,
-            wasRemoved: false
+            wasRemoved: false,
+            hasHadOtherMembers: false
         )
         try localState.insert(db, onConflict: .ignore)
 
@@ -360,6 +362,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         try Self.clearRemovedMarkerIfMember(
+            conversationId: prepared.dbConversation.id,
+            currentMemberInboxIds: currentMemberInboxIds,
+            in: db
+        )
+
+        try Self.markHasHadOtherMembersIfNeeded(
             conversationId: prepared.dbConversation.id,
             currentMemberInboxIds: currentMemberInboxIds,
             in: db
@@ -416,6 +424,30 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .filter(ConversationLocalState.Columns.wasRemoved == true)
             .updateAll(db, ConversationLocalState.Columns.wasRemoved.set(to: false))
+    }
+
+    /// Latches the set-once `hasHadOtherMembers` high-water mark when the
+    /// synced member list contains an inbox besides the local one. Member
+    /// rows are deleted when a member leaves, so this persisted flag is the
+    /// only durable record that the conversation ever had a second member -
+    /// the engagement gate reads it to keep such conversations from being
+    /// discarded as untouched drafts. Only ever writes true; the flag is
+    /// never reset. Static for unit-testability, mirroring
+    /// `clearRemovedMarkerIfMember`.
+    static func markHasHadOtherMembersIfNeeded(
+        conversationId: String,
+        currentMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws {
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            Log.warning("markHasHadOtherMembersIfNeeded: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(where: { $0 != localInboxId }) else { return }
+        try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .filter(ConversationLocalState.Columns.hasHadOtherMembers == false)
+            .updateAll(db, ConversationLocalState.Columns.hasHadOtherMembers.set(to: true))
     }
 
     /// Post-persist side effects the stream path runs after each individual

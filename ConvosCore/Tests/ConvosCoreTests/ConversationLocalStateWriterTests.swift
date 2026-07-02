@@ -90,7 +90,8 @@ struct ConversationLocalStateWriterTests {
                 pinnedOrder: 3,
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
-                wasRemoved: false
+                wasRemoved: false,
+                hasHadOtherMembers: false
             ).insert(db)
         }
 
@@ -169,7 +170,8 @@ struct ConversationLocalStateWriterTests {
                 pinnedOrder: 3,
                 hidesInviteCard: true,
                 leftHostedInviteSession: false,
-                wasRemoved: false
+                wasRemoved: false,
+                hasHadOtherMembers: false
             ).insert(db)
         }
 

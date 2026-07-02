@@ -31,6 +31,9 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func discardClaimedConversation(id conversationId: String) async {
     }
 
+    public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+    }
+
     public func deleteAllInboxes() async throws {
     }
 

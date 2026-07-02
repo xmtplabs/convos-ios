@@ -89,6 +89,16 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the user can see.
     func discardClaimedConversation(id conversationId: String) async
 
+    /// Engagement-gated variant of `discardClaimedConversation` for implicit
+    /// cleanup paths (sheet dismiss, flow teardown, superseded claims). Reads
+    /// `ConversationEngagement.isEngaged` first: an engaged conversation
+    /// (customized metadata, chat messages, another member now or ever) is
+    /// committed visible and kept instead of destroyed; an untouched one goes
+    /// through the full discard. Explicit user deletes should keep calling
+    /// the unconditional `discardClaimedConversation` - a deliberate delete
+    /// must never be silently overridden by the gate.
+    func discardClaimedConversationIfUnengaged(id conversationId: String) async
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
