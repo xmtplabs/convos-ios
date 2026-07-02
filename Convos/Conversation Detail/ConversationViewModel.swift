@@ -4285,10 +4285,12 @@ extension ConversationViewModel {
     /// Remaining members (excluding the current user) as super-admin successor
     /// candidates. The leave writer applies the human-preferred, agent-fallback
     /// tenure policy; here we only surface each member's agent flag and join
-    /// time.
+    /// time. Optimistic agent members are presentation-only sentinels overlaid
+    /// while agent instances provision -- their inbox ids don't exist on the
+    /// network, so promoting one would fail and abort the leave.
     private func leaveSuccessorCandidates() -> [LeaveSuccessorCandidate] {
         conversation.members
-            .filter { !$0.isCurrentUser }
+            .filter { !$0.isCurrentUser && !$0.isOptimisticAgentMember }
             .map { (member: ConversationMember) -> LeaveSuccessorCandidate in
                 LeaveSuccessorCandidate(
                     inboxId: member.profile.inboxId,
