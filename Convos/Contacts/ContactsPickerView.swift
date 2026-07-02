@@ -505,6 +505,10 @@ struct ContactsPickerActions {
     let onShowInviteCode: (() -> Void)?
     let onSendInvite: (() -> Void)?
     let onMakeAgent: (() -> Void)?
+    /// Shows a trailing spinner on the "Send an invite" row while the caller
+    /// prepares the invite (the Contacts tab mints its claimed conversation on
+    /// demand, so the signed invite can lag the tap by a beat).
+    var sendInviteShowsProgress: Bool = false
 }
 
 /// A header plus the available top-three invite action rows, rendered as the
@@ -532,6 +536,7 @@ struct ContactsPickerActionsSection: View {
                     title: "Send an invite",
                     subtitle: "Via Airdrop, link or app",
                     accessibilityIdentifier: "picker-action-send-invite",
+                    showsProgress: actions.sendInviteShowsProgress,
                     action: onSendInvite
                 )
             }

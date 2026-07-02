@@ -11,8 +11,9 @@ struct ContactsView: View {
     @State private var dismissedNewConvo: NewConversationViewModel?
     /// Claimed warm-cache conversation (mode `.newConversation`, which already
     /// has an invite) backing the "Invite a new contact" top-three. Minted on
-    /// appear exactly like `ConversationsViewModel.onStartConvo` does for the
-    /// compose flow, so "Show an invite code" / "Send an invite" can read the
+    /// demand when the user taps "Show an invite code" / "Send an invite" --
+    /// never on tab appearance, so merely visiting the Contacts tab can't
+    /// claim (and then churn or leak) a conversation. The handlers read the
     /// same `conversation` + signed `invite` the in-convo share flow uses,
     /// without first navigating into a conversation.
     @State private var inviteConversationViewModel: NewConversationViewModel?
@@ -27,12 +28,11 @@ struct ContactsView: View {
     /// keeps it (committed visible, marked shared); a cancelled share discards
     /// the still-hidden claimed row so it doesn't linger empty in the chats list.
     @State private var sharedInviteViewModel: NewConversationViewModel?
-    /// Sticky once the claimed conversation's invite has hydrated at least
-    /// once. Keeps the "Show an invite code" / "Send an invite" rows on screen
-    /// while `handleShowInviteCode` re-mints the claimed conversation (its fresh
-    /// invite is nil for a beat), which otherwise made the section flicker from
-    /// three rows down to one and back.
-    @State private var hasResolvedInvite: Bool = false
+    /// Set when "Send an invite" was tapped before an invite exists (the
+    /// on-demand claim is still hydrating). Shows a spinner on the row and
+    /// lets the `invite?.urlSlug` observer pop the share sheet the moment the
+    /// signed invite arrives, so the tap is never a silent no-op.
+    @State private var isPreparingInviteShare: Bool = false
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
@@ -91,10 +91,9 @@ struct ContactsView: View {
     var body: some View {
         contactsContent
         .task { await viewModel.loadSuggestedAgentsIfNeeded() }
-        .onAppear(perform: claimInviteConversationIfNeeded)
         .onDisappear(perform: discardUnenteredInviteConversation)
         .onChange(of: invite?.urlSlug) { _, slug in
-            if slug != nil { hasResolvedInvite = true }
+            handleInviteSlugChanged(slug)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -282,29 +281,23 @@ struct ContactsView: View {
     }
 
     /// Bundles the available top-three closures. "Show an invite code" and
-    /// "Send an invite" appear once the claimed conversation's invite has
-    /// hydrated; "Make an agent" only when the shell injected a launcher.
+    /// "Send an invite" are always available with a live session -- nothing is
+    /// claimed until they're tapped, so the rows are stable from first render
+    /// (no hydration-driven flicker); "Make an agent" only when the shell
+    /// injected a launcher.
     private var inviteActions: ContactsPickerActions? {
-        let hasInvite: Bool = invite != nil || hasResolvedInvite
         var showInviteCode: (() -> Void)?
         var sendInvite: (() -> Void)?
-        if hasInvite {
-            // "Show an invite code" enters the claimed convo even before the
-            // invite hydrates (embedded QR shows a placeholder), so it stays on
-            // the sticky flag. "Send an invite" pops the share sheet with the
-            // invite URL and is a no-op until a real invite exists, so gate it on
-            // `invite != nil` to avoid a dead tap during the re-mint rehydration
-            // window.
+        if session != nil {
             showInviteCode = handleShowInviteCode
-        }
-        if invite != nil {
             sendInvite = handleSendInvite
         }
         guard showInviteCode != nil || sendInvite != nil || onMakeAgent != nil else { return nil }
         return ContactsPickerActions(
             onShowInviteCode: showInviteCode,
             onSendInvite: sendInvite,
-            onMakeAgent: onMakeAgent
+            onMakeAgent: onMakeAgent,
+            sendInviteShowsProgress: isPreparingInviteShare
         )
     }
 
@@ -399,16 +392,11 @@ struct ContactsView: View {
         return [inviteShareURL]
     }
 
-    /// Mints the claimed conversation once per appearance of the tab, mirroring
-    /// `ConversationsViewModel.onStartConvo`. Requires a live session; with the
-    /// mock session used in previews this is a no-op so the rows stay hidden.
+    /// Mints the claimed conversation on demand, when the user first taps an
+    /// invite action. Requires a live session; with the mock session used in
+    /// previews this is a no-op so the rows stay hidden.
     private func claimInviteConversationIfNeeded() {
         guard inviteConversationViewModel == nil, let session else { return }
-        // `hasResolvedInvite` stays sticky across the re-mint on purpose: it
-        // holds the two invite rows on screen while the fresh claimed
-        // conversation's invite is briefly nil, avoiding a 3 -> 1 -> 3 flash of
-        // the top-three. The re-hydration window can't leave a no-op row because
-        // `handleShowInviteCode` no longer requires a resolved invite to enter.
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
@@ -418,10 +406,12 @@ struct ContactsView: View {
         )
     }
 
-    /// Discards the claimed invite conversation when the user leaves the tab
-    /// without entering it. Because it was minted with deferred visibility it
-    /// never surfaced in the chats list, so this only releases the hidden
-    /// claimed cache row. Re-minted on the next appearance. The entered convo
+    /// Discards a claimed invite conversation the user never entered. With
+    /// on-demand minting this slot is only populated during the brief window
+    /// between a "Send an invite" tap and its invite hydrating, so this fires
+    /// when the user leaves the tab mid-preparation. Because the convo was
+    /// minted with deferred visibility it never surfaced in the chats list;
+    /// this only releases the hidden claimed cache row. The entered convo
     /// (handed off to `dismissedNewConvo`) is untouched.
     ///
     /// `onDisappear` also fires when a contact detail is pushed on top, which
@@ -430,32 +420,31 @@ struct ContactsView: View {
     /// conversation view uses for its invite session).
     private func discardUnenteredInviteConversation() {
         guard !hasPushedContactDetail else { return }
+        isPreparingInviteShare = false
         inviteConversationViewModel?.cleanUpEmptyEmbeddedInviteIfNeeded()
         inviteConversationViewModel = nil
     }
 
-    /// Enters the claimed conversation as a full new-conversation sheet so the
-    /// user lands inside a fresh chat with the invite QR at the top (the
-    /// standard message-list header), mirroring the "Skip" path in
-    /// `ConversationsViewModel.onStartConvo`. The just-entered VM is handed off
-    /// and a fresh claimed conversation is minted so the top-three rows keep
-    /// working for the next invite.
+    /// Mints a claimed conversation on demand and enters it as a full
+    /// new-conversation sheet so the user lands inside a fresh chat with the
+    /// invite QR at the top (the standard message-list header), mirroring the
+    /// "Skip" path in `ConversationsViewModel.onStartConvo`. The sheet opens
+    /// immediately -- the embedded QR shows a loading placeholder until the
+    /// invite hydrates, so the tap is never a no-op.
     private func handleShowInviteCode() {
-        // Enter the claimed conversation even if its invite hasn't hydrated yet:
-        // the embedded QR shows a loading placeholder until the slug resolves, so
-        // the row is never a no-op. Requiring a resolved invite here (with the
-        // rows held visible by the sticky flag) is what produced a dead tap
-        // during the brief re-hydration window.
+        // Entering the convo supersedes a pending "Send an invite" handoff
+        // (its half-hydrated VM is the one being entered).
+        isPreparingInviteShare = false
+        claimInviteConversationIfNeeded()
         guard let enteredViewModel = inviteConversationViewModel else { return }
         inviteConversationViewModel = nil
         // The claimed convo was minted hidden (deferred visibility) so it
-        // wouldn't surface as a stray empty convo before the user acted. Now
-        // that they're entering it, promote it into the chats list. If they
-        // dismiss without engaging, `cleanUpDismissedNewConvo` discards it.
+        // never surfaces as a stray empty convo. Now that the user is entering
+        // it, promote it into the chats list. If they dismiss without
+        // engaging, `cleanUpDismissedNewConvo` discards it.
         Task { await enteredViewModel.commitConversationVisibility() }
         dismissedNewConvo = enteredViewModel
         presentingNewConvo = enteredViewModel
-        claimInviteConversationIfNeeded()
     }
 
     /// Runs the empty-invite teardown for a dismissed new-conversation sheet so
@@ -470,22 +459,39 @@ struct ContactsView: View {
 
     /// Pops the native share sheet directly with the invite link -- no
     /// intermediate screen, unlike the in-convo flow which routes through the
-    /// Scan/Invite screen first.
-    ///
+    /// Scan/Invite screen first. The claimed conversation is minted on demand
+    /// by this tap; if its invite hasn't hydrated yet, the row shows a spinner
+    /// and `handleInviteSlugChanged` presents the share sheet the moment the
+    /// signed invite arrives.
+    private func handleSendInvite() {
+        claimInviteConversationIfNeeded()
+        guard invite != nil else {
+            isPreparingInviteShare = true
+            return
+        }
+        presentInviteShareSheet()
+    }
+
+    /// Continues a pending "Send an invite" once the on-demand claimed
+    /// conversation's signed invite hydrates.
+    private func handleInviteSlugChanged(_ slug: String?) {
+        guard slug != nil, isPreparingInviteShare else { return }
+        isPreparingInviteShare = false
+        presentInviteShareSheet()
+    }
+
     /// The claimed convo was minted hidden (deferred visibility). Capture the
-    /// link, detach the convo from the auto-discard slot into
-    /// `sharedInviteViewModel`, and re-mint a fresh claimed convo so the
-    /// top-three keeps working. The conversation's fate is decided in
+    /// link and detach the convo from the auto-discard slot into
+    /// `sharedInviteViewModel`. The conversation's fate is decided in
     /// `handleInviteShareCompleted` by the share outcome: only a completed share
     /// commits it visible (and marks the invite shared so it survives teardown),
     /// so a cancelled share leaves no stray empty convo in the chats list.
-    private func handleSendInvite() {
+    private func presentInviteShareSheet() {
         guard let invite, let sharedViewModel = inviteConversationViewModel else { return }
         inviteShareURL = invite.inviteURLString
         inviteConversationViewModel = nil
         sharedInviteViewModel = sharedViewModel
         presentingInviteShareSheet = true
-        claimInviteConversationIfNeeded()
     }
 
     /// Resolves the shared invite conversation once the native share sheet

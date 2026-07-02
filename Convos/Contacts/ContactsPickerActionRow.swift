@@ -21,6 +21,10 @@ struct ContactsPickerActionRow: View {
     let title: String
     let subtitle: String?
     let accessibilityIdentifier: String
+    /// Renders a trailing spinner while the row's action is being prepared
+    /// (e.g. the Contacts tab's "Send an invite" waiting on its on-demand
+    /// invite). The row stays tappable; repeat taps are the caller's concern.
+    let showsProgress: Bool
     let action: () -> Void
 
     init(
@@ -28,12 +32,14 @@ struct ContactsPickerActionRow: View {
         title: String,
         subtitle: String? = nil,
         accessibilityIdentifier: String,
+        showsProgress: Bool = false,
         action: @escaping () -> Void
     ) {
         self.icon = icon
         self.title = title
         self.subtitle = subtitle
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.showsProgress = showsProgress
         self.action = action
     }
 
@@ -56,6 +62,10 @@ struct ContactsPickerActionRow: View {
                 }
 
                 Spacer(minLength: 0.0)
+
+                if showsProgress {
+                    ProgressView()
+                }
             }
             .padding(.vertical, DesignConstants.Spacing.stepX)
             .contentShape(Rectangle())

@@ -1030,6 +1030,13 @@ extension NewConversationViewModel {
     /// `handleStateChange(.ready)` - mirroring how message sends queue
     /// until the conversation exists.
     func commitConversationVisibility() async {
+        // A commit can land while the inbox/claim acquisition is still in
+        // flight (the Contacts tab mints on demand and commits in the same
+        // tap). Wait for it so a warm-cache claim's id is adopted first;
+        // otherwise this falls through to `pendingVisibilityCommit`, which
+        // only the cache-miss `.ready` hook flushes, and the entered
+        // conversation would stay hidden forever.
+        await inboxAcquisitionTask?.value
         if let claimedConversationId {
             // Order behind the `.ready` hook's claim registration so the
             // commit's claim removal can't be overwritten by a late
