@@ -379,6 +379,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.discardClaimedConversation(id: conversationId)
     }
 
+    func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        await base.discardClaimedConversationIfUnengaged(id: conversationId)
+    }
+
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
         try base.pendingInviteDetails()
     }

@@ -443,12 +443,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// Invoked the first time the conversation gains a member besides the
     /// local user. Wired like `onMetadataEdited`; feeds the engagement
     /// latch so a joined-then-left member still keeps the conversation.
+    /// Replayed on assignment when the latch already fired: the initial
+    /// member list is evaluated during init, before any caller has had a
+    /// chance to wire this callback.
     @ObservationIgnored
-    var onMemberJoined: (() -> Void)?
-    /// Latched true the first time `membersWithoutCurrent` becomes
-    /// non-empty; never reset for this VM's lifetime. The members table
-    /// only mirrors current membership, so this is the in-session record
-    /// that someone was here even if they left again.
+    var onMemberJoined: (() -> Void)? {
+        didSet {
+            if everHadOtherMembers { onMemberJoined?() }
+        }
+    }
+    /// Latched true the first time `membersWithoutCurrent` is non-empty --
+    /// evaluated for the initial member list at init and on every
+    /// conversation update after; never reset for this VM's lifetime. The
+    /// members table only mirrors current membership, so this is the
+    /// in-session record that someone was here even if they left again.
     @ObservationIgnored
     private(set) var everHadOtherMembers: Bool = false
 
@@ -1361,6 +1369,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         startOnboarding()
         registerInlineAttachmentRecovery()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     init(
@@ -1438,6 +1451,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     // MARK: - Private
