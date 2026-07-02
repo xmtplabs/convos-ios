@@ -406,6 +406,19 @@ struct ConversationInfoView: View {
         viewModel.handleScannedCodeInCurrentConversation(code)
     }
 
+    /// Opens the agent builder from this sheet's own `.sheet(item:)` so it
+    /// stacks on top -- the chat view's builder sheet
+    /// (`viewModel.presentAgentBuilder()`) would present beneath this
+    /// still-visible sheet. On the first-ever tap, shows the agents explainer
+    /// first (local mirror of the chat view's intro flow).
+    private func presentAgentBuilderLocally() {
+        if viewModel.consumeAgentsIntroGate() {
+            presentingAgentsIntro = true
+        } else {
+            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+        }
+    }
+
     /// Local share-overlay presentation binding. Resets the requested initial
     /// segment on dismissal (mirroring `ConversationPresenter`'s binding) so
     /// the next plain convo-code open lands on the Invite tab, not a stale
@@ -431,7 +444,11 @@ struct ConversationInfoView: View {
                 // overlay (viewModel.presentingShareView) would open beneath
                 // it, so route the picker's Show-invite-code / Scan rows to
                 // the local in-sheet overlay instead.
-                onPresentShareOverlay: { presentingShareView = true }
+                onPresentShareOverlay: { presentingShareView = true },
+                // Same stacking rule for "Make an agent": the chat view's
+                // builder sheet (viewModel.presentingAgentBuilder) would
+                // present beneath this sheet, so drive the local one.
+                onPresentAgentBuilder: presentAgentBuilderLocally
             )
             .onAppear {
                 ensureNavigator()
@@ -505,13 +522,7 @@ struct ConversationInfoView: View {
                                 presentingShareView = true
                             }
                         },
-                        onInviteAgent: {
-                            if viewModel.consumeAgentsIntroGate() {
-                                presentingAgentsIntro = true
-                            } else {
-                                presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-                            }
-                        },
+                        onInviteAgent: presentAgentBuilderLocally,
                         onAddFromContacts: {
                             presentingAddFromContactsPicker = true
                         }
