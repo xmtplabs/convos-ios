@@ -33,6 +33,7 @@ struct ConversationEngagementTests {
         description: String? = nil,
         emoji: String? = nil,
         imageURLString: String? = nil,
+        includeInfoInPublicPreview: Bool = true,
         isUnused: Bool = true,
         hasHadOtherMembers: Bool = false,
         includeOtherMember: Bool = false
@@ -51,7 +52,7 @@ struct ConversationEngagementTests {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: nil,
-            includeInfoInPublicPreview: true,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
@@ -181,6 +182,16 @@ struct ConversationEngagementTests {
         #expect(engaged == false)
     }
 
+    @Test("Toggling include-info-in-public-preview off its minted default engages")
+    func publicPreviewToggleEngages() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let engaged = try dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "convo", includeInfoInPublicPreview: false)
+            return try Self.isEngaged(db, id: "convo")
+        }
+        #expect(engaged == true)
+    }
+
     @Test("A chat message marks the conversation engaged")
     func chatMessageEngages() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -202,6 +213,24 @@ struct ConversationEngagementTests {
             return try Self.isEngaged(db, id: "convo")
         }
         #expect(engaged == false)
+    }
+
+    @Test("Reaction rows alone do not engage; a real message still does")
+    func reactionOnlyRowsNotEngaged() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let results: (reactionOnly: Bool, withMessage: Bool) = try dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "convo")
+            // A reaction persists with a chat-eligible content type but
+            // messageType `.reaction`, so it must be filtered out.
+            try Self.seedMessage(db: db, id: "r1", conversationId: "convo", contentType: .emoji, messageType: .reaction)
+            try Self.seedMessage(db: db, id: "u1", conversationId: "convo", contentType: .update)
+            let reactionOnly = try Self.isEngaged(db, id: "convo")
+            try Self.seedMessage(db: db, id: "m1", conversationId: "convo", contentType: .text)
+            let withMessage = try Self.isEngaged(db, id: "convo")
+            return (reactionOnly, withMessage)
+        }
+        #expect(results.reactionOnly == false)
+        #expect(results.withMessage == true)
     }
 
     @Test("A current other member marks the conversation engaged")
@@ -363,5 +392,29 @@ struct ConversationEngagementTests {
         #expect(conversation?.isUnused == false)
         #expect(conversation?.consent == .allowed)
         #expect(localStateCount == 1)
+    }
+
+    @Test("Guarded discard keeps a conversation whose only engagement is the public-preview toggle")
+    func guardedDiscardKeepsToggleOnlyConversation() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let session = SessionManager(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader,
+            environment: .tests,
+            identityStore: MockKeychainIdentityStore(),
+            platformProviders: .mock
+        )
+        try await dbManager.dbWriter.write { db in
+            try Self.seedPoolConversation(db: db, id: "toggled", includeInfoInPublicPreview: false, isUnused: true)
+        }
+
+        await session.discardClaimedConversationIfUnengaged(id: "toggled")
+
+        let conversation = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, key: "toggled")
+        }
+        #expect(conversation != nil)
+        #expect(conversation?.isUnused == false)
+        #expect(conversation?.consent == .allowed)
     }
 }

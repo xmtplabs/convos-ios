@@ -35,8 +35,9 @@ struct IdentifiableError: Identifiable {
 /// - `scannedCode`: a recognized code was scanned through this VM; the
 ///   scanned agent may not have joined yet (so the conversation can still
 ///   read as empty) and a scanned invite join may still be in flight.
-/// - `customizedMetadata`: the user edited the name, description, or image;
-///   set before the async write so a rename-then-dismiss cannot race it.
+/// - `customizedMetadata`: the user edited the name, description, or image,
+///   or flipped the "Include info with invites" toggle; set before the
+///   async write so an edit-then-dismiss cannot race it.
 /// - `memberJoined`: the conversation had a member besides the local user
 ///   at some point this session, even if they left again.
 struct EngagementLatches: OptionSet {

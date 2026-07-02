@@ -9,7 +9,8 @@ import GRDB
 /// deviation from that baseline:
 ///
 /// - metadata customization: non-nil, non-empty `name`, `description`, or
-///   `imageURLString`;
+///   `imageURLString`, or `includeInfoInPublicPreview` toggled off its
+///   minted-true default;
 /// - any chat message (the `.messages` grouping notion the messages list
 ///   counts - system rows like membership updates do not qualify);
 /// - another member right now, or ever
@@ -60,11 +61,19 @@ enum ConversationEngagement {
         return try hasChatMessages(db, conversationId: conversationId)
     }
 
-    /// Non-nil, non-empty on any of the user-customizable columns. The pool
-    /// writes them all nil; "New Convo" is a UI-only fallback that never
-    /// reaches the database. Empty strings can appear when a user reverts a
-    /// customization (e.g. clears the name), and count as not customized so
-    /// a reverted conversation found on a later launch is discardable again.
+    /// Non-nil, non-empty on any of the user-customizable columns, or a
+    /// non-default "Include info with invites" toggle. The pool writes the
+    /// text/image columns all nil; "New Convo" is a UI-only fallback that
+    /// never reaches the database. Empty strings can appear when a user
+    /// reverts a customization (e.g. clears the name), and count as not
+    /// customized so a reverted conversation found on a later launch is
+    /// discardable again.
+    ///
+    /// `includeInfoInPublicPreview` is compared against its mint default
+    /// rather than checked for truthiness: every creation path
+    /// (`UnusedConversationCache.writeUnusedConversationRow` and the
+    /// `ConversationWriter` creation shapes) writes it `true`, so only a
+    /// `false` value records a deliberate user toggle.
     ///
     /// `conversationEmoji` is deliberately excluded: every minted
     /// conversation gets an auto-assigned emoji at creation
@@ -77,7 +86,10 @@ enum ConversationEngagement {
         if isNonEmpty(conversation.name) || isNonEmpty(conversation.description) {
             return true
         }
-        return isNonEmpty(conversation.imageURLString)
+        if isNonEmpty(conversation.imageURLString) {
+            return true
+        }
+        return !conversation.includeInfoInPublicPreview
     }
 
     private static func hasChatMessages(_ db: Database, conversationId: String) throws -> Bool {

@@ -432,8 +432,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     /// Invoked synchronously the moment a metadata edit (name, description,
-    /// or image) is about to be written -- before the async writer task
-    /// spawns, and only when a change will actually be written. Wired by
+    /// image, or the "Include info with invites" toggle) is about to be
+    /// written -- before the async writer task spawns, and only when a
+    /// change will actually be written. Wired by
     /// `NewConversationViewModel` in its inner-VM forwarding block so the
     /// engagement latch survives the inbox-acquisition VM swap; the latch
     /// keeps a customized minted conversation from being discarded on
@@ -3811,13 +3812,14 @@ extension ConversationViewModel {
         guard conversation.includeInfoInPublicPreview != enabled else { return }
         guard !isUpdatingPublicPreview else { return }
         isUpdatingPublicPreview = true
+        // The toggle itself is a metadata customization: latch before the
+        // async write so a toggle-then-dismiss cannot race it, mirroring
+        // the name/description branches.
+        onMetadataEdited?()
         let pendingName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let willWriteName = !pendingName.isEmpty && pendingName != (conversation.name ?? "")
         let willWriteDesc = !pendingDesc.isEmpty && pendingDesc != (conversation.description ?? "")
-        if willWriteName || willWriteDesc {
-            onMetadataEdited?()
-        }
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
             defer { self.isUpdatingPublicPreview = false }
