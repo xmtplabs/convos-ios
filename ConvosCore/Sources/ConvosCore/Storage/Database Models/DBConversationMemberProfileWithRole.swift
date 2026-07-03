@@ -11,6 +11,8 @@ struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
     let profile: DBProfile?
     let avatarSlot: DBProfileAvatarLatest?
     let inviterProfile: DBProfile?
+    let myProfile: DBMyProfile?
+    let inviterMyProfile: DBMyProfile?
 }
 
 extension DBConversationMemberProfileWithRole {
@@ -22,13 +24,31 @@ extension DBConversationMemberProfileWithRole {
         profile?.memberKind?.agentVerification ?? .unverified
     }
 
+    /// Effective display name: the canonical `profile` name, falling back to the
+    /// locally-authored `myProfile` for the current user, who is excluded from
+    /// `profile`. Reads that project the name directly (rather than through
+    /// `hydratedProfile()`) must use this so self does not render as "Somebody".
+    var resolvedName: String? {
+        profile?.name ?? myProfile?.name
+    }
+
     func hydratedProfile() -> Profile {
-        Profile.from(profile: profile, avatar: avatarSlot?.asProfileAvatar, inboxId: inboxId, conversationId: conversationId)
+        if let profile {
+            return Profile.from(profile: profile, avatar: avatarSlot?.asProfileAvatar, inboxId: inboxId, conversationId: conversationId)
+        }
+        // The current user is excluded from the canonical `profile` table, so
+        // fall back to the locally-authored self identity for this member.
+        return Profile.from(myProfile: myProfile, avatar: avatarSlot?.asProfileAvatar, inboxId: inboxId, conversationId: conversationId)
     }
 
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {
-        let invitedByProfile = inviterProfile.map {
-            Profile.from(profile: $0, avatar: nil, inboxId: $0.inboxId, conversationId: conversationId)
+        let invitedByProfile: Profile?
+        if let inviterProfile {
+            invitedByProfile = Profile.from(profile: inviterProfile, avatar: nil, inboxId: inviterProfile.inboxId, conversationId: conversationId)
+        } else if let inviterMyProfile {
+            invitedByProfile = Profile.from(myProfile: inviterMyProfile, avatar: nil, inboxId: inviterMyProfile.inboxId, conversationId: conversationId)
+        } else {
+            invitedByProfile = nil
         }
         return .init(
             profile: hydratedProfile(),
@@ -58,6 +78,8 @@ extension DBConversationMemberProfileWithRole {
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
             .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchOne(db)
     }
@@ -79,6 +101,8 @@ extension DBConversationMemberProfileWithRole {
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
             .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
     }

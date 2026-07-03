@@ -62,6 +62,23 @@ extension DBProfile {
     }
 }
 
+extension DBMyProfile {
+    /// Projects the locally-authored self identity plus a conversation's avatar
+    /// slot into a snapshot `MemberProfile`. Self is excluded from `DBProfile`,
+    /// so the snapshot builder folds this in to advertise the sender's own
+    /// identity to joiners. Self is never an agent, so `memberKind` is omitted.
+    /// Returns nil when the inbox id is not valid hex.
+    func snapshotMemberProfile(avatar: DBProfileAvatar?) -> MemberProfile? {
+        let encryptedImage: EncryptedProfileImageRef? = avatar?.snapshotEncryptedImageRef
+        return MemberProfile(
+            inboxIdString: inboxId,
+            name: name,
+            encryptedImage: encryptedImage,
+            metadata: metadata
+        )
+    }
+}
+
 extension DBProfileAvatar {
     /// The wire-format encrypted image ref for a snapshot, or nil when the slot
     /// is a plain/absent avatar (only encrypted refs are put on the wire).

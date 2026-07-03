@@ -10,6 +10,15 @@ enum ProfileStoreTestSupport {
         try db.create(table: "conversation") { t in
             t.column("id", .text).notNull().primaryKey()
         }
+        try db.create(table: "myProfile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("imageData", .blob)
+            t.column("imageAssetIdentifier", .text)
+            t.column("imageContentDigest", .text)
+            t.column("metadata", .jsonText)
+            t.column("updatedAt", .datetime).notNull()
+        }
         try SharedDatabaseMigrator.createProfileTables(db)
         try SharedDatabaseMigrator.createProfileAvatarLatestView(db)
     }

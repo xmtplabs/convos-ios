@@ -419,6 +419,8 @@ class MessagesRepository: MessagesRepositoryProtocol {
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
             .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
         var result: [String: MemberProfileInfo] = [:]
@@ -426,7 +428,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
             result[row.inboxId] = MemberProfileInfo(
                 inboxId: row.inboxId,
                 conversationId: conversationId,
-                name: row.profile?.name,
+                name: row.resolvedName,
                 avatar: row.avatarSlot?.url,
                 isAgent: row.isAgent,
                 agentVerification: row.agentVerification
@@ -849,6 +851,7 @@ fileprivate extension Database {
                     .select([DBConversationMember.Columns.role])
                     .including(optional: DBConversationMember.profile)
                     .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.myProfileIdentity)
             )
             .including(required: DBConversation.localState)
             .including(optional: DBConversation.agentBuilderSummary)
@@ -864,6 +867,8 @@ fileprivate extension Database {
                     .including(optional: DBConversationMember.profile)
                     .including(optional: DBConversationMember.avatarSlot)
                     .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
@@ -993,6 +998,8 @@ fileprivate extension Database {
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
             .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
 

@@ -26,7 +26,7 @@ extension DBLastMessageWithSource {
         let senderName = Self.resolveSenderName(
             isCurrentUser: isCurrentUser,
             inboxId: senderId,
-            name: senderProfile?.profile?.name,
+            name: senderProfile?.resolvedName,
             isAgent: senderProfile?.isAgent ?? false,
             contactNameResolver: contactNameResolver
         )

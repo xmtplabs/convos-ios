@@ -41,4 +41,28 @@ extension Profile {
             metadata: profile?.metadata
         )
     }
+
+    /// Builds a conversation-scoped `Profile` from the current user's locally
+    /// authored `DBMyProfile` row plus a conversation avatar slot. Used when the
+    /// canonical `DBProfile` join is nil because the member (or inviter) is the
+    /// current user, who is excluded from `DBProfile`. Self is never an agent.
+    static func from(
+        myProfile: DBMyProfile?,
+        avatar: DBProfileAvatar?,
+        inboxId: String,
+        conversationId: String
+    ) -> Profile {
+        Profile(
+            inboxId: inboxId,
+            conversationId: conversationId,
+            name: myProfile?.name,
+            avatar: avatar?.url,
+            avatarSalt: avatar?.salt,
+            avatarNonce: avatar?.nonce,
+            avatarKey: avatar?.encryptionKey,
+            isAgent: false,
+            imageSourceContentDigest: nil,
+            metadata: myProfile?.metadata
+        )
+    }
 }
