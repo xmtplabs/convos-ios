@@ -377,8 +377,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         try saveMembers(prepared.dbMembers, in: db)
 
-        // Fill gaps: only write appData profiles for members without message-sourced data
+        // Fill gaps from the group's app-data profiles. The canonical write is
+        // what rendering reads; the legacy `DBMemberProfile` write is kept
+        // defensively for any residual reader until that table is retired.
+        let selfInboxId = try DBInbox.currentInboxId(db)
         try prepared.memberProfiles.forEach { profile in
+            try Self.applyAppDataProfile(
+                db: db,
+                conversationId: prepared.dbConversation.id,
+                profile: profile,
+                selfInboxId: selfInboxId
+            )
+
             let existing = try DBMemberProfile.fetchOne(
                 db,
                 conversationId: prepared.dbConversation.id,
@@ -393,6 +403,77 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         return saveResult
+    }
+
+    /// Timestamp for app-data-sourced canonical writes.
+    ///
+    /// App-data profiles (the member profiles carried in a group's custom
+    /// metadata) have no per-value timestamp of their own, so they are stamped at
+    /// the Unix epoch floor - the lowest possible time. This is deliberate:
+    ///
+    /// - Cross-source precedence already guarantees an `.appData` value never
+    ///   overrides a higher source (`profileSnapshot` / `profileUpdate`)
+    ///   regardless of timestamp, so the floor is purely about ordering *within*
+    ///   the `.appData` source.
+    /// - Seeding at the floor means any real, later-timestamped event supersedes
+    ///   the app-data value by recency, and two app-data observations of the same
+    ///   value do not churn `updatedAt` on every re-sync (the merge only writes
+    ///   when the value actually changes).
+    ///
+    /// Mirrors `ProfileBackfill`'s floor for its `.contact`-sourced seed.
+    private static let appDataProfileFloor: Date = .init(timeIntervalSince1970: 0)
+
+    /// Merges one app-data-sourced member profile into the canonical `profile` /
+    /// `profileAvatar` tables at the `.appData` source, so a member known only
+    /// from group app-data renders instead of showing as "Somebody".
+    ///
+    /// Fill-only by construction: `ProfileMerge` precedence
+    /// (`contact < appData < profileSnapshot < profileUpdate`) guarantees this
+    /// value never overrides a higher-source one and only fills a blank; a later
+    /// real `ProfileUpdate` / `ProfileSnapshot` automatically wins. The current
+    /// user is skipped - self identity lives in `myProfile` and is excluded from
+    /// `DBProfile`.
+    static func applyAppDataProfile(
+        db: Database,
+        conversationId: String,
+        profile: DBMemberProfile,
+        selfInboxId: String?
+    ) throws {
+        let inboxId = profile.inboxId
+        if let selfInboxId, inboxId == selfInboxId { return }
+
+        // Only merge an identity when there is a usable name; app-data carries no
+        // memberKind/metadata, so a nameless entry would only create an empty
+        // identity row. The avatar is handled independently below.
+        if let name = profile.name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let existingIdentity = try DBProfile.fetchOne(db, inboxId: inboxId)
+            let mergedIdentity = ProfileMerge.mergeIdentity(
+                existing: existingIdentity,
+                inboxId: inboxId,
+                incoming: IncomingIdentity(name: name, memberKind: nil, metadata: nil),
+                source: .appData,
+                sentAt: appDataProfileFloor
+            )
+            if mergedIdentity != existingIdentity {
+                try mergedIdentity.save(db)
+            }
+        }
+
+        // Only a valid encrypted image is worth merging; anything else leaves the
+        // slot untouched (silent), so app-data never clears an existing avatar.
+        guard profile.hasValidEncryptedAvatar, let url = profile.avatar else { return }
+        let existingAvatar = try DBProfileAvatar.fetchOne(db, inboxId: inboxId, conversationId: conversationId)
+        let mergedAvatar = ProfileMerge.mergeAvatar(
+            existing: existingAvatar,
+            inboxId: inboxId,
+            conversationId: conversationId,
+            incoming: .set(url: url, salt: profile.avatarSalt, nonce: profile.avatarNonce, key: profile.avatarKey),
+            source: .appData,
+            sentAt: appDataProfileFloor
+        )
+        if let mergedAvatar, mergedAvatar != existingAvatar {
+            try mergedAvatar.save(db)
+        }
     }
 
     /// Clears a persisted removed marker once a synced member list proves the
