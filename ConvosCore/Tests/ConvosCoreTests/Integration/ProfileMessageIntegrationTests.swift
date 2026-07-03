@@ -302,31 +302,17 @@ struct ProfileMessageIntegrationTests {
 
         _ = try await groupA.addMembers(inboxIds: [clientC.inboxID])
 
-        let minimalDB = try DatabaseQueue()
+        // The snapshot builder now reads the canonical `profile` tables, so the
+        // "DB-only" agent lives in `DBProfile`, not the legacy `memberProfile`.
+        let minimalDB = try ProfileStoreTestSupport.makeQueue(conversations: [groupA.id])
         try await minimalDB.write { db in
-            try db.create(table: "memberProfile") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("inboxId", .text).notNull()
-                t.column("name", .text)
-                t.column("avatar", .text)
-                t.column("avatarSalt", .blob)
-                t.column("avatarNonce", .blob)
-                t.column("avatarKey", .blob)
-                t.column("avatarLastRenewed", .datetime)
-                t.column("memberKind", .text)
-                t.column("metadata", .jsonText)
-                t.column("imageSourceAssetIdentifier", .text)
-                t.column("imageSourceContentDigest", .text)
-                t.primaryKey(["conversationId", "inboxId"])
-            }
-            let agentRow = DBMemberProfile(
-                conversationId: groupA.id,
+            try DBProfile(
                 inboxId: clientB.inboxID,
                 name: "Agent Bob",
-                avatar: nil,
-                memberKind: .agent
-            )
-            try agentRow.insert(db)
+                memberKind: .agent,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
+            ).save(db)
         }
 
         try await ProfileSnapshotBuilder.sendSnapshot(
