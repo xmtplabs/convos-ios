@@ -132,15 +132,31 @@ struct ProfileInboundApplierTests {
         #expect(slot == nil)
     }
 
-    @Test("an update with no image clears an existing avatar slot")
-    func updateAddressedClearsAvatar() throws {
+    @Test("an update with no image leaves an existing avatar untouched (deferred deliberate-clear)")
+    func updateAddressedKeepsAvatarWhenImageAbsent() throws {
         let queue = try makeQueue()
         try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
         try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), sentAt: Date(timeIntervalSince1970: 2))
 
+        // Until the wire format can signal a deliberate clear, an omitted image
+        // is "no change", not a clear - so the existing avatar is preserved.
         let slot = try avatar(queue, inboxId: "alice")
-        #expect(slot != nil)
-        #expect(slot?.url == nil)
+        #expect(slot?.url == "u")
+        #expect(slot?.encryptionKey == key)
+    }
+
+    @Test("an update with a malformed image ref leaves an existing avatar untouched")
+    func updateAddressedKeepsAvatarWhenImageMalformed() throws {
+        let queue = try makeQueue()
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+        // A set-but-invalid ref (no url) must never wipe a good avatar.
+        var malformed = EncryptedProfileImageRef()
+        malformed.salt = salt
+        malformed.nonce = nonce
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(malformed), sentAt: Date(timeIntervalSince1970: 2))
+
+        let slot = try avatar(queue, inboxId: "alice")
+        #expect(slot?.url == "u")
     }
 
     @Test("a lower-source snapshot does not override an update-sourced name")

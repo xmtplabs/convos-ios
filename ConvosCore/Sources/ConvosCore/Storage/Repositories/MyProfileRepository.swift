@@ -146,19 +146,34 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
 
     /// Reads the current user's identity from the canonical `DBMyProfile` - the
     /// single source of truth the "My Info" editor and every self-write path
-    /// (`publishMyProfile`, the settings editor) write, keyed per inbox. The
-    /// legacy per-conversation `member_profile` row is not consulted.
-    private static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
-        if let selfRow = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db) {
-            return Profile(
-                inboxId: inboxId,
-                conversationId: conversationId,
-                name: (selfRow.name?.isEmpty ?? true) ? nil : selfRow.name,
-                avatar: nil,
-                metadata: selfRow.metadata
-            )
+    /// (`publishMyProfile`, the settings editor) write, keyed per inbox - plus
+    /// the latest self avatar slot from `DBProfileAvatar`. The legacy
+    /// per-conversation `member_profile` row is not consulted. Reading the avatar
+    /// here (inside the tracked observation) means a self-avatar upload surfaces
+    /// on `fetch()` / `myProfilePublisher` instead of being dropped.
+    ///
+    /// Internal (not private) so the avatar-surfacing behavior can be unit-tested
+    /// against a seeded database.
+    static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
+        guard let selfRow = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db) else {
+            return .empty(inboxId: inboxId, conversationId: conversationId)
         }
-        return .empty(inboxId: inboxId, conversationId: conversationId)
+        // Newest slot for this inbox (matching the roster's newest-per-inbox
+        // resolution). Read the base table directly so the observation tracks it.
+        let avatar = try DBProfileAvatar
+            .filter(DBProfileAvatar.Columns.inboxId == inboxId)
+            .order(DBProfileAvatar.Columns.updatedAt.desc, DBProfileAvatar.Columns.conversationId.desc)
+            .fetchOne(db)
+        return Profile(
+            inboxId: inboxId,
+            conversationId: conversationId,
+            name: (selfRow.name?.isEmpty ?? true) ? nil : selfRow.name,
+            avatar: avatar?.url,
+            avatarSalt: avatar?.salt,
+            avatarNonce: avatar?.nonce,
+            avatarKey: avatar?.encryptionKey,
+            metadata: selfRow.metadata
+        )
     }
 }
 
