@@ -185,7 +185,7 @@ struct ProfilesRepositoryTests {
     func fetchSelfProfileReads() async throws {
         let queue = try ProfileStoreTestSupport.makeQueue()
         try await queue.write { db in
-            try DBSelfProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 1)).save(db)
+            try DBMyProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 1)).save(db)
         }
         let selfProfile = try await queue.read { db in
             try ProfilesRepository.fetchSelfProfile(db)

@@ -261,6 +261,18 @@ extension SharedDatabaseMigrator {
         )
         migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
         migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
+        migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
+    }
+
+    /// Drops the short-lived `selfProfile` table. Self identity was consolidated
+    /// onto the pre-existing `myProfile` table, so `selfProfile` is unused.
+    /// Guarded on existence because fresh installs never create it (an earlier
+    /// revision of `createProfileTables` did), while dev installs that ran that
+    /// revision still have it.
+    static func dropSelfProfileTable(_ db: Database) throws {
+        if try db.tableExists("selfProfile") {
+            try db.drop(table: "selfProfile")
+        }
     }
 
     /// Creates the `profileAvatarLatest` view: the most recently updated
@@ -1291,13 +1303,6 @@ extension SharedDatabaseMigrator {
             t.column("contentDigest", .text)
             t.column("updatedAt", .datetime).notNull()
             t.primaryKey(["inboxId", "conversationId"])
-        }
-
-        try db.create(table: "selfProfile") { t in
-            t.column("inboxId", .text).notNull().primaryKey()
-            t.column("name", .text)
-            t.column("metadata", .jsonText)
-            t.column("updatedAt", .datetime).notNull()
         }
 
         try db.create(table: "profileAvatarSource") { t in

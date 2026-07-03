@@ -33,7 +33,8 @@ struct ProfileMetadataWriterTests {
                 ),
                 selfProfileStore: GRDBSelfProfileStore(
                     databaseWriter: databaseManager.dbWriter,
-                    databaseReader: databaseManager.dbReader
+                    databaseReader: databaseManager.dbReader,
+                    selfInboxIdProvider: { inboxId }
                 ),
                 publishStore: GRDBProfilePublishStore(
                     databaseWriter: databaseManager.dbWriter,
@@ -49,7 +50,7 @@ struct ProfileMetadataWriterTests {
         }
 
         func seedSelfMetadata(_ metadata: ProfileMetadata?) throws {
-            let profile = DBSelfProfile(inboxId: inboxId, metadata: metadata, updatedAt: Date())
+            let profile = DBMyProfile(inboxId: inboxId, metadata: metadata, updatedAt: Date())
             try databaseManager.dbWriter.write { db in
                 try profile.save(db)
             }
@@ -57,7 +58,7 @@ struct ProfileMetadataWriterTests {
 
         func loadSelfMetadata() throws -> ProfileMetadata? {
             try databaseManager.dbReader.read { db in
-                try DBSelfProfile.fetchOne(db)?.metadata
+                try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db)?.metadata
             }
         }
     }

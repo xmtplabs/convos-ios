@@ -18,16 +18,30 @@ struct SelfProfileEdit: Sendable {
         self.metadata = metadata
     }
 
-    /// Applies the edit to an existing self profile, stamping `updatedAt`.
-    func applied(to existing: DBSelfProfile, updatedAt: Date) -> DBSelfProfile {
-        var result = existing
+    /// Applies the edit to an existing self profile, stamping `updatedAt`. Image
+    /// fields are carried through untouched (the self accessor also preserves
+    /// them on write); only name/metadata are editable here.
+    func applied(to existing: DBMyProfile, updatedAt: Date) -> DBMyProfile {
+        let newName: String?
         if case let .set(value) = name {
-            result.name = value
+            newName = value
+        } else {
+            newName = existing.name
         }
+        let newMetadata: ProfileMetadata?
         if case let .set(value) = metadata {
-            result.metadata = value
+            newMetadata = value
+        } else {
+            newMetadata = existing.metadata
         }
-        result.updatedAt = updatedAt
-        return result
+        return DBMyProfile(
+            inboxId: existing.inboxId,
+            name: newName,
+            imageData: existing.imageData,
+            imageAssetIdentifier: existing.imageAssetIdentifier,
+            imageContentDigest: existing.imageContentDigest,
+            metadata: newMetadata,
+            updatedAt: updatedAt
+        )
     }
 }

@@ -167,7 +167,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     private lazy var selfProfileStore: any SelfProfileStoreProtocol = GRDBSelfProfileStore(
         databaseWriter: databaseWriter,
-        databaseReader: databaseReader
+        databaseReader: databaseReader,
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
     )
 
     private lazy var profilePublishStore: any ProfilePublishStoreProtocol = GRDBProfilePublishStore(
@@ -201,7 +204,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                 try await ProfileBackfill(
                     databaseReader: databaseReader,
                     profileStore: profileStore,
-                    selfProfileStore: selfProfileStore,
                     selfInboxId: selfInboxId
                 ).run()
             } catch {

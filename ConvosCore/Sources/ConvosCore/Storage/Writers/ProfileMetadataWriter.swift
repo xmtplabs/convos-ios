@@ -65,7 +65,7 @@ public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
             await previous.value
             do {
                 let existing = try await databaseReader.read { db in
-                    try DBSelfProfile.fetchOne(db)?.metadata
+                    try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db)?.metadata
                 }
                 var merged: ProfileMetadata = existing ?? [:]
                 update(&merged)

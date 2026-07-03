@@ -26,7 +26,7 @@ struct ProfileTablesMigrationTests {
         try db.execute(sql: "INSERT INTO conversation (id) VALUES (?)", arguments: [id])
     }
 
-    @Test("creates all five tables with expected columns and primary keys")
+    @Test("creates all four tables with expected columns and primary keys")
     func createsTables() throws {
         let dbQueue = try DatabaseQueue()
         try dbQueue.write { db in
@@ -36,7 +36,6 @@ struct ProfileTablesMigrationTests {
         try dbQueue.read { db in
             #expect(try db.tableExists("profile"))
             #expect(try db.tableExists("profileAvatar"))
-            #expect(try db.tableExists("selfProfile"))
             #expect(try db.tableExists("profileAvatarSource"))
             #expect(try db.tableExists("profilePublishJob"))
 
@@ -126,12 +125,11 @@ struct ProfileTablesMigrationTests {
         }
     }
 
-    @Test("DBSelfProfile and DBProfileAvatarSource round-trip")
-    func selfAndSourceRoundTrip() throws {
+    @Test("DBProfileAvatarSource round-trips")
+    func sourceRoundTrip() throws {
         let dbQueue = try DatabaseQueue()
         try dbQueue.write { db in
             try self.makeSchema(db)
-            try DBSelfProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 2)).save(db)
             try DBProfileAvatarSource(
                 inboxId: "me",
                 plaintext: Data(repeating: 9, count: 16),
@@ -141,8 +139,6 @@ struct ProfileTablesMigrationTests {
         }
 
         try dbQueue.read { db in
-            let selfProfile = try DBSelfProfile.fetchOne(db, inboxId: "me")
-            #expect(selfProfile?.name == "Me")
             let source = try DBProfileAvatarSource.fetchOne(db, inboxId: "me")
             #expect(source?.version == 3)
             #expect(source?.plaintext.count == 16)

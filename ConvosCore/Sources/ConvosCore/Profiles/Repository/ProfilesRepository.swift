@@ -19,7 +19,7 @@ public actor ProfilesRepository {
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
-    private var cachedSelf: DBSelfProfile?
+    private var cachedSelf: DBMyProfile?
     private var cachedSelfInboxId: String?
     private var warmedUp: Bool = false
 
@@ -101,7 +101,7 @@ public actor ProfilesRepository {
     }
 
     static func fetchSelfProfile(_ db: Database) throws -> UnifiedProfile? {
-        guard let selfRow = try DBSelfProfile.fetchOne(db) else { return nil }
+        guard let selfRow = try DBMyProfile.fetchOne(db) else { return nil }
         let avatars = try DBProfileAvatar.fetchAll(db, inboxId: selfRow.inboxId)
         return UnifiedProfile(
             inboxId: selfRow.inboxId,
@@ -169,10 +169,10 @@ public actor ProfilesRepository {
 
     /// Merges one inbound identity/avatar event into the canonical stores.
     /// Events authored by the current user are ignored - self identity is held
-    /// in `selfProfile`, not `DBProfile`.
+    /// in `myProfile`, not `DBProfile`.
     func apply(_ event: ProfileDomainEvent) async {
         // Skip the current user's own echoed profile; self identity lives in
-        // `selfProfile`. If the inbox id isn't resolvable yet, process the event
+        // `myProfile`. If the inbox id isn't resolvable yet, process the event
         // rather than risk dropping another member's data.
         if let selfId = await resolveSelfInboxId(), event.inboxId == selfId {
             return
@@ -227,7 +227,17 @@ public actor ProfilesRepository {
         guard let selfId = await resolveSelfInboxId() else {
             throw ProfilesRepositoryError.selfInboxUnavailable
         }
-        let existing = cachedSelf ?? DBSelfProfile(inboxId: selfId, updatedAt: .distantPast)
+        // Load the current row first so an edit before warm-up carries forward
+        // the existing name/metadata rather than starting from a blank profile.
+        // The store additionally preserves image fields atomically on save.
+        let existing: DBMyProfile
+        if let cachedSelf {
+            existing = cachedSelf
+        } else if let loaded = try? await selfProfileStore.load() {
+            existing = loaded
+        } else {
+            existing = DBMyProfile(inboxId: selfId)
+        }
         let updated = edit.applied(to: existing, updatedAt: Date())
         try await selfProfileStore.save(updated)
         cachedSelf = updated

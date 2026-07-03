@@ -187,7 +187,7 @@ struct SelfProfileEditTests {
 
     @Test("keep leaves a field unchanged; set replaces it")
     func appliesPartialEdit() {
-        let base = DBSelfProfile(inboxId: "me", name: "Old", metadata: ["k": .string("v")], updatedAt: t1)
+        let base = DBMyProfile(inboxId: "me", name: "Old", metadata: ["k": .string("v")], updatedAt: t1)
 
         let nameOnly = SelfProfileEdit(name: .set("New")).applied(to: base, updatedAt: t2)
         #expect(nameOnly.name == "New")

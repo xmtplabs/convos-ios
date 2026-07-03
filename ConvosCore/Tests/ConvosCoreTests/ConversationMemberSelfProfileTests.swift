@@ -62,7 +62,7 @@ struct ConversationMemberSelfProfileTests {
         ).insert(db)
     }
 
-    @Test("self member falls back to the selfProfile name instead of Somebody")
+    @Test("self member falls back to the myProfile name instead of Somebody")
     func selfMemberUsesSelfProfileName() async throws {
         let db = try makeDatabase()
         try await db.write { db in

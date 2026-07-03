@@ -11,9 +11,10 @@ import GRDB
 /// and non-clobbering: re-running fills only blanks of whatever is already there,
 /// and a value already set by a real `profileUpdate` is never downgraded.
 ///
-/// The current user's own row is the exception: the self profile has no source
-/// column, so the self row is upserted (not seed-once) to reflect renames when
-/// the backfill is re-run.
+/// Only other members are migrated into `DBProfile`. The current user's own
+/// identity lives in `myProfile` (written by the "My Info" editor), so self rows
+/// are skipped for identity; their legacy avatars are still mirrored into
+/// `DBProfileAvatar`.
 ///
 /// Runs once at startup. Inbound profile events no longer flow through here -
 /// they write the canonical stores directly via `ProfileInboundApplier` - so
@@ -21,7 +22,6 @@ import GRDB
 struct ProfileBackfill {
     private let databaseReader: any DatabaseReader
     private let profileStore: any ProfileStoreProtocol
-    private let selfProfileStore: any SelfProfileStoreProtocol
     private let selfInboxId: String
 
     /// Floor timestamp for backfilled rows; any real event (later `sentAt`)
@@ -31,12 +31,10 @@ struct ProfileBackfill {
     init(
         databaseReader: any DatabaseReader,
         profileStore: any ProfileStoreProtocol,
-        selfProfileStore: any SelfProfileStoreProtocol,
         selfInboxId: String
     ) {
         self.databaseReader = databaseReader
         self.profileStore = profileStore
-        self.selfProfileStore = selfProfileStore
         self.selfInboxId = selfInboxId
     }
 
@@ -45,26 +43,6 @@ struct ProfileBackfill {
             try DBMemberProfile.fetchAll(db)
         }
         try await mirror(rows)
-        try await seedSelfFromGlobalProfile()
-    }
-
-    /// Seeds the canonical self profile from the legacy global profile
-    /// (`DBMyProfile`), where an existing user's name/metadata lives when they
-    /// never had a self `member_profile` row. Fill-only: it never overwrites a
-    /// value already authored through the canonical path (`publishMyProfile`).
-    private func seedSelfFromGlobalProfile() async throws {
-        let global = try await databaseReader.read { db in
-            try DBMyProfile.filter(DBMyProfile.Columns.inboxId == selfInboxId).fetchOne(db)
-        }
-        guard let global else { return }
-        let existing = try await selfProfileStore.load()
-        let mergedName = ProfileMerge.nonBlank(existing?.name) ?? ProfileMerge.nonBlank(global.name)
-        let mergedMetadata = existing?.metadata ?? global.metadata
-        guard mergedName != nil || mergedMetadata != nil else { return }
-        guard existing == nil || mergedName != existing?.name || mergedMetadata != existing?.metadata else { return }
-        try await selfProfileStore.save(
-            DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: existing?.updatedAt ?? floor)
-        )
     }
 
     /// Mirrors the given legacy rows into the canonical stores. Idempotent: a
@@ -73,23 +51,12 @@ struct ProfileBackfill {
     func mirror(_ rows: [DBMemberProfile]) async throws {
         guard !rows.isEmpty else { return }
 
-        // Collapse a person's multiple conversation rows into one identity, and
-        // gather the current user's own name/metadata for the self seed.
+        // Collapse a person's multiple conversation rows into one identity. Self
+        // identity lives in `myProfile`, so self rows are skipped here; their
+        // avatars are still backfilled below.
         var identityByInbox: [String: DBProfile] = [:]
-        var selfName: String?
-        var selfMetadata: ProfileMetadata?
-        var sawSelf = false
-
         for row in rows {
-            if row.inboxId == selfInboxId {
-                sawSelf = true
-                if selfName == nil {
-                    selfName = ProfileMerge.nonBlank(row.name)
-                }
-                if selfMetadata == nil {
-                    selfMetadata = row.metadata
-                }
-            } else {
+            if row.inboxId != selfInboxId {
                 identityByInbox[row.inboxId] = ProfileMerge.mergeIdentity(
                     existing: identityByInbox[row.inboxId],
                     inboxId: row.inboxId,
@@ -98,34 +65,10 @@ struct ProfileBackfill {
                     sentAt: floor
                 )
             }
-
             try await backfillAvatar(row)
         }
 
         try await backfillIdentities(identityByInbox)
-        try await mirrorSelf(sawSelf: sawSelf, name: selfName, metadata: selfMetadata)
-    }
-
-    /// Upserts the self row from the legacy-derived name/metadata. A fresh seed
-    /// uses the floor timestamp (like everything else here); an update reflects a
-    /// legacy rename with a real timestamp. Legacy values win when present but a
-    /// blank never erases an existing value, and the write is skipped when nothing
-    /// changed so re-runs don't churn.
-    private func mirrorSelf(sawSelf: Bool, name: String?, metadata: ProfileMetadata?) async throws {
-        guard sawSelf else { return }
-        let existing = try await selfProfileStore.load()
-        let mergedName = ProfileMerge.nonBlank(name) ?? existing?.name
-        let mergedMetadata = metadata ?? existing?.metadata
-        guard let existing else {
-            try await selfProfileStore.save(
-                DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: floor)
-            )
-            return
-        }
-        guard mergedName != existing.name || mergedMetadata != existing.metadata else { return }
-        try await selfProfileStore.save(
-            DBSelfProfile(inboxId: selfInboxId, name: mergedName, metadata: mergedMetadata, updatedAt: Date())
-        )
     }
 
     private func backfillAvatar(_ row: DBMemberProfile) async throws {
