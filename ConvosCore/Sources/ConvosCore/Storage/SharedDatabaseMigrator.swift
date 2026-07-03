@@ -262,6 +262,22 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
         migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
         migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
+        migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
+    }
+
+    /// Additive, nullable column tracking the last successful asset re-sign time
+    /// for a `profileAvatar` URL. Distinct from `updatedAt` (the merge/recency
+    /// signal) so the asset renewal sweep can stamp a renewal without making the
+    /// avatar look newly authored. `nil` means never renewed (eligible for
+    /// renewal), so no backfill is needed. Guarded because fresh installs already
+    /// get the column from `createProfileTables`, while dev installs that ran an
+    /// earlier revision of it need the `ALTER`.
+    static func addProfileAvatarLastRenewed(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "profileAvatar").contains { $0.name == "lastRenewed" }
+        guard !hasColumn else { return }
+        try db.alter(table: "profileAvatar") { t in
+            t.add(column: "lastRenewed", .datetime)
+        }
     }
 
     /// Drops the short-lived `selfProfile` table. Self identity was consolidated
@@ -1302,6 +1318,7 @@ extension SharedDatabaseMigrator {
             t.column("profileSource", .text).notNull()
             t.column("contentDigest", .text)
             t.column("updatedAt", .datetime).notNull()
+            t.column("lastRenewed", .datetime)
             t.primaryKey(["inboxId", "conversationId"])
         }
 

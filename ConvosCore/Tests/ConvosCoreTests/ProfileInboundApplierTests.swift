@@ -9,25 +9,47 @@ struct ProfileInboundApplierTests {
     private let nonce = Data(repeating: 2, count: 12)
     private let key = Data(repeating: 3, count: 32)
 
-    /// Minimal schema: the profile tables plus the `member` and `conversation`
-    /// tables the applier touches. Agent attestation / `hasHadVerifiedAgent`
-    /// behaviour is exercised by the integration tests, so these tests use
-    /// non-agent members and the conversation table only needs its id.
+    /// Full schema via the shared migrator, so the applier's canonical writes and
+    /// the `DBContact` mirror both have their tables. Agent attestation /
+    /// `hasHadVerifiedAgent` behaviour is exercised by the integration tests, so
+    /// these tests use non-agent members.
     private func makeQueue(conversations: [String] = ["c1"]) throws -> DatabaseQueue {
         let queue = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: queue)
         try queue.write { db in
-            try db.create(table: "conversation") { t in
-                t.column("id", .text).notNull().primaryKey()
-            }
-            try db.create(table: "member") { t in
-                t.column("inboxId", .text).notNull().primaryKey()
-            }
-            try SharedDatabaseMigrator.createProfileTables(db)
             for id in conversations {
-                try db.execute(sql: "INSERT INTO conversation (id) VALUES (?)", arguments: [id])
+                try seedConversation(db, id: id)
             }
         }
         return queue
+    }
+
+    private func seedConversation(_ db: Database, id: String) throws {
+        try DBMember(inboxId: "creator").save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: id,
+            inviteTag: "tag-\(id)",
+            creatorId: "creator",
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: true,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false
+        ).insert(db)
     }
 
     private func imageRef(url: String) -> EncryptedProfileImageRef {
@@ -139,5 +161,35 @@ struct ProfileInboundApplierTests {
 
         let alice = try profile(queue, inboxId: "alice")
         #expect(alice?.name == "Alice")
+    }
+
+    @Test("an inbound update refreshes an existing contact's name and avatar")
+    func mirrorsToExistingContact() throws {
+        let queue = try makeQueue()
+        try queue.write { db in
+            try DBContact(
+                inboxId: "alice",
+                addedAt: Date(timeIntervalSince1970: 0),
+                addedViaConversationId: "c1",
+                displayName: "Old Alice",
+                avatarURL: nil,
+                profileUpdatedAt: Date(timeIntervalSince1970: 0)
+            ).insert(db)
+        }
+
+        try apply(queue, inboxId: "alice", name: "New Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+
+        let contact = try queue.read { db in try DBContact.fetchOne(db, key: "alice") }
+        #expect(contact?.displayName == "New Alice")
+        #expect(contact?.avatarURL == "u")
+    }
+
+    @Test("an inbound update does not create a contact for a non-contact member")
+    func doesNotCreateContact() throws {
+        let queue = try makeQueue()
+        try apply(queue, inboxId: "bob", name: "Bob", avatar: .fillIfPresent(nil), sentAt: Date(timeIntervalSince1970: 1))
+
+        let contact = try queue.read { db in try DBContact.fetchOne(db, key: "bob") }
+        #expect(contact == nil)
     }
 }

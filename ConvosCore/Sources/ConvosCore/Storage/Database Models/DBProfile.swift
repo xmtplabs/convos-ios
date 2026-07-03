@@ -70,3 +70,35 @@ extension DBProfile {
         try fetchAll(db, keys: inboxIds)
     }
 }
+
+extension DBProfile {
+    /// The backend `AgentTemplate.id` a template-backed agent was provisioned
+    /// from, read from `metadata`. Mirrors the accessor on `DBMemberProfile` /
+    /// `Profile`; empty / whitespace-only values coerce to nil.
+    var agentTemplateId: String? {
+        trimmedMetadata(Constant.templateIdKey)
+    }
+
+    /// The shareable web URL for a template-backed agent (`publishedUrl`).
+    var agentTemplatePublishedURL: String? {
+        trimmedMetadata(Constant.publishedURLKey)
+    }
+
+    /// The agent template's emoji, when published.
+    var agentTemplateEmoji: String? {
+        trimmedMetadata(Constant.emojiKey)
+    }
+
+    private func trimmedMetadata(_ key: String) -> String? {
+        metadata?[key]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private enum Constant {
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+        static let emojiKey: String = "emoji"
+    }
+}

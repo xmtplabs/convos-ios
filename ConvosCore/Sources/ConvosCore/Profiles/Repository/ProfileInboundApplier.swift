@@ -86,6 +86,26 @@ enum ProfileInboundApplier {
         if let mergedAvatar, mergedAvatar != existingAvatar {
             try mergedAvatar.save(db)
         }
+
+        // Keep the contact list fresh: mirror the resolved identity/avatar onto
+        // this member's `DBContact` when one exists. No-ops for non-contacts, so
+        // a later `ProfileUpdate` refreshes an existing contact's name/avatar
+        // instead of freezing it at first-seen.
+        let effectiveAvatar = mergedAvatar ?? existingAvatar
+        try ContactsWriter.mirrorMemberProfileToContactInTransaction(
+            db: db,
+            inboxId: inboxId,
+            name: mergedProfile.name,
+            avatarURL: effectiveAvatar?.url,
+            avatarSalt: effectiveAvatar?.salt,
+            avatarNonce: effectiveAvatar?.nonce,
+            avatarKey: effectiveAvatar?.encryptionKey,
+            receivedAt: event.receivedAt,
+            agentVerification: mergedProfile.memberKind?.agentVerification,
+            agentTemplateId: mergedProfile.agentTemplateId,
+            agentTemplatePublishedURL: mergedProfile.agentTemplatePublishedURL,
+            agentTemplateEmoji: mergedProfile.agentTemplateEmoji
+        )
     }
 
     private static func avatarEvent(_ disposition: AvatarDisposition, existingKey: Data?, fallbackKey: Data?) -> IncomingAvatar {

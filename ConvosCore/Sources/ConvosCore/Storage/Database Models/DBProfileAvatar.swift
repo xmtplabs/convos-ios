@@ -23,6 +23,7 @@ struct DBProfileAvatar: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let profileSource: Column = Column(CodingKeys.profileSource)
         static let contentDigest: Column = Column(CodingKeys.contentDigest)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
+        static let lastRenewed: Column = Column(CodingKeys.lastRenewed)
     }
 
     let inboxId: String
@@ -36,6 +37,11 @@ struct DBProfileAvatar: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Always nil until that work lands.
     var contentDigest: String?
     var updatedAt: Date
+    /// Last successful asset re-sign time for `url`, stamped by the asset
+    /// renewal sweep. Distinct from `updatedAt` (the merge/recency signal) so a
+    /// URL renewal never looks like a newer profile authorship event. `nil` means
+    /// never renewed, which the stale sweep treats as eligible.
+    var lastRenewed: Date?
 
     init(
         inboxId: String,
@@ -46,7 +52,8 @@ struct DBProfileAvatar: Codable, FetchableRecord, PersistableRecord, Hashable {
         encryptionKey: Data? = nil,
         profileSource: ProfileSource,
         contentDigest: String? = nil,
-        updatedAt: Date
+        updatedAt: Date,
+        lastRenewed: Date? = nil
     ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
@@ -57,6 +64,7 @@ struct DBProfileAvatar: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.profileSource = profileSource
         self.contentDigest = contentDigest
         self.updatedAt = updatedAt
+        self.lastRenewed = lastRenewed
     }
 
     var hasValidEncryptedAvatar: Bool {
