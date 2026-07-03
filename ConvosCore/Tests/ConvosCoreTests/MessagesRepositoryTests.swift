@@ -104,9 +104,10 @@ struct MessagesRepositoryTests {
                 .filter(DBConversationMember.Columns.inboxId == removedInboxId)
                 .deleteAll(db)
 
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                .filter(DBMemberProfile.Columns.inboxId == removedInboxId)
+            // Also drop the canonical identity: with neither a roster row nor a
+            // DBProfile, the sender falls through to the "Somebody" placeholder.
+            try DBProfile
+                .filter(DBProfile.Columns.inboxId == removedInboxId)
                 .deleteAll(db)
         }
 
@@ -510,12 +511,12 @@ struct MessagesRepositoryTests {
             invitedByInboxId: nil
         ).insert(db)
 
-        try DBMemberProfile(
-            conversationId: conversationId,
-            inboxId: currentInboxId,
-            name: "Current",
-            avatar: nil
-        ).insert(db)
+        // Seed both tables: canonical `DBProfile` is what the read path uses
+        // (and persists per-inbox after a member is removed), while the legacy
+        // per-conversation `DBMemberProfile` is still written defensively and has
+        // its own persistence assertions below.
+        try DBMemberProfile(conversationId: conversationId, inboxId: currentInboxId, name: "Current", avatar: nil).insert(db)
+        try DBProfile(inboxId: currentInboxId, name: "Current", profileSource: .profileUpdate, updatedAt: now).save(db)
 
         for inboxId in otherInboxIds {
             try DBConversationMember(
@@ -527,12 +528,8 @@ struct MessagesRepositoryTests {
                 invitedByInboxId: nil
             ).insert(db)
 
-            try DBMemberProfile(
-                conversationId: conversationId,
-                inboxId: inboxId,
-                name: "Removed",
-                avatar: nil
-            ).insert(db)
+            try DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: "Removed", avatar: nil).insert(db)
+            try DBProfile(inboxId: inboxId, name: "Removed", profileSource: .profileUpdate, updatedAt: now).save(db)
         }
     }
 }

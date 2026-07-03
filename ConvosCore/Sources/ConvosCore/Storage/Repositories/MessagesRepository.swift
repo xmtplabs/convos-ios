@@ -799,13 +799,35 @@ struct MemberProfileCache {
 
     init(
         activeProfiles: [DBConversationMemberProfileWithRole],
+        historicalProfiles: [DBProfile] = [],
+        conversationId: String,
         currentInboxId: String
     ) {
         var map: [String: ConversationMember] = [:]
-        map.reserveCapacity(activeProfiles.count)
+        map.reserveCapacity(activeProfiles.count + historicalProfiles.count)
 
         for profile in activeProfiles {
             map[profile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
+        }
+
+        // Members who authored messages/reactions but have since left the
+        // conversation are gone from the active roster, yet their canonical
+        // identity persists in `DBProfile` (per-inbox). Fold them in so their
+        // messages still render with a name and their reactions are not dropped.
+        // An active row always wins.
+        for profile in historicalProfiles where map[profile.inboxId] == nil {
+            map[profile.inboxId] = ConversationMember(
+                profile: Profile.from(
+                    profile: profile,
+                    avatar: nil,
+                    inboxId: profile.inboxId,
+                    conversationId: conversationId
+                ),
+                role: .member,
+                isCurrentUser: !currentInboxId.isEmpty && profile.inboxId == currentInboxId,
+                isAgent: profile.memberKind?.isAgent ?? false,
+                agentVerification: profile.memberKind?.agentVerification ?? .unverified
+            )
         }
 
         profilesByInboxId = map
@@ -1003,8 +1025,24 @@ fileprivate extension Database {
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
 
+        // Resolve senders who authored messages/reactions but are no longer in
+        // the active roster (e.g. removed members) from their canonical
+        // `DBProfile`, so those messages keep a name and their reactions survive.
+        let activeInboxIds = Set(activeMemberProfiles.map(\.inboxId))
+        let senderInboxIds = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .select(DBMessage.Columns.senderId, as: String.self)
+            .distinct()
+            .fetchAll(self)
+        let historicalInboxIds = Array(Set(senderInboxIds).subtracting(activeInboxIds))
+        let historicalProfiles = historicalInboxIds.isEmpty
+            ? []
+            : try DBProfile.fetchAll(self, inboxIds: historicalInboxIds)
+
         let memberProfileCache = MemberProfileCache(
             activeProfiles: activeMemberProfiles,
+            historicalProfiles: historicalProfiles,
+            conversationId: conversationId,
             currentInboxId: currentInboxId
         )
 
