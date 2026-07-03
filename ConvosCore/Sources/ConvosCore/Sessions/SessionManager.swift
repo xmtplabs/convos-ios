@@ -560,35 +560,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // Reached only from "Delete All Data" / delete-all-inboxes, which
-            // is a full local account reset rather than a per-conversation
-            // cleanup. Some tables intentionally survive conversation deletion
-            // during normal app use (for example `contact` uses `setNull` on
-            // `addedViaConversationId` so a contact can outlive a single
-            // source conversation), so we must explicitly clear those account-
-            // scoped tables here as well.
-            try DBCloudConnectionGrant.deleteAll(db)
-            try DBCloudConnection.deleteAll(db)
-            try DBCapabilityResolution.deleteAll(db)
-            try DBCreditBalance.deleteAll(db)
-            try DBConversationReadReceipt.deleteAll(db)
-            try DBPendingPhotoUpload.deleteAll(db)
-            try DBBuilderBundleHiddenMessage.deleteAll(db)
-            try DBVoiceMemoTranscript.deleteAll(db)
-            try AttachmentLocalState.deleteAll(db)
-            try DBPhotoPreferences.deleteAll(db)
-            try ConversationLocalState.deleteAll(db)
-            try DBInvite.deleteAll(db)
-            try DBConversationContactsSync.deleteAll(db)
-            try DBAgentTemplate.deleteAll(db)
-            try DBMessage.deleteAll(db)
-            try DBMemberProfile.deleteAll(db)
-            try DBConversationMember.deleteAll(db)
-            try DBContact.deleteAll(db)
-            try DBMember.deleteAll(db)
-            try DBConversation.deleteAll(db)
-            try DBInbox.deleteAll(db)
-            try DBMyProfile.deleteAll(db)
+            try Self.wipeAccountScopedRows(db)
         }
     }
 
@@ -935,6 +907,52 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
             }
         }
+    }
+}
+
+// MARK: - Account reset
+
+extension SessionManager {
+    /// Clears every account-scoped table in a full local reset ("Delete All
+    /// Data" / delete-all-inboxes). Some tables intentionally survive
+    /// conversation deletion during normal app use (for example `contact`
+    /// uses `setNull` on `addedViaConversationId` so a contact can outlive a
+    /// single source conversation), so a full reset must clear them here.
+    ///
+    /// Internal (not private) so the clean-slate guarantee can be unit-tested:
+    /// a residual row after this runs means a re-paired or different account
+    /// inherits stale data.
+    static func wipeAccountScopedRows(_ db: Database) throws {
+        try DBCloudConnectionGrant.deleteAll(db)
+        try DBCloudConnection.deleteAll(db)
+        try DBCapabilityResolution.deleteAll(db)
+        try DBCreditBalance.deleteAll(db)
+        try DBConversationReadReceipt.deleteAll(db)
+        try DBPendingPhotoUpload.deleteAll(db)
+        try DBBuilderBundleHiddenMessage.deleteAll(db)
+        try DBVoiceMemoTranscript.deleteAll(db)
+        try AttachmentLocalState.deleteAll(db)
+        try DBPhotoPreferences.deleteAll(db)
+        try ConversationLocalState.deleteAll(db)
+        try DBInvite.deleteAll(db)
+        try DBConversationContactsSync.deleteAll(db)
+        try DBAgentTemplate.deleteAll(db)
+        try DBMessage.deleteAll(db)
+        try DBMemberProfile.deleteAll(db)
+        try DBConversationMember.deleteAll(db)
+        try DBContact.deleteAll(db)
+        try DBMember.deleteAll(db)
+        try DBConversation.deleteAll(db)
+        try DBInbox.deleteAll(db)
+        try DBMyProfile.deleteAll(db)
+        // Canonical profile tables. Account-scoped and survive conversation
+        // deletion, so a full reset must clear them too; otherwise a re-paired
+        // or different account inherits stale identities, avatars, and queued
+        // publish jobs.
+        try DBProfile.deleteAll(db)
+        try DBProfileAvatar.deleteAll(db)
+        try DBProfileAvatarSource.deleteAll(db)
+        try DBProfilePublishJob.deleteAll(db)
     }
 }
 
