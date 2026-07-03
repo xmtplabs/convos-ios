@@ -70,7 +70,11 @@ struct AgentTemplateCacheCoordinatorTests {
 
         coordinator.start()
 
-        let fetchedFirst = await waitUntil(.seconds(5)) { apiClient.fetchedIds.contains("tmpl-1") }
+        // Generous timeout: the coordinator observes on a detached task, which
+        // the cooperative pool can starve for several seconds in the integration
+        // job (it runs alongside the network-bound suite). Mirrors the headroom
+        // in AgentTemplateRepositoryTests; it returns the instant the fetch lands.
+        let fetchedFirst = await waitUntil(.seconds(20)) { apiClient.fetchedIds.contains("tmpl-1") }
         #expect(fetchedFirst, "start() should fetch the uncached template")
 
         coordinator.stop()
