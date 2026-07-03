@@ -88,6 +88,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
 
+    /// Conversations this instance has already handed to the profile seeder.
+    /// `.ready` can re-emit, so this prevents launching duplicate concurrent
+    /// seeds for the same conversation within one manager's lifetime.
+    private let seededConversationIds: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+
     // MARK: - Initialization
 
     public init(
@@ -215,6 +220,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     private func scheduleProfileSync(for conversationId: String) {
         guard !DBConversation.isDraft(id: conversationId) else { return }
+        // `.ready` can re-emit; seed each conversation at most once per instance
+        // so a re-emission doesn't launch a duplicate concurrent publish. The
+        // seeder itself is also idempotent (skips when already seeded).
+        let firstSeed = seededConversationIds.withLock { $0.insert(conversationId).inserted }
+        guard firstSeed else { return }
         let seeder = profileConversationSeeder
         Task.detached {
             await seeder(conversationId)

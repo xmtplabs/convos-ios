@@ -198,4 +198,50 @@ struct ProfilesRepositoryTests {
         }
         #expect(none == nil)
     }
+
+    @Test("publishMyProfileToConversation skips when a self avatar slot already exists")
+    func seedSkipsWhenSelfAvatarPresent() async throws {
+        let profileStore = InMemoryProfileStore()
+        let publishStore = InMemoryProfilePublishStore()
+        try await profileStore.saveAvatar(DBProfileAvatar(
+            inboxId: "me", conversationId: "c1", url: "u", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
+        ))
+        let repository = try makeRepository(profileStore: profileStore, publishStore: publishStore)
+        await repository.warmUp()
+
+        try await repository.publishMyProfileToConversation("c1")
+
+        let jobs = try await publishStore.activeJobs()
+        #expect(jobs.isEmpty)
+    }
+
+    @Test("publishMyProfileToConversation seeds when no self avatar slot exists")
+    func seedRunsWhenNoSelfAvatar() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let repository = try makeRepository(publishStore: publishStore)
+        await repository.warmUp()
+
+        try await repository.publishMyProfileToConversation("c2")
+
+        let jobs = try await publishStore.activeJobs()
+        #expect(!jobs.isEmpty)
+    }
+
+    @Test("publishMyProfileToConversation re-seeds a tombstoned self avatar slot")
+    func seedRunsWhenSelfAvatarTombstoned() async throws {
+        let profileStore = InMemoryProfileStore()
+        let publishStore = InMemoryProfilePublishStore()
+        try await profileStore.saveAvatar(DBProfileAvatar(
+            inboxId: "me", conversationId: "c1", url: nil, salt: nil, nonce: nil,
+            encryptionKey: nil, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
+        ))
+        let repository = try makeRepository(profileStore: profileStore, publishStore: publishStore)
+        await repository.warmUp()
+
+        try await repository.publishMyProfileToConversation("c1")
+
+        let jobs = try await publishStore.activeJobs()
+        #expect(!jobs.isEmpty)
+    }
 }

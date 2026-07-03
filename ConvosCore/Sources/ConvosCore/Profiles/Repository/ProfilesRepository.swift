@@ -267,7 +267,19 @@ public actor ProfilesRepository {
     }
 
     /// Seeds a freshly created or joined conversation with the current profile.
+    ///
+    /// Idempotent: skips when the current user already has an avatar slot for
+    /// this conversation, i.e. we have already published our profile here. This
+    /// prevents a redundant `ProfileUpdate` on every conversation open. Skipping
+    /// cannot drop a real change - a genuine profile edit fans out to every known
+    /// conversation via `publishMyProfile`, not the seeder. (A name-only user has
+    /// no avatar slot, so they may re-seed on open; a cheap, known residual.)
     public func publishMyProfileToConversation(_ conversationId: String) async throws {
+        if let selfId = await resolveSelfInboxId(),
+           let existing = try? await profileStore.avatar(inboxId: selfId, conversationId: conversationId),
+           existing.url != nil {
+            return
+        }
         try await publisher.publishConversation(conversationId)
     }
 

@@ -263,6 +263,17 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
         migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
         migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
+        migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
+    }
+
+    /// Recreates `profileAvatarLatest` with the deterministic `ROW_NUMBER()`
+    /// definition. Dev installs that ran the earlier `GROUP BY inboxId` revision
+    /// have the nondeterministic view; views carry no data, so a drop+recreate is
+    /// safe. Fresh installs already get the deterministic view from
+    /// `createProfileAvatarLatestView` and this just recreates it identically.
+    static func makeProfileAvatarLatestViewDeterministic(_ db: Database) throws {
+        try db.execute(sql: "DROP VIEW IF EXISTS profileAvatarLatest")
+        try createProfileAvatarLatestView(db)
     }
 
     /// Additive, nullable column tracking the last successful asset re-sign time
@@ -291,21 +302,33 @@ extension SharedDatabaseMigrator {
         }
     }
 
-    /// Creates the `profileAvatarLatest` view: the most recently updated
-    /// `profileAvatar` row per inbox. The rendering avatar association reads
+    /// Creates the `profileAvatarLatest` view: exactly one deterministic
+    /// `profileAvatar` row per inbox - the newest by `updatedAt`, with
+    /// `conversationId` as a tie-breaker. The rendering avatar association reads
     /// through this view so every conversation shows a person's latest avatar
     /// (one image per person) rather than the per-conversation slot. Each avatar
     /// row is self-contained (url + salt + nonce + encryptionKey), so its image
     /// decrypts correctly regardless of which conversation is being rendered.
+    ///
+    /// `ROW_NUMBER()` (not `GROUP BY inboxId`) is required for determinism: when
+    /// an inbox has multiple rows at the same `MAX(updatedAt)` - e.g.
+    /// `ProfileBackfill` writes every legacy avatar at the epoch floor - a
+    /// `GROUP BY` returns bare columns from an arbitrary row in the group, so the
+    /// rendered avatar could be from the wrong conversation. The window function
+    /// picks one deterministic row per inbox.
     static func createProfileAvatarLatestView(_ db: Database) throws {
         try db.execute(sql: """
             CREATE VIEW IF NOT EXISTS profileAvatarLatest AS
             SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt
-            FROM profileAvatar AS pa
-            WHERE updatedAt = (
-                SELECT MAX(updatedAt) FROM profileAvatar WHERE inboxId = pa.inboxId
+            FROM (
+                SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY inboxId
+                           ORDER BY updatedAt DESC, conversationId DESC
+                       ) AS rn
+                FROM profileAvatar
             )
-            GROUP BY inboxId
+            WHERE rn = 1
             """)
     }
 
