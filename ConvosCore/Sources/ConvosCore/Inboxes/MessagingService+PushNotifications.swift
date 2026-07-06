@@ -151,18 +151,56 @@ extension MessagingService {
         )
 
         if let pairingRequest {
-            // Only let a genuinely surfaced pairing request short-circuit.
-            // The scan spans all recent DMs, not just this push's topic, so
-            // a deduped duplicate (.droppedMessage) might belong to an
-            // earlier push - returning it here would suppress a join-result
-            // or new-group notification this same push legitimately carries.
-            // On a duplicate, fall through to those checks instead.
+            // Only let a genuinely surfaced pairing request take the
+            // banner. The scan spans all recent DMs, not just this push's
+            // topic, so a deduped duplicate (.droppedMessage) might belong
+            // to an earlier push - returning it here would suppress a
+            // join-result or new-group notification this same push
+            // legitimately carries. On a duplicate, fall through instead.
             let notification = pairingRequestNotification(pairingRequest, userInfo: userInfo)
             if !notification.isDroppedMessage {
+                // The join-result / new-group handling still must run to
+                // completion: its state writes (setLastWelcomeProcessed,
+                // the GRDB bridge for a new group) can't be deferred to a
+                // later push, which would no longer see either event as
+                // new. Only the banner is superseded. A failure in that
+                // pass shouldn't cost the pairing banner, hence the catch.
+                do {
+                    _ = try await welcomeOutcomeNotification(
+                        joinRequestOutcomes: joinRequestOutcomes,
+                        existingGroupIds: existingGroupIds,
+                        processTime: processTime,
+                        client: client,
+                        userInfo: userInfo
+                    )
+                } catch {
+                    Log.error("Welcome outcome handling failed after pairing detection: \(error.localizedDescription)")
+                }
                 return notification
             }
         }
 
+        return try await welcomeOutcomeNotification(
+            joinRequestOutcomes: joinRequestOutcomes,
+            existingGroupIds: existingGroupIds,
+            processTime: processTime,
+            client: client,
+            userInfo: userInfo
+        )
+    }
+
+    /// The join-result ("accepted your invite") or new-group ("invite was
+    /// verified") notification for this welcome push, running the state
+    /// writes that go with each. Factored out of `handleWelcomeMessage` so
+    /// the pairing-request path can run it for its side effects while
+    /// keeping the pairing banner.
+    private func welcomeOutcomeNotification(
+        joinRequestOutcomes: [InviteJoinRequestOutcome],
+        existingGroupIds: Set<String>,
+        processTime: Date,
+        client: any XMTPClientProvider,
+        userInfo: [AnyHashable: Any]
+    ) async throws -> DecodedNotificationContent? {
         if let result = joinRequestOutcomes.compactMap(\.result).first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
 
