@@ -385,6 +385,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             profileServicesTask?.cancel()
             profileServicesTask = Task { [weak self] in
                 guard let self else { return }
+                // Cancellation is cooperative: a task cancelled while still
+                // queued (e.g. tearDownInbox during delete-all) still enters
+                // its closure. Bail before loadOrCreateService, which would
+                // otherwise rebuild a service from the just-wiped keychain and
+                // re-register a fresh inbox.
+                guard !Task.isCancelled else { return }
                 await self.loadOrCreateService().startProfileServices()
             }
         }
