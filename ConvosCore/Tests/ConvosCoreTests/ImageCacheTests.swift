@@ -8,7 +8,6 @@ import UIKit
 
 // MARK: - Test Configuration
 
-/// Configure required singletons before tests run
 private func configureTestEnvironment() {
     ImageCompression.resetForTesting()
     ImageCompression.configure(IOSImageCompression())
@@ -16,7 +15,7 @@ private func configureTestEnvironment() {
 
 // MARK: - Test Helpers
 
-/// A mock ImageCacheable object for testing
+/// A plain (unencrypted) ImageCacheable for tests.
 struct TestImageCacheable: ImageCacheable, Sendable {
     let imageCacheIdentifier: String
     let imageCacheURL: URL?
@@ -32,7 +31,6 @@ struct TestImageCacheable: ImageCacheable, Sendable {
     }
 }
 
-/// Creates a simple test UIImage with a solid color
 func createTestImage(width: Int = 100, height: Int = 100, color: UIColor = .red) -> UIImage {
     let size = CGSize(width: width, height: height)
     let renderer = UIGraphicsImageRenderer(size: size)
@@ -42,7 +40,13 @@ func createTestImage(width: Int = 100, height: Int = 100, color: UIColor = .red)
     }
 }
 
-// MARK: - ImageCache Tests
+private func uniqueURL() -> URL {
+    URL(string: "https://example.com/\(UUID().uuidString).jpg")!
+}
+
+private let asyncSettleNanos: UInt64 = 150_000_000
+
+// MARK: - ImageCache Tests (URL-keyed byte cache + continuity hint)
 
 @Suite("ImageCache Tests", .serialized)
 struct ImageCacheTests {
@@ -50,1313 +54,298 @@ struct ImageCacheTests {
         configureTestEnvironment()
     }
 
-    // MARK: - URLTracker Tests (via public API)
+    // MARK: Byte cache keyed by URL
 
-    @Test("URL change is detected when URL changes for an identifier")
-    func urlChangeDetected() async throws {
+    @Test("cacheAfterUpload(for:url:) then image(for:) returns the image")
+    func cacheThenRead() async throws {
         let cache = ImageCache()
-        var receivedChanges: [ImageURLChange] = []
-        let cancellable = cache.urlChanges.sink { change in
-            receivedChanges.append(change)
-        }
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: "id-\(UUID().uuidString)", url: url)
+
+        cache.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        #expect(cache.image(for: object) != nil)
+    }
+
+    @Test("imageAsync round-trips through disk on a fresh instance")
+    func diskRoundTrip() async throws {
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: "id-\(UUID().uuidString)", url: url)
+
+        let writer = ImageCache()
+        writer.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // A second instance shares the disk directory but not memory.
+        let reader = ImageCache()
+        #expect(await reader.imageAsync(for: object) != nil)
+    }
+
+    // MARK: No-clobber regression (the whole saga)
+
+    @Test("same identity, two URLs are independent entries and never clobber")
+    func sameIdentityTwoURLsNoClobber() async throws {
+        let cache = ImageCache()
+        let identifier = "inbox-\(UUID().uuidString)"
+        let urlA = uniqueURL()
+        let urlB = uniqueURL()
+        let objectA = TestImageCacheable(identifier: identifier, url: urlA)
+        let objectB = TestImageCacheable(identifier: identifier, url: urlB)
+
+        cache.cacheAfterUpload(createTestImage(color: .red), for: objectA, url: urlA.absoluteString)
+        cache.cacheAfterUpload(createTestImage(color: .blue), for: objectB, url: urlB.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // Both URLs resolve to their own bytes; neither overwrote the other.
+        let a = cache.image(for: objectA)
+        let b = cache.image(for: objectB)
+        #expect(a != nil)
+        #expect(b != nil)
+
+        // Loading A again must not change B's entry (no shared slot to clobber).
+        _ = await cache.loadImage(for: objectA)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(await cache.imageAsync(for: objectB) != nil)
+    }
+
+    @Test("same URL across two objects is deduped to one entry")
+    func sameURLDeduped() async throws {
+        let cache = ImageCache()
+        let url = uniqueURL()
+        let object1 = TestImageCacheable(identifier: "id1-\(UUID().uuidString)", url: url)
+        let object2 = TestImageCacheable(identifier: "id2-\(UUID().uuidString)", url: url)
+
+        cache.cacheAfterUpload(createTestImage(), for: object1, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // object2 shares the URL, so it resolves from the same byte entry.
+        #expect(cache.image(for: object2) != nil)
+    }
+
+    // MARK: Continuity hint (identity-keyed, read-only)
+
+    @Test("continuity hint bridges an object whose current URL is not cached")
+    func continuityHintBridges() async throws {
+        let cache = ImageCache()
+        let identifier = "inbox-\(UUID().uuidString)"
+        let cachedURL = uniqueURL()
+        let cachedObject = TestImageCacheable(identifier: identifier, url: cachedURL)
+
+        // Cache an image for the identity (writes hint with persist: true).
+        cache.cacheAfterUpload(createTestImage(), for: cachedObject, url: cachedURL.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // A new object for the same identity with a different, uncached URL:
+        // the byte cache misses, but the continuity hint bridges it.
+        let freshURL = uniqueURL()
+        let freshObject = TestImageCacheable(identifier: identifier, url: freshURL)
+
+        #expect(cache.image(for: freshObject) != nil)               // sync memory hint
+        #expect(await cache.continuityImage(for: freshObject) != nil) // memory/disk hint
+    }
+
+    @Test("continuity hint survives a fresh instance via disk")
+    func continuityHintDiskBacked() async throws {
+        let identifier = "inbox-\(UUID().uuidString)"
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: identifier, url: url)
+
+        let writer = ImageCache()
+        writer.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // Fresh instance: a different uncached URL still bridges from the disk hint.
+        let reader = ImageCache()
+        let freshObject = TestImageCacheable(identifier: identifier, url: uniqueURL())
+        #expect(await reader.continuityImage(for: freshObject) != nil)
+    }
+
+    @Test("nil URL shows a staged pre-upload image, else nothing; never a stale continuity hint")
+    func nilURLStagedVersusCleared() async throws {
+        let cache = ImageCache()
+
+        // Staged pre-upload (nil URL): the explicitly staged image shows.
+        let stagedId = "inbox-\(UUID().uuidString)"
+        let stagedObject = TestImageCacheable(identifier: stagedId, url: nil)
+        _ = cache.prepareForUpload(createTestImage(), for: stagedObject)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(cache.image(for: stagedObject) != nil)
+        #expect(await cache.continuityImage(for: stagedObject) != nil)
+
+        // Cleared/never-set (nil URL) with a continuity hint from a prior real
+        // URL must show NOTHING - the hint is not consulted on a nil URL.
+        let clearedId = "inbox-\(UUID().uuidString)"
+        let url = uniqueURL()
+        let withAvatar = TestImageCacheable(identifier: clearedId, url: url)
+        cache.cacheAfterUpload(createTestImage(), for: withAvatar, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        let clearedObject = TestImageCacheable(identifier: clearedId, url: nil)
+        #expect(cache.image(for: clearedObject) == nil)
+        #expect(await cache.continuityImage(for: clearedObject) == nil)
+    }
+
+    @Test("removeImage clears the byte entry and the continuity hint")
+    func removeClearsByteAndHint() async throws {
+        let cache = ImageCache()
+        let identifier = "inbox-\(UUID().uuidString)"
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: identifier, url: url)
+
+        cache.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(cache.image(for: object) != nil)
+
+        cache.removeImage(for: object)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        #expect(cache.image(for: object) == nil)
+        #expect(await cache.continuityImage(for: object) == nil)
+    }
+
+    // MARK: Notifications
+
+    @Test("cacheUpdates emits the URL key on cacheAfterUpload")
+    func cacheUpdatesEmitsURLKey() async throws {
+        let cache = ImageCache()
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: "id-\(UUID().uuidString)", url: url)
+
+        var received: [String] = []
+        let cancellable = cache.cacheUpdates.sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        let identifier = "test-profile-\(UUID().uuidString)"
-        let url1 = URL(string: "https://example.com/image1.jpg")!
-        let url2 = URL(string: "https://example.com/image2.jpg")!
-        let testImage = createTestImage()
+        cache.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        // First cache with url1
-        cache.cacheAfterUpload(testImage, for: identifier, url: url1.absoluteString)
-
-        // Wait for async Task to complete
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Cache with url2 (URL change)
-        cache.cacheAfterUpload(testImage, for: identifier, url: url2.absoluteString)
-
-        // Wait for async Task to complete
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Should have received two change events
-        #expect(receivedChanges.count == 2)
-
-        // First change: nil -> url1
-        #expect(receivedChanges[0].identifier == identifier)
-        #expect(receivedChanges[0].oldURL == nil)
-        #expect(receivedChanges[0].newURL == url1)
-
-        // Second change: url1 -> url2
-        #expect(receivedChanges[1].identifier == identifier)
-        #expect(receivedChanges[1].oldURL == url1)
-        #expect(receivedChanges[1].newURL == url2)
+        #expect(received.contains(url.absoluteString))
     }
 
-    @Test("No URL change event when URL stays the same")
-    func noUrlChangeWhenSameUrl() async throws {
+    @Test("cacheUpdates emits the identity key on prepareForUpload")
+    func cacheUpdatesEmitsIdentityOnStage() async throws {
         let cache = ImageCache()
-        var changeCount = 0
-        let cancellable = cache.urlChanges.sink { _ in
-            changeCount += 1
-        }
+        let identifier = "inbox-\(UUID().uuidString)"
+        let object = TestImageCacheable(identifier: identifier, url: nil)
+
+        var received: [String] = []
+        let cancellable = cache.cacheUpdates.sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        let identifier = "test-profile-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/image.jpg")!
-        let testImage = createTestImage()
+        _ = cache.prepareForUpload(createTestImage(), for: object)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        // Cache with same URL twice
-        cache.cacheAfterUpload(testImage, for: identifier, url: url.absoluteString)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        cache.cacheAfterUpload(testImage, for: identifier, url: url.absoluteString)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Should only have one change event (initial tracking)
-        #expect(changeCount == 1)
+        #expect(received.contains(identifier))
     }
 
-    // MARK: - cacheAfterUpload Tests
+    // MARK: Identifier-keyed path (QR codes / generated images) is unchanged
 
-    @Test("cacheAfterUpload stores image in memory cache")
-    func cacheAfterUploadStoresInMemory() async throws {
+    @Test("identifier-keyed cache/read/remove still works")
+    func identifierPath() async throws {
         let cache = ImageCache()
-        let identifier = "test-memory-\(UUID().uuidString)"
-        let url = "https://example.com/image.jpg"
-        let testImage = createTestImage()
+        let identifier = "qr-\(UUID().uuidString)"
 
-        cache.cacheAfterUpload(testImage, for: identifier, url: url)
+        cache.cacheImage(createTestImage(), for: identifier, imageFormat: .png)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(cache.image(for: identifier, imageFormat: .png) != nil)
 
-        // Wait for async Task to complete
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Should be retrievable from memory
-        let cached = cache.image(for: identifier)
-        #expect(cached != nil)
+        cache.removeImage(for: identifier)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(cache.image(for: identifier, imageFormat: .png) == nil)
     }
 
-    @Test("cacheAfterUpload stores image in disk cache")
-    func cacheAfterUploadStoresToDisk() async throws {
-        let identifier = "test-disk-\(UUID().uuidString)"
-        let url = "https://example.com/image.jpg"
-        let testImage = createTestImage()
+    // MARK: Persistent tier (chat photo attachments) is unchanged
 
-        // Cache in first instance
-        let cache1 = ImageCache()
-        cache1.cacheAfterUpload(testImage, for: identifier, url: url)
-
-        // Wait for async disk write to complete
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        // Create a fresh cache instance (empty memory cache, same disk location)
-        // and verify image loads from disk
-        let cache2 = ImageCache()
-
-        // Verify memory cache is empty in new instance
-        let memoryImage = cache2.image(for: identifier)
-        #expect(memoryImage == nil, "Memory cache should be empty in fresh instance")
-
-        // imageAsync should load from disk
-        let diskImage = await cache2.imageAsync(for: identifier)
-        #expect(diskImage != nil, "Image should load from disk cache")
-
-        // Cleanup
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("cacheAfterUpload emits cacheUpdates for backward compatibility")
-    func cacheAfterUploadEmitsCacheUpdates() async throws {
-        let cache = ImageCache()
-        var receivedIdentifiers: [String] = []
-        let cancellable = cache.cacheUpdates.sink { identifier in
-            receivedIdentifiers.append(identifier)
-        }
-        defer { cancellable.cancel() }
-
-        let identifier = "test-updates-\(UUID().uuidString)"
-        let url = "https://example.com/image.jpg"
-        let testImage = createTestImage()
-
-        cache.cacheAfterUpload(testImage, for: identifier, url: url)
-
-        // Wait for async Task to complete
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedIdentifiers.contains(identifier))
-    }
-
-    @Test("cacheAfterUpload with object emits urlChanges")
-    func cacheAfterUploadObjectEmitsUrlChanges() async throws {
-        let cache = ImageCache()
-        var receivedChanges: [ImageURLChange] = []
-        let cancellable = cache.urlChanges.sink { change in
-            receivedChanges.append(change)
-        }
-        defer { cancellable.cancel() }
-
-        let url = URL(string: "https://example.com/image.jpg")!
-        let cacheable = TestImageCacheable(identifier: "test-object-\(UUID().uuidString)", url: url)
-        let testImage = createTestImage()
-
-        cache.cacheAfterUpload(testImage, for: cacheable, url: url.absoluteString)
-
-        // Wait for async Task to complete
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedChanges.count == 1)
-        #expect(receivedChanges[0].identifier == cacheable.imageCacheIdentifier)
-        #expect(receivedChanges[0].newURL == url)
-    }
-
-    // MARK: - loadImage Tests (Integration)
-
-    @Test("loadImage returns nil when object has no URL")
-    func loadImageNilUrl() async {
-        let cache = ImageCache()
-        let cacheable = TestImageCacheable(identifier: "no-url-\(UUID().uuidString)", url: nil)
-
-        let image = await cache.loadImage(for: cacheable)
-
-        #expect(image == nil)
-    }
-
-    @Test("loadImage emits urlChange when URL becomes nil")
-    func loadImageUrlBecomesNil() async throws {
-        let cache = ImageCache()
-        var receivedChanges: [ImageURLChange] = []
-        let cancellable = cache.urlChanges.sink { change in
-            receivedChanges.append(change)
-        }
-        defer { cancellable.cancel() }
-
-        let identifier = "test-nil-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/image.jpg")!
-
-        // First track a URL via cacheAfterUpload
-        cache.cacheAfterUpload(createTestImage(), for: identifier, url: url.absoluteString)
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Now load with nil URL (object URL changed to nil)
-        let cacheableNoUrl = TestImageCacheable(identifier: identifier, url: nil)
-        _ = await cache.loadImage(for: cacheableNoUrl)
-
-        // Wait for Combine to deliver the event
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Should emit URL change from url -> nil
-        let nilChange = receivedChanges.first { $0.oldURL == url && $0.newURL == nil }
-        #expect(nilChange != nil, "Expected URL change from \(url) to nil. Received: \(receivedChanges)")
-    }
-
-    @Test("loadImage returns cached image from memory")
-    func loadImageFromMemory() async {
-        let cache = ImageCache()
-        let identifier = "test-mem-load-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/image.jpg")!
-        let cacheable = TestImageCacheable(identifier: identifier, url: url)
-        let testImage = createTestImage()
-
-        // Pre-cache the image
-        cache.cacheImage(testImage, for: cacheable.imageCacheIdentifier)
-
-        // loadImage should return cached image
-        let loaded = await cache.loadImage(for: cacheable)
-        #expect(loaded != nil)
-    }
-
-    // MARK: - View Modifier Integration Tests
-
-    @Test("Subscriber receives urlChanges when image URL changes")
-    func subscriberReceivesUrlChanges() async throws {
-        let cache = ImageCache()
-
-        // Simulate what the view modifier does
-        let identifier = "profile-\(UUID().uuidString)"
-        var receivedURLChanges: [ImageURLChange] = []
-
-        // Subscribe to URL changes for this identifier (like the view modifier does)
-        let cancellable = cache.urlChanges
-            .filter { $0.identifier == identifier }
-            .sink { change in
-                receivedURLChanges.append(change)
-            }
-        defer { cancellable.cancel() }
-
-        // Simulate first image fetch with URL1
-        let url1 = "https://example.com/avatar-v1.jpg"
-        cache.cacheAfterUpload(createTestImage(color: .red), for: identifier, url: url1)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Simulate image URL change (like when updated from another device)
-        let url2 = "https://example.com/avatar-v2.jpg"
-        cache.cacheAfterUpload(createTestImage(color: .blue), for: identifier, url: url2)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // View should have received URL change notification
-        #expect(receivedURLChanges.count == 2)
-
-        // First: nil -> url1
-        #expect(receivedURLChanges[0].newURL?.absoluteString == url1)
-
-        // Second: url1 -> url2
-        #expect(receivedURLChanges[1].oldURL?.absoluteString == url1)
-        #expect(receivedURLChanges[1].newURL?.absoluteString == url2)
-    }
-
-    @Test("Multiple identifiers receive independent URL change events")
-    func multipleIdentifiersIndependentEvents() async throws {
-        let cache = ImageCache()
-
-        let id1 = "profile-1-\(UUID().uuidString)"
-        let id2 = "profile-2-\(UUID().uuidString)"
-
-        var changesForId1: [ImageURLChange] = []
-        var changesForId2: [ImageURLChange] = []
-
-        let cancellable1 = cache.urlChanges
-            .filter { $0.identifier == id1 }
-            .sink { changesForId1.append($0) }
-        let cancellable2 = cache.urlChanges
-            .filter { $0.identifier == id2 }
-            .sink { changesForId2.append($0) }
-        defer {
-            cancellable1.cancel()
-            cancellable2.cancel()
+    @Test("persistent tier caches and reads by identifier")
+    func persistentTier() async throws {
+        let identifier = "attachment-\(UUID().uuidString)"
+        guard let data = ImageCompression.resizeAndCompressToJPEG(createTestImage(), compressionQuality: 0.8) else {
+            Issue.record("Failed to compress test image")
+            return
         }
 
-        // Cache images for both identifiers
-        cache.cacheAfterUpload(createTestImage(), for: id1, url: "https://example.com/1.jpg")
-        cache.cacheAfterUpload(createTestImage(), for: id2, url: "https://example.com/2.jpg")
+        let writer = ImageCache()
+        writer.cacheData(data, for: identifier, storageTier: .persistent)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        let reader = ImageCache()
+        #expect(await reader.imageAsync(for: identifier) != nil)
 
-        // Change only id1's URL
-        cache.cacheAfterUpload(createTestImage(), for: id1, url: "https://example.com/1-v2.jpg")
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // id1 should have 2 changes, id2 should have 1
-        #expect(changesForId1.count == 2)
-        #expect(changesForId2.count == 1)
+        reader.removePersistentImages(for: [identifier])
     }
 
-    @Test("Full view modifier flow: loadImage + urlChanges subscription")
-    func fullViewModifierFlow() async throws {
-        let cache = ImageCache()
+    // MARK: URL probe (group-image prefetch dedup)
 
+    @Test("imageAsync(forURL:) hits the bytes cacheAfterUpload wrote, enabling dedup")
+    func urlProbeFindsCachedBytes() async throws {
+        let cache = ImageCache()
         let identifier = "conversation-\(UUID().uuidString)"
-        let url1 = URL(string: "https://example.com/group-avatar-v1.jpg")!
-        let url2 = URL(string: "https://example.com/group-avatar-v2.jpg")!
-
-        // Create immutable cacheables for each URL state
-        let cacheable1 = TestImageCacheable(identifier: identifier, url: url1)
-        let cacheable2 = TestImageCacheable(identifier: identifier, url: url2)
-
-        // Track URL changes received
-        var urlChangesReceived: [ImageURLChange] = []
-
-        // Subscribe to URL changes (like the view modifier does)
-        let cancellable = cache.urlChanges
-            .filter { $0.identifier == identifier }
-            .sink { change in
-                urlChangesReceived.append(change)
-            }
-        defer { cancellable.cancel() }
-
-        // Initial load (simulates .task modifier)
-        let initialImage = await cache.loadImage(for: cacheable1)
-
-        // Initial load with no cached image should return nil (network would fetch)
-        #expect(initialImage == nil)
-
-        // Simulate prefetcher caching the image for url1
-        let image1 = createTestImage(color: .red)
-        cache.cacheAfterUpload(image1, for: identifier, url: url1.absoluteString)
-
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Should have received URL change for url1
-        #expect(urlChangesReceived.count >= 1)
-        #expect(urlChangesReceived.first?.newURL == url1)
-
-        // Now simulate URL changing to url2 (e.g., update from another device)
-        let image2 = createTestImage(color: .blue)
-        cache.cacheAfterUpload(image2, for: identifier, url: url2.absoluteString)
-
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Should have received second URL change for url2
-        #expect(urlChangesReceived.count >= 2)
-        #expect(urlChangesReceived.last?.newURL == url2)
-
-        // Reload with new cacheable (simulates view responding to URL change)
-        let reloadedImage = await cache.loadImage(for: cacheable2)
-        #expect(reloadedImage != nil)
-    }
-
-    // MARK: - prepareForUpload Tests
-
-    @Test("prepareForUpload returns JPEG data")
-    func prepareForUploadReturnsData() async throws {
-        let cache = ImageCache()
-        let cacheable = TestImageCacheable(identifier: "upload-\(UUID().uuidString)")
-        let testImage = createTestImage()
-
-        let data = cache.prepareForUpload(testImage, for: cacheable)
-
-        #expect(data != nil)
-        #expect(data!.count > 0)
-
-        // Verify it's valid JPEG
-        let reconstructed = UIImage(data: data!)
-        #expect(reconstructed != nil)
-    }
-
-    @Test("prepareForUpload caches image immediately")
-    func prepareForUploadCachesImmediately() async throws {
-        let cache = ImageCache()
-        let identifier = "upload-cache-\(UUID().uuidString)"
-        let cacheable = TestImageCacheable(identifier: identifier)
-        let testImage = createTestImage()
-
-        _ = cache.prepareForUpload(testImage, for: cacheable)
-
-        // Wait for async caching
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: cacheable)
-        #expect(cached != nil)
-    }
-
-    @Test("prepareForUpload emits cacheUpdates")
-    func prepareForUploadEmitsCacheUpdates() async throws {
-        let cache = ImageCache()
-        var receivedIdentifiers: [String] = []
-        let cancellable = cache.cacheUpdates.sink { identifier in
-            receivedIdentifiers.append(identifier)
-        }
-        defer { cancellable.cancel() }
-
-        let identifier = "upload-notify-\(UUID().uuidString)"
-        let cacheable = TestImageCacheable(identifier: identifier)
-        let testImage = createTestImage()
-
-        _ = cache.prepareForUpload(testImage, for: cacheable)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedIdentifiers.contains(identifier))
-    }
-
-    // MARK: - Identifier-based API Tests (for QR codes)
-
-    @Test("Identifier-based caching works without URL")
-    func identifierBasedCaching() async throws {
-        let cache = ImageCache()
-        let identifier = "qr-code-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier)
-
-        let cached = cache.image(for: identifier)
-        #expect(cached != nil)
-    }
-
-    @Test("Identifier-based caching supports PNG format")
-    func identifierBasedCachingPng() async throws {
-        let cache = ImageCache()
-        let identifier = "qr-png-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier, imageFormat: .png)
-
-        let cached = cache.image(for: identifier, imageFormat: .png)
-        #expect(cached != nil)
-    }
-
-    @Test("removeImage clears both memory and disk")
-    func removeImageClearsBothCaches() async throws {
-        let cache = ImageCache()
-        let identifier = "remove-test-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier)
-
-        // Wait for disk write
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Verify cached
-        #expect(cache.image(for: identifier) != nil)
-
-        // Remove
-        cache.removeImage(for: identifier)
-
-        // Wait for disk removal
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Should be gone from memory
-        #expect(cache.image(for: identifier) == nil)
-
-        // And from disk (new cache instance)
-        let cache2 = ImageCache()
-        let diskImage = await cache2.imageAsync(for: identifier)
-        #expect(diskImage == nil)
-    }
-
-    // MARK: - Object-based API Tests
-
-    @Test("cacheImage with object identifier stores and notifies")
-    func cacheImageWithObjectIdentifier() async throws {
-        let cache = ImageCache()
-        var receivedIdentifiers: [String] = []
-        let cancellable = cache.cacheUpdates.sink { identifier in
-            receivedIdentifiers.append(identifier)
-        }
-        defer { cancellable.cancel() }
-
-        let url = URL(string: "https://example.com/image.jpg")!
-        let cacheable = TestImageCacheable(identifier: "object-set-\(UUID().uuidString)", url: url)
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: cacheable.imageCacheIdentifier)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(cache.image(for: cacheable) != nil)
-        #expect(receivedIdentifiers.contains(cacheable.imageCacheIdentifier))
-    }
-
-    @Test("imageAsync returns disk-cached image")
-    func imageAsyncReturnsDiskCached() async throws {
-        let cache = ImageCache()
-        let identifier = "disk-async-\(UUID().uuidString)"
-        let cacheable = TestImageCacheable(identifier: identifier)
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier)
-
-        // Wait for disk write
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        // New cache instance (fresh memory cache)
-        let cache2 = ImageCache()
-        let loaded = await cache2.imageAsync(for: cacheable)
-
-        #expect(loaded != nil)
-    }
-
-    // MARK: - Edge Cases
-
-    @Test("Invalid URL string in cacheAfterUpload logs error but doesn't crash")
-    func invalidUrlStringHandled() async throws {
-        let cache = ImageCache()
-        let identifier = "invalid-url-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        // This should not crash
-        cache.cacheAfterUpload(testImage, for: identifier, url: "not a valid url ::::")
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Image should still be accessible (even if URL tracking failed)
-        // Note: Current implementation may not cache if URL is invalid
-    }
-
-    @Test("Empty identifier is handled")
-    func emptyIdentifierHandled() async throws {
-        let cache = ImageCache()
-        let testImage = createTestImage()
-
-        // Should not crash with empty identifier
-        cache.cacheImage(testImage, for: "")
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: "")
-        #expect(cached != nil)
-    }
-
-    @Test("Very long identifier is handled")
-    func longIdentifierHandled() async throws {
-        let cache = ImageCache()
-        let longId = String(repeating: "a", count: 1000)
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: longId)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: longId)
-        #expect(cached != nil)
-    }
-
-    @Test("Special characters in identifier are handled")
-    func specialCharsIdentifierHandled() async throws {
-        let cache = ImageCache()
-        let specialId = "profile/user@example.com?v=1&test=true#anchor"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: specialId)
-
-        // Wait for disk write (special chars are hashed)
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        let cached = cache.image(for: specialId)
-        #expect(cached != nil)
-
-        // Verify disk cache works with special chars (new instance)
-        let cache2 = ImageCache()
-        let diskCached = await cache2.imageAsync(for: specialId)
-        #expect(diskCached != nil)
-    }
-
-    // MARK: - Concurrent Access Tests
-
-    @Test("Concurrent cacheAfterUpload calls are safe")
-    func concurrentCacheAfterUpload() async throws {
-        let cache = ImageCache()
-        let baseId = "concurrent-\(UUID().uuidString)"
-
-        // Launch many concurrent cache operations
-        await withTaskGroup(of: Void.self) { group in
-            for i in 0..<20 {
-                group.addTask {
-                    let image = createTestImage(color: UIColor(
-                        red: CGFloat(i) / 20.0,
-                        green: 0.5,
-                        blue: 0.5,
-                        alpha: 1.0
-                    ))
-                    cache.cacheAfterUpload(
-                        image,
-                        for: "\(baseId)-\(i)",
-                        url: "https://example.com/\(i).jpg"
-                    )
-                }
-            }
+        let url = uniqueURL()
+
+        guard let data = ImageCompression.resizeAndCompressToJPEG(createTestImage(), compressionQuality: 0.8) else {
+            Issue.record("Failed to compress test image")
+            return
         }
 
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // The encrypted-group-image prefetch writes by identifier + URL, then a
+        // later run dedups by probing the URL. A miss here means re-download.
+        cache.cacheAfterUpload(data, for: identifier, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        // All should be cached
-        for i in 0..<20 {
-            let cached = cache.image(for: "\(baseId)-\(i)")
-            #expect(cached != nil)
-        }
+        #expect(await cache.imageAsync(forURL: url.absoluteString) != nil)
+        #expect(await cache.imageAsync(forURL: uniqueURL().absoluteString) == nil)
     }
 
-    @Test("Concurrent URL changes for same identifier are serialized")
-    func concurrentUrlChangesForSameIdentifier() async throws {
+    // MARK: Delete-all reset clears the continuity hint
+
+    @Test("removeAllPersistentImages wipes the byte cache and continuity hint, in memory and on disk")
+    func removeAllClearsContinuityHint() async throws {
+        let identifier = "inbox-\(UUID().uuidString)"
+        let url = uniqueURL()
+        let object = TestImageCacheable(identifier: identifier, url: url)
+
         let cache = ImageCache()
-        let identifier = "same-id-\(UUID().uuidString)"
-        var receivedChanges: [ImageURLChange] = []
-        let lock = NSLock()
-
-        let cancellable = cache.urlChanges
-            .filter { $0.identifier == identifier }
-            .sink { change in
-                lock.lock()
-                receivedChanges.append(change)
-                lock.unlock()
-            }
-        defer { cancellable.cancel() }
-
-        // Rapid URL changes
-        for i in 0..<10 {
-            cache.cacheAfterUpload(
-                createTestImage(),
-                for: identifier,
-                url: "https://example.com/v\(i).jpg"
-            )
-        }
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        // Should receive change events (exact count may vary due to rapid updates)
-        #expect(receivedChanges.count >= 1)
-    }
-}
-
-// MARK: - Encrypted Image Cold Start Integration Test
-
-@Suite("Encrypted Image Cold Start Tests", .serialized)
-struct EncryptedImageColdStartTests {
-    init() {
-        configureTestEnvironment()
-    }
-
-    @Test("Cold start loadImage for encrypted image loads from disk")
-    func coldStartEncryptedImageLoadsFromDisk() async throws {
-        let cache = ImageCache()
-        let identifier = "encrypted-cold-start-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/encrypted-avatar.jpg")!
-        let testImage = createTestImage(color: .green)
-
-        // Simulate image being cached to disk (as prefetcher would do)
-        cache.cacheAfterUpload(testImage, for: identifier, url: url.absoluteString)
-
-        // Wait for disk write to complete
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        // Create a fresh cache instance (simulating cold start - empty memory, URL tracker empty)
-        let cache2 = ImageCache()
-
-        // Create a cacheable with isEncryptedImage = true
-        struct EncryptedCacheable: ImageCacheable {
-            let imageCacheIdentifier: String
-            let imageCacheURL: URL?
-            let isEncryptedImage: Bool = true
-        }
-
-        let encryptedCacheable = EncryptedCacheable(
-            imageCacheIdentifier: identifier,
-            imageCacheURL: url
-        )
-
-        // On cold start with encrypted image:
-        // - hasURLChanged() returns true (triggering prefetcher to verify)
-        // - loadImage still returns cached disk image while prefetcher runs
-        let loadedImage = await cache2.loadImage(for: encryptedCacheable)
-
-        #expect(loadedImage != nil, "Cold start should load encrypted image from disk")
-
-        // Cleanup
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("Encrypted image falls back to stale disk cache when inline fetch fails after URL change")
-    func encryptedImageFallsBackToStaleDiskCacheWhenInlineFetchFails() async throws {
-        let cache = ImageCache()
-        let identifier = "encrypted-fallback-\(UUID().uuidString)"
-        let staleURL = URL(string: "https://example.com/encrypted-avatar-v1.jpg")!
-        let newURL = URL(string: "https://example.com/encrypted-avatar-v2.jpg")!
-        let staleImage = createTestImage(color: .purple)
-
-        cache.cacheAfterUpload(staleImage, for: identifier, url: staleURL.absoluteString)
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-
-        struct EncryptedCacheable: ImageCacheable {
-            let imageCacheIdentifier: String
-            let imageCacheURL: URL?
-            let isEncryptedImage: Bool = true
-            let encryptionKey: Data? = nil
-            let encryptionSalt: Data? = nil
-            let encryptionNonce: Data? = nil
-        }
-
-        let encryptedCacheable = EncryptedCacheable(
-            imageCacheIdentifier: identifier,
-            imageCacheURL: newURL
-        )
-
-        let loadedImage = await cache2.loadImage(for: encryptedCacheable)
-
-        #expect(loadedImage != nil, "Should fall back to stale disk-cached image when inline fetch fails")
-
-        cache2.removeImage(for: identifier)
-    }
-}
-
-// MARK: - URL Tracking Behavior Tests
-
-@Suite("ImageCache URL Tracking Tests", .serialized)
-struct ImageCacheURLTrackingTests {
-    init() {
-        configureTestEnvironment()
-    }
-
-    @Test("hasURLChanged returns true when no entry exists (cold start - need to verify)")
-    func hasUrlChangedTrueWhenNoEntry() async throws {
-        let cache = ImageCache()
-        let identifier = "new-profile-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/avatar.jpg")!
-
-        // On cold start, there's no entry in the tracker but disk cache may have stale data
-        // hasURLChanged should return true to trigger verification/prefetch
-        // This ensures stale cached images get refreshed when URL changes happen while app is closed
-        let hasChanged = await cache.hasURLChanged(url.absoluteString, for: identifier)
-
-        #expect(hasChanged == true, "hasURLChanged should return true when no entry exists (cold start - need to verify)")
-    }
-
-    @Test("hasURLChanged returns true when entry exists and URL differs")
-    func hasUrlChangedTrueWhenUrlDiffers() async throws {
-        let cache = ImageCache()
-        let identifier = "profile-url-change-\(UUID().uuidString)"
-        let url1 = URL(string: "https://example.com/avatar-v1.jpg")!
-        let url2 = URL(string: "https://example.com/avatar-v2.jpg")!
-
-        // Track url1 using the test helper (no image required)
-        await cache.trackURLForTesting(url1, for: identifier)
-
-        // Now check if url2 would be considered changed
-        let hasChanged = await cache.hasURLChanged(url2.absoluteString, for: identifier)
-
-        #expect(hasChanged == true, "hasURLChanged should return true when URL differs from tracked entry")
-    }
-
-    @Test("hasURLChanged returns false when entry exists and URL is same")
-    func hasUrlChangedFalseWhenUrlSame() async throws {
-        let cache = ImageCache()
-        let identifier = "profile-same-url-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/avatar.jpg")!
-
-        // Track the URL using the test helper
-        await cache.trackURLForTesting(url, for: identifier)
-
-        // Check if the same URL would be considered changed
-        let hasChanged = await cache.hasURLChanged(url.absoluteString, for: identifier)
-
-        #expect(hasChanged == false, "hasURLChanged should return false when URL is same as tracked entry")
-    }
-
-    @Test("hasURLChanged returns true when URL is nil and entry exists")
-    func hasUrlChangedTrueWhenNilAndEntryExists() async throws {
-        let cache = ImageCache()
-        let identifier = "profile-nil-url-\(UUID().uuidString)"
-        let url = URL(string: "https://example.com/avatar.jpg")!
-
-        // Track the URL using the test helper
-        await cache.trackURLForTesting(url, for: identifier)
-
-        // Check if nil URL would be considered changed (user removed avatar)
-        let hasChanged = await cache.hasURLChanged(nil, for: identifier)
-
-        #expect(hasChanged == true, "hasURLChanged should return true when URL is nil but entry exists")
-    }
-
-    @Test("hasURLChanged returns false when URL is nil and no entry exists")
-    func hasUrlChangedFalseWhenNilAndNoEntry() async throws {
-        let cache = ImageCache()
-        let identifier = "profile-no-avatar-\(UUID().uuidString)"
-
-        // No entry tracked, URL is nil (user never had an avatar)
-        let hasChanged = await cache.hasURLChanged(nil, for: identifier)
-
-        #expect(hasChanged == false, "hasURLChanged should return false when URL is nil and no entry exists")
-    }
-}
-
-// MARK: - URLChange Flow Integration Tests
-
-@Suite("ImageCache URL Change Flow Tests", .serialized)
-struct ImageCacheURLChangeFlowTests {
-    init() {
-        configureTestEnvironment()
-    }
-
-    @Test("Complete prefetch flow emits correct URL change events")
-    func completePrefetchFlow() async throws {
-        let cache = ImageCache()
-        var changes: [ImageURLChange] = []
-        let cancellable = cache.urlChanges.sink { changes.append($0) }
-        defer { cancellable.cancel() }
-
-        let profileId = "inbox-\(UUID().uuidString)"
-        let oldUrl = "https://cdn.example.com/avatar/old.jpg"
-        let newUrl = "https://cdn.example.com/avatar/new.jpg"
-
-        // Step 1: Initial prefetch caches with old URL
-        cache.cacheAfterUpload(createTestImage(color: .red), for: profileId, url: oldUrl)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Step 2: URL changes (detected during sync)
-        // First, invalidate old cache (simulating ConversationWriter behavior)
-        cache.removeImage(for: profileId)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Step 3: Prefetch with new URL
-        cache.cacheAfterUpload(createTestImage(color: .blue), for: profileId, url: newUrl)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // Verify changes
-        let profileChanges = changes.filter { $0.identifier == profileId }
-        #expect(profileChanges.count >= 2)
-
-        // First should be nil -> oldUrl
-        #expect(profileChanges[0].oldURL == nil)
-        #expect(profileChanges[0].newURL?.absoluteString == oldUrl)
-
-        // After removal and re-cache, should see change to newUrl
-        let lastChange = profileChanges.last!
-        #expect(lastChange.newURL?.absoluteString == newUrl)
-    }
-
-    @Test("Subscriber filtering correctly isolates identifier events")
-    func subscriberFilteringIsolates() async throws {
-        let cache = ImageCache()
-
-        let profile1Id = "profile-1-\(UUID().uuidString)"
-        let profile2Id = "profile-2-\(UUID().uuidString)"
-        let convoId = "convo-\(UUID().uuidString)"
-
-        var profile1Changes: [ImageURLChange] = []
-        var profile2Changes: [ImageURLChange] = []
-        var convoChanges: [ImageURLChange] = []
-
-        let c1 = cache.urlChanges
-            .filter { $0.identifier == profile1Id }
-            .sink { profile1Changes.append($0) }
-        let c2 = cache.urlChanges
-            .filter { $0.identifier == profile2Id }
-            .sink { profile2Changes.append($0) }
-        let c3 = cache.urlChanges
-            .filter { $0.identifier == convoId }
-            .sink { convoChanges.append($0) }
-        defer {
-            c1.cancel()
-            c2.cancel()
-            c3.cancel()
-        }
-
-        // Cache for all three
-        cache.cacheAfterUpload(createTestImage(), for: profile1Id, url: "https://example.com/p1.jpg")
-        cache.cacheAfterUpload(createTestImage(), for: profile2Id, url: "https://example.com/p2.jpg")
-        cache.cacheAfterUpload(createTestImage(), for: convoId, url: "https://example.com/c.jpg")
-
-        try await Task.sleep(nanoseconds: 200_000_000)
-
-        // Update only profile1
-        cache.cacheAfterUpload(createTestImage(), for: profile1Id, url: "https://example.com/p1-v2.jpg")
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        // profile1 should have 2 changes, others should have 1
-        #expect(profile1Changes.count == 2)
-        #expect(profile2Changes.count == 1)
-        #expect(convoChanges.count == 1)
-    }
-
-    @Test("View can detect when image URL cleared")
-    func viewDetectsUrlCleared() async throws {
-        let cache = ImageCache()
-
-        let identifier = "profile-clear-\(UUID().uuidString)"
-        var hasImage = false
-
-        let cancellable = cache.urlChanges
-            .filter { $0.identifier == identifier }
-            .sink { change in
-                hasImage = change.newURL != nil
-            }
-        defer { cancellable.cancel() }
-
-        // Initial cache
-        cache.cacheAfterUpload(createTestImage(), for: identifier, url: "https://example.com/avatar.jpg")
-        try await Task.sleep(nanoseconds: 100_000_000)
-        #expect(hasImage == true)
-
-        // Simulate loading with nil URL (user removed avatar)
-        let cacheable = TestImageCacheable(identifier: identifier, url: nil)
-        _ = await cache.loadImage(for: cacheable)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-        #expect(hasImage == false)
-    }
-}
-
-// MARK: - Disk Cache Overwrite Tests
-
-@Suite("Disk Cache Overwrite Tests", .serialized)
-struct DiskCacheOverwriteTests {
-    init() {
-        configureTestEnvironment()
-    }
-
-    @Test("Disk cache is updated when URL changes (cacheAfterUpload overwrites existing file)")
-    func diskCacheUpdatedOnUrlChange() async throws {
-        let cache = ImageCache()
-        let identifier = "disk-overwrite-\(UUID().uuidString)"
-        let url1 = "https://example.com/avatar-v1.jpg"
-        let url2 = "https://example.com/avatar-v2.jpg"
-
-        // Create two different colored images
-        let redImage = createTestImage(color: .red)
-        let blueImage = createTestImage(color: .blue)
-
-        // Cache the red image with url1
-        cache.cacheAfterUpload(redImage, for: identifier, url: url1)
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        // Verify red image is in cache
-        let cachedRed = await cache.imageAsync(for: identifier, imageFormat: .jpg)
-        #expect(cachedRed != nil, "Red image should be cached")
-
-        // Cache the blue image with url2 (simulates URL change)
-        cache.cacheAfterUpload(blueImage, for: identifier, url: url2)
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        // Verify blue image is in cache (memory)
-        let cachedBlue = await cache.imageAsync(for: identifier, imageFormat: .jpg)
-        #expect(cachedBlue != nil, "Blue image should be cached")
-
-        // Create a fresh cache instance (simulates cold start - empty memory)
-        let cache2 = ImageCache()
-
-        // Load from disk only - should get the BLUE image, not the red one
-        let diskImage = await cache2.imageAsync(for: identifier, imageFormat: .jpg)
-        #expect(diskImage != nil, "Image should be loadable from disk after cold start")
-
-        // Cleanup
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("Cold start after URL change loads new image from disk")
-    func coldStartAfterUrlChangeLoadsNewImage() async throws {
-        let cache = ImageCache()
-        let identifier = "cold-start-url-change-\(UUID().uuidString)"
-
-        // Cache image with initial URL
-        cache.cacheAfterUpload(createTestImage(color: .green), for: identifier, url: "https://example.com/v1.jpg")
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        // Update with new URL and new image
-        let newImage = createTestImage(width: 200, height: 200, color: .purple)
-        cache.cacheAfterUpload(newImage, for: identifier, url: "https://example.com/v2.jpg")
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        // Simulate cold start
-        let freshCache = ImageCache()
-
-        // Load from disk
-        let loadedImage = await freshCache.imageAsync(for: identifier, imageFormat: .jpg)
-        #expect(loadedImage != nil, "Should load image from disk after cold start")
-
-        // Cleanup
-        freshCache.removeImage(for: identifier)
-    }
-}
-
-// MARK: - Persistent Storage Tier Tests
-
-@Suite("Persistent Storage Tier Tests", .serialized)
-struct PersistentStorageTierTests {
-    init() {
-        configureTestEnvironment()
-    }
-
-    @Test("cacheData with persistent tier stores in memory")
-    func cacheDataPersistentStoresInMemory() async throws {
-        let cache = ImageCache()
-        let identifier = "persistent-data-mem-\(UUID().uuidString)"
-        let testImage = createTestImage()
-        let data = testImage.jpegData(compressionQuality: 0.8)!
-
-        cache.cacheData(data, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: identifier)
-        #expect(cached != nil)
-    }
-
-    @Test("cacheImage with persistent tier stores in memory")
-    func cacheImagePersistentStoresInMemory() async throws {
-        let cache = ImageCache()
-        let identifier = "persistent-img-mem-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: identifier)
-        #expect(cached != nil)
-    }
-
-    @Test("cacheData with persistent tier survives fresh cache instance")
-    func cacheDataPersistentSurvivesFreshInstance() async throws {
-        let identifier = "persistent-data-disk-\(UUID().uuidString)"
-        let testImage = createTestImage(color: .blue)
-        let data = testImage.jpegData(compressionQuality: 0.8)!
-
-        let cache1 = ImageCache()
-        cache1.cacheData(data, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let memoryImage = cache2.image(for: identifier)
-        #expect(memoryImage == nil, "Memory cache should be empty in fresh instance")
-
-        let diskImage = await cache2.imageAsync(for: identifier)
-        #expect(diskImage != nil, "Image should load from persistent store")
-
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("cacheImage with persistent tier survives fresh cache instance")
-    func cacheImagePersistentSurvivesFreshInstance() async throws {
-        let identifier = "persistent-img-disk-\(UUID().uuidString)"
-        let testImage = createTestImage(color: .green)
-
-        let cache1 = ImageCache()
-        cache1.cacheImage(testImage, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let diskImage = await cache2.imageAsync(for: identifier)
-        #expect(diskImage != nil, "Image should load from persistent store")
-
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("cacheData with persistent tier emits cacheUpdates")
-    func cacheDataPersistentEmitsCacheUpdates() async throws {
-        let cache = ImageCache()
-        var receivedIdentifiers: [String] = []
-        let cancellable = cache.cacheUpdates.sink { identifier in
-            receivedIdentifiers.append(identifier)
-        }
-        defer { cancellable.cancel() }
-
-        let identifier = "persistent-notify-\(UUID().uuidString)"
-        let data = createTestImage().jpegData(compressionQuality: 0.8)!
-
-        cache.cacheData(data, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedIdentifiers.contains(identifier))
-    }
-
-    @Test("cacheImage with persistent tier emits cacheUpdates")
-    func cacheImagePersistentEmitsCacheUpdates() async throws {
-        let cache = ImageCache()
-        var receivedIdentifiers: [String] = []
-        let cancellable = cache.cacheUpdates.sink { identifier in
-            receivedIdentifiers.append(identifier)
-        }
-        defer { cancellable.cancel() }
-
-        let identifier = "persistent-img-notify-\(UUID().uuidString)"
-        let testImage = createTestImage()
-
-        cache.cacheImage(testImage, for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedIdentifiers.contains(identifier))
-    }
-
-    @Test("removePersistentImages removes from persistent store")
-    func removePersistentImagesRemovesFiles() async throws {
-        let cache = ImageCache()
-        let id1 = "persistent-rm-1-\(UUID().uuidString)"
-        let id2 = "persistent-rm-2-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
-        cache.cacheImage(createTestImage(color: .blue), for: id2, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let img1Before = await cache2.imageAsync(for: id1)
-        let img2Before = await cache2.imageAsync(for: id2)
-        #expect(img1Before != nil)
-        #expect(img2Before != nil)
-
-        cache2.removePersistentImages(for: [id1, id2])
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache3 = ImageCache()
-        let img1After = await cache3.imageAsync(for: id1)
-        let img2After = await cache3.imageAsync(for: id2)
-        #expect(img1After == nil, "Image should be removed from persistent store")
-        #expect(img2After == nil, "Image should be removed from persistent store")
-    }
-
-    @Test("removePersistentImages also clears memory cache")
-    func removePersistentImagesClearsMemory() async throws {
-        let cache = ImageCache()
-        let identifier = "persistent-rm-mem-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(), for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(cache.image(for: identifier) != nil)
-
-        cache.removePersistentImages(for: [identifier])
-
-        #expect(cache.image(for: identifier) == nil)
-    }
-
-    @Test("removePersistentImages with empty array is a no-op")
-    func removePersistentImagesEmptyArray() async throws {
-        let cache = ImageCache()
-        cache.removePersistentImages(for: [])
-    }
-
-    @Test("removeAllPersistentImages clears all persistent files")
-    func removeAllPersistentImagesClears() async throws {
-        let cache = ImageCache()
-        let id1 = "persistent-all-1-\(UUID().uuidString)"
-        let id2 = "persistent-all-2-\(UUID().uuidString)"
-        let id3 = "persistent-all-3-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
-        cache.cacheImage(createTestImage(color: .green), for: id2, storageTier: .persistent)
-        cache.cacheImage(createTestImage(color: .blue), for: id3, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // Writes the URL-keyed byte cache and the continuity hint (persist: true).
+        cache.cacheAfterUpload(createTestImage(), for: object, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+
+        // A fresh object for the same identity with an uncached URL bridges via
+        // the hint before the wipe.
+        let freshObject = TestImageCacheable(identifier: identifier, url: uniqueURL())
+        #expect(await cache.continuityImage(for: freshObject) != nil)
 
         cache.removeAllPersistentImages()
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let img1 = await cache2.imageAsync(for: id1)
-        let img2 = await cache2.imageAsync(for: id2)
-        let img3 = await cache2.imageAsync(for: id3)
-        #expect(img1 == nil)
-        #expect(img2 == nil)
-        #expect(img3 == nil)
+        // In-memory hint is gone, and a new instance finds nothing on disk -
+        // neither the continuity hint nor the URL-keyed byte cache survive.
+        #expect(await cache.continuityImage(for: freshObject) == nil)
+        let reader = ImageCache()
+        #expect(await reader.continuityImage(for: freshObject) == nil)
+        #expect(await reader.imageAsync(forURL: url.absoluteString) == nil)
     }
 
-    @Test("Persistent and cache tiers are independent")
-    func persistentAndCacheTiersIndependent() async throws {
+    // MARK: Staged image is cleared once the upload is cached
+
+    @Test("cacheAfterUpload clears the staged image so a later nil URL shows nothing")
+    func cacheAfterUploadClearsStaged() async throws {
         let cache = ImageCache()
-        let persistentId = "tier-persistent-\(UUID().uuidString)"
-        let cacheId = "tier-cache-\(UUID().uuidString)"
+        let identifier = "inbox-\(UUID().uuidString)"
 
-        cache.cacheImage(createTestImage(color: .red), for: persistentId, storageTier: .persistent)
-        cache.cacheImage(createTestImage(color: .blue), for: cacheId)
+        // Stage a pre-upload image (no URL yet): a nil-URL object shows it.
+        let staging = TestImageCacheable(identifier: identifier, url: nil)
+        _ = cache.prepareForUpload(createTestImage(), for: staging)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
+        #expect(cache.image(for: staging) != nil)
 
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // Upload completes under a real URL; the staged image is now superseded.
+        let url = uniqueURL()
+        let uploaded = TestImageCacheable(identifier: identifier, url: url)
+        cache.cacheAfterUpload(createTestImage(), for: uploaded, url: url.absoluteString)
+        try await Task.sleep(nanoseconds: asyncSettleNanos)
 
-        cache.removePersistentImages(for: [persistentId])
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let persistentImg = await cache2.imageAsync(for: persistentId)
-        let cacheImg = await cache2.imageAsync(for: cacheId)
-
-        #expect(persistentImg == nil, "Persistent image should be removed")
-        #expect(cacheImg != nil, "Cache image should still exist")
-
-        cache2.removeImage(for: cacheId)
-    }
-
-    @Test("loadImageFromDisk checks persistent store first")
-    func loadImageFromDiskChecksPersistentFirst() async throws {
-        let cache = ImageCache()
-        let identifier = "persistent-priority-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(color: .purple), for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let loaded = await cache2.imageAsync(for: identifier)
-        #expect(loaded != nil, "Should find image in persistent store")
-
-        cache2.removeImage(for: identifier)
-    }
-
-    @Test("removeImage clears from both persistent and cache directories")
-    func removeImageClearsBothDirectories() async throws {
-        let cache = ImageCache()
-        let identifier = "remove-both-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(), for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        cache.removeImage(for: identifier)
-
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        let cache2 = ImageCache()
-        let diskImage = await cache2.imageAsync(for: identifier)
-        #expect(diskImage == nil, "removeImage should clear from persistent store too")
-    }
-
-    @Test("Concurrent persistent cache operations are safe")
-    func concurrentPersistentCacheOperations() async throws {
-        let cache = ImageCache()
-        let baseId = "concurrent-persistent-\(UUID().uuidString)"
-
-        await withTaskGroup(of: Void.self) { group in
-            for i in 0..<15 {
-                group.addTask {
-                    let image = createTestImage(color: UIColor(
-                        red: CGFloat(i) / 15.0,
-                        green: 0.3,
-                        blue: 0.7,
-                        alpha: 1.0
-                    ))
-                    cache.cacheImage(image, for: "\(baseId)-\(i)", storageTier: .persistent)
-                }
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        for i in 0..<15 {
-            let cached = cache.image(for: "\(baseId)-\(i)")
-            #expect(cached != nil, "Concurrent persistent cache item \(i) should exist")
-        }
-
-        let identifiers = (0..<15).map { "\(baseId)-\($0)" }
-        cache.removePersistentImages(for: identifiers)
-    }
-
-    @Test("Invalid data for cacheData does not crash")
-    func invalidDataForCacheDataHandled() async throws {
-        let cache = ImageCache()
-        let identifier = "invalid-persistent-\(UUID().uuidString)"
-
-        cache.cacheData(Data([0x00, 0x01, 0x02]), for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let cached = cache.image(for: identifier)
-        #expect(cached == nil, "Invalid data should not produce a cached image")
-    }
-
-    @Test("removeAllPersistentImages clears memory cache")
-    func removeAllPersistentImagesClearsMemory() async throws {
-        let cache = ImageCache()
-        let id1 = "mem-clear-1-\(UUID().uuidString)"
-        let id2 = "mem-clear-2-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
-        cache.cacheImage(createTestImage(color: .green), for: id2, storageTier: .persistent)
-
-        #expect(cache.image(for: id1) != nil, "Image should be in memory before removal")
-        #expect(cache.image(for: id2) != nil, "Image should be in memory before removal")
-
-        cache.removeAllPersistentImages()
-
-        #expect(cache.image(for: id1) == nil, "Memory cache should be cleared immediately")
-        #expect(cache.image(for: id2) == nil, "Memory cache should be cleared immediately")
-    }
-
-    @Test("removePersistentImages removes both jpg and png files")
-    func removePersistentImagesRemovesBothFormats() async throws {
-        let cache = ImageCache()
-        let identifier = "png-cleanup-\(UUID().uuidString)"
-
-        cache.cacheImage(createTestImage(color: .red), for: identifier, storageTier: .persistent)
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        cache.removePersistentImages(for: [identifier])
-
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        let cache2 = ImageCache()
-        let img = await cache2.imageAsync(for: identifier)
-        #expect(img == nil, "Persistent image should be fully removed")
+        // A subsequent nil-URL object for the same identity must fall through to
+        // the placeholder (nil), not the stale staged upload.
+        #expect(cache.image(for: staging) == nil)
     }
 }
-
 #endif

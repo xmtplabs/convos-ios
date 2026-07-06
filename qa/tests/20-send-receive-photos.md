@@ -1,6 +1,6 @@
 # Test: Send and Receive Photos
 
-Verify end-to-end photo messaging: sending a photo from the app, receiving a photo from the CLI, the blur/reveal privacy flow for incoming photos, photo context menu actions, and the first-time "Pics are personal" education sheet.
+Verify end-to-end photo messaging: sending a photo from the app, receiving a photo from the CLI, photo context menu actions, and the first-time "Pics are personal" education sheet.
 
 ## Prerequisites
 
@@ -59,32 +59,20 @@ Verify end-to-end photo messaging: sending a photo from the app, receiving a pho
 25. Wait for the photo to appear in the app (use `sim_find_elements` to check for new content, or take a screenshot after a few seconds).
 26. Verify the incoming photo renders as a full-width image in the conversation. Take a screenshot to confirm it loaded (not stuck on a loading placeholder or error state).
 
-### Incoming photo blur/reveal
-
-27. Incoming photos from other participants should be blurred by default with a "Tap pic to reveal" overlay.
-28. Take a screenshot to verify the incoming photo is blurred (the image should be unrecognizable, with the overlay text visible).
-29. If a "Reveal" education sheet appears (title: "Reveal"), tap "Got it" to dismiss. This sheet only appears once per install.
-30. Tap the blurred photo to reveal it. The blur should animate away and the full photo should be visible.
-31. Take a screenshot to verify the photo is now revealed (sharp, no blur overlay).
-
 ### Photo context menu
 
-32. Long-press on the revealed incoming photo to open the context menu (duration ≥ 0.3s).
-33. Verify the context menu appears with these options:
+27. Long-press on the incoming photo to open the context menu (duration ≥ 0.3s).
+28. Verify the context menu appears with these options:
     - "Reply" — standard message action
     - "Save" — save photo to camera roll
-    - "Blur" — re-blur the photo (since it's currently revealed)
-34. Tap "Blur" in the context menu.
-35. Verify the photo returns to the blurred state with the "Tap pic to reveal" overlay.
-36. Long-press on the blurred photo to open the context menu again.
-37. Verify the menu now shows "Reveal" instead of "Blur".
-38. Tap "Reveal" to unblur the photo.
-39. Verify the photo is revealed again.
+    - "Share" — share the photo
+29. Verify the menu has no "Blur" or "Reveal" action.
+30. Dismiss the context menu.
 
 ### Own photo context menu
 
-40. Long-press on one of the photos you sent from the app.
-41. Verify the context menu appears with "Reply", "Save", and "Blur". Own photos are never auto-blurred, but the owner can manually blur them (which sets `isHiddenByOwner`). The menu should show "Blur" (not "Reveal") since own photos start unblurred.
+31. Long-press on one of the photos you sent from the app.
+32. Verify the context menu appears with "Reply", "Save", and "Share", and no "Blur" or "Reveal" action.
 
 ## Teardown
 
@@ -99,10 +87,7 @@ Explode the conversation via CLI to clean up.
 - [ ] Photo sends successfully and renders as a full-width image
 - [ ] Sent indicator appears after sending a photo
 - [ ] Photo with text sends both content types
-- [ ] Incoming photo from CLI renders as a full-width image (not stuck loading or errored)
-- [ ] Incoming photo is blurred by default with "Tap pic to reveal" overlay
-- [ ] Tapping a blurred photo reveals it (blur animates away)
-- [ ] Photo context menu shows Reply, Save, and Blur/Reveal for incoming photos
-- [ ] "Blur" in context menu re-blurs the photo
-- [ ] "Reveal" in context menu unblurs the photo
-- [ ] Own sent photos show Reply, Save, and Blur (not auto-blurred, but owner can blur)
+- [ ] Incoming photo from CLI renders immediately as a full-width image, unblurred (not stuck loading or errored)
+- [ ] Photo context menu shows Reply, Save, and Share for incoming photos
+- [ ] Photo context menu has no Blur or Reveal action
+- [ ] Own sent photos show Reply, Save, and Share with no Blur or Reveal action

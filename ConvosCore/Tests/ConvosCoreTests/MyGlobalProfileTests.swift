@@ -90,6 +90,31 @@ struct MyGlobalProfileTests {
         #expect(profile?.imageData == nil)
     }
 
+    @Test("save does not clear an existing name when passed an empty name")
+    func saveDoesNotClearExistingName() async throws {
+        let fixture = try await Fixture.make()
+        try await fixture.writer.save(name: "Alice", imageData: nil, imageAssetIdentifier: nil, metadata: nil)
+
+        // A blank name must not wipe the stored name (would render as "Somebody").
+        try await fixture.writer.save(name: "   ", imageData: nil, imageAssetIdentifier: nil, metadata: nil)
+        #expect(try fixture.repository.fetch()?.name == "Alice")
+
+        try await fixture.writer.save(name: nil, imageData: nil, imageAssetIdentifier: nil, metadata: nil)
+        #expect(try fixture.repository.fetch()?.name == "Alice")
+    }
+
+    @Test("update(name:) does not clear an existing name when passed an empty name")
+    func updateNameDoesNotClearExistingName() async throws {
+        let fixture = try await Fixture.make()
+        try await fixture.writer.save(name: "Alice", imageData: nil, imageAssetIdentifier: nil, metadata: nil)
+
+        try await fixture.writer.update(name: "")
+        #expect(try fixture.repository.fetch()?.name == "Alice")
+
+        try await fixture.writer.update(name: nil)
+        #expect(try fixture.repository.fetch()?.name == "Alice")
+    }
+
     @Test("repository fetch returns nil before any save")
     func fetchReturnsNilWhenEmpty() async throws {
         let fixture = try await Fixture.make()

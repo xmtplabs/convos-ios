@@ -54,6 +54,14 @@ class ProfileSettingsViewModel {
     private var writer: (any MyGlobalProfileWriterProtocol)?
     private var repository: (any MyGlobalProfileRepositoryProtocol)?
     private var cancellables: Set<AnyCancellable> = []
+    /// The last name loaded from (or saved to) the global profile. Used to
+    /// reject an empty save: once a name is set it cannot be cleared.
+    private var loadedDisplayName: String?
+    /// The last metadata loaded from the global profile. The My Info editor does
+    /// not edit metadata, so we carry this through on save instead of writing
+    /// nil - otherwise a name-only edit would clear stored metadata (e.g. the
+    /// profile emoji). Kept fresh by `apply(profile:)`.
+    private var loadedMetadata: ProfileMetadata?
 
     private init() {}
 
@@ -92,10 +100,7 @@ class ProfileSettingsViewModel {
         self.session = nil
         writer = nil
         repository = nil
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
         loadState = .loading
         bindInternal(session: session)
     }
@@ -128,6 +133,8 @@ class ProfileSettingsViewModel {
 
     private func apply(profile: MyProfile?) {
         editingDisplayName = profile?.name ?? ""
+        loadedDisplayName = profile?.name
+        loadedMetadata = profile?.metadata
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
         profileImageAssetIdentifier = profile?.imageAssetIdentifier
         profileImageContentDigest = profile?.imageContentDigest
@@ -147,15 +154,33 @@ class ProfileSettingsViewModel {
             throw ProfileSettingsError.notBound
         }
         let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
+        // A name, once set, cannot be cleared: an empty field falls back to the
+        // stored name rather than writing nil, and the field is restored so the
+        // UI reflects that the empty value was rejected. First-time users with
+        // no stored name are unaffected (there is nothing to preserve).
+        let resolvedName: String?
+        if trimmedName.isEmpty, let loadedDisplayName {
+            resolvedName = loadedDisplayName
+            editingDisplayName = loadedDisplayName
+        } else {
+            resolvedName = trimmedName.isEmpty ? nil : trimmedName
+        }
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         try await writer.save(
             name: resolvedName,
             imageData: imageData,
             imageAssetIdentifier: assetIdentifier,
-            metadata: nil
+            metadata: loadedMetadata
         )
+        // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
+        // only refreshed by the async profile observation, so a first-time user
+        // who saves a name and then clears + saves again before that fires would
+        // skip the guard above. (The writer also preserves the stored name on an
+        // empty save, so this is defense-in-depth + keeps the field restore working.)
+        if let resolvedName {
+            loadedDisplayName = resolvedName
+        }
         markProfileEditorShownIfPopulated()
     }
 
@@ -178,10 +203,7 @@ class ProfileSettingsViewModel {
     }
 
     func delete() {
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
         guard let writer else { return }
         Task {
             do {
@@ -190,5 +212,14 @@ class ProfileSettingsViewModel {
                 Log.error("Failed deleting profile settings: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func clearEditingFields() {
+        editingDisplayName = ""
+        loadedDisplayName = nil
+        loadedMetadata = nil
+        profileImage = nil
+        profileImageAssetIdentifier = nil
+        profileImageContentDigest = nil
     }
 }

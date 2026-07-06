@@ -68,7 +68,10 @@ struct ConversationRemovedStateTests {
             isMuted: false,
             pinnedOrder: isPinned ? 1 : nil,
             hidesInviteCard: false,
-            wasRemoved: wasRemoved
+            leftHostedInviteSession: false,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for inboxId in [currentInboxId, otherInboxId] {

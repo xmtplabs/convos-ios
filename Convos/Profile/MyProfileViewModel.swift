@@ -187,9 +187,22 @@ class MyProfileViewModel {
         let trimmedDisplayName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmoji = editingEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestProfile = try? myProfileRepository.fetch()
-        if latestProfile == nil || latestProfile?.name != trimmedDisplayName {
+        // Don't push an empty name over an existing one (it would render as
+        // "Somebody"). The writer guards this too, but skipping here avoids a
+        // redundant re-broadcast of the unchanged name.
+        let wouldClearExistingName = trimmedDisplayName.isEmpty && (latestProfile?.name?.isEmpty == false)
+        // The name we actually use everywhere below: never blank out an existing
+        // name. When a clear is prevented this is the preserved stored name, so
+        // neither the field nor the "save as profile" forward gets the stale
+        // empty string.
+        let resolvedDisplayName = wouldClearExistingName ? (latestProfile?.name ?? "") : trimmedDisplayName
+        if !wouldClearExistingName, latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
             didChange = true
+        } else if wouldClearExistingName {
+            // Clearing was prevented; restore the field so it doesn't show blank
+            // while the stored name is actually preserved (mirrors saveAndAwait).
+            editingDisplayName = resolvedDisplayName
         }
 
         let updatedMetadata: ProfileMetadata? = {
@@ -218,7 +231,7 @@ class MyProfileViewModel {
             // ProfileSettingsViewModel.shared via an inline binding, so no need to copy it
             // here. Image and name still flow through this view model and need forwarding.
             let settingsViewModel = ProfileSettingsViewModel.shared
-            settingsViewModel.editingDisplayName = trimmedDisplayName
+            settingsViewModel.editingDisplayName = resolvedDisplayName
             settingsViewModel.profileImage = pendingProfileImage
             settingsViewModel.save()
             saveDisplayNameAsProfile = false

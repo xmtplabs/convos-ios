@@ -186,10 +186,58 @@ final class DeepLinkHandlerTests: XCTestCase {
         }
     }
 
+    // MARK: - Agent template deep links (https universal link)
+
+    func testUniversalLinkAgentTemplate_ParsesTemplateId() throws {
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/\(sampleTemplateId)"))
+        let destination = DeepLinkHandler.destination(for: url)
+
+        guard case let .agentTemplate(templateId) = destination else {
+            XCTFail("Expected .agentTemplate, got \(String(describing: destination))")
+            return
+        }
+        XCTAssertEqual(templateId, sampleTemplateId)
+    }
+
+    func testUniversalLinkAgentTemplate_UppercaseTemplateIdAccepted() throws {
+        let uppercased = sampleTemplateId.uppercased()
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/\(uppercased)"))
+        guard case let .agentTemplate(templateId) = DeepLinkHandler.destination(for: url) else {
+            XCTFail("Expected .agentTemplate for uppercase UUID")
+            return
+        }
+        XCTAssertEqual(templateId, uppercased)
+    }
+
+    func testUniversalLinkAgentTemplate_InvalidHostReturnsNil() throws {
+        let url = try XCTUnwrap(URL(string: "https://evil.example.com/template/\(sampleTemplateId)"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testUniversalLinkAgentTemplate_MissingIdReturnsNil() throws {
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testUniversalLinkAgentTemplate_MalformedIdReturnsNil() throws {
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/not-a-uuid"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testUniversalLinkAgentTemplate_ExtraPathSegmentsRejected() throws {
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/\(sampleTemplateId)/extra"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
     // MARK: - DeepLinkHandler.agentTemplateId(from:)
 
     func testAgentTemplateId_ReturnsTemplateIdForTemplateURL() throws {
         let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(sampleTemplateId)"))
+        XCTAssertEqual(DeepLinkHandler.agentTemplateId(from: url), sampleTemplateId)
+    }
+
+    func testAgentTemplateId_ReturnsTemplateIdForUniversalLinkURL() throws {
+        let url = try XCTUnwrap(URL(string: "https://\(primaryDomain)/template/\(sampleTemplateId)"))
         XCTAssertEqual(DeepLinkHandler.agentTemplateId(from: url), sampleTemplateId)
     }
 

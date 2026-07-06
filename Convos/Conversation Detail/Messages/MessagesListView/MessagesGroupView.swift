@@ -5,7 +5,6 @@ import SwiftUI
 struct MessagesGroupView: View {
     let group: MessagesGroup
     let conversationId: String
-    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     /// Fires when the sender label or an avatar that has no concrete message
     /// to attach (e.g. the synthesized agent contact-card group) is
@@ -20,8 +19,13 @@ struct MessagesGroupView: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. nil outside the main messages list path.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM).
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: ((String) -> Void)?
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -37,6 +41,13 @@ struct MessagesGroupView: View {
     /// `bolt.fill` glyph next to an agent sender's display name when
     /// the global credit balance is depleted.
     var creditsDepleted: Bool = false
+    /// Resolves an inbox id to the local contact-name override so the sender
+    /// label matches the contact card and conversation title (contact name ->
+    /// per-conversation profile name -> "Somebody"). Without this the label
+    /// reads only the per-conversation profile and shows "Somebody" even when
+    /// a contact name exists. Defaults to no override for previews / the unused
+    /// SwiftUI list path.
+    var memberContactOverride: (String) -> Contact? = { _ in nil }
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
@@ -81,6 +92,15 @@ struct MessagesGroupView: View {
         DesignConstants.Spacing.step2x
     }
 
+    /// Sender name, fallback-only: the per-conversation profile name wins when
+    /// present, and the contact name is used only to fill an empty name instead
+    /// of "Somebody". This can only replace a blank - it never overrides a name
+    /// that already renders correctly - so it can't surface a stale contact name
+    /// over a fresh member name.
+    private var senderDisplayName: String {
+        displayGroup.sender.displayName(contactNameFallback: { memberContactOverride($0)?.displayName })
+    }
+
     private var senderLabel: some View {
         senderLabelContent
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -97,7 +117,7 @@ struct MessagesGroupView: View {
         let tapAction = { onTapSender(displayGroup.sender) }
         return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(displayGroup.sender.profile.displayName)
+                Text(senderDisplayName)
                 if displayGroup.sender.isAgent && creditsDepleted {
                     Image(systemName: "bolt.fill")
                         .foregroundStyle(.colorLava)
@@ -118,7 +138,7 @@ struct MessagesGroupView: View {
                 y: 0.0
             )
             .id("profile-\(displayGroup.id)")
-            .accessibilityLabel("View \(displayGroup.sender.profile.displayName)'s profile")
+            .accessibilityLabel("View \(senderDisplayName)'s profile")
             .accessibilityAddTraits(.isButton)
     }
 
@@ -302,6 +322,28 @@ struct MessagesGroupView: View {
         .id("merged-thinking-receipt-\(message.differenceIdentifier)")
     }
 
+    /// Dev-only variant ribbon overlaid on the agent contact card's top, clipped
+    /// to its own top corners so the card stays untouched. Non-interactive so
+    /// taps pass through to the card's gesture and open the agent profile, which
+    /// carries the full detail and a working PR link.
+    @ViewBuilder
+    private var variantRibbonOverlay: some View {
+        if !ConfigManager.shared.currentEnvironment.isProduction,
+           let variant = displayGroup.sender.profile.variant {
+            // Top corners match AgentContactCardView's 24pt card radius.
+            AgentVariantRibbon(variant: variant, verticalPadding: DesignConstants.Spacing.stepX)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 24.0,
+                        bottomLeadingRadius: 0.0,
+                        bottomTrailingRadius: 0.0,
+                        topTrailingRadius: 24.0
+                    )
+                )
+                .allowsHitTesting(false)
+        }
+    }
+
     @ViewBuilder
     private func contactCardRow(card: AgentContactCardInfo) -> some View {
         // The card shows its own bottom-leading avatar only when it is the
@@ -320,10 +362,11 @@ struct MessagesGroupView: View {
             }
 
             let cardTap = { onTapSender(displayGroup.sender) }
-            // Mirrors `MessageContainer` so the card caps at the same max
-            // width as text bubbles - natural sizing for short content,
-            // bounded by a 50pt trailing spacer with lower layout priority,
-            // plus the same `maxBubbleRowWidth` cap on regular-width layouts.
+            // Trailing inset matches the card's leading inset (the row's `step4x`
+            // padding + the avatar gutter) so the card is centered in the view
+            // rather than sitting slightly off-center. `bubbleRowWidthCap` still
+            // caps + leading-pins the row on regular-width layouts.
+            let trailingInset: CGFloat = DesignConstants.Spacing.step4x + avatarSize + avatarSpacing
             HStack(alignment: .bottom, spacing: 0.0) {
                 AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
                     .contentShape(Rectangle())
@@ -333,9 +376,12 @@ struct MessagesGroupView: View {
                             avatarOverlay { onTapSender(displayGroup.sender) }
                         }
                     }
+                    .overlay(alignment: .top) {
+                        variantRibbonOverlay
+                    }
 
                 Spacer()
-                    .frame(minWidth: 50.0)
+                    .frame(minWidth: trailingInset)
                     .layoutPriority(-1)
             }
             .bubbleRowWidthCap(alignment: .leading)
@@ -359,44 +405,18 @@ struct MessagesGroupView: View {
             }
 
             if displayGroup.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
-                ThoughtBubbleAppearance(animates: message.origin == .inserted) {
-                    HStack(spacing: 0.0) {
-                        ThoughtBubble {
-                            // Type spec from design: 16pt regular, 24pt
-                            // line height, 0.3pt tracking. `.callout` is
-                            // 16pt by default on iOS and scales with
-                            // Dynamic Type. SF Pro 16pt's natural line
-                            // height is ~19pt, so 5pt extra `lineSpacing`
-                            // brings each line to ~24pt.
-                            Text(text)
-                                .font(.callout)
-                                .tracking(0.3)
-                                .lineSpacing(5.0)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        Spacer(minLength: 50.0)
-                            .layoutPriority(-1)
-                    }
-                }
-                .bubbleRowWidthCap(alignment: .leading)
-                .zIndex(100)
-                .id("messages-group-item-\(message.differenceIdentifier)")
-                .overlay(alignment: .bottomLeading) {
-                    if isLast && !displayGroup.sender.isCurrentUser {
-                        avatarOverlay { onTapAvatar(message) }
-                    }
-                }
+                thoughtBubbleRow(message: message, text: text, isLast: isLast)
             } else {
                 MessagesGroupItemView(
                     message: message,
                     conversationId: conversationId,
                     bubbleType: bubbleType,
-                    shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: onTapAvatar,
                     onTapInvite: onTapInvite,
                     onReply: onReply,
-                    onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden,
+                    onOpenMessageDetail: onOpenMessageDetail,
+                    expandedMessageIds: expandedMessageIds,
+                    onToggleMessageExpanded: onToggleMessageExpanded,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
                     htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
@@ -445,6 +465,68 @@ struct MessagesGroupView: View {
         guard case .message(let inner, _) = message,
               case .text(let text) = inner.content else { return nil }
         return text
+    }
+
+    /// Renders a thinking moment in a `ThoughtBubble`, bounded the same way the
+    /// message path bounds long bodies so a large `ThinkingMoment.content`
+    /// cannot trigger an unbounded CoreText layout on the main thread. Short
+    /// bodies render in full; long/pathological bodies show a line-capped
+    /// preview plus a "Read more" pill that opens the hang-safe
+    /// `MessageDetailView` (the thought bubble already lives inside
+    /// `ThinkingDetailView`, so the generic full-message reader, not the
+    /// thinking sheet, is the correct detail target). The thought bubble is not
+    /// wrapped in `.messageGesture`, so the pill omits the gesture-passthrough
+    /// marker.
+    @ViewBuilder
+    private func thoughtBubbleRow(message: AnyMessage, text: String, isLast: Bool) -> some View {
+        let lengthClass: MessageLengthClass = MessageBodyClassifier.classify(text)
+        let isBounded: Bool = lengthClass != .short
+        ThoughtBubbleAppearance(animates: message.origin == .inserted) {
+            HStack(spacing: 0.0) {
+                ThoughtBubble {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                        thoughtBubbleText(text, bounded: isBounded)
+                        if isBounded {
+                            let openDetail: () -> Void = { onOpenMessageDetail?(message) }
+                            ReadMoreButton(
+                                action: openDetail,
+                                accessibilityHint: "Opens the full message",
+                                borderColor: .colorBorderSubtle,
+                                labelColor: .colorTextSecondary,
+                                gesturePassthrough: false
+                            )
+                        }
+                    }
+                }
+                Spacer(minLength: 50.0)
+                    .layoutPriority(-1)
+            }
+        }
+        .bubbleRowWidthCap(alignment: .leading)
+        .zIndex(100)
+        .id("messages-group-item-\(message.differenceIdentifier)")
+        .overlay(alignment: .bottomLeading) {
+            if isLast && !displayGroup.sender.isCurrentUser {
+                avatarOverlay { onTapAvatar(message) }
+            }
+        }
+    }
+
+    /// The thought-bubble body text. Type spec from design: 16pt regular, 24pt
+    /// line height, 0.3pt tracking. `.callout` is 16pt by default on iOS and
+    /// scales with Dynamic Type; SF Pro 16pt's natural line height is ~19pt, so
+    /// 5pt extra `lineSpacing` brings each line to ~24pt. When bounded, a
+    /// finite `lineLimit` caps the layout (no vertical `.fixedSize`, which would
+    /// reintroduce the full-height measure).
+    @ViewBuilder
+    private func thoughtBubbleText(_ text: String, bounded: Bool) -> some View {
+        let lineCap: Int? = bounded ? MessageBodyClassifier.longPreviewLineLimit : nil
+        Text(text)
+            .font(.callout)
+            .tracking(0.3)
+            .lineSpacing(5.0)
+            .foregroundStyle(.colorTextSecondary)
+            .lineLimit(lineCap)
     }
 
     private func parentAudioTranscriptText(for message: AnyMessage) -> String? {
@@ -801,7 +883,7 @@ private struct ThoughtBubbleAppearance<Content: View>: View {
     ]
     let photoURL = "https://picsum.photos/400/300"
     let photoAttachment = HydratedAttachment(key: photoURL, width: 400, height: 300)
-    let hiddenPhoto = HydratedAttachment(key: photoURL, isHiddenByOwner: true, width: 400, height: 300)
+    let hiddenPhoto = HydratedAttachment(key: photoURL, width: 400, height: 300)
 
     let groups: [MessagesGroup] = [
         // -- Text messages --
@@ -1158,15 +1240,12 @@ private struct ThoughtBubbleAppearance<Content: View>: View {
                 MessagesGroupView(
                     group: group,
                     conversationId: "preview-conversation",
-                    shouldBlurPhotos: true,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
                     onReaction: { _, _ in },
                     onToggleReaction: { _, _ in },
                     onReply: { _ in },
-                    onPhotoRevealed: { _ in },
-                    onPhotoHidden: { _ in },
                     onPhotoDimensionsLoaded: { _, _, _ in }
                 )
             }

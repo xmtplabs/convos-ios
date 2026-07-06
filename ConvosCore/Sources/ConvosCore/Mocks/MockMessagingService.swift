@@ -25,12 +25,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _reactionWriter: any ReactionWriterProtocol
     private let _readReceiptWriter: any ReadReceiptWriterProtocol
     private let _replyWriter: any ReplyMessageWriterProtocol
+    private let _myGlobalProfileWriter: any MyGlobalProfileWriterProtocol
+    private let _myGlobalProfileRepository: any MyGlobalProfileRepositoryProtocol
 
     // MARK: - Initialization
 
     public init(
         sessionStateManager: (any SessionStateManagerProtocol)? = nil,
         myProfileWriter: (any MyProfileWriterProtocol)? = nil,
+        myGlobalProfileWriter: (any MyGlobalProfileWriterProtocol)? = nil,
+        myGlobalProfileRepository: (any MyGlobalProfileRepositoryProtocol)? = nil,
         conversationStateManager: (any ConversationStateManagerProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
@@ -54,6 +58,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._reactionWriter = reactionWriter ?? MockReactionWriter()
         self._readReceiptWriter = readReceiptWriter ?? MockReadReceiptWriter()
         self._replyWriter = replyWriter ?? MockReplyMessageWriter()
+        self._myGlobalProfileWriter = myGlobalProfileWriter ?? MockMyGlobalProfileWriter()
+        self._myGlobalProfileRepository = myGlobalProfileRepository ?? MockMyGlobalProfileRepository()
     }
 
     // MARK: - MessagingServiceProtocol
@@ -75,11 +81,11 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
-        MockMyGlobalProfileWriter()
+        _myGlobalProfileWriter
     }
 
     public func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
-        MockMyGlobalProfileRepository()
+        _myGlobalProfileRepository
     }
 
     public func conversationStateManager() -> any ConversationStateManagerProtocol {
@@ -129,8 +135,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
+    public func profileMetadataWriter() -> any ProfileMetadataWriterProtocol {
+        MockProfileMetadataWriter()
+    }
+
     public func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         MockConnectionGrantWriter()
+    }
+
+    public func agentTimezonePublisher() async throws -> any AgentTimezonePublishing {
+        MockAgentTimezonePublisher()
     }
 
     public func connectionServicesStore() -> any ConnectionServicesStoreProtocol {

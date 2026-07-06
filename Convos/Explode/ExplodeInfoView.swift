@@ -1,22 +1,6 @@
 import ConvosMetrics
 import SwiftUI
 
-struct SoonLabel: View {
-    var body: some View {
-        Text("Soon")
-            .font(.subheadline)
-            .foregroundStyle(.colorTextTertiary)
-            .padding(.vertical, 6.0)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .frame(minHeight: DesignConstants.Spacing.step8x)
-            .background(
-                Capsule()
-                    .fill(.colorFillMinimal)
-            )
-            .accessibilityLabel("Coming soon")
-    }
-}
-
 struct ExplodeInfoView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
     @State private var navState: ExplodeInfoNavigatorImpl = .init()

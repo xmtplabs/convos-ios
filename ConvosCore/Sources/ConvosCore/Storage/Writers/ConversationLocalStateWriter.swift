@@ -6,6 +6,8 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
     func setHidesInviteCard(_ hidesInviteCard: Bool, for conversationId: String) async throws
+    func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws
+    func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -53,7 +55,10 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isMuted: false,
                     pinnedOrder: nil,
                     hidesInviteCard: false,
-                    wasRemoved: false
+                    leftHostedInviteSession: false,
+                    wasRemoved: false,
+                    hasHadOtherMembers: false,
+                    hasSharedInvite: false
                 )
 
             let pinnedOrder: Int? = if isPinned {
@@ -88,6 +93,18 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
         }
     }
 
+    func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(leftHostedInviteSession: leftHostedInviteSession)
+        }
+    }
+
+    func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(hasSharedInvite: hasSharedInvite)
+        }
+    }
+
     private func updateLocalState(
         for conversationId: String,
         _ update: @escaping @Sendable (ConversationLocalState) -> ConversationLocalState
@@ -108,7 +125,10 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isMuted: false,
                     pinnedOrder: nil,
                     hidesInviteCard: false,
-                    wasRemoved: false
+                    leftHostedInviteSession: false,
+                    wasRemoved: false,
+                    hasHadOtherMembers: false,
+                    hasSharedInvite: false
                 )
             let updated = update(current)
             try updated.save(db)

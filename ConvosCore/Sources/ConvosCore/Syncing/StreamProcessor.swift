@@ -314,6 +314,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     )
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
+                    await unsubscribePushTopicIfRemoved(result, conversationId: conversation.id, params: params)
 
                     // Mark unread if needed (shared predicate with the
                     // catch-up paths so the gate can't drift).
@@ -494,7 +495,9 @@ actor StreamProcessor: StreamProcessorProtocol {
                     avatar: nil
                 )
 
-                profile = profile.with(name: update.hasName ? update.name : nil)
+                // Never clear an existing name with a name-less/blank update
+                // (see DBMemberProfile.withInboundName).
+                profile = profile.withInboundName(update.hasName ? update.name : nil)
 
                 if update.hasEncryptedImage, update.encryptedImage.isValid {
                     let encryptionKey: Data? = if let existingKey = profile.avatarKey {
@@ -628,10 +631,9 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
         do {
-            let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                databaseReader: databaseReader
             )
             Log.debug("Sent initial ProfileSnapshot for \(group.id)")
         } catch {
@@ -851,6 +853,17 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     func clearPushSubscriptionCache() async { await pushTopicSubscriptionManager.clearCache() }
+
+    /// Drops the conversation's push topic when a stream message removed the
+    /// local user from the group. Removal sets only `wasRemoved` (consent stays
+    /// unchanged), so the reconcile desired set never diffs it out and the
+    /// backend would keep pushing indefinitely without this targeted unsubscribe.
+    private func unsubscribePushTopicIfRemoved(_ result: IncomingMessageWriterResult, conversationId: String, params: SyncClientParams) async {
+        guard result.wasRemovedFromConversation else { return }
+        await pushTopicSubscriptionManager.unsubscribeFromGroupTopic(
+            conversationId: conversationId, params: params, context: "removed from conversation"
+        )
+    }
 
     private func handleJoinRequestOutcome(
         _ outcome: InviteJoinRequestOutcome,

@@ -1,8 +1,8 @@
 id: "25b"
 name: "Global Defaults for New Conversations"
 description: >
-  Verify that global default settings (blur photos, include info with invites)
-  are applied to newly created conversations.
+  Verify that global default settings (include info with invites) are applied
+  to newly created conversations.
 tags: [settings, defaults]
 depends_on: ["01"]
 estimated_duration_s: 60

@@ -54,6 +54,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
     case capabilityConnect(id: String, prompt: CapabilityConnectPrompt, agentName: String, origin: AnyMessage.Origin)
     case agentBuilderSummary(AgentBuilderCardContent)
+    case agentActivating(AgentActivatingCardContent)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -80,6 +81,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "capability-connect-\(id)"
         case .agentBuilderSummary(let content):
             return "agent-builder-summary-\(content.id)"
+        case .agentActivating(let content):
+            return "agent-activating-\(content.id)"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -118,7 +121,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -133,7 +136,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo, .agentBuilderSummary:
+        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -166,6 +169,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-capabilityConnect"
         case .agentBuilderSummary:
             return "MessagesListItemTypeCell-agentBuilderSummary"
+        case .agentActivating:
+            return "MessagesListItemTypeCell-agentActivating"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -184,6 +189,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-connectionEvent",
             "MessagesListItemTypeCell-capabilityConnect",
             "MessagesListItemTypeCell-agentBuilderSummary",
+            "MessagesListItemTypeCell-agentActivating",
             "TypingIndicatorCollectionCell",
         ]
     }

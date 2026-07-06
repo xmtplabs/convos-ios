@@ -76,18 +76,30 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// by the cache again.
     func registerClaimedConversation(id conversationId: String) async
 
-    /// Drops a conversation that was claimed via `prepareNewConversation()` but
-    /// never engaged with by the user — typically called from the new-
-    /// conversation / Agent Builder X-cancel path when no messages have
-    /// been sent. Deletes the local `DBConversation` row and its dependent
-    /// rows (members, profiles, local state) so the conversation disappears
-    /// from the conversations list, and releases the in-memory cache claim
-    /// so the next prewarm runs. The single-inbox refactor turned the
-    /// older `session.deleteInbox` cleanup into a no-op (it would destroy the
-    /// user's account); this is the replacement scoped to a single
-    /// conversation. Draft ids are a no-op — drafts don't have on-disk rows
-    /// the user can see.
+    /// Drops a conversation that was claimed via `prepareNewConversation()`,
+    /// unconditionally — the entry point for the explicit user Delete action
+    /// and the Agent Builder's deliberate cancel. Implicit dismiss-cleanup
+    /// should call `discardClaimedConversationIfUnengaged` instead so an
+    /// engaged conversation is kept. Deletes the local `DBConversation` row
+    /// and its dependent rows (members, profiles, local state) so the
+    /// conversation disappears from the conversations list, and releases the
+    /// in-memory cache claim so the next prewarm runs. The single-inbox
+    /// refactor turned the older `session.deleteInbox` cleanup into a no-op
+    /// (it would destroy the user's account); this is the replacement scoped
+    /// to a single conversation. Draft ids are a no-op — drafts don't have
+    /// on-disk rows the user can see.
     func discardClaimedConversation(id conversationId: String) async
+
+    /// Engagement-gated variant of `discardClaimedConversation` for implicit
+    /// cleanup paths (sheet dismiss, flow teardown, superseded claims). Reads
+    /// `ConversationEngagement.isEngaged` first: an engaged conversation
+    /// (customized metadata, chat messages, another member now or ever, or a
+    /// shared invite link) is
+    /// committed visible and kept instead of destroyed; an untouched one goes
+    /// through the full discard. Explicit user deletes should keep calling
+    /// the unconditional `discardClaimedConversation` - a deliberate delete
+    /// must never be silently overridden by the gate.
+    func discardClaimedConversationIfUnengaged(id conversationId: String) async
 
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
@@ -100,14 +112,30 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
-    func requestAgentJoin(
-        slug: String,
+
+    /// Direct-add agent join: provisions the agent via the backend (declaring
+    /// the target conversation) and adds its XMTP inbox with addMembers. The
+    /// runtime observes the resulting group welcome and attaches — once the
+    /// add lands, the agent boots with no further calls. No invite slug
+    /// involved.
+    func addAgentToConversation(
+        conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
+    /// Opportunistic foreground republish of the user's timezone across every
+    /// agent conversation (agent-timezone Channel B refresh). Throttled so a
+    /// conversation is only republished when the device timezone changed since
+    /// the last published value. Call only from the foregrounded main app.
+    func republishAgentTimezones() async
+
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
+
+    /// Owns the direct agent-builder generation lifecycle (submit -> poll ->
+    /// invite). Session-scoped so the poll loop survives the builder sheet.
+    func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -230,21 +258,28 @@ extension SessionManagerProtocol {
         NoopInviteMembershipResolver()
     }
 
-    public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
+    public func addAgentToConversation(conversationId: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await addAgentToConversation(conversationId: conversationId, templateId: nil, options: nil, forceErrorCode: nil)
     }
 
-    public func requestAgentJoin(
-        slug: String,
+    /// Default agent-template repository. Returns the no-op until the real
+    /// repository is wired in `SessionManager`, so test mocks conform without
+    /// bespoke wiring.
+    public func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol {
+        NoOpAgentTemplateRepository()
+    }
+
+    public func addAgentToConversation(
+        conversationId: String,
         options: ConvosAPI.AgentJoinOptions?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: nil, options: options, forceErrorCode: nil)
+        try await addAgentToConversation(conversationId: conversationId, templateId: nil, options: options, forceErrorCode: nil)
     }
 
-    public func requestAgentJoin(
-        slug: String,
+    public func addAgentToConversation(
+        conversationId: String,
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: templateId, options: nil, forceErrorCode: nil)
+        try await addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil, forceErrorCode: nil)
     }
 }

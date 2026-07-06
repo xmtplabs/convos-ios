@@ -210,6 +210,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let publishedURLKey: String = "publishedUrl"
         static let instanceIdKey: String = "instanceId"
         static let emailKey: String = "email"
+        static let variantKey: String = "variant"
     }
 }
 
@@ -281,6 +282,20 @@ extension Profile {
     /// the published agent keyset. `nil` when no attestation is present.
     public var agentAttestationKid: String? {
         metadata?["attestation_kid"]?.stringValue
+    }
+
+    /// The dev-only variant marker stamped onto a variant-built agent's profile
+    /// metadata by the assistants worker at join -- a JSON string of
+    /// `{ slug, label, whatToTest, prUrl }`. Drives the dev-only variant ribbon,
+    /// profile card, and name/header badges. nil for default agents and humans;
+    /// decoding is defensive so a malformed or partial stamp reads as nil rather
+    /// than throwing.
+    public var variant: AgentVariantStamp? {
+        guard let json = metadata?[Constant.variantKey]?.stringValue,
+              let data = json.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AgentVariantStamp.self, from: data)
     }
 }
 

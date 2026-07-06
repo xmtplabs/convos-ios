@@ -163,3 +163,6 @@ qa/cxdb/qa.sqlite-shm
 .codex
 .codex/**
 AGENTS.md
+
+# Demo recordings
+demos/*.mov

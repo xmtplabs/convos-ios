@@ -27,7 +27,7 @@ steps:
   - id: set_profile_photo
     name: "Set profile photo via quick-edit"
     actions:
-      - tap: { id: "profile-avatar-button" }
+      - tap: { id: "setup-profile-button" }
       - wait_for_element: { id: "quick-edit-image-picker", timeout: 10 }
       - tap: { id: "quick-edit-image-picker" }
       - wait_for_element: { label: "Photos", timeout: 10 }
@@ -39,7 +39,10 @@ steps:
       - element_exists: { id: "message-text-field" }
     criteria: profile_photo_set
     note: >
-      Quick-edit bar elements:
+      The in-composer avatar button was removed; the surviving entry into the
+      quick-edit bar is setup-profile-button (label="Add your name and pic"),
+      surfaced under the composer by the onboarding flow while the
+      conversation profile is still unset. Quick-edit bar elements:
       - quick-edit-image-picker (label="Choose photo")
       - quick-edit-display-name-field (editable text)
       - quick-edit-settings-button (label="Profile settings", trash icon)

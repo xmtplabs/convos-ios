@@ -21,6 +21,10 @@ struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
     var segment: MessageBubbleSegment = .whole
+    /// Whether the source bubble's long-body inline expansion is currently on,
+    /// captured into the context menu so its preview matches the on-screen
+    /// bubble. Only the text-bubble path ever passes a non-default value.
+    var isExpanded: Bool = false
     let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
@@ -142,6 +146,7 @@ struct MessageGestureModifier: ViewModifier {
             message: message,
             bubbleFrame: frame,
             bubbleStyle: bubbleStyle,
+            isExpanded: isExpanded,
             segment: segment
         )
     }
@@ -207,6 +212,7 @@ extension View {
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
         segment: MessageBubbleSegment = .whole,
+        isExpanded: Bool = false,
         onSingleTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
@@ -217,6 +223,7 @@ extension View {
             message: message,
             bubbleStyle: bubbleStyle,
             segment: segment,
+            isExpanded: isExpanded,
             onSingleTap: onSingleTap,
             onDoubleTap: onDoubleTap,
             onReply: onReply,

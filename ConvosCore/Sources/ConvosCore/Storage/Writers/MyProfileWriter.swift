@@ -56,12 +56,19 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
         let profile = try await databaseWriter.write { db in
             let member = DBMember(inboxId: inboxId)
             try member.save(db)
-            let profile = (try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
+            let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+            // Never clear an existing name with an empty update: a blank name
+            // would render the local user as "Somebody". A real name still
+            // wins; a first write with no existing name is unaffected. Treat
+            // empty/whitespace as "no name provided" so we don't depend on the
+            // caller having already normalized it to nil.
+            let resolvedName: String? = (name?.isEmpty == false) ? name : existing?.name
+            let profile = (existing ?? .init(
                 conversationId: conversationId,
                 inboxId: inboxId,
-                name: name,
+                name: resolvedName,
                 avatar: nil
-            )).with(name: name)
+            )).with(name: resolvedName)
             try profile.save(db)
             return profile
         }
@@ -219,8 +226,12 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
 
         // global.name is already trim/clamp/nil-if-empty normalized by MyGlobalProfileWriter,
         // so it can be compared to member?.name directly without re-normalizing here.
-        if global.name != member?.name {
-            try await update(displayName: global.name ?? "", conversationId: conversationId)
+        // Only propagate a real name. A nil/empty global name must never be
+        // pushed out as a clear - it would surface as "Somebody" in the chat
+        // and broadcast that to everyone. global.name is already nil-if-empty
+        // normalized by MyGlobalProfileWriter.
+        if let globalName = global.name, !globalName.isEmpty, globalName != member?.name {
+            try await update(displayName: globalName, conversationId: conversationId)
         }
 
         if global.imageData == nil {

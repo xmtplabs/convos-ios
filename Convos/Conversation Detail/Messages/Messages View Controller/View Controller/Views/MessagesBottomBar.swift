@@ -64,7 +64,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let focusCoordinator: FocusCoordinator
     let onboardingCoordinator: ConversationOnboardingCoordinator
     let messagesTextFieldEnabled: Bool
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
@@ -77,7 +76,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
@@ -88,7 +86,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
-    @State private var isMessageInputFocused: Bool = false
+    /// Drives the composer's visual swap between the attachment-icon row
+    /// (`false`) and the single `+` button beside the large text input
+    /// (`true`). Decoupled from actual keyboard focus: it starts `true` so a
+    /// freshly opened chat shows the `+` / large-input treatment without
+    /// raising the keyboard, and `handleFocusChanged` keeps it in sync with
+    /// real focus thereafter.
+    @State private var isMessageInputFocused: Bool = true
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
@@ -381,14 +385,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         isMessageInputFocused = false
                     }
                 } label: {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "plus")
                         .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextTertiary)
+                        .foregroundStyle(Color.colorTextPrimary)
                         .frame(width: 32, height: 32)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show media buttons")
+                .accessibilityLabel("Show attachments")
                 .accessibilityIdentifier("collapse-input-button")
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
@@ -402,7 +406,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
                 let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
                 let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
-                let sideConvoDisabled: Bool = hasSideConvo || hasMedia
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
@@ -410,16 +413,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     onFilePickerTap: {
                         isFilePickerPresented = true
                     },
-                    onConvosAction: {
-                        guard pendingInviteURL == nil else { return }
-                        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                            isMessageInputFocused = true
-                        }
-                        onConvosAction()
-                    },
                     isMediaCapacityFull: mediaButtonsDisabled,
                     isVoiceMemoDisabled: voiceMemoDisabled,
-                    isSideConvoDisabled: sideConvoDisabled,
                     onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
@@ -431,8 +426,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             }
 
             MessagesInputView(
-                profile: profile,
-                profileImage: $profileImage,
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
@@ -452,11 +445,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 isShowingAgentShareChip: isShowingAgentShareChip,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
-                animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
-                isCollapsed: !isMessageInputFocused,
-                canEditProfile: profileSettings.profileSettings.isDefault,
-                onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
                 onClearAgentShare: onClearAgentShare,
@@ -528,7 +517,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             invite: .mock(),
             onUserInteraction: {},
             hasLoadedAllMessages: true,
-            shouldBlurPhotos: false,
             focusCoordinator: focusCoordinator,
             onTapAvatar: { _ in },
             onLoadPreviousMessages: {},
@@ -540,8 +528,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onTapThinkingIndicator: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAgentOutOfCredits: {},
             creditsDepleted: false,
@@ -577,9 +563,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             focusCoordinator: focusCoordinator,
             onboardingCoordinator: onboardingCoordinator,
             messagesTextFieldEnabled: true,
-            onProfilePhotoTap: {
-                focusCoordinator.moveFocus(to: .displayName)
-            },
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil },
             onClearLinkPreview: {},
@@ -594,7 +577,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onVoiceMemoTap: {},
             voiceMemoRecorder: VoiceMemoRecorder(),
             onSendVoiceMemo: {},
-            onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height
             },

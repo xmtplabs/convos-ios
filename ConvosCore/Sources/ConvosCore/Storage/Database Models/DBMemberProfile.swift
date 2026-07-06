@@ -161,6 +161,16 @@ extension DBMemberProfile {
         )
     }
 
+    /// Applies an inbound name update without ever clearing an existing name: a
+    /// nil or empty/whitespace incoming name keeps the current name, a real name
+    /// wins. Single source of truth for every inbound apply path (stream, NSE
+    /// push, catch-up/history) so a name-less or blank ProfileUpdate can never
+    /// render the member as "Somebody".
+    func withInboundName(_ incoming: String?) -> DBMemberProfile {
+        let trimmed = incoming?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return with(name: (trimmed?.isEmpty == false) ? trimmed : name)
+    }
+
     func with(avatar: String?) -> DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,

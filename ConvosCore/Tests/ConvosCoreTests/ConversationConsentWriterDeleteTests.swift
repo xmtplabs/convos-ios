@@ -147,6 +147,46 @@ struct ConversationConsentWriterDeleteTests {
         #expect(stored?.consent == .allowed)
     }
 
+    @Test("delete(conversation:) on a real conversation unsubscribes its group push topic")
+    func deleteUnsubscribesGroupPushTopic() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let conversationId = "conv-unsub-1"
+        try seedAllowedConversation(in: dbManager.dbWriter, conversationId: conversationId)
+
+        let recordingManager = RecordingGroupUnsubscribeManager()
+        let writer = ConversationConsentWriter(
+            sessionStateManager: MockSessionStateManager(),
+            databaseWriter: dbManager.dbWriter,
+            pushTopicSubscriptionManager: recordingManager
+        )
+
+        try await writer.delete(conversation: .mock(id: conversationId))
+
+        let unsubscribed = await recordingManager.unsubscribedGroupIds
+        #expect(unsubscribed == [conversationId])
+    }
+
+    @Test("delete(conversation:) on a pending-invite draft does not unsubscribe a group topic")
+    func deleteDraftDoesNotUnsubscribeGroupPushTopic() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let draftId = "draft-unsub-1"
+        try seedAllowedConversation(in: dbManager.dbWriter, conversationId: draftId)
+
+        // A draft has no XMTP group, so there is no group topic to drop. The
+        // writer must not even reach the network path for a draft.
+        let recordingManager = RecordingGroupUnsubscribeManager()
+        let writer = ConversationConsentWriter(
+            sessionStateManager: InboxUnavailableSessionStateManager(),
+            databaseWriter: dbManager.dbWriter,
+            pushTopicSubscriptionManager: recordingManager
+        )
+
+        try await writer.delete(conversation: .mock(id: draftId))
+
+        let unsubscribed = await recordingManager.unsubscribedGroupIds
+        #expect(unsubscribed.isEmpty)
+    }
+
     @Test("After delete, a fetch filtered on [.allowed] no longer returns the row")
     func repositoryFilterExcludesDeniedRow() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -202,6 +242,23 @@ private final class InboxUnavailableSessionStateManager: SessionStateManagerProt
     func observeState(_ handler: @escaping (SessionStateMachine.State) -> Void) -> StateObserverHandle {
         StateObserverHandle(observer: ClosureStateObserver(handler: handler), manager: self)
     }
+}
+
+/// Records group-topic unsubscribe calls so the leave path can be asserted
+/// without a live backend. Other protocol methods are no-ops.
+private actor RecordingGroupUnsubscribeManager: PushTopicSubscriptionManaging {
+    private(set) var unsubscribedGroupIds: [String] = []
+
+    func subscribeToGroupAndWelcome(conversationId: String, params: SyncClientParams, context: String) async {}
+    func subscribeToInviteDMTopic(conversationId: String, params: SyncClientParams, context: String) async {}
+    func unsubscribeFromInviteDMTopic(conversationId: String, params: SyncClientParams, context: String) async {}
+
+    func unsubscribeFromGroupTopic(conversationId: String, params: SyncClientParams, context: String) async {
+        unsubscribedGroupIds.append(conversationId)
+    }
+
+    func reconcilePushTopics(params: SyncClientParams, context: String) async {}
+    func clearCache() async {}
 }
 
 private func seedAllowedConversation(
