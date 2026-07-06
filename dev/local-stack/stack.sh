@@ -88,7 +88,11 @@ svc_running() {
 guard_port() {
   local port="$1" name="$2" dir="$3" pid cmd
   svc_running "$name" "$dir" && return 0
-  pid="$(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)"
+  # lsof exits non-zero when nothing is listening (the common case on a fresh
+  # stack before the service starts); under set -euo pipefail that would
+  # propagate out of the command substitution and kill the script before the
+  # emptiness guard. Same `|| true` pattern the key/token lookups below use.
+  pid="$(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)" || true
   [[ -z "$pid" ]] && return 0
   cmd="$(ps -o command= -p "$pid" 2>/dev/null | head -c 140)"
   die "port ${port} is held by a foreign process (pid ${pid}: ${cmd}) — it would shadow ${name} and answer health checks with stale state. Kill it (kill ${pid}) and re-run."
