@@ -34,11 +34,7 @@ on:
     branches: ["main", "dev"]
     # `labeled` lets contributors trigger a build by adding the
     # `adhoc-build` label without re-pushing. Filtered in the job's `if:`.
-    # TEMP: `synchronize` removed so per-push PR builds are skipped while we
-    # iterate on review fixes. Restore it before merge. To get a build on
-    # demand meanwhile, add the `adhoc-build` label or use the Run workflow
-    # button (workflow_dispatch).
-    types: [opened, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
 
 concurrency:
   group: firebase-pr-${{ github.event.pull_request.number || github.ref }}
