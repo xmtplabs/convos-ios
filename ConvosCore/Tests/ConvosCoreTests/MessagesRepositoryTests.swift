@@ -449,6 +449,23 @@ struct MessagesRepositoryTests {
         #expect(!live.isInviteExpired)
     }
 
+    @Test("MemberProfileCache resolves a left self participant from DBMyProfile")
+    func testCacheResolvesHistoricalSelfFromMyProfile() {
+        // Self is excluded from DBProfile, so a current user who left the roster
+        // but authored history must resolve from DBMyProfile, not fall to empty.
+        let cache = MemberProfileCache(
+            activeProfiles: [],
+            historicalProfiles: [],
+            historicalSelfProfile: DBMyProfile(inboxId: "me", name: "Ziggy", updatedAt: Date(timeIntervalSince1970: 1)),
+            historicalSelfAvatar: nil,
+            conversationId: "c1",
+            currentInboxId: "me"
+        )
+        let member = cache.member(for: "me")
+        #expect(member?.profile.name == "Ziggy")
+        #expect(member?.isCurrentUser == true)
+    }
+
     // MARK: - Helpers
 
     private func seedConversation(

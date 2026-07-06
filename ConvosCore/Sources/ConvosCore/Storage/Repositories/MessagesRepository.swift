@@ -800,6 +800,8 @@ struct MemberProfileCache {
     init(
         activeProfiles: [DBConversationMemberProfileWithRole],
         historicalProfiles: [DBProfile] = [],
+        historicalSelfProfile: DBMyProfile? = nil,
+        historicalSelfAvatar: DBProfileAvatar? = nil,
         conversationId: String,
         currentInboxId: String
     ) {
@@ -827,6 +829,25 @@ struct MemberProfileCache {
                 isCurrentUser: !currentInboxId.isEmpty && profile.inboxId == currentInboxId,
                 isAgent: profile.memberKind?.isAgent ?? false,
                 agentVerification: profile.memberKind?.agentVerification ?? .unverified
+            )
+        }
+
+        // The current user is intentionally excluded from `DBProfile` (self lives
+        // in `DBMyProfile`). If they authored history here but have left the active
+        // roster, the loop above can't resolve them, so fold in the self identity
+        // from `DBMyProfile` to keep their own messages/reactions named.
+        if let historicalSelfProfile, !currentInboxId.isEmpty, map[currentInboxId] == nil {
+            map[currentInboxId] = ConversationMember(
+                profile: Profile.from(
+                    myProfile: historicalSelfProfile,
+                    avatar: historicalSelfAvatar,
+                    inboxId: currentInboxId,
+                    conversationId: conversationId
+                ),
+                role: .member,
+                isCurrentUser: true,
+                isAgent: false,
+                agentVerification: .unverified
             )
         }
 
@@ -1056,9 +1077,23 @@ fileprivate extension Database {
             ? []
             : try DBProfile.fetchAll(self, inboxIds: historicalInboxIds)
 
+        // The current user is never stored in `DBProfile`; their identity lives in
+        // `DBMyProfile`. If they authored history here but have left the active
+        // roster, resolve self from `DBMyProfile` (+ their self avatar slot) so
+        // their own messages/reactions keep the saved name/avatar.
+        let selfIsHistorical = !currentInboxId.isEmpty && historicalInboxIds.contains(currentInboxId)
+        let historicalSelfProfile = selfIsHistorical
+            ? try DBMyProfile.filter(DBMyProfile.Columns.inboxId == currentInboxId).fetchOne(self)
+            : nil
+        let historicalSelfAvatar = historicalSelfProfile == nil
+            ? nil
+            : try DBProfileAvatar.fetchOne(self, inboxId: currentInboxId, conversationId: conversationId)
+
         let memberProfileCache = MemberProfileCache(
             activeProfiles: activeMemberProfiles,
             historicalProfiles: historicalProfiles,
+            historicalSelfProfile: historicalSelfProfile,
+            historicalSelfAvatar: historicalSelfAvatar,
             conversationId: conversationId,
             currentInboxId: currentInboxId
         )
