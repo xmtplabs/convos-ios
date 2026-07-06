@@ -65,13 +65,13 @@ final class PromptHintsModelTests: XCTestCase {
     }
 
     func testSanitizeTrimsDropsEmptyAndClamps() async {
-        let long = String(repeating: "x", count: 300)
+        let long = String(repeating: "x", count: 400)
         let disk = DiskSpy(stored: [])
         let model = makeModel(service: MockPromptHintsService(hints: ["  spaced  ", "", long]), disk: disk)
         await model.loadOnLaunch()
         XCTAssertEqual(model.hints.count, 2, "Empty / whitespace-only hints are dropped")
         XCTAssertEqual(model.hints.first, "spaced", "Hints are trimmed")
-        XCTAssertEqual(model.hints.last?.count, 240, "Hints are clamped to the 240-char contract")
+        XCTAssertEqual(model.hints.last?.count, 350, "Hints are clamped to the 350-char contract")
     }
 
     func testLoadOnLaunchRunsOnlyOnce() async {
