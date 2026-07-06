@@ -18,6 +18,31 @@ struct DeleteAllDataCleanSlateTests {
         let dbManager = MockDatabaseManager.makeTestDatabase()
 
         try await dbManager.dbWriter.write { db in
+            try DBMember(inboxId: "me").save(db, onConflict: .ignore)
+            try DBConversation(
+                id: "c1",
+                clientConversationId: "c1",
+                inviteTag: "tag-c1",
+                creatorId: "me",
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: true,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAgent: false
+            ).insert(db)
             try DBMyProfile(inboxId: "me", name: "Me").save(db)
             try DBProfile(
                 inboxId: "alice", name: "Alice", profileSource: .profileUpdate,
@@ -42,12 +67,19 @@ struct DeleteAllDataCleanSlateTests {
             try SessionManager.wipeAccountScopedRows(db)
         }
 
-        try await dbManager.dbWriter.read { db in
-            #expect(try DBMyProfile.fetchCount(db) == 0)
-            #expect(try DBProfile.fetchCount(db) == 0)
-            #expect(try DBProfileAvatar.fetchCount(db) == 0)
-            #expect(try DBProfileAvatarSource.fetchCount(db) == 0)
-            #expect(try DBProfilePublishJob.fetchCount(db) == 0)
+        let counts = try await dbManager.dbWriter.read { db in
+            (
+                myProfile: try DBMyProfile.fetchCount(db),
+                profile: try DBProfile.fetchCount(db),
+                avatar: try DBProfileAvatar.fetchCount(db),
+                avatarSource: try DBProfileAvatarSource.fetchCount(db),
+                publishJob: try DBProfilePublishJob.fetchCount(db)
+            )
         }
+        #expect(counts.myProfile == 0)
+        #expect(counts.profile == 0)
+        #expect(counts.avatar == 0)
+        #expect(counts.avatarSource == 0)
+        #expect(counts.publishJob == 0)
     }
 }
