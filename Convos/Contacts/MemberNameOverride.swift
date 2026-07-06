@@ -11,8 +11,7 @@ import SwiftUI
 /// The environment key, the `memberNameOverride` adapter, and the
 /// `.memberContactOverride(_:)` modifier are retained (the modifier ignoring
 /// its argument) so existing call sites compile until the override plumbing is
-/// removed - see the cleanup checklist in
-/// docs/plans/2026-06-29-profile-table-implementation.md.
+/// removed.
 private struct MemberContactOverrideKey: EnvironmentKey {
     // `@Sendable` because SwiftUI's `EnvironmentKey.defaultValue` is
     // required to be `Sendable` under strict concurrency, and the

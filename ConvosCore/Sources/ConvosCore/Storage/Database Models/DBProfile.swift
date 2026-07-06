@@ -5,11 +5,8 @@ import GRDB
 /// Canonical per-person identity, keyed by `inboxId`. Single source of truth for
 /// a member's display name and agent kind, replacing the identity fields
 /// previously read from per-conversation `DBMemberProfile` rows. Avatars live in
-/// `DBProfileAvatar` because encryption is per conversation.
-///
-/// Not wired into rendering or sync yet; introduced ahead of the
-/// `ProfilesRepository` that owns it (see
-/// docs/plans/2026-06-29-profile-table-implementation.md).
+/// `DBProfileAvatar` because encryption is per conversation. Owned by
+/// `ProfilesRepository`.
 struct DBProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName: String = "profile"
 

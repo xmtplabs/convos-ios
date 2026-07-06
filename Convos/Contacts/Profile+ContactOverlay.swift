@@ -31,8 +31,7 @@ extension Contact {
     /// rendering (`displayAvatar(for:)`) in the ProfilesRepository refactor, when
     /// this whole stopgap is removed.
     ///
-    /// Interim stopgap: remove once identity resolves from ProfilesRepository
-    /// (see docs/plans/2026-06-29-profile-table-implementation.md, section 10.1).
+    /// Interim stopgap: remove once identity resolves from ProfilesRepository.
     static func liveOverride(member: Profile, stored: Contact?) -> Contact {
         Contact(
             inboxId: member.inboxId,
@@ -55,8 +54,7 @@ extension Contact {
     /// from the `Profile` database; contact data never overrides it. Returns a
     /// resolver that yields `nil` for every inbox so callers fall through to the
     /// member `Profile`. Retained (ignoring its arguments) so call sites compile
-    /// until the contact-override plumbing is fully removed - see the cleanup
-    /// checklist in docs/plans/2026-06-29-profile-table-implementation.md.
+    /// until the contact-override plumbing is fully removed.
     static func memberAwareResolver(
         members: [ConversationMember],
         contactLookup: @escaping @Sendable (String) -> Contact?
@@ -69,8 +67,7 @@ extension Profile {
     /// Deprecated no-op. Identity (name and image) is sourced authoritatively
     /// from the `Profile` database; contact data never overrides it, so this
     /// returns the profile unchanged. Retained so call sites compile until the
-    /// contact-override plumbing is removed - see the cleanup checklist in
-    /// docs/plans/2026-06-29-profile-table-implementation.md.
+    /// contact-override plumbing is removed.
     func overlaying(contact: Contact) -> Profile {
         self
     }

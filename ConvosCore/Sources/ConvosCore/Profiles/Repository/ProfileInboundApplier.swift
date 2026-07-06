@@ -111,14 +111,14 @@ enum ProfileInboundApplier {
     private static func avatarEvent(_ disposition: AvatarDisposition, existingKey: Data?, fallbackKey: Data?) -> IncomingAvatar {
         switch disposition {
         case let .addressed(image):
-            // DEFERRED PROTOCOL WORK - do not "clear on absent image" yet.
+            // Deferred protocol work: do not clear on an absent image yet.
             //
             // The wire format cannot distinguish "I deliberately cleared my
             // avatar" from "I updated another field and omitted the image", and
             // a malformed ref is also indistinguishable from an intentional
             // clear. Until a dedicated deliberate-clear signal exists in the
-            // ProfileUpdate/Snapshot message types, an absent OR malformed image
-            // is treated as `.silent` (leave the slot untouched), NEVER a clear.
+            // ProfileUpdate/Snapshot message types, an absent or malformed image
+            // is treated as `.silent` (leave the slot untouched), never a clear.
             //
             // Rationale: the app UI cannot clear an avatar today, so there is no
             // legitimate clear intent on the wire. Clearing on an omitted image
@@ -126,7 +126,6 @@ enum ProfileInboundApplier {
             // that does not re-send the image - a regression we must not
             // introduce. When the protocol gains a deliberate-clear flag, restore
             // `.explicitClear` for the true-clear case here (and only here).
-            // See docs/plans Theme B follow-up: "avatar deliberate-clear signal".
             guard let image, image.isValid else { return .silent }
             return .set(url: image.url, salt: image.salt, nonce: image.nonce, key: existingKey ?? fallbackKey)
         case let .fillIfPresent(image):

@@ -740,7 +740,7 @@ What shipped:
   `MyGlobalProfileWriter` / `DBMyProfile` as the global edit-side model.
 - [done] `member_profile` is left fully populated. The `deleteAll`-after-backfill
   clear was removed after PR review: several live subsystems still read
-  `DBMemberProfile` (see the cleanup checklist), so clearing (or dropping) the
+  `DBMemberProfile` (see the follow-up items in section 17), so clearing (or dropping) the
   table is not yet safe. `member_profile` is simply no longer the *rendering*
   identity source; the un-migrated subsystems keep working off it unchanged.
 - [done] Self-source consistency (PR review): `ProfileBackfill` now also seeds
@@ -748,110 +748,12 @@ What shipped:
   `MyProfileRepository` reads self identity from `DBSelfProfile` (the table every
   self-write path updates) so the editor's own view stays current. This is a
   stopgap - `DBMyProfile` and `DBSelfProfile` still both exist and overlap; see
-  the cleanup checklist for the consolidation.
+  the follow-up items in section 17 for the consolidation.
 
 ### Cleanup checklist for a subsequent release
 
-The rendering choke point is on the canonical tables, but the cutover is not
-complete. None of the following block *this* PR (it is additive and safe), but
-they must land before `member_profile` can ever be cleared or dropped, and they
-resolve known rough edges.
-
-Migrate the remaining `DBMemberProfile` readers to `DBProfile`/`DBProfileAvatar`:
-- [ ] `ContactSyncCoordinator.syncConversation` - builds contact snapshots per
-  member.
-- [ ] `AssetRenewalURLCollector.collectRenewableAssets` - enumerates avatar
-  assets for renewal.
-- [ ] `AgentTimezonePublisher.republishTimezoneForAgentConversations` - finds the
-  user's conversations.
-- [ ] `AgentBuilderConnectionGrantReplayer.verifiedAgentInboxIds` - filters
-  verified agents (an agent reverified only in `DBProfile` is invisible here).
-
-Migrate the remaining `DBMemberProfile` write paths to canonical (otherwise
-identity introduced only through them renders as "Somebody"):
-- [ ] `InviteJoinRequestsManager` - joiner profile (currently via the
-  `ContactsWriter` mirror).
-- [ ] `ConversationWriter.persist` appData gap-fill, and the appData-only member
-  case generally (member identity that lives only in group appData, never in a
-  ProfileUpdate/Snapshot).
-
-Ordering:
-- [ ] `IncomingMessageWriter.bootstrapSenderProfile` reads `DBProfile`, but in
-  `BatchCatchUp` message persist runs before `ProfileInboundApplier` (detached),
-  so a verified agent's grant request can be dropped on cold-launch backlog
-  replay. Land the canonical write before the trusted-sender gate is checked.
-
-Self-profile consolidation:
-- [ ] Collapse `DBMyProfile` and `DBSelfProfile` into one authoritative self
-  source. Options: fold the editor's raw image bytes into the canonical path and
-  retire `DBMyProfile`, or keep `DBMyProfile` strictly as a local image-bytes
-  cache and make `DBSelfProfile` derived from it on every write. Remove the
-  backfill stopgap once done.
-
-Rendering path:
-- [x] One avatar image per person across conversations. Avatars are stored
-  per-conversation (encrypted per group key), but rendering now joins the
-  `profileAvatarLatest` view - the newest `profileAvatar` row per inbox - via the
-  `DBConversationMember.avatarSlot` association (keyed by inboxId), so every
-  surface shows a person's latest avatar consistently. Each avatar row is
-  self-contained (url + salt + nonce + key) and always from a conversation the
-  local user shares with that person, so it decrypts anywhere. This is the
-  pragmatic alternative to the ADR 014 content-digest dedup.
-- [ ] **HIGH-VALUE FOLLOW-UP - wire ALL avatar/identity rendering to the reactive
-  per-inbox path (`profilePublisher` / `selfProfilePublisher`), like the contact
-  photo (`InboxProfileAvatarView`) already does.** Today most rendering flows
-  through the choke-point GRDB snapshot reroute; the reactive publishers are only
-  used by the contact photo. Moving everything onto the reactive per-inbox path
-  makes every surface live-update consistently and lets us delete the
-  snapshot-baked avatar plumbing (`ConversationAvatarView`'s `.cachedImage(for:
-  conversation)` path, the per-conversation avatar baked into the list snapshot,
-  and eventually the `profileAvatarLatest` view once `displayAvatar(for: nil)` is
-  the render path).
-
-  **Known bug this fixes: conversation-list preview photos for multiple DMs with
-  the same person can show stale/mismatched avatars.** Repro: two DMs with the
-  same person; that person updates their photo; only one of the two list preview
-  photos updates (the other lags until you open/close that conversation, which
-  forces a fresh fetch). Root cause: the list preview avatar is baked into the
-  conversation-list snapshot (`Conversation.avatarType = .profile(...)` ->
-  `imageCacheURL`), so a cell only refreshes when the list observation re-fires
-  AND the diffable data source reloads that specific cell - which does not happen
-  reliably when only a member's `profileAvatar` changed and nothing else about the
-  conversation did. Rendering the DM preview via the reactive `profilePublisher`
-  (as `InboxProfileAvatarView` does) decouples it from the list snapshot and makes
-  it live-update, resolving this for free. Not worth a risky one-off patch to the
-  shared `ConversationAvatarView`; fix it as part of this deliberate pass with
-  simulator verification.
-
-Contact / Profile deduplication (`Contact` is now largely redundant with
-`Profile`; identity should always come from the `Profile` DB and listen for
-`Profile` changes):
-- [x] Contact no longer overrides `Profile` name/image. The override entry
-  points are neutered no-ops: `Profile.overlaying(contact:)` returns self,
-  `Contact.memberAwareResolver` / the `.memberContactOverride(_:)` modifier /
-  `memberNameOverride` all yield nil. Contact name/image are effectively unused
-  for rendering (contact is still used for blocking / relationship state).
-- [x] Contact photo renders from the canonical profile. `ContactAvatarView` now
-  delegates to a reactive `InboxProfileAvatarView(inboxId:)` that subscribes to
-  `ProfilesRepository.profilePublisher(inboxId:)` (injected via a
-  `\.profilesRepository` SwiftUI environment key at `MainTabView`) and renders the
-  newest avatar per inbox, sharing the `inboxId`-keyed image cache with the chat
-  surfaces. Required widening `ProfilesRepository.profilePublisher`, `UnifiedProfile`
-  (partial), and `Avatar` (+ `salt`/`nonce`/`key` accessors) to `public`.
-- [ ] Remove the neutered plumbing entirely: delete `Profile+ContactOverlay.swift`
-  (`overlaying`, `liveOverride`, `memberAwareResolver`) and the
-  `memberContactOverride` / `memberNameOverride` environment carriers, and drop
-  the now-dead resolver threading through the message view controller + list
-  cells. Point remaining contact-specific UI (`ContactDetailView` name/subtitle,
-  contact cards) directly at the `Profile` DB (the photo is done above).
-- [ ] Remove the name / image columns from the `contact` table (`displayName`,
-  `avatarURL`, `avatarSalt`, `avatarNonce`, `avatarKey`, `profileEmoji`,
-  agent-verification/template fields) once every contact-specific surface reads
-  from `Profile`. Keep relationship-only state (`addedAt`, block state, etc.).
-
-Then, and only then:
-- [ ] Clear + drop `member_profile` (Android cleared but never dropped; a
-  `deleteAll` after backfill plus a `DROP TABLE` migration).
+Consolidated into section 17 (Follow-up items) at the end of this document,
+together with the follow-ups surfaced during review.
 
 ---
 
@@ -959,7 +861,7 @@ semantics (absent image = clear), and the merge engine's `silent` avatar state i
 reachable only from snapshot/app-data fill-blank paths, not from `ProfileUpdate`.
 This means acceptance criterion 4 (name-only update never blanks an avatar) is
 only fully met once that follow-up lands; this plan does not regress it relative
-to today.
+to today. Tracked as a follow-up in section 17.
 
 ### Same-version, cross-device (the local user's own installs)
 
@@ -1011,3 +913,119 @@ disappear. This is a local schema concern with no cross-client effect.
 - `profileSource` on the row vs derived at apply time. Design: persist on the row
   (`DBProfile.profileSource` / `DBProfileAvatar.profileSource`) so merge
   decisions survive restart without replaying events.
+
+## 17. Follow-up items (post-merge)
+
+Single source of truth for work deferred out of this PR. None of it blocks merge
+(everything here is additive and the rendering choke point already sits on the
+canonical tables), but the reader/writer migrations below must land before
+`member_profile` can be cleared or dropped.
+
+### Completed in this PR (for context)
+- [x] One avatar image per person across conversations, via the
+  `profileAvatarLatest` view joined through `DBConversationMember.avatarSlot`
+  (keyed by inboxId). Each avatar row is self-contained (url + salt + nonce +
+  key) from a shared conversation, so it decrypts anywhere. Pragmatic
+  alternative to the ADR 014 content-digest dedup.
+- [x] Contact no longer overrides `Profile` name/image; the override entry points
+  (`Profile.overlaying`, `Contact.memberAwareResolver`, `.memberContactOverride`,
+  `memberNameOverride`) are neutered no-ops.
+- [x] Contact photo renders from the canonical profile: `ContactAvatarView`
+  delegates to the reactive `InboxProfileAvatarView(inboxId:)` (subscribes to
+  `profilePublisher`, shares the inboxId-keyed image cache).
+- [x] DM conversation-list preview photo is reactive: `ConversationAvatarView`'s
+  DM case routes through `InboxProfileAvatarView`, so a member's photo change
+  updates the list without opening the conversation.
+
+### Rendering: finish the move onto the reactive per-inbox path
+Most rendering still flows through the choke-point GRDB snapshot reroute; only the
+contact and DM-preview photos use the reactive publishers. Completing this makes
+every surface live-update consistently and lets us delete the snapshot-baked
+avatar plumbing.
+- [ ] Migrate all remaining avatar/identity rendering onto `profilePublisher` /
+  `selfProfilePublisher`. Then delete the snapshot-baked plumbing:
+  `ConversationAvatarView`'s `.cachedImage(for: conversation)` path, the
+  per-conversation avatar baked into the list snapshot, and eventually the
+  `profileAvatarLatest` view once `displayAvatar(for: nil)` is the render path.
+- [ ] Remove the now-redundant `.cachedImage(for: conversation)` load still
+  applied on `ConversationAvatarView`'s DM branch (the DM case renders via
+  `InboxProfileAvatarView`, so the outer conversation-image load is dead weight
+  per DM row).
+- [ ] Eliminate the brief old-image flash on avatar update. On a same-identity URL
+  change the image cache deliberately shows the person's previous image (the
+  continuity hint) while the new encrypted image decrypts, so the recipient sees a
+  flash of the old photo. Fix: decrypt-and-warm the new image into `ImageCache`
+  before the observable canonical `DBProfileAvatar` write fires the re-render, and
+  realign `EncryptedImagePrefetcher` (still fed legacy `DBMemberProfile` rows) to
+  the canonical avatar. Pre-existing continuity-hint behavior, not introduced by
+  this refactor; the refactor only shifted the timing.
+- [ ] If `MessagesRepositoryBenchmarkTests` regress from the per-row DM
+  observation, hoist to a single batched `profilesPublisher(inboxIds:)` at the
+  list level instead of one observation per visible row.
+- [ ] Clustered group avatar not rendering: confirm whether groups that fall back
+  to a single default emoji are hitting a data gap. The rendering path
+  (`avatarType.clustered` -> `ClusteredAvatarView`) is intact; the cluster only
+  shows when `hasAnyAvatar` is true. `ProfileBackfill.backfillAvatar` skips any
+  legacy avatar failing `hasValidEncryptedAvatar` (missing salt/nonce/key), so
+  members with incomplete legacy crypto metadata get no canonical avatar and the
+  cluster reads empty. Needs runtime confirmation (single default emoji vs partial
+  cluster; migrated vs freshly created group) before fixing.
+
+### Migrate remaining `DBMemberProfile` readers to canonical
+- [ ] `ContactSyncCoordinator.syncConversation` - builds contact snapshots per
+  member.
+- [ ] `AssetRenewalURLCollector.collectRenewableAssets` - enumerates avatar assets
+  for renewal.
+- [ ] `AgentTimezonePublisher.republishTimezoneForAgentConversations` - finds the
+  user's conversations.
+- [ ] `AgentBuilderConnectionGrantReplayer.verifiedAgentInboxIds` - filters
+  verified agents (an agent reverified only in `DBProfile` is invisible here).
+
+### Migrate remaining `DBMemberProfile` write paths to canonical
+Identity introduced only through these renders as "Somebody" until migrated.
+- [ ] `InviteJoinRequestsManager` - joiner profile (currently via the
+  `ContactsWriter` mirror).
+- [ ] `ConversationWriter.persist` appData gap-fill, and the appData-only member
+  case generally (member identity that lives only in group appData, never in a
+  ProfileUpdate/Snapshot).
+
+### Cold-start ordering (agent verification)
+- [ ] `IncomingMessageWriter.bootstrapSenderProfile` reads `DBProfile`, but in
+  `BatchCatchUp` message persist runs before `ProfileInboundApplier` (detached),
+  so a verified agent's grant request can be dropped on cold-launch backlog
+  replay. Land the canonical write before the trusted-sender gate is checked.
+  Detailed writeup: `outputs/followup-agent-grant-coldstart-drop.md`. Pre-existing
+  on `dev`.
+
+### Self-profile consolidation
+- [ ] Collapse `DBMyProfile` and `DBSelfProfile` into one authoritative self
+  source. Options: fold the editor's raw image bytes into the canonical path and
+  retire `DBMyProfile`, or keep `DBMyProfile` strictly as a local image-bytes
+  cache and make `DBSelfProfile` derived from it on every write. Removes the
+  backfill stopgap.
+
+### Contact / Profile deduplication
+`Contact` is now largely redundant with `Profile`; identity should always come
+from the `Profile` DB.
+- [ ] Remove the neutered plumbing entirely: delete `Profile+ContactOverlay.swift`
+  (`overlaying`, `liveOverride`, `memberAwareResolver`) and the
+  `memberContactOverride` / `memberNameOverride` environment carriers, and drop
+  the dead resolver threading through the message view controller + list cells.
+  Point remaining contact-specific UI (`ContactDetailView` name/subtitle, contact
+  cards) directly at the `Profile` DB.
+- [ ] Remove the name / image columns from the `contact` table (`displayName`,
+  `avatarURL`, `avatarSalt`, `avatarNonce`, `avatarKey`, `profileEmoji`,
+  agent-verification/template fields) once every contact-specific surface reads
+  from `Profile`. Keep relationship-only state (`addedAt`, block state, etc.).
+
+### Wire-format change (deferred): avatar deliberate-clear
+- [ ] Add an explicit "avatar removed" tombstone field to `ProfileUpdate` /
+  `Snapshot`, distinct from "field absent," so a name-only update stays silent on
+  the avatar while a real removal clears it. Restores `.explicitClear` in
+  `ProfileInboundApplier` for the true-clear case and fully satisfies acceptance
+  criterion 4 (name-only update never blanks an avatar). Additive, proto3-optional,
+  backward compatible; sibling to ADR 014/015. Compat rationale in section 13.
+
+### Final gate
+- [ ] Clear + drop `member_profile` (a `deleteAll` after backfill plus a
+  `DROP TABLE` migration). Only after every reader/writer above is migrated.
