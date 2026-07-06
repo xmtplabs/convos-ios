@@ -106,9 +106,14 @@ public actor ProfilesRepository {
 
     nonisolated func selfProfilePublisher() -> AnyPublisher<UnifiedProfile?, Never> {
         ValueObservation
+            // Scope to the current user's row: resolve the current inbox id from
+            // `DBInbox` inside the read so a leftover `DBMyProfile` row from a
+            // previous account can't surface as the current user. Handled
+            // per-element so a transient error doesn't terminate the stream.
             .tracking { db -> UnifiedProfile? in
                 do {
-                    return try Self.fetchSelfProfile(db)
+                    guard let inboxId = try DBInbox.currentInboxId(db) else { return nil }
+                    return try Self.fetchSelfProfile(db, inboxId: inboxId)
                 } catch {
                     return nil
                 }
@@ -125,8 +130,13 @@ public actor ProfilesRepository {
         return UnifiedProfile.hydrate(identity: identity, avatarRows: avatars, inboxId: inboxId)
     }
 
-    static func fetchSelfProfile(_ db: Database) throws -> UnifiedProfile? {
-        guard let selfRow = try DBMyProfile.fetchOne(db) else { return nil }
+    static func fetchSelfProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile? {
+        // Scope to the current user's row. `DBMyProfile.fetchOne(db)` with no
+        // predicate returns whichever row exists, so a leftover row from a
+        // previous account could otherwise surface as the current user.
+        guard let selfRow = try DBMyProfile
+            .filter(DBMyProfile.Columns.inboxId == inboxId)
+            .fetchOne(db) else { return nil }
         let avatars = try DBProfileAvatar.fetchAll(db, inboxId: selfRow.inboxId)
         return UnifiedProfile(
             inboxId: selfRow.inboxId,
@@ -258,10 +268,12 @@ public actor ProfilesRepository {
         let existing: DBMyProfile
         if let cachedSelf {
             existing = cachedSelf
-        } else if let loaded = try? await selfProfileStore.load() {
-            existing = loaded
         } else {
-            existing = DBMyProfile(inboxId: selfId)
+            // Propagate a load error rather than falling back to a blank row: a
+            // transient read failure must not overwrite the stored name,
+            // metadata, and image with an empty profile. A genuinely absent row
+            // (nil) starts fresh.
+            existing = try await selfProfileStore.load() ?? DBMyProfile(inboxId: selfId)
         }
         let updated = edit.applied(to: existing, updatedAt: Date())
         try await selfProfileStore.save(updated)

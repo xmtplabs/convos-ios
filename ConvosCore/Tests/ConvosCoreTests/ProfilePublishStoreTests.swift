@@ -48,6 +48,14 @@ struct ProfilePublishStoreTests {
         let v2 = try await store.source(inboxId: "me")
         #expect(v2?.version == 2)
 
+        // bumpAvatarSource assigns the next version atomically.
+        let v3 = try await store.bumpAvatarSource(inboxId: "me", plaintext: Data([3]), updatedAt: past1)
+        #expect(v3 == 3)
+        let v4 = try await store.bumpAvatarSource(inboxId: "me", plaintext: Data([4]), updatedAt: past2)
+        #expect(v4 == 4)
+        let latestSource = try await store.source(inboxId: "me")
+        #expect(latestSource?.version == 4)
+
         // Enqueue jobs across conversations and readiness windows.
         let seqStart = try await store.nextSeq()
         #expect(seqStart == 1)

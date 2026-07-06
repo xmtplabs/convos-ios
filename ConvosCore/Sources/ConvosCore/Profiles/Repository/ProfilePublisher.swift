@@ -78,11 +78,10 @@ actor ProfilePublisher {
     /// out - propagation is lazy and per-conversation via `publishConversation`.
     func updateAvatarSource(_ avatarBytes: Data) async throws {
         guard let selfInboxId = await resolveSelfInboxId() else { return }
-        let existing = try await publishStore.source(inboxId: selfInboxId)
-        let version = (existing?.version ?? 0) + 1
-        try await publishStore.setSource(
-            DBProfileAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, version: version, updatedAt: now())
-        )
+        // Atomic read-increment-write: two concurrent avatar edits must not read
+        // the same version and both write it, or the stale-source supersede check
+        // in processAvatarJob would fail to detect the earlier batch as stale.
+        _ = try await publishStore.bumpAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, updatedAt: now())
     }
 
     /// Seeds a single conversation with the current profile (e.g. a freshly
@@ -247,8 +246,14 @@ actor ProfilePublisher {
 
     private func reschedule(_ job: DBProfilePublishJob, error: any Error) async {
         // Re-fetch so the reschedule preserves any ciphertext/uploaded URL cached
-        // during the attempt, rather than overwriting it with the stale `job`.
-        var updated = await latestJob(id: job.id) ?? job
+        // during the attempt. If the job is gone - a newer publish superseded and
+        // deleted it while this attempt was in flight - do not re-insert it, or a
+        // superseded (obsolete) profile/avatar would be retried and eventually
+        // sent after a newer publish intent.
+        guard var updated = await latestJob(id: job.id) else {
+            Log.error("ProfilePublisher job \(job.id) failed but was superseded/deleted, skipping reschedule: \(error)")
+            return
+        }
         updated.attemptCount += 1
         updated.lastError = "\(error)"
         updated.nextAttemptAt = now().addingTimeInterval(backoff.delay(forAttempt: updated.attemptCount))

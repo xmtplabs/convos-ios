@@ -183,20 +183,26 @@ struct ProfilesRepositoryTests {
         #expect(missing.name == nil)
     }
 
-    @Test("fetchSelfProfile reads the self row, or nil when absent")
+    @Test("fetchSelfProfile reads the scoped self row, or nil when absent or another inbox")
     func fetchSelfProfileReads() async throws {
         let queue = try ProfileStoreTestSupport.makeQueue()
         try await queue.write { db in
             try DBMyProfile(inboxId: "me", name: "Me", updatedAt: Date(timeIntervalSince1970: 1)).save(db)
         }
         let selfProfile = try await queue.read { db in
-            try ProfilesRepository.fetchSelfProfile(db)
+            try ProfilesRepository.fetchSelfProfile(db, inboxId: "me")
         }
         #expect(selfProfile?.name == "Me")
 
+        // A leftover row for another inbox must not surface as the current user.
+        let other = try await queue.read { db in
+            try ProfilesRepository.fetchSelfProfile(db, inboxId: "someone-else")
+        }
+        #expect(other == nil)
+
         let emptyQueue = try ProfileStoreTestSupport.makeQueue()
         let none = try await emptyQueue.read { db in
-            try ProfilesRepository.fetchSelfProfile(db)
+            try ProfilesRepository.fetchSelfProfile(db, inboxId: "me")
         }
         #expect(none == nil)
     }

@@ -12,6 +12,10 @@ import GRDB
 protocol ProfilePublishStoreProtocol: Sendable {
     // Source image
     func setSource(_ source: DBProfileAvatarSource) async throws
+    /// Atomically records new source bytes at `previous version + 1` and returns
+    /// the new version, so concurrent avatar edits can't read the same version
+    /// and both write it (which would defeat the stale-source supersede check).
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64
     func source(inboxId: String) async throws -> DBProfileAvatarSource?
     func clearSource(inboxId: String) async throws
 
@@ -55,6 +59,15 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
     func setSource(_ source: DBProfileAvatarSource) async throws {
         try await databaseWriter.write { db in
             try source.save(db)
+        }
+    }
+
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
+        try await databaseWriter.write { db in
+            let existing = try DBProfileAvatarSource.fetchOne(db, inboxId: inboxId)
+            let version = (existing?.version ?? 0) + 1
+            try DBProfileAvatarSource(inboxId: inboxId, plaintext: plaintext, version: version, updatedAt: updatedAt).save(db)
+            return version
         }
     }
 
@@ -189,6 +202,12 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
 
     func setSource(_ source: DBProfileAvatarSource) {
         sourcesByInbox[source.inboxId] = source
+    }
+
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) -> Int64 {
+        let version = (sourcesByInbox[inboxId]?.version ?? 0) + 1
+        sourcesByInbox[inboxId] = DBProfileAvatarSource(inboxId: inboxId, plaintext: plaintext, version: version, updatedAt: updatedAt)
+        return version
     }
 
     func source(inboxId: String) -> DBProfileAvatarSource? {
