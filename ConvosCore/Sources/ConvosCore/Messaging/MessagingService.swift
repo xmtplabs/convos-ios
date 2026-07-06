@@ -214,8 +214,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         await sharedProfilesRepository.warmUp()
         await sharedProfilesRepository.bind(
             session: MessagingProfilePublishSession(
-                sessionStateManager: sessionStateManager,
-                databaseReader: databaseReader
+                sessionStateManager: sessionStateManager
             )
         )
     }

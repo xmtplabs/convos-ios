@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 @preconcurrency import XMTPiOS
 
 /// Concrete `ProfilePublishSession` backed by the XMTP client and upload API.
@@ -13,17 +12,9 @@ import GRDB
 /// meaningful unit test - it is verified via integration / manual runs.
 struct MessagingProfilePublishSession: ProfilePublishSession {
     private let sessionStateManager: any SessionStateManagerProtocol
-    private let databaseReader: any DatabaseReader
 
-    init(sessionStateManager: any SessionStateManagerProtocol, databaseReader: any DatabaseReader) {
+    init(sessionStateManager: any SessionStateManagerProtocol) {
         self.sessionStateManager = sessionStateManager
-        self.databaseReader = databaseReader
-    }
-
-    func conversationIds() async throws -> [String] {
-        try await databaseReader.read { db in
-            try String.fetchAll(db, sql: "SELECT id FROM conversation")
-        }
     }
 
     func imageKey(conversationId: String) async throws -> Data? {

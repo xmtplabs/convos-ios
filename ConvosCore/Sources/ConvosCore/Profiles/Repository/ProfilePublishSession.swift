@@ -21,9 +21,6 @@ struct PublishedAvatar: Sendable {
 /// `ProfilePublisher` (and ConvosCore) free of XMTPiOS. The messaging layer
 /// provides the concrete implementation when the publisher is wired up.
 protocol ProfilePublishSession: Sendable {
-    /// All conversations the current user can publish their profile to.
-    func conversationIds() async throws -> [String]
-
     /// The conversation's image-encryption (group) key, or nil if the
     /// conversation no longer exists - in which case its publish job is dropped.
     func imageKey(conversationId: String) async throws -> Data?
