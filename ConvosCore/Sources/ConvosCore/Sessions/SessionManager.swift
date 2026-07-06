@@ -29,6 +29,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    /// Launch-time task that builds the messaging service (which starts profile
+    /// services). Stored so teardown can cancel it before it can rebuild - and
+    /// re-register - an inbox after a `deleteAllInboxes` wipe.
+    private var serviceBootstrapTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
@@ -176,7 +180,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // its profile services (backfill + warmUp + bind the publish session)
             // via loadOrCreateService's freshly-built hook, so we don't call
             // startProfileServices here as well - that would double-run backfill.
-            Task { [weak self] in
+            // Stored + cancellation-checked so a concurrent teardown cannot let
+            // this rebuild (and re-register) an inbox after a delete-all wipe.
+            self.serviceBootstrapTask = Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 _ = self.loadOrCreateService()
             }
@@ -188,6 +194,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         foregroundObserverTask?.cancel()
         staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
+        serviceBootstrapTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
@@ -548,6 +555,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Cancel the launch-time bootstrap first so it can't rebuild - and
+        // re-register - an inbox after the wipe below clears the keychain and
+        // the cached service.
+        serviceBootstrapTask?.cancel()
+        serviceBootstrapTask = nil
+
         await unusedConversationCache.cancel()
 
         // Keep the cached service reference live through the entire teardown.
