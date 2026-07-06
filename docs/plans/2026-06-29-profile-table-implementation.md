@@ -318,7 +318,9 @@ Key internals:
 
 - Warmed in-memory cache: `[String: Profile]` plus `[String: [conversationId: Avatar]]`,
   populated in `warmUp()` from `allIdentities()` + `allAvatars()` + `selfProfile`.
-  Reads serve from cache; writes update cache then persist. Cache mutations are
+  Reads serve from cache; writes persist to the store first, then update the
+  cache (and emit publishers) only after the store write succeeds, so a failed
+  write leaves the cache consistent with the database. Cache mutations are
   serialized on an internal `actor`.
 - `profilePublisher` / `profilesPublisher` back onto a Combine subject fed by
   store events and cache mutations; `profileChanges` emits the changed `inboxId`
@@ -412,20 +414,29 @@ public struct SelfProfileEdit: Sendable {
 }
 ```
 
-`updateSelfProfile` reads current `DBSelfProfile`, applies set fields, persists,
-and enqueues name-only publish jobs for all conversations.
+`updateSelfProfile` reads the current `DBMyProfile`, applies the set fields, and
+persists locally, bumping `updatedAt`. It does not fan out. Propagation is lazy
+and change-aware: an edit reaches a conversation only when the user next opens or
+sends in it (`publishMyProfileToConversation` compares the conversation's
+`ConversationLocalState.publishedProfileUpdatedAt` against `DBMyProfile.updatedAt`
+and publishes only when stale). A name-only publish re-sends the existing avatar
+rather than clearing it, so changing the display name never blanks the avatar.
 
 ### 7.2 ProfilePublisher - `Profiles/Repository/ProfilePublisher.swift`
 
 An `actor` owned by `ProfilesRepository`, backed by `IProfilePublishStore`.
 Replaces the direct `MyProfileWriter.update*` / `syncFromGlobalProfile` /
-`ProfileSyncCoordinator` fan-out.
+`ProfileSyncCoordinator` fan-out. Under the lazy propagation model there is no
+publish-to-all-conversations entry point: `updateAvatarSource` only records the
+new source bytes, and `publishConversation` delivers the current profile to one
+conversation (name-only jobs re-send the existing avatar). The conversation's
+`publishedProfileUpdatedAt` is stamped only after a send is confirmed.
 
 ```swift
 actor ProfilePublisher {
-    func bind(_ session: ProfilePublishSession)
-    func unbind()
-    func publish(avatarBytes: Data?, priorityConversationId: String?) async throws
+    func attach(session: ProfilePublishSession) async
+    func detach()
+    func updateAvatarSource(_ avatarBytes: Data) async throws
     func publishConversation(_ conversationId: String) async throws
 }
 ```
