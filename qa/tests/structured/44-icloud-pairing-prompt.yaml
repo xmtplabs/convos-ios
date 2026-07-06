@@ -307,11 +307,12 @@ steps:
       Requires a separate pair attempt with Device A's app freshly
       backgrounded (press home on A, then tap Pair on B within ~10s -
       iOS suspends the stream shortly after backgrounding, so timing is
-      tight by design; a killed app gets nothing until the NSE handles
-      pairing pushes, a documented follow-up). Foregrounding A afterwards
-      presents the PIN sheet from the stashed request. Optional and
-      timing-sensitive - run manually when validating the notification
-      path.
+      tight by design). Foregrounding A afterwards presents the PIN sheet
+      from the stashed request. For a killed app the NSE handles the
+      welcome/message push, shows the same banner, and stashes via
+      PendingPairRequestStore - but simulators receive no remote APNS, so
+      the NSE path needs a real device. Optional and timing-sensitive -
+      run manually when validating the notification path.
 
   - id: no_reprompt_after_pairing
     name: "No re-prompt once the identities match"

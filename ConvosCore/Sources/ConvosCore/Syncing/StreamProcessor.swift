@@ -897,16 +897,9 @@ extension StreamProcessor {
     /// Pre-conversation-lookup fast path for `PairingJoinRequestContent`,
     /// so "another device wants to pair" surfaces even when the Devices
     /// pairing screen isn't open (the iCloud-discovery joiner sends its
-    /// request unsolicited).
-    ///
-    /// Only requests whose embedded invite slug is signed by this inbox's
-    /// own identity key are surfaced: the iCloud-discovery joiner mints
-    /// its slug from the synced keychain backup and the QR flow signs its
-    /// slug locally, so both carry our signature, while a forged request
-    /// can't - producing a valid slug requires the private key. The
-    /// address comparison anchors that verification to our key: the
-    /// slug's inboxId and address fields are attacker-choosable, but the
-    /// signature only ever recovers to the signer's own address.
+    /// request unsolicited). Verification - the slug must be signed by
+    /// this inbox's own identity key - lives in
+    /// `PairingJoinRequestDetector`, shared with the NSE's push paths.
     ///
     /// Returns true whenever the message is a pairing join request (valid
     /// or not) so normal message processing skips it either way.
@@ -915,21 +908,9 @@ extension StreamProcessor {
               typeId == ContentTypePairingJoinRequest.typeID else {
             return false
         }
-        guard message.senderInboxId != params.client.inboxId,
-              let content = try? message.content() as PairingJoinRequestContent else {
-            return true
-        }
-        let invite: PairingInvite
-        do {
-            invite = try PairingInvite.fromURLSafeSlug(content.slug)
-        } catch {
-            Log.warning("StreamProcessor: ignoring pairing join request with undecodable or expired slug: \(error)")
-            return true
-        }
-        guard let identity = try? identityStore.loadSync(),
-              invite.initiatorInboxId == identity.inboxId,
-              invite.initiatorAddress.lowercased() == identity.keys.privateKey.walletAddress.lowercased() else {
-            Log.warning("StreamProcessor: ignoring pairing join request whose slug wasn't signed by this identity")
+        guard let identity = try? identityStore.loadSync() else { return true }
+        guard let request = PairingJoinRequestDetector.verifiedJoinRequest(in: message, identity: identity) else {
+            Log.warning("StreamProcessor: ignoring pairing join request that failed verification")
             return true
         }
         // Bind the slug's nonce to the first joiner that used it: the
@@ -938,20 +919,22 @@ extension StreamProcessor {
         // QR still inside its expiry window) is dropped instead of
         // popping an unsolicited PIN sheet. In-memory is enough - slugs
         // expire in minutes and the processor outlives any handshake.
+        // The re-decode cannot fail: the detector just verified the slug.
+        guard let invite = try? PairingInvite.fromURLSafeSlug(request.slug) else { return true }
         if let boundJoiner = PairingNonceLedger.shared.joiner(for: invite.nonce),
-           boundJoiner != message.senderInboxId {
+           boundJoiner != request.joinerInboxId {
             Log.warning("StreamProcessor: ignoring pairing join request replaying another joiner's slug")
             return true
         }
-        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: message.senderInboxId)
-        Log.info("StreamProcessor: verified pairing join request from joiner \(message.senderInboxId) - surfacing")
+        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: request.joinerInboxId)
+        Log.info("StreamProcessor: verified pairing join request from joiner \(request.joinerInboxId) - surfacing")
         NotificationCenter.default.post(
             name: .pairingDidReceiveVerifiedJoinRequest,
             object: nil,
             userInfo: [
-                "joinerInboxId": message.senderInboxId,
-                "deviceName": content.deviceName,
-                "slug": content.slug
+                "joinerInboxId": request.joinerInboxId,
+                "deviceName": request.deviceName,
+                "slug": request.slug
             ]
         )
         return true

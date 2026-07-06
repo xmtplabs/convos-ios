@@ -1045,6 +1045,15 @@ extension ConversationsViewModel {
 
     private func presentIncomingPairingSheet(joinerInboxId: String, deviceName: String) {
         QAEvent.emit(.pairing, "incoming_request_surfaced", ["joinerInboxId": joinerInboxId])
+        // The NSE stashes for pushes that arrive while the app is
+        // foregrounded too; presenting from the stream path must discard
+        // that stash (and any delivered banners), or the next activation
+        // would re-present a ghost PIN sheet for an already-handled
+        // request.
+        _ = PendingPairRequestStore.consumePending(
+            appGroup: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+        )
+        removeDeliveredPairingNotifications()
         incomingPairingPresentedAt = Date()
         incomingPairingRequest = PairingSheetViewModel(
             pairingService: DeferredInitiatorPairingService(session: session),
@@ -1054,17 +1063,52 @@ extension ConversationsViewModel {
     }
 
     private func presentPendingIncomingPairRequestIfNeeded() {
-        guard let pending = pendingIncomingPairRequest else { return }
-        pendingIncomingPairRequest = nil
-        UNUserNotificationCenter.current().removeDeliveredNotifications(
-            withIdentifiers: [Constant.incomingPairingNotificationId]
-        )
+        // Bail before consuming anything when a pairing flow is already
+        // on screen: a second initiator coordinator would race PIN
+        // generation for the same joiner. Consuming first and bailing
+        // after would destructively drop the stash (the app-group read
+        // removes it), losing the request if the joiner has stopped
+        // re-sending (killed/backgrounded). Leave it stashed so the next
+        // activation, once the active flow ends, can present it.
+        guard PairingSheetViewModel.active == nil, incomingPairingRequest == nil else { return }
+        // Two stash sources: in-memory (request arrived while this
+        // process was backgrounded) and the app-group store written by
+        // the NSE (request arrived while the app wasn't running at all).
+        var pending: PendingIncomingPairRequest?
+        if let inMemory = pendingIncomingPairRequest {
+            pendingIncomingPairRequest = nil
+            pending = inMemory
+        } else if let stashed = PendingPairRequestStore.consumePending(
+            appGroup: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+        ) {
+            pending = PendingIncomingPairRequest(
+                joinerInboxId: stashed.joinerInboxId,
+                deviceName: stashed.deviceName,
+                receivedAt: stashed.receivedAt
+            )
+        }
+        guard let pending else { return }
+        removeDeliveredPairingNotifications()
         // The joiner re-sends its request for the length of the pairing
         // window; past that the handshake would just expire on send, so
         // stale stashes are dropped instead of surfaced.
         guard Date().timeIntervalSince(pending.receivedAt) < Constant.foundDevicePairingWindow else { return }
-        guard PairingSheetViewModel.active == nil, incomingPairingRequest == nil else { return }
         presentIncomingPairingSheet(joinerInboxId: pending.joinerInboxId, deviceName: pending.deviceName)
+    }
+
+    /// Removes every delivered "is requesting to pair" banner: the app's
+    /// own local one (fixed request identifier) and any the NSE produced
+    /// for remote pushes, whose request identifiers are system-assigned
+    /// and only findable via the shared pairing thread identifier.
+    private func removeDeliveredPairingNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notifications in
+            let pairingIds = notifications
+                .filter { $0.request.content.threadIdentifier == PairingNotificationThread.identifier }
+                .map(\.request.identifier)
+            let ids = pairingIds + [Constant.incomingPairingNotificationId]
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
     }
 
     private func scheduleIncomingPairingNotification(deviceName: String) {
@@ -1072,6 +1116,7 @@ extension ConversationsViewModel {
         content.title = "Pair new device"
         content.body = "\"\(deviceName)\" is requesting to pair"
         content.sound = .default
+        content.threadIdentifier = PairingNotificationThread.identifier
         let request = UNNotificationRequest(
             identifier: Constant.incomingPairingNotificationId,
             content: content,
@@ -1095,11 +1140,18 @@ extension ConversationsViewModel {
         pendingPairDevice = nil
     }
 
-    /// Sheet-dismissal hook for the auto-surfaced initiator flow.
+    /// Sheet-dismissal hook for the auto-surfaced initiator flow. Also
+    /// discards any stash the NSE wrote for resends that landed while
+    /// the sheet was up - the request was handled either way, and a
+    /// leftover stash would re-present a ghost sheet on next activation.
     func dismissIncomingPairingRequest() {
         incomingPairingRequest?.triggerCancel()
         incomingPairingRequest = nil
         incomingPairingPresentedAt = nil
+        _ = PendingPairRequestStore.consumePending(
+            appGroup: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+        )
+        removeDeliveredPairingNotifications()
     }
 
     private enum Constant {
