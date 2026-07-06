@@ -51,7 +51,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
     let onUserInteraction: () -> Void
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
@@ -67,15 +66,15 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    var expandedMessageIds: Set<String> = []
+    var onToggleMessageExpanded: (String) -> Void = { _ in }
     let replyingToMessage: AnyMessage?
     var replyingToAudioTranscriptText: String?
     let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
-    let shouldBlurPhotos: Bool
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
@@ -101,11 +100,18 @@ struct MessagesView<BottomBarContent: View>: View {
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
+    /// When true the index-0 `.invite` cell renders the full inline
+    /// Invite/Scan card (`InviteCodeBody`) for an active hosted session.
+    /// Mirrors `ConversationView.showsTopOfConvoInvite`.
+    var showsInviteScanCard: Bool = false
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -161,9 +167,9 @@ struct MessagesView<BottomBarContent: View>: View {
         )
     }
 
-    private var representableAgentBuilderSummaryProvider: (AgentBuilderCardContent, Namespace.ID?) -> AnyView {
-        { content, transitionNamespace in
-            AnyView(AgentBuilderSummaryView(content: content, transitionNamespace: transitionNamespace))
+    private var representableAgentBuilderSummaryProvider: (AgentBuilderCardContent) -> AnyView {
+        { content in
+            AnyView(AgentBuilderSummaryView(content: content))
         }
     }
 
@@ -174,7 +180,6 @@ struct MessagesView<BottomBarContent: View>: View {
             invite: invite,
             onUserInteraction: onUserInteraction,
             hasLoadedAllMessages: hasLoadedAllMessages,
-            shouldBlurPhotos: shouldBlurPhotos,
             focusCoordinator: focusCoordinator,
             onTapAvatar: onTapAvatar,
             onLoadPreviousMessages: onLoadPreviousMessages,
@@ -188,9 +193,10 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapReadReceipts: onTapReadReceipts,
             onTapThinkingIndicator: onTapThinkingIndicator,
             onReply: onReply,
+            onOpenMessageDetail: onOpenMessageDetail,
+            expandedMessageIds: expandedMessageIds,
+            onToggleMessageExpanded: onToggleMessageExpanded,
             contextMenuState: contextMenuState,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
             creditsDepleted: creditsDepleted,
@@ -229,6 +235,11 @@ struct MessagesView<BottomBarContent: View>: View {
             agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
             currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
             backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
+            showsInviteScanCard: showsInviteScanCard,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: inviteScanInitialSegment,
+            onScannedInviteCode: onScannedInviteCode,
+            onInviteShareCompleted: onInviteShareCompleted,
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
             // `safeAreaBar` below), so the controller must not wait for a
@@ -275,7 +286,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
                     canEditProfile: canEditProfile,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
                     onSendMessage: {
                         scrollToBottom?()
                         onSendMessage()
@@ -291,7 +301,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     onVoiceMemoTap: onVoiceMemoTap,
                     voiceMemoRecorder: voiceMemoRecorder,
                     onSendVoiceMemo: onSendVoiceMemo,
-                    onConvosAction: onConvosAction,
                     onDebugAttachmentTap: onDebugAttachmentTap,
                     onBaseHeightChanged: { height in
                         bottomBarHeight = height
@@ -301,7 +310,6 @@ struct MessagesView<BottomBarContent: View>: View {
                         if let replyingToMessage {
                             ReplyComposerBar(
                                 message: replyingToMessage,
-                                shouldBlurPhotos: shouldBlurPhotos,
                                 audioTranscriptText: replyingToAudioTranscriptText,
                                 onDismiss: onCancelReply
                             )
@@ -332,7 +340,6 @@ struct MessagesView<BottomBarContent: View>: View {
         .overlay {
             MessageContextMenuOverlay(
                 state: contextMenuState,
-                shouldBlurPhotos: shouldBlurPhotos,
                 isReadOnly: isReadOnly,
                 onReaction: onReaction,
                 onReply: { message in
@@ -340,9 +347,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 },
                 onCopy: { text in
                     UIPasteboard.general.string = text
-                },
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden
+                }
             )
             // The overlay renders in a separate tree from the message cells,
             // so it doesn't inherit the cell's resolver injection. Provide it

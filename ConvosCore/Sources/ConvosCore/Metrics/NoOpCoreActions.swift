@@ -58,8 +58,12 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
         voiceMemoDuration: Float,
         connectionTypes: [String],
         entryMode: AgentBuilderEntryMode,
-        isSuccess: Bool
+        isSuccess: Bool,
+        fromPromptHint: Bool,
+        tapCount: Int
     ) async {}
+
+    public func promptHintTapped(tapCount: Int) async {}
 
     public func purchaseInitiated(
         productId: String,

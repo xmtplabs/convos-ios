@@ -1,5 +1,5 @@
 {
-  "originHash" : "e42c5a890580ea1af14b7c600ed4d57e637c981876d12b21d6f4c29586311d37",
+  "originHash" : "3e62d21768fe925827a3661d9cbb98928ffd5071149bb6f84f00d717e287aaf7",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -34,7 +34,7 @@
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "b82d23fc47fd2a9ed41370369a783306b9fbdc8a"
+        "revision" : "8b5f741bb0368c1a4edea87f00c1ec0463b181bb"
       }
     },
     {
@@ -159,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.10.0-nightly.20260530.065bd0d",
-        "revision" : "306aab69cba621ce70d8991bef77b61864940fd2"
+        "branch" : "ios-4.11.0-nightly.20260703.b86545d",
+        "revision" : "e109ecf87bff5138efd8656ab471720f8a343448"
       }
     },
     {

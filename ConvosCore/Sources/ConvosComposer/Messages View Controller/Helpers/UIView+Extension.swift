@@ -42,10 +42,11 @@ extension UIApplication {
     func topMostViewController() -> UIViewController? {
         connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first?
-            .rootViewController?
-            .topMostViewController()
+        let activeScenes = windowScenes.filter { $0.activationState == .foregroundActive }
+        let window: UIWindow? = activeScenes.compactMap(\.keyWindow).first
+            ?? activeScenes.flatMap(\.windows).first
+            ?? windowScenes.flatMap(\.windows).first
+        return window?.rootViewController?.topMostViewController()
     }
 }
 #endif

@@ -10,6 +10,7 @@ public struct ConversationToolbarButton: View {
     let conversationName: String
     let placeholderName: String
     let subtitle: String
+    let subtitleColor: Color
     let scheduledExplosionDate: Date?
     let action: () -> Void
     var longPressAction: (() -> Void)?
@@ -20,6 +21,7 @@ public struct ConversationToolbarButton: View {
         conversationName: String,
         placeholderName: String,
         subtitle: String = "Customize",
+        subtitleColor: Color = .colorTextSecondary,
         scheduledExplosionDate: Date? = nil,
         action: @escaping () -> Void,
         longPressAction: (() -> Void)? = nil
@@ -29,16 +31,18 @@ public struct ConversationToolbarButton: View {
         self.conversationName = conversationName
         self.placeholderName = placeholderName
         self.subtitle = subtitle
+        self.subtitleColor = subtitleColor
         self.scheduledExplosionDate = scheduledExplosionDate
         self.action = action
         self.longPressAction = longPressAction
     }
 
     var title: String {
-        guard !conversationName.isEmpty else {
-            return placeholderName
+        let base: String = conversationName.isEmpty ? placeholderName : conversationName
+        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
+            return base
         }
-        return conversationName
+        return "🧪 \(base)"
     }
 
     @ViewBuilder
@@ -54,7 +58,7 @@ public struct ConversationToolbarButton: View {
             Text(subtitle)
                 .lineLimit(1)
                 .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
+                .foregroundStyle(subtitleColor)
         }
     }
 

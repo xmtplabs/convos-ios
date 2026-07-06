@@ -97,30 +97,30 @@ struct EncryptedImageSyncTests {
         #expect(fetchedURLs.contains(charlieAvatarURL))
     }
 
-    @Test("Device A sees Device B's profile change via URL change event")
+    @Test("Two avatar URLs for one identity are independent byte entries")
     func testDeviceASeesDeviceBProfileChange() async throws {
         let cache = ImageCache()
-        var receivedChanges: [ImageURLChange] = []
-        let cancellable = cache.urlChanges
-            .filter { $0.identifier == "bob-inbox-id" }
-            .sink { change in
-                receivedChanges.append(change)
-            }
+        let identifier = "bob-inbox-\(UUID().uuidString)"
+        var received: [String] = []
+        let cancellable = cache.cacheUpdates.sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        let oldAvatarURL = "https://cdn.example.com/avatars/bob-v1.enc"
-        let newAvatarURL = "https://cdn.example.com/avatars/bob-v2.enc"
+        let oldAvatarURL = "https://cdn.example.com/avatars/bob-v1-\(UUID().uuidString).enc"
+        let newAvatarURL = "https://cdn.example.com/avatars/bob-v2-\(UUID().uuidString).enc"
 
-        cache.cacheAfterUpload(createSyncTestImage(color: .blue), for: "bob-inbox-id", url: oldAvatarURL)
+        cache.cacheAfterUpload(createSyncTestImage(color: .blue), for: identifier, url: oldAvatarURL)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        cache.cacheAfterUpload(createSyncTestImage(color: .red), for: identifier, url: newAvatarURL)
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        cache.cacheAfterUpload(createSyncTestImage(color: .red), for: "bob-inbox-id", url: newAvatarURL)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        #expect(receivedChanges.count == 2)
-        #expect(receivedChanges[0].newURL?.absoluteString == oldAvatarURL)
-        #expect(receivedChanges[1].oldURL?.absoluteString == oldAvatarURL)
-        #expect(receivedChanges[1].newURL?.absoluteString == newAvatarURL)
+        // Each URL is its own byte entry; cacheUpdates carries each URL key, and
+        // both resolve independently (no shared identity slot to clobber).
+        #expect(received.contains(oldAvatarURL))
+        #expect(received.contains(newAvatarURL))
+        let oldObject = TestImageCacheable(identifier: identifier, urlString: oldAvatarURL)
+        let newObject = TestImageCacheable(identifier: identifier, urlString: newAvatarURL)
+        #expect(await cache.imageAsync(for: oldObject) != nil)
+        #expect(await cache.imageAsync(for: newObject) != nil)
     }
 
     @Test("Already cached profile is not re-fetched from network")
@@ -131,14 +131,15 @@ struct EncryptedImageSyncTests {
         defer { ImageCacheContainer.shared = originalShared }
 
         let aliceInboxId = "alice-cached-\(UUID().uuidString)"
-        let aliceAvatarURL = URL(string: "https://cdn.example.com/avatars/alice-cached.enc")!
+        let aliceAvatarURL = URL(string: "https://cdn.example.com/avatars/alice-cached-\(UUID().uuidString).enc")!
 
-        testCache.cacheImage(createSyncTestImage(color: .red), for: aliceInboxId)
+        // Seed the byte cache under the avatar URL (the cache is URL-keyed).
+        testCache.cacheAfterUpload(createSyncTestImage(color: .red), for: aliceInboxId, url: aliceAvatarURL.absoluteString)
 
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        let cachedImage = await testCache.imageAsync(for: aliceInboxId)
-        #expect(cachedImage != nil)
+        let aliceObject = TestImageCacheable(identifier: aliceInboxId, url: aliceAvatarURL)
+        #expect(await testCache.imageAsync(for: aliceObject) != nil)
 
         let mockLoader = MockEncryptedImageLoader()
         mockLoader.stub(url: aliceAvatarURL, with: createSyncTestImageData())

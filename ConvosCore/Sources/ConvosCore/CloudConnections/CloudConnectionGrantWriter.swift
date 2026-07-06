@@ -40,20 +40,20 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
-    private let myProfileWriter: any MyProfileWriterProtocol
+    private let profileMetadataWriter: any ProfileMetadataWriterProtocol
     private let servicesStore: any ConnectionServicesStoreProtocol
 
     init(
         sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
-        myProfileWriter: any MyProfileWriterProtocol,
+        profileMetadataWriter: any ProfileMetadataWriterProtocol,
         servicesStore: any ConnectionServicesStoreProtocol
     ) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
-        self.myProfileWriter = myProfileWriter
+        self.profileMetadataWriter = profileMetadataWriter
         self.servicesStore = servicesStore
     }
 
@@ -474,24 +474,20 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         senderId: String,
         grantsJson: String?
     ) async throws {
-        let existingMetadata = try await databaseReader.read { db in
-            try DBMemberProfile.fetchOne(
-                db,
-                conversationId: conversationId,
-                inboxId: senderId
-            )?.metadata
+        // Route through the shared ProfileMetadataWriter so a connections write
+        // and a timezone write can never interleave on the per-sender metadata
+        // map's non-atomic read-merge-write.
+        let connectionsKey = Constant.connectionsKey
+        try await profileMetadataWriter.updateMetadata(
+            conversationId: conversationId,
+            inboxId: senderId
+        ) { metadata in
+            if let grantsJson {
+                metadata[connectionsKey] = .string(grantsJson)
+            } else {
+                metadata.removeValue(forKey: connectionsKey)
+            }
         }
-        var merged: ProfileMetadata = existingMetadata ?? [:]
-        if let grantsJson {
-            merged[Constant.connectionsKey] = .string(grantsJson)
-        } else {
-            merged.removeValue(forKey: Constant.connectionsKey)
-        }
-
-        try await myProfileWriter.updateAndPublish(
-            metadata: merged.isEmpty ? nil : merged,
-            conversationId: conversationId
-        )
     }
 
     private func prettyPrint(_ json: String) -> String {

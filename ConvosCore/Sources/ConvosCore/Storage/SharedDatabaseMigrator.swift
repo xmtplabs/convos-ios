@@ -202,14 +202,199 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateDescriptionAndSlug", migrate: Self.addAgentTemplateDescriptionAndSlug)
 
         Self.registerRemovedStateMigrations(on: &migrator)
-
-        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
-
-        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
-
-        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+        Self.registerConnectionGrantMigrations(on: &migrator)
+        Self.registerJoinAndGenerationMigrations(on: &migrator)
+        Self.registerCleanupMigrations(on: &migrator)
 
         return migrator
+    }
+
+    /// Set-once high-water mark: true once a conversation has ever had a
+    /// member besides the local inbox. Member rows are deleted on departure
+    /// sync, so without this flag a joined-then-left conversation is
+    /// indistinguishable from an untouched draft - and the engagement gate
+    /// (`ConversationEngagement`) would let implicit cleanup discard it.
+    ///
+    /// The column defaults to false; the backfill flags conversations that
+    /// currently hold a member row for an inbox other than the local one.
+    /// Departed-member history cannot be reconstructed on upgrade, so
+    /// pre-migration joined-then-left conversations start false - they are
+    /// still protected by their messages or metadata in practice. Extracted
+    /// as an internal static helper so the migration test can exercise the
+    /// real upgrade path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasHadOtherMembers(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasHadOtherMembers", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: """
+            UPDATE conversationLocalState
+            SET hasHadOtherMembers = 1
+            WHERE conversationId IN (
+                SELECT conversationId FROM conversation_members
+                WHERE inboxId NOT IN (SELECT inboxId FROM inbox)
+            )
+            """)
+    }
+
+    private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
+        migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
+    }
+
+    private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
+        migrator.registerMigration(
+            "addConversationLocalStateLeftHostedInviteSession",
+            migrate: Self.addConversationLocalStateLeftHostedInviteSession
+        )
+        migrator.registerMigration(
+            "addConversationLocalStateHasHadOtherMembers",
+            migrate: Self.addConversationLocalStateHasHadOtherMembers
+        )
+        migrator.registerMigration(
+            "addConversationLocalStateHasSharedInvite",
+            migrate: Self.addConversationLocalStateHasSharedInvite
+        )
+    }
+
+    /// Set-once high-water mark: true once the conversation's invite link
+    /// was shared externally. The share signal previously lived only in a
+    /// view-model latch, so the database-gated discard layers could destroy
+    /// a conversation whose invite was already in a recipient's hands (e.g.
+    /// share the embedded invite, then scan into another conversation - the
+    /// superseded-claim discard reads only database state).
+    ///
+    /// The column defaults to false with no backfill: shares were never
+    /// recorded anywhere queryable (the latch was in-memory only), so
+    /// pre-existing shares cannot be reconstructed on upgrade. Those
+    /// conversations are typically protected by their other engagement
+    /// signals (messages, members, metadata) in practice. Extracted as an
+    /// internal static helper so the migration test can exercise the real
+    /// upgrade path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func addConversationLocalStateHasSharedInvite(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "hasSharedInvite", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    /// Per-conversation local flag tracking whether the host has navigated
+    /// away from an active invite session. The inline Invite/Scan card shows
+    /// for a host while this is false and collapses to the regular top cell
+    /// once the host leaves the conversation and returns. Stored locally
+    /// because it's a per-device UI session state, not consensus state.
+    ///
+    /// The column default is false ("not left"), so freshly hosted convos
+    /// lead with the card. Existing rows are back-filled to true ("already
+    /// left") so the newly-inline card does not pop into established hosted
+    /// conversations on upgrade.
+    static func addConversationLocalStateLeftHostedInviteSession(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "leftHostedInviteSession", .boolean).notNull().defaults(to: false)
+        }
+        try db.execute(sql: "UPDATE conversationLocalState SET leftHostedInviteSession = 1")
+    }
+
+    /// Drops the reveal-mode columns now that incoming media always renders
+    /// unblurred. Existing reveal-blurred / owner-hidden rows already render
+    /// unblurred since the rendering predicates were removed earlier, so this
+    /// migration only drops the now-unused columns. Plain `DROP COLUMN` is
+    /// sufficient: none of these columns carry indexes, views, triggers, or
+    /// constraints. Extracted as an internal static helper so the migration
+    /// test can exercise the real upgrade path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func dropRevealColumns(_ db: Database) throws {
+        try db.alter(table: "photoPreferences") { t in
+            t.drop(column: "autoReveal")
+            t.drop(column: "hasRevealedFirst")
+        }
+        try db.alter(table: "attachmentLocalState") { t in
+            t.drop(column: "isRevealed")
+            t.drop(column: "revealedAt")
+            t.drop(column: "isHiddenByOwner")
+        }
+    }
+
+    /// In-progress preview identity + narration columns on the direct-builder
+    /// generation row. Nullable + additive; preview/`progressPhrases` only
+    /// populate while a build runs and are absent once terminal.
+    private static func addAgentTemplateGenerationPreview(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "previewAgentName", .text)
+            t.add(column: "previewEmoji", .text)
+            t.add(column: "previewDescription", .text)
+            t.add(column: "progressPhrases", .text)
+        }
+    }
+
+    /// Additive, nullable column holding a JSON-encoded
+    /// `[StoredGenerationAttachment]` for media inputs. `nil` for text-only
+    /// builds, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationAttachments(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "attachments", .text)
+        }
+    }
+
+    /// Additive, nullable column holding a JSON-encoded `[String]` of neutral
+    /// connection service ids sent with the generation. `nil` when no
+    /// connections, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationConnections(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "connections", .text)
+        }
+    }
+
+    /// Additive, nullable column holding the dev-only agent variant slug the
+    /// build was captured under. Persisted on the row so the same value rides
+    /// the generation, join, and join-status-poll calls even across a relaunch
+    /// resume, instead of re-reading the device selection mid-build. `nil` for
+    /// default (non-variant) builds, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationVariant(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "variantId", .text)
+        }
+    }
+
+    /// Registers the join-request ledger and the direct-builder generation
+    /// table, in this order. Grouped into a helper to keep `makeMigrator`
+    /// under the function-length budget; the registration position (last,
+    /// before `return`) is unchanged so the migration order is preserved.
+    private static func registerJoinAndGenerationMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
+        migrator.registerMigration("createAgentTemplateGeneration", migrate: Self.createAgentTemplateGeneration)
+        migrator.registerMigration("addAgentTemplateGenerationPreview", migrate: Self.addAgentTemplateGenerationPreview)
+        migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
+        migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
+        migrator.registerMigration("addAgentTemplateGenerationVariant", migrate: Self.addAgentTemplateGenerationVariant)
+    }
+
+    /// In-flight (or finished) agent-template generation kicked off by the
+    /// direct builder flow. Persisting it makes a build survive sheet
+    /// dismissal / app restart so the repository can resume polling or
+    /// re-issue the invite. Keyed by the client-generated `idempotencyKey`
+    /// (stable before the server responds, so a crash before the POST returns
+    /// replays safely); the server's `generationId` is filled in after submit.
+    /// The `conversationId` index backs the per-conversation publisher the
+    /// pending UI observes.
+    private static func createAgentTemplateGeneration(_ db: Database) throws {
+        try db.create(table: "agentTemplateGeneration") { t in
+            t.column("idempotencyKey", .text).notNull().primaryKey()
+            t.column("generationId", .text)
+            t.column("conversationId", .text).notNull()
+            t.column("slug", .text).notNull()
+            t.column("status", .text).notNull()
+            t.column("templateId", .text)
+            t.column("prompt", .text).notNull()
+            t.column("error", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+        try db.create(
+            index: "agentTemplateGeneration_conversationId",
+            on: "agentTemplateGeneration",
+            columns: ["conversationId"]
+        )
     }
 
     /// Ledger of join-request message IDs that already admitted their

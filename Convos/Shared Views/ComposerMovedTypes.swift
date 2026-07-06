@@ -22,7 +22,6 @@ typealias ClusteredAvatarView = ConvosComposer.ClusteredAvatarView
 typealias PendingAgentPresentation = ConvosComposer.PendingAgentPresentation
 typealias PendingAgentAvatarIdentity = ConvosComposer.PendingAgentAvatarIdentity
 typealias ConversationToolbarButton = ConvosComposer.ConversationToolbarButton
-typealias IndicatorToastStyle = ConvosComposer.IndicatorToastStyle
 typealias ExplodeState = ConvosComposer.ExplodeState
 typealias ExplodeButton = ConvosComposer.ExplodeButton
 typealias HoldToConfirmStyleConfig = ConvosComposer.HoldToConfirmStyleConfig

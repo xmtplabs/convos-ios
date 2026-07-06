@@ -21,6 +21,10 @@ extension EnvironmentValues {
 struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
+    /// Whether the source bubble's long-body inline expansion is currently on,
+    /// captured into the context menu so its preview matches the on-screen
+    /// bubble. Only the text-bubble path ever passes a non-default value.
+    var isExpanded: Bool = false
     let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
@@ -139,7 +143,8 @@ struct MessageGestureModifier: ViewModifier {
         contextMenuState.present(
             message: message,
             bubbleFrame: frame,
-            bubbleStyle: bubbleStyle
+            bubbleStyle: bubbleStyle,
+            isExpanded: isExpanded
         )
     }
 
@@ -203,6 +208,7 @@ extension View {
     func messageGesture(
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
+        isExpanded: Bool = false,
         onSingleTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
@@ -212,6 +218,7 @@ extension View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
+            isExpanded: isExpanded,
             onSingleTap: onSingleTap,
             onDoubleTap: onDoubleTap,
             onReply: onReply,

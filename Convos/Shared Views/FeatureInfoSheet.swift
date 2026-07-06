@@ -190,12 +190,6 @@ struct FeatureInfoParagraph: Identifiable {
         .selfSizingSheet(isPresented: $isPresented) { PhotosInfoSheet().padding(.top, 20) }
 }
 
-#Preview("Reveal") {
-    @Previewable @State var isPresented: Bool = true
-    VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { RevealMediaInfoSheet().padding(.top, 20) }
-}
-
 #Preview("Explode") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }

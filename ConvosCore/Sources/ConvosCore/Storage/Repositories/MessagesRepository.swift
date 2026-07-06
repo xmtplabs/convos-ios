@@ -934,6 +934,7 @@ private extension LightweightConversationDetails {
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
             hidesInviteCard: conversationLocalState.hidesInviteCard,
+            leftHostedInviteSession: conversationLocalState.leftHostedInviteSession,
             wasRemoved: conversationLocalState.wasRemoved,
             lastMessage: nil,
             imageURL: imageURL,
@@ -1135,8 +1136,6 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
 
     return HydratedAttachment(
         key: key,
-        isRevealed: localState?.isRevealed ?? false,
-        isHiddenByOwner: localState?.isHiddenByOwner ?? false,
         width: width,
         height: height,
         mimeType: mimeType,

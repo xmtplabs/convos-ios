@@ -5,8 +5,6 @@ import SwiftUI
 import UIKit
 
 public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
-    let profile: Profile
-    @Binding var profileImage: UIImage?
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
@@ -26,12 +24,8 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
     var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
-    let animateAvatarForProfileSetup: Bool
     let messagesTextFieldEnabled: Bool
-    let isCollapsed: Bool
-    let canEditProfile: Bool
     private let focused: MessagesViewInputFocus = .message
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     var onClearLinkPreview: (() -> Void)?
@@ -48,8 +42,6 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
     @State private var isPoofingInvite: Bool = false
 
     public init(
-        profile: Profile,
-        profileImage: Binding<UIImage?>,
         displayName: Binding<String>,
         emptyDisplayNamePlaceholder: String,
         messageText: Binding<String>,
@@ -66,11 +58,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
         isShowingAgentShareChip: Bool = false,
         sendButtonEnabled: Bool,
         focusState: FocusState<MessagesViewInputFocus?>.Binding,
-        animateAvatarForProfileSetup: Bool,
         messagesTextFieldEnabled: Bool,
-        isCollapsed: Bool,
-        canEditProfile: Bool,
-        onProfilePhotoTap: @escaping () -> Void,
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
         onClearLinkPreview: (() -> Void)? = nil,
@@ -78,8 +66,6 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
         @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
         @ViewBuilder agentShareChip: @escaping () -> AgentChip
     ) {
-        self.profile = profile
-        _profileImage = profileImage
         _displayName = displayName
         self.emptyDisplayNamePlaceholder = emptyDisplayNamePlaceholder
         _messageText = messageText
@@ -96,11 +82,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
         self.isShowingAgentShareChip = isShowingAgentShareChip
         self.sendButtonEnabled = sendButtonEnabled
         _focusState = focusState
-        self.animateAvatarForProfileSetup = animateAvatarForProfileSetup
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
-        self.isCollapsed = isCollapsed
-        self.canEditProfile = canEditProfile
-        self.onProfilePhotoTap = onProfilePhotoTap
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
         self.onClearLinkPreview = onClearLinkPreview
@@ -117,48 +99,11 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
         Self.defaultHeight
     }
 
-    @State private var avatarScale: CGFloat = 1.0
-
-    private func updateAnimation() {
-        if animateAvatarForProfileSetup {
-            withAnimation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                avatarScale = 1.2
-            }
-        } else {
-            withAnimation {
-                avatarScale = 1.0
-            }
-        }
-    }
-
     private var hasAttachments: Bool {
         !pendingMediaAttachments.isEmpty
             || pendingInviteURL != nil
             || isShowingAgentShareChip
             || composerLinkPreview != nil
-    }
-
-    private var avatarButton: some View {
-        Button {
-            onProfilePhotoTap()
-        } label: {
-            ProfileAvatarView(
-                profile: profile,
-                profileImage: profileImage,
-                useSystemPlaceholder: animateAvatarForProfileSetup
-            )
-        }
-        .frame(width: sendButtonSize, height: sendButtonSize)
-        .frame(alignment: .bottomLeading)
-        .scaleEffect(avatarScale)
-        .task(id: animateAvatarForProfileSetup) {
-            updateAnimation()
-        }
-        .disabled(!canEditProfile)
-        .hoverEffect(.lift)
-        .hoverEffectDisabled(!canEditProfile)
-        .accessibilityLabel("Edit your profile")
-        .accessibilityIdentifier("profile-avatar-button")
     }
 
     private var sendButton: some View {
@@ -184,7 +129,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
     private var messageTextField: some View {
         Group {
             TextField(
-                isCollapsed ? "Chat" : "Chat as \(profile.displayName)",
+                "Chat",
                 text: $messageText,
                 axis: .vertical
             )
@@ -213,7 +158,6 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
-                avatarButton
                 messageTextField
                 sendButton
             }

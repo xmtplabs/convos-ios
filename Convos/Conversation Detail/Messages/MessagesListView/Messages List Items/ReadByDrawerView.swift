@@ -4,12 +4,20 @@ import SwiftUI
 
 struct ReadByDrawerView: View {
     let members: [ConversationMember]
+    /// Resolves the local contact name for an inbox. Used fallback-only (the
+    /// per-conversation name wins; the contact name fills an empty name instead
+    /// of "Somebody"), matching the in-chat bubble. Defaults to no override.
+    var memberContactOverride: (String) -> Contact? = { _ in nil }
+
+    private func displayName(for member: ConversationMember) -> String {
+        member.displayName(contactNameFallback: { memberContactOverride($0)?.displayName })
+    }
 
     private var sortedMembers: [ConversationMember] {
         members.sorted { lhs, rhs in
             if lhs.isCurrentUser && !rhs.isCurrentUser { return true }
             if !lhs.isCurrentUser && rhs.isCurrentUser { return false }
-            return lhs.profile.displayName.localizedCaseInsensitiveCompare(rhs.profile.displayName)
+            return displayName(for: lhs).localizedCaseInsensitiveCompare(displayName(for: rhs))
                 == .orderedAscending
         }
     }
@@ -24,7 +32,7 @@ struct ReadByDrawerView: View {
             BoundedScrollView(maxHeight: 600.0) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
                     ForEach(sortedMembers, id: \.self) { member in
-                        ReadByRowView(member: member)
+                        ReadByRowView(member: member, resolvedName: displayName(for: member))
                     }
                 }
             }
@@ -36,6 +44,7 @@ struct ReadByDrawerView: View {
 
 private struct ReadByRowView: View {
     let member: ConversationMember
+    let resolvedName: String
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
@@ -47,7 +56,7 @@ private struct ReadByRowView: View {
             )
             .frame(width: 40.0, height: 40.0)
 
-            Text(member.isCurrentUser ? "You" : member.profile.displayName.capitalized)
+            Text(member.isCurrentUser ? "You" : resolvedName.capitalized)
                 .font(.callout)
                 .foregroundStyle(.colorTextPrimary)
 
@@ -55,7 +64,7 @@ private struct ReadByRowView: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(member.isCurrentUser ? "You" : member.profile.displayName) read this message")
+        .accessibilityLabel("\(member.isCurrentUser ? "You" : resolvedName) read this message")
     }
 }
 

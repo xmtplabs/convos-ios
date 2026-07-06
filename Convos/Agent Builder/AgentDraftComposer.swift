@@ -216,13 +216,13 @@ struct AgentDraftComposer: View {
     }
 
     private var textFieldPlaceholder: String {
-        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existence" : "Make a new agent"
+        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existence" : "What needs done?"
     }
 
     private var textField: some View {
         TextField(
             textFieldPlaceholder,
-            text: $viewModel.composerText,
+            text: viewModel.composerTextBinding,
             axis: .vertical
         )
         .focused(focusState, equals: .agentBuilder)
@@ -290,10 +290,8 @@ struct AgentDraftComposer: View {
                     focusState.wrappedValue = nil
                     isFilePickerPresented = true
                 },
-                onConvosAction: {},
                 isMediaCapacityFull: isMediaCapacityFull,
                 isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
-                showsSideConvoButton: false,
                 showsFileButton: false,
                 buttonSpacing: DesignConstants.Spacing.step4x,
                 onConnectionsTap: {

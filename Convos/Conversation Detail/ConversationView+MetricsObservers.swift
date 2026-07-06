@@ -44,14 +44,12 @@ extension ConversationView {
 
     struct MetricsObserversPart2: ViewModifier {
         let showingFullInfo: Bool
-        let presentingRevealMediaInfo: Bool
         let presentingPhotosInfo: Bool
         let presentingAgentBuilder: Bool
         let presentingNewConvoForInvite: Bool
         let presentingAddFromContactsPicker: Bool
 
         let onFullInfoChanged: (Bool, Bool) -> Void
-        let onRevealMediaInfoChanged: (Bool, Bool) -> Void
         let onPhotosInfoChanged: (Bool, Bool) -> Void
         let onAgentBuilderChanged: (Bool, Bool) -> Void
         let onNewConvoInviteChanged: (Bool, Bool) -> Void
@@ -60,7 +58,6 @@ extension ConversationView {
         func body(content: Content) -> some View {
             content
                 .onChange(of: showingFullInfo) { o, n in onFullInfoChanged(o, n) }
-                .onChange(of: presentingRevealMediaInfo) { o, n in onRevealMediaInfoChanged(o, n) }
                 .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
                 .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
                 .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }
@@ -85,6 +82,50 @@ extension ConversationView {
                 .onChange(of: presentingContactForAgentShare) { o, n in onAgentShareContactChanged(o, n) }
                 .onChange(of: presentingReactionsForMessage) { o, n in onReactionsChanged(o, n) }
                 .onChange(of: presentingThinkingDetail) { o, n in onThinkingDetailChanged(o, n) }
+        }
+    }
+}
+
+extension ConversationView {
+    /// Inputs the inline Invite/Scan card (`InviteCodeBody`) needs beyond what
+    /// the `.invite` cell derives from `invite`/`conversation`. Kept in this
+    /// extension so the main `ConversationView` body stays within the
+    /// type-body-length budget. The Scan segment's decoded codes open a
+    /// brand-new convo (the new-convo flow's `onScannedInviteCode`, or
+    /// `handleScannedCodeInCurrentConversation` for an existing convo).
+    var inviteScanMode: InviteCodeMode {
+        showsEmbeddedInvite ? .newConvo : .inConvo
+    }
+    var inviteScanScannedHandler: (String) -> Void {
+        onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
+    }
+    var onInviteShareCompletedHandler: (UIActivity.ActivityType?, Bool, Error?) -> Void {
+        { _, completed, _ in
+            if completed { onInviteShared?() }
+        }
+    }
+
+    /// Minimal pinned fallback for the `showsEmbeddedInvite` new-convo flows
+    /// during their pre-creation draft window. The inline `.invite` cell is
+    /// gated on a non-draft conversation, so a brand-new draft convo has no
+    /// transcript to host the card yet; this inset covers that narrow window
+    /// only, and the inline cell takes over once the convo is created.
+    /// Collapsed while the keyboard is up so the tall panel never squeezes the
+    /// composer.
+    @ViewBuilder
+    var draftEmbeddedInviteInset: some View {
+        if showsEmbeddedInvite, viewModel.conversation.isDraft, !isKeyboardVisible {
+            InviteCodeBody(
+                conversation: viewModel.conversation,
+                encodedURLString: viewModel.invite.inviteURLString,
+                mode: inviteScanMode,
+                initialSegment: embeddedInviteInitialSegment,
+                isInviteReady: !viewModel.invite.isEmpty,
+                onScannedCode: inviteScanScannedHandler,
+                onShareCompleted: onInviteShareCompletedHandler
+            )
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity)
         }
     }
 }

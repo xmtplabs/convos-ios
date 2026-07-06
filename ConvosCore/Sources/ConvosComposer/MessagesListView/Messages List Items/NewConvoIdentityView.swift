@@ -20,20 +20,6 @@ struct NewConvoIdentityView: View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             if showInviteMenu {
                 Menu {
-                    let copyLinkAction: () -> Void = { onCopyLink?() }
-                    Button(action: copyLinkAction) {
-                        Text("Invite link")
-                        Text("Copy to clipboard")
-                        Image(systemName: "link")
-                    }
-
-                    let convoCodeAction: () -> Void = { onConvoCode?() }
-                    Button(action: convoCodeAction) {
-                        Text("Convo code")
-                        Text("Show, share or AirDrop it")
-                        Image(systemName: "qrcode")
-                    }
-
                     let addFromContactsAction: () -> Void = {
                         // Routed via notification rather than a callback to
                         // avoid plumbing through ~9 layers of Messages / cell
@@ -45,7 +31,7 @@ struct NewConvoIdentityView: View {
                         )
                     }
                     Button(action: addFromContactsAction) {
-                        Text("Add from Contacts")
+                        Text("Contacts")
                         Text("People and agents")
                         Image(systemName: "person.crop.circle.badge.plus")
                     }
@@ -53,12 +39,19 @@ struct NewConvoIdentityView: View {
 
                     let agentAction: () -> Void = { onInviteAgent?() }
                     Button(action: agentAction) {
-                        Text("New Agent")
+                        Text("New agent")
                         Text(agentSubtitle)
                         Image("addAgentIcon")
                             .renderingMode(.template)
                     }
                     .disabled(isAgentActionDisabled)
+
+                    let convoCodeAction: () -> Void = { onConvoCode?() }
+                    Button(action: convoCodeAction) {
+                        Text("Invite friends")
+                        Text("Link, Airdrop or QR Code")
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Image(systemName: "plus")

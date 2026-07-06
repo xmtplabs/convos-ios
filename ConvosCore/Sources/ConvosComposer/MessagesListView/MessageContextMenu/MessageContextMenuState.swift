@@ -11,6 +11,19 @@ public class MessageContextMenuState: @unchecked Sendable {
     public var isOutgoing: Bool = false
     public var bubbleStyle: MessageBubbleType = .normal
     public var isReplyParent: Bool = false
+    /// Whether the source bubble's long-body inline expansion was on when the
+    /// menu opened, so the preview matches what's on screen (full text when
+    /// expanded, bounded teaser when collapsed). Owned by the conversation view
+    /// model and captured at present time, mirroring the on-screen bubble's
+    /// `isExpanded`.
+    public var isExpanded: Bool = false
+    public var sourceID: UUID?
+
+    public var presentedMessage: AnyMessage?
+    public var bubbleFrame: CGRect = .zero
+    public var isOutgoing: Bool = false
+    public var bubbleStyle: MessageBubbleType = .normal
+    public var isReplyParent: Bool = false
     public var sourceID: UUID?
 
     public var currentSourceFrame: CGRect = .zero
@@ -26,11 +39,12 @@ public class MessageContextMenuState: @unchecked Sendable {
         return dx > 2 || dy > 2
     }
 
-    public func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType) {
+    public func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType, isExpanded: Bool) {
         self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = bubbleStyle
         self.isReplyParent = false
+        self.isExpanded = isExpanded
         self.presentedMessage = message
     }
 
@@ -39,6 +53,7 @@ public class MessageContextMenuState: @unchecked Sendable {
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = .normal
         self.isReplyParent = true
+        self.isExpanded = false
         self.sourceID = sourceID
         self.presentedMessage = message
     }
@@ -46,6 +61,7 @@ public class MessageContextMenuState: @unchecked Sendable {
     public func dismiss() {
         presentedMessage = nil
         isReplyParent = false
+        isExpanded = false
         sourceID = nil
     }
 }

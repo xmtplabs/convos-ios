@@ -382,8 +382,6 @@ struct ShareComposeView: View {
     @State private var conversationName: String = ""
     @State private var conversationImage: UIImage?
     @State private var presentingConversationSettings: Bool = false
-    @State private var activeToast: IndicatorToastStyle?
-    @State private var autoRevealPhotos: Bool = false
     @State private var contextMenuState: MessageContextMenuState = MessageContextMenuState()
     @State private var bottomBarHeight: CGFloat = 0.0
 
@@ -444,8 +442,6 @@ struct ShareComposeView: View {
             conversationName: $conversationName,
             conversationImage: $conversationImage,
             presentingConversationSettings: $presentingConversationSettings,
-            activeToast: $activeToast,
-            autoRevealPhotos: $autoRevealPhotos,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: false,

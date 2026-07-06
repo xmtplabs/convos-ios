@@ -7,12 +7,11 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
     let placeholderName: String
     let untitledConversationPlaceholder: String
     let subtitle: String
+    var subtitleColor: Color = .colorTextSecondary
     let scheduledExplosionDate: Date?
     @Binding var conversationName: String
     @Binding var conversationImage: UIImage?
     @Binding var presentingConversationSettings: Bool
-    @Binding var activeToast: IndicatorToastStyle?
-    @Binding var autoRevealPhotos: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator?
     let showsExplodeNowButton: Bool
@@ -29,7 +28,6 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
     @ViewBuilder let quickEditView: (String, Binding<Bool>) -> QuickEdit
 
     @State private var isExpanded: Bool = false
-    @State private var showingToast: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
 
@@ -38,12 +36,11 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
         placeholderName: String,
         untitledConversationPlaceholder: String,
         subtitle: String,
+        subtitleColor: Color? = nil,
         scheduledExplosionDate: Date? = nil,
         conversationName: Binding<String>,
         conversationImage: Binding<UIImage?>,
         presentingConversationSettings: Binding<Bool>,
-        activeToast: Binding<IndicatorToastStyle?>,
-        autoRevealPhotos: Binding<Bool>,
         focusState: FocusState<MessagesViewInputFocus?>.Binding,
         focusCoordinator: FocusCoordinator?,
         showsExplodeNowButton: Bool,
@@ -60,12 +57,11 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
         self.placeholderName = placeholderName
         self.untitledConversationPlaceholder = untitledConversationPlaceholder
         self.subtitle = subtitle
+        self.subtitleColor = subtitleColor ?? .colorTextSecondary
         self.scheduledExplosionDate = scheduledExplosionDate
         _conversationName = conversationName
         _conversationImage = conversationImage
         _presentingConversationSettings = presentingConversationSettings
-        _activeToast = activeToast
-        _autoRevealPhotos = autoRevealPhotos
         _focusState = focusState
         self.focusCoordinator = focusCoordinator
         self.showsExplodeNowButton = showsExplodeNowButton
@@ -82,23 +78,14 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
     public var body: some View {
         GlassEffectContainer {
             ZStack {
-                if showingToast, let toast = activeToast {
-                    IndicatorToast(
-                        style: toast,
-                        isAutoReveal: $autoRevealPhotos,
-                        onDismiss: dismissToast
-                    )
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.9).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                } else if !isExpanded {
+                if !isExpanded {
                     ConversationToolbarButton(
                         conversation: conversation,
                         conversationImage: $conversationImage,
                         conversationName: conversationName,
                         placeholderName: untitledConversationPlaceholder,
                         subtitle: subtitle,
+                        subtitleColor: subtitleColor,
                         scheduledExplosionDate: scheduledExplosionDate,
                         action: onConversationInfoTapped,
                         longPressAction: onConversationInfoLongPressed
@@ -143,16 +130,8 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
                     )
                 )
         }
-        .onChange(of: activeToast) { _, newValue in
-            if newValue != nil {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    isExpanded = false
-                    showingToast = true
-                }
-            }
-        }
         .onChange(of: focusCoordinator?.currentFocus) { _, newValue in
-            guard !isImagePickerPresented, !showingToast else { return }
+            guard !isImagePickerPresented else { return }
 
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .conversationName ? true : false
@@ -163,13 +142,6 @@ public struct ConversationIndicator<InfoView: View, QuickEdit: View>: View {
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = (focusCoordinator?.currentFocus == .conversationName)
             }
-        }
-    }
-
-    private func dismissToast() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            showingToast = false
-            activeToast = nil
         }
     }
 }

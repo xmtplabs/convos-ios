@@ -17,6 +17,12 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func imageAsync(for object: any ImageCacheable) async -> ImageType? { nil }
 
+    public func imageAsync(forURL url: String) async -> ImageType? { nil }
+
+    public func continuityImage(for object: any ImageCacheable) async -> ImageType? { nil }
+
+    public func loadImageOrContinuity(for object: any ImageCacheable) async -> ImageType? { nil }
+
     public func removeImage(for object: any ImageCacheable) {}
 
     // MARK: - Upload Support
@@ -51,25 +57,12 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func removeAllPersistentImages() {}
 
-    // MARK: - URL Change Detection
-
-    public func hasURLChanged(_ url: String?, for identifier: String) async -> Bool { false }
-
     // MARK: - Observation
 
     public var cacheUpdates: AnyPublisher<String, Never> {
         _cacheUpdates.eraseToAnyPublisher()
     }
 
-    /// Publisher that emits when an image URL changes for an identifier.
-    ///
-    /// - Important: **For testing only.** Do not use this for UI observation.
-    ///   Use `cacheUpdates` instead, which emits when an image is cached and ready to display.
-    internal var urlChanges: AnyPublisher<ImageURLChange, Never> {
-        _urlChanges.eraseToAnyPublisher()
-    }
-
     private var _cacheUpdates: CurrentValueSubject<String, Never> = .init("")
-    private var _urlChanges: PassthroughSubject<ImageURLChange, Never> = .init()
 }
 #endif

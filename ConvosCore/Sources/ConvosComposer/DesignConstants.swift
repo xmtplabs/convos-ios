@@ -36,6 +36,7 @@ public enum DesignConstants {
     }
 
     public enum CornerRadius {
+        public static let extraLarge: CGFloat = 56.0
         public static let large: CGFloat = 40.0
         public static let mediumLargest: CGFloat = 34.0
         public static let mediumLarger: CGFloat = 32.0 // lol
@@ -48,6 +49,11 @@ public enum DesignConstants {
 
     public enum Colors {
         public static let light: Color = .white
+        /// Subtle neutral fill (Figma `color/fill/subtle`): #F5F5F5 in light,
+        /// #333333 in dark. Surfaces the existing `colorFillSubtle` asset under
+        /// `DesignConstants` so the QR tile and share-link button can reference
+        /// the token by name rather than the raw asset symbol.
+        public static let fillSubtle: Color = .colorFillSubtle
     }
 
     public enum Fonts {

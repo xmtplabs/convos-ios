@@ -6,11 +6,8 @@ public struct MessagesMediaButtonsView: View {
     @Binding var isCameraPresented: Bool
     let onVoiceMemoTap: () -> Void
     let onFilePickerTap: () -> Void
-    let onConvosAction: () -> Void
     var isMediaCapacityFull: Bool = false
     var isVoiceMemoDisabled: Bool = false
-    var isSideConvoDisabled: Bool = false
-    var showsSideConvoButton: Bool = true
     /// File attachment button. Temporarily hidden in the Agent Builder while
     /// file attachments are disabled there; the regular chat composer keeps it.
     var showsFileButton: Bool = true
@@ -93,22 +90,6 @@ public struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
 
-            Button {
-                onVoiceMemoTap()
-            } label: {
-                Image(systemName: "waveform")
-                    .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(voiceMemoTint)
-                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .disabled(isVoiceMemoDisabled)
-            .hoverEffect(.lift)
-            .hoverEffectDisabled(isVoiceMemoDisabled)
-            .accessibilityLabel("Voice memo")
-            .accessibilityIdentifier("voice-memo-button")
-
             if showsFileButton {
                 Button {
                     onFilePickerTap()
@@ -127,6 +108,22 @@ public struct MessagesMediaButtonsView: View {
                 .accessibilityIdentifier("file-picker-button")
             }
 
+            Button {
+                onVoiceMemoTap()
+            } label: {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18.0, weight: .medium))
+                    .foregroundStyle(voiceMemoTint)
+                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(isVoiceMemoDisabled)
+            .hoverEffect(.lift)
+            .hoverEffectDisabled(isVoiceMemoDisabled)
+            .accessibilityLabel("Voice memo")
+            .accessibilityIdentifier("voice-memo-button")
+
             if let onConnectionsTap {
                 Button {
                     onConnectionsTap()
@@ -141,27 +138,6 @@ public struct MessagesMediaButtonsView: View {
                 .hoverEffect(.lift)
                 .accessibilityLabel("Connections")
                 .accessibilityIdentifier("connections-button")
-            }
-
-            if showsSideConvoButton {
-                Button {
-                    onConvosAction()
-                } label: {
-                    Image("convosOrangeIcon", bundle: .module)
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 18)
-                        .foregroundStyle(isSideConvoDisabled ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary)
-                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .disabled(isSideConvoDisabled)
-                .hoverEffect(.lift)
-                .hoverEffectDisabled(isSideConvoDisabled)
-                .accessibilityLabel("Side convo")
-                .accessibilityIdentifier("side-convo-button")
             }
 
             if let onDebugAttachmentTap {
@@ -199,8 +175,7 @@ public struct MessagesMediaButtonsView: View {
         isPhotoPickerPresented: $isPhotoPickerPresented,
         isCameraPresented: $isCameraPresented,
         onVoiceMemoTap: {},
-        onFilePickerTap: {},
-        onConvosAction: {}
+        onFilePickerTap: {}
     )
     .padding()
 }

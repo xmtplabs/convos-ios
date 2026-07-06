@@ -24,9 +24,11 @@ convention from test 03.
 - **Names are required.** A human contact is only visible when it has a `displayName`
   (an unnamed member renders as "Somebody" and is filtered out). So each device sets
   its per-conversation profile name to `quick-edit-display-name-field` - Device A =
-  "Alice", Device B = "Bob". The creator opens that field via `setup-profile-button`
-  on the new-conversation screen; the joiner opens it via `profile-avatar-button`
-  ("Edit your profile") in the message bar (the joiner has no setup-profile-button).
+  "Alice", Device B = "Bob". Both open that field via `setup-profile-button`
+  ("Add your name and pic"): the creator from the new-conversation screen, the
+  joiner from the same button surfaced under the message composer while the
+  conversation profile is still unset. The in-composer avatar button was removed
+  in the composer redesign.
 - **Compose goes through the picker.** `compose-button` opens the ContactsPicker in
   "compose" mode first (existing contacts, empty on a fresh device); tap
   `contacts-picker-confirm` (label "Skip") to reach the invite/new-conversation screen.

@@ -63,7 +63,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// expand/collapse, like the share extension.
     let pinsExpandedInput: Bool
     let messagesTextFieldEnabled: Bool
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
@@ -76,7 +75,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
-    let onConvosAction: () -> Void
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
@@ -95,7 +93,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
-    @State private var isMessageInputFocused: Bool = false
+    /// Drives the composer's visual swap between the attachment-icon row
+    /// (`false`) and the single `+` button beside the large text input
+    /// (`true`). Decoupled from actual keyboard focus: it starts `true` so a
+    /// freshly opened chat shows the `+` / large-input treatment without
+    /// raising the keyboard, and `handleFocusChanged` keeps it in sync with
+    /// real focus thereafter.
+    @State private var isMessageInputFocused: Bool = true
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
@@ -482,14 +486,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                         isMessageInputFocused = false
                     }
                 } label: {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "plus")
                         .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextTertiary)
+                        .foregroundStyle(Color.colorTextPrimary)
                         .frame(width: 32, height: 32)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show media buttons")
+                .accessibilityLabel("Show attachments")
                 .accessibilityIdentifier("collapse-input-button")
                 .disabled(pinsExpandedInput)
                 .opacity(messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4)
@@ -504,7 +508,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
                 let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
                 let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
-                let sideConvoDisabled: Bool = hasSideConvo || hasMedia
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
@@ -512,16 +515,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                     onFilePickerTap: {
                         isFilePickerPresented = true
                     },
-                    onConvosAction: {
-                        guard pendingInviteURL == nil else { return }
-                        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                            isMessageInputFocused = true
-                        }
-                        onConvosAction()
-                    },
                     isMediaCapacityFull: mediaButtonsDisabled,
                     isVoiceMemoDisabled: voiceMemoDisabled,
-                    isSideConvoDisabled: sideConvoDisabled,
                     onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
@@ -533,8 +528,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             }
 
             MessagesInputView(
-                profile: profile,
-                profileImage: $profileImage,
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
@@ -551,11 +544,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 isShowingAgentShareChip: isShowingAgentShareChip,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
-                animateAvatarForProfileSetup: animateAvatarForProfileSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
-                isCollapsed: !isMessageInputFocused,
-                canEditProfile: canEditProfile,
-                onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
                 onClearLinkPreview: onClearLinkPreview,

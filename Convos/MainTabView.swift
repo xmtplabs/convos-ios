@@ -118,6 +118,12 @@ struct MainTabView: View {
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    /// Curated agent-builder prompt hints, hydrated from disk on init and
+    /// refreshed once on launch (see `body`'s `.task`). Injected into the
+    /// environment so the agent builder's dice control -- in this view's
+    /// builder sheet and in builders presented from descendant conversation
+    /// screens -- can read the cached hints.
+    @State private var promptHints: PromptHintsModel = .live()
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -274,6 +280,10 @@ struct MainTabView: View {
 
     var body: some View {
         bodyCore
+            .environment(promptHints)
+            .task {
+                await promptHints.loadOnLaunch()
+            }
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
@@ -348,7 +358,9 @@ struct MainTabView: View {
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
             suggestedAgentsService: SuggestedAgentsService.live(),
-            scrollTarget: $contactsScrollTarget
+            scrollTarget: $contactsScrollTarget,
+            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            hasPushedContactDetail: !contactsPath.isEmpty
         )
     }
 
@@ -394,7 +406,7 @@ struct MainTabView: View {
                         .transition(.blurReplace)
                 }
             }
-            .toolbar { sharedToolbar(for: tab) }
+            .toolbar { sharedToolbar() }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             // `.automatic`, not `.visible`, when no conversation is selected:
             // an explicit `.visible` at the stack root overrides the
@@ -406,54 +418,32 @@ struct MainTabView: View {
             .toolbar(isConversationSelected ? .hidden : .automatic, for: .tabBar)
     }
 
-    /// Shared toolbar (compose + add-agent) applied to each tab's
+    /// Shared toolbar (scan + compose) applied to each tab's
     /// `NavigationStack`. The AppIndicatorPill is *not* a toolbar item —
     /// native toolbars clip the slot height (~44pt) and the pill is taller.
     /// It's rendered as a SwiftUI overlay anchored at top-leading instead
     /// (see `sharedAppIndicatorOverlay`).
     @ToolbarContentBuilder
-    private func sharedToolbar(for tab: ConvosTab) -> some ToolbarContent {
+    private func sharedToolbar() -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Compose", systemImage: "square.and.pencil") {
+            let scanAction = {
+                conversationsViewModel.onJoinConvo()
+            }
+            Button(action: scanAction) {
+                Image(systemName: "viewfinder")
+            }
+            .accessibilityLabel("Scan a code")
+            .accessibilityIdentifier("scan-button")
+            .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Compose", systemImage: "plus") {
                 conversationsViewModel.onStartConvo()
             }
             .matchedTransitionSource(id: Constant.composerTransitionId, in: namespace)
             .accessibilityIdentifier("compose-button")
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
-        // Declared after Compose so it sits at the trailing edge (to the
-        // right of Compose) once the top builder bar has faded on scroll.
-        if showsToolbarBuilderButton(for: tab) {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: openBuilder) {
-                    Image("addAgentIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                }
-                .accessibilityLabel("Make an agent")
-                .accessibilityIdentifier("toolbar-add-agent-button")
-                .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
-            }
-        }
-    }
-
-    /// The compact "add agent" nav-bar button replaces the builder bar once
-    /// it has faded out on scroll. iPhone only (compact width): on iPad the
-    /// bar collapses to its own circle instead, so no nav-bar button. Also
-    /// hidden while the bar is revealed and while a conversation is pushed.
-    ///
-    /// The Contacts tab is the exception: it never shows the builder bar (the
-    /// contacts search bar owns the top), so the "add agent" button lives in
-    /// the nav bar permanently there, on every size class.
-    private func showsToolbarBuilderButton(for tab: ConvosTab) -> Bool {
-        if tab == .contacts {
-            return !isConversationSelected
-        }
-        return horizontalSizeClass == .compact
-            && !isBuilderBarRevealed
-            && !isConversationSelected
     }
 
     /// AppIndicatorPill rendered as an overlay above the entire app
@@ -994,23 +984,18 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow, onDismiss: {
-                conversationsViewModel.endComposeFlow()
-            }, content: {
-                if let composeViewModel = conversationsViewModel.composeConversationViewModel {
-                    ComposeFlowView(
-                        conversationsViewModel: conversationsViewModel,
-                        composeConversationViewModel: composeViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
-                    )
-                    .background(.colorBackgroundSurfaceless)
-                    .presentationSizing(.page)
-                    .navigationTransition(
-                        .zoom(sourceID: "composer-transition-source", in: namespace)
-                    )
-                }
-            })
+            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow) {
+                ComposeFlowView(
+                    conversationsViewModel: conversationsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "composer-transition-source", in: namespace)
+                )
+            }
             .sheet(item: $thingsAgentContactMember) { member in
                 thingsAgentContactSheet(for: member)
             }

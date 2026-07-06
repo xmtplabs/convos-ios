@@ -6,7 +6,6 @@ import UIKit
 @MainActor
 struct CellConfig {
     let conversationId: String
-    let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
     /// Resolves whether the current user already joined the conversation an
     /// invite card points to, so it can show the member count instead of
@@ -30,9 +29,16 @@ struct CellConfig {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap so the host can
+    /// present `MessageDetailView`. Nil when no host handler is wired, which
+    /// suppresses the button (nil-handler => no button contract).
+    let onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM, so it
+    /// survives `UICollectionView` cell reuse).
+    let expandedMessageIds: Set<String>
+    /// Toggles a message id's long-body inline expansion on the host.
+    let onToggleMessageExpanded: (String) -> Void
     let contextMenuState: MessageContextMenuState
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
     let onRetryAgentJoin: () -> Void
@@ -75,7 +81,7 @@ struct CellConfig {
     /// Builds the agent-builder summary card for `.agentBuilderSummary`
     /// items. The view lives in the app target, so the app host supplies
     /// this; hosts without it (extensions) render nothing for that case.
-    let agentBuilderSummaryProvider: ((AgentBuilderCardContent, Namespace.ID?) -> AnyView)?
+    let agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)?
     /// Returns the current user's profile image for the "Only visible to
     /// you" footer avatar. The app host reads its profile store; nil shows
     /// the placeholder avatar.
@@ -84,6 +90,17 @@ struct CellConfig {
     /// from the conversation-info preview. The view lives in the app
     /// target; when nil the explainer button doesn't present anything.
     let backwardsSecrecyInfoSheet: (() -> AnyView)?
+    /// When true the `.invite` cell renders the full inline Invite/Scan card
+    /// (`InviteCodeBody`) instead of the regular inviter QR + menu. Mirrors
+    /// `ConversationView.showsTopOfConvoInvite`.
+    let showsInviteScanCard: Bool
+    /// The conversation the inline Invite/Scan card renders for. Nil when the
+    /// card is not shown; the `.invite` cell guards on it.
+    let inviteScanConversation: Conversation?
+    let inviteScanMode: InviteCodeMode
+    let inviteScanInitialSegment: ScanInviteSegment
+    let onScannedInviteCode: (String) -> Void
+    let onInviteShareCompleted: (UIActivity.ActivityType?, Bool, Error?) -> Void
 }
 
 // swiftlint:disable force_cast

@@ -6,7 +6,6 @@ struct AddToConversationMenu: View {
     var isAgentJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
-    let onCopyLink: () -> Void
     let onInviteAgent: () -> Void
     /// Opens the contacts picker scoped to the destination conversation.
     /// Every menu surface (chat header, info view, members list) offers
@@ -31,37 +30,30 @@ struct AddToConversationMenu: View {
 
     var body: some View {
         Menu {
-            Button(action: onCopyLink) {
-                Text("Invite link")
-                Text("Copy to clipboard")
-                Image(systemName: "link")
-            }
-            .accessibilityIdentifier("context-menu-copy-link")
-
-            Button(action: onConvoCode) {
-                Text("Convo code")
-                Text("Show, share or AirDrop it")
-                Image(systemName: "qrcode")
-            }
-            .accessibilityIdentifier("context-menu-convo-code")
-
             Button(action: onAddFromContacts) {
-                Text("Add from Contacts")
+                Text("Contacts")
                 Text("People and agents")
                 Image(systemName: "person.crop.circle.badge.plus")
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
             Button(action: onInviteAgent) {
-                Text("New Agent")
+                Text("New agent")
                 Text(agentSubtitle)
                 Image("addAgentIcon")
                     .renderingMode(.template)
             }
             .disabled(isAgentActionDisabled)
             .accessibilityIdentifier("context-menu-add-agent")
+
+            Button(action: onConvoCode) {
+                Text("Invite friends")
+                Text("Link, Airdrop or QR Code")
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityIdentifier("context-menu-convo-code")
         } label: {
-            Image(systemName: "plus")
+            Image(systemName: "person.crop.circle.badge.plus")
                 .foregroundStyle(labelColor)
         }
         .disabled(!isEnabled)
@@ -79,7 +71,6 @@ struct AddToConversationMenu: View {
                         isFull: false,
                         isEnabled: true,
                         onConvoCode: {},
-                        onCopyLink: {},
                         onInviteAgent: {},
                         onAddFromContacts: {}
                     )

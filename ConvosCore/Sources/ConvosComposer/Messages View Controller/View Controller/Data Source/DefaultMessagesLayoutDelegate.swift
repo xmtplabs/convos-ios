@@ -52,6 +52,9 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .agentBuilderSummary:
                 // Composer-card height plus "You created an agent" footer.
                 return .estimated(CGSize(width: width, height: 320.0))
+            case .agentActivating:
+                // Avatar + name + description + progress bar + caption.
+                return .estimated(CGSize(width: width, height: 280.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }

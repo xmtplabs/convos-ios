@@ -18,6 +18,40 @@ filter_xmtp_logs() {
     grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
 }
 
+# Print a concise summary of test failures from a captured run log, so CI
+# surfaces what failed without scrolling the full ~19k-line output.
+print_failure_summary() {
+    local log="$1"
+    local found=0
+    echo ""
+    echo "================== FAILED TEST SUMMARY =================="
+
+    # Graceful Swift Testing failures: every failure line carries the ✘ glyph
+    # (passes use ✔) -- failed tests, failed suites, recorded issues with
+    # file:line + message, and the final run summary.
+    if grep -F '✘' "$log"; then
+        found=1
+    fi
+
+    # A `fatalError`/precondition crash aborts the process before any ✘ lines
+    # are written, so surface the crash message and the tests that were in
+    # flight when it died (the crash suspects).
+    if grep -nE 'Fatal error|fatalError|Crashed|exited abnormally|signal SIG' "$log"; then
+        found=1
+        echo ""
+        echo "--- tests started but never finished (crash suspects) ---"
+        comm -23 \
+            <(grep -oE 'Test "[^"]+" started' "$log" | sort -u) \
+            <(grep -oE 'Test "[^"]+" (passed|failed)' "$log" | sed -E 's/ (passed|failed)$/ started/' | sort -u) \
+            || true
+    fi
+
+    if [[ "$found" -eq 0 ]]; then
+        echo "(no failure markers found; see full log above)"
+    fi
+    echo "========================================================"
+}
+
 cd "$CORE_DIR"
 
 case "$TEST_TYPE" in
@@ -55,15 +89,20 @@ case "$TEST_TYPE" in
         # failure to reduce flake rate.
         MAX_ATTEMPTS=2
         ATTEMPT=1
+        TEST_LOG="$(mktemp)"
         while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
             echo "==> Attempt $ATTEMPT/$MAX_ATTEMPTS"
-            if swift test --skip-build 2>&1 | filter_xmtp_logs; then
+            # `tee` mirrors output to the console and captures it so the failure
+            # summary below can list which tests failed. `pipefail` (set above)
+            # makes the `if` reflect `swift test`'s status, not `tee`'s.
+            if swift test --skip-build 2>&1 | filter_xmtp_logs | tee "$TEST_LOG"; then
                 break
             fi
 
             if [[ $ATTEMPT -eq $MAX_ATTEMPTS ]]; then
                 echo ""
                 echo "==> Tests failed after $MAX_ATTEMPTS attempts"
+                print_failure_summary "$TEST_LOG"
                 exit 1
             fi
 
@@ -83,7 +122,11 @@ case "$TEST_TYPE" in
 
         echo ""
         echo "==> Running tests..."
-        swift test --skip-build 2>&1 | filter_xmtp_logs
+        TEST_LOG="$(mktemp)"
+        if ! swift test --skip-build 2>&1 | filter_xmtp_logs | tee "$TEST_LOG"; then
+            print_failure_summary "$TEST_LOG"
+            exit 1
+        fi
         ;;
     *)
         echo "Unknown option: $TEST_TYPE"

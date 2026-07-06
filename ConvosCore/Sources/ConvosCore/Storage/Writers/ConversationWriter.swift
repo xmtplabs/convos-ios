@@ -215,7 +215,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isMuted: false,
                 pinnedOrder: nil,
                 hidesInviteCard: false,
-                wasRemoved: false
+                leftHostedInviteSession: false,
+                wasRemoved: false,
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             )
             try localState.save(db)
 
@@ -344,7 +347,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
-            wasRemoved: false
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         )
         try localState.insert(db, onConflict: .ignore)
 
@@ -358,6 +364,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         try Self.clearRemovedMarkerIfMember(
+            conversationId: prepared.dbConversation.id,
+            currentMemberInboxIds: currentMemberInboxIds,
+            in: db
+        )
+
+        try Self.markHasHadOtherMembersIfNeeded(
             conversationId: prepared.dbConversation.id,
             currentMemberInboxIds: currentMemberInboxIds,
             in: db
@@ -414,6 +426,30 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .filter(ConversationLocalState.Columns.wasRemoved == true)
             .updateAll(db, ConversationLocalState.Columns.wasRemoved.set(to: false))
+    }
+
+    /// Latches the set-once `hasHadOtherMembers` high-water mark when the
+    /// synced member list contains an inbox besides the local one. Member
+    /// rows are deleted when a member leaves, so this persisted flag is the
+    /// only durable record that the conversation ever had a second member -
+    /// the engagement gate reads it to keep such conversations from being
+    /// discarded as untouched drafts. Only ever writes true; the flag is
+    /// never reset. Static for unit-testability, mirroring
+    /// `clearRemovedMarkerIfMember`.
+    static func markHasHadOtherMembersIfNeeded(
+        conversationId: String,
+        currentMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws {
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            Log.warning("markHasHadOtherMembersIfNeeded: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(where: { $0 != localInboxId }) else { return }
+        try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .filter(ConversationLocalState.Columns.hasHadOtherMembers == false)
+            .updateAll(db, ConversationLocalState.Columns.hasHadOtherMembers.set(to: true))
     }
 
     /// Post-persist side effects the stream path runs after each individual
@@ -1133,7 +1169,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             db, conversationId: conversationId, inboxId: inboxId
         ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
 
-        profile = profile.with(name: name)
+        // Never clear an existing name with a name-less/blank update. This is
+        // the catch-up/history apply path (cold launch, reconnect, conversation
+        // open, backfill) (see DBMemberProfile.withInboundName).
+        profile = profile.withInboundName(name)
 
         if let image = encryptedImage, image.isValid {
             profile = profile.with(
@@ -1219,8 +1258,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let urlString = encryptedRef.url
 
         Task.detached(priority: .background) {
-            // If URL didn't change and we already have a cached image, skip
-            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(for: cacheId) != nil {
+            // If URL didn't change and we already have the bytes, skip. The byte
+            // cache is keyed by URL (cacheAfterUpload writes under urlString), so
+            // probe by URL - probing by cacheId hits the identifier tier and
+            // always misses, re-downloading and re-decrypting every run.
+            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(forURL: urlString) != nil {
                 return
             }
 

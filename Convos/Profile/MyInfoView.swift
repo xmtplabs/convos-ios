@@ -109,8 +109,6 @@ struct MyInfoView: View {
             headerSection
             profileSection
             editProfileSection
-            socialNamesSection
-            humanAgeSection
         }
     }
 
@@ -204,42 +202,6 @@ struct MyInfoView: View {
         .background(Capsule().fill(.colorFillPrimary))
         .accessibilityLabel(didUseProfile ? "Profile applied" : "Use profile")
         .accessibilityIdentifier("use-profile-button")
-    }
-
-    @ViewBuilder
-    private var socialNamesSection: some View {
-        Section {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Text("Social names · Phone number")
-                    .font(.body)
-                    .foregroundStyle(.colorTextTertiary)
-                Spacer()
-                SoonLabel()
-            }
-            .padding(.vertical, 10.0)
-            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-        } footer: {
-            Text("Verified info")
-                .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private var humanAgeSection: some View {
-        Section {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Text("Human · Age")
-                    .font(.body)
-                    .foregroundStyle(.colorTextTertiary)
-                Spacer()
-                SoonLabel()
-            }
-            .padding(.vertical, 10.0)
-            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-        } footer: {
-            Text("Proofs")
-                .foregroundStyle(.colorTextSecondary)
-        }
     }
 }
 

@@ -100,17 +100,6 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    /// The claimed conversation backing the Compose flow. Created upfront by
-    /// `onStartConvo()` (mode `.newConversation`, which claims a warm-cached
-    /// conversation that already has an invite) so the contacts picker can
-    /// show that conversation's convo code in its empty state, and reused as
-    /// the destination the picker pushes on Skip / Continue. Cleared (and
-    /// torn down if it stayed empty) by `endComposeFlow()`.
-    var composeConversationViewModel: NewConversationViewModel? {
-        didSet {
-            oldValue?.cleanUpIfNeeded()
-        }
-    }
     var agentBuilderViewModel: AgentBuilderViewModel? {
         didSet {
             // Mirrors `newConversationViewModel.didSet`'s cleanup: when
@@ -128,9 +117,10 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    /// Drives the Compose flow sheet: the contacts picker is the root and
-    /// the claimed `composeConversationViewModel` is pushed onto it on Skip /
-    /// Continue. Distinct from `newConversationViewModel` (scanner / join /
+    /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
+    /// is the root, and every conversation is minted on intent inside the flow
+    /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
+    /// opening it. Distinct from `newConversationViewModel` (scanner / join /
     /// template), so the two never drive overlapping presentations.
     var presentingComposeFlow: Bool = false
     var presentingExplodeInfo: Bool = false
@@ -244,6 +234,11 @@ final class ConversationsViewModel {
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
+    /// A scan-resolved conversation to navigate into that isn't in the list yet
+    /// (a just-joined convo lands via the conversations publisher a beat later).
+    /// Resolved to a selection once the row appears.
+    @ObservationIgnored
+    private var pendingScanNavigationConversationId: String?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -411,10 +406,11 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Compose opens the contacts picker first (optional selection), then
-    /// pushes the conversation on Skip / Continue (`ComposeFlowView`). With no
-    /// contacts to pick from, the picker would be pointless -- so we skip it
-    /// and open the new-conversation view directly, like the pre-picker flow.
+    /// Compose opens the contacts picker first (optional selection); the flow
+    /// mints a conversation only on intent (`ComposeFlowView`), so opening and
+    /// cancelling the picker claims nothing. With no contacts to pick from,
+    /// the picker would be pointless -- so we skip it and open the
+    /// new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
         // Count the contacts the picker would actually show (excludes agents,
         // blocked, and unnamed) -- the raw contact count includes those, so
@@ -429,29 +425,43 @@ final class ConversationsViewModel {
             )
             return
         }
-        composeConversationViewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            coreActions: coreActions
-        )
         presentingComposeFlow = true
     }
 
-    /// Tears down the Compose flow when its sheet is dismissed. Clearing
-    /// `composeConversationViewModel` runs its `didSet` cleanup (which keeps a
-    /// conversation that already has content / members and discards an empty
-    /// claimed draft).
-    func endComposeFlow() {
-        presentingComposeFlow = false
-        composeConversationViewModel = nil
-    }
-
+    /// The home scan button lands on the embedded Scan/Invite screen with the
+    /// Scan segment active, so the live viewfinder and "Or scan from camera roll" are
+    /// both reachable (a scanned code opens a brand-new convo to join/add).
+    /// Mirrors `onShowInviteCode` but starts on `.scan`.
     func onJoinConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
-            mode: .scanner,
+            mode: .newConversation,
+            showsEmbeddedInvite: true,
+            embeddedInviteInitialSegment: .scan,
             coreActions: coreActions
         )
+        viewModel.onScanResolvedConversation = { [weak self] conversationId in
+            self?.navigateToScannedConversation(conversationId)
+        }
+        newConversationViewModel = viewModel
+    }
+
+    /// Starts and enters a fresh conversation showing the invite QR at the top
+    /// (the standard message-list header) and the scan viewfinder as its
+    /// trailing action -- the "Show an invite code" entry point. Mirrors the
+    /// no-contacts branch of `onStartConvo`, opting the conversation into the
+    /// embedded-invite presentation.
+    func onShowInviteCode() {
+        let viewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            showsEmbeddedInvite: true,
+            coreActions: coreActions
+        )
+        viewModel.onScanResolvedConversation = { [weak self] conversationId in
+            self?.navigateToScannedConversation(conversationId)
+        }
+        newConversationViewModel = viewModel
     }
 
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
@@ -592,6 +602,8 @@ final class ConversationsViewModel {
                     selectedConversationId = nil
                 }
 
+                resolvePendingScanNavigationIfPossible()
+
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
                 }
@@ -684,6 +696,20 @@ final class ConversationsViewModel {
         }
     }
 
+    /// Ends the selected host conversation's invite session on a real
+    /// pop-to-home and mirrors the flipped flag into the in-memory list.
+    /// The persist is async (GRDB); without the mirror, an instant re-entry
+    /// builds the next detail view model from the stale list row and the big
+    /// inline Invite/Scan card flashes until the write round-trips.
+    func endHostedInviteSessionOnPop() {
+        guard let detailViewModel = selectedConversationViewModel else { return }
+        detailViewModel.markInviteSessionEndedIfHosting()
+        let endedConversation = detailViewModel.conversation
+        guard endedConversation.leftHostedInviteSession,
+              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
+        conversations[index] = endedConversation
+    }
+
     private func markConversationAsRead(_ conversation: Conversation) {
         let conversationId = conversation.id
 
@@ -770,6 +796,33 @@ final class ConversationsViewModel {
 }
 
 extension ConversationsViewModel {
+    /// Dismisses the scanner sheet and navigates into the conversation a scan
+    /// resolved to, reusing the canonical `selectedConversationId` selection the
+    /// list uses. Deferred one hop so it runs after the presenting VM's `.ready`
+    /// handler unwinds (nil-ing the sheet there would tear down a VM mid-call).
+    /// The just-joined row may not be in `conversations` yet, so it's parked and
+    /// resolved by the conversations publisher once the row lands.
+    private func navigateToScannedConversation(_ conversationId: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingScanNavigationConversationId = conversationId
+            self.newConversationViewModel = nil
+            self.resolvePendingScanNavigationIfPossible()
+        }
+    }
+
+    /// Selects the parked scan-navigation target once its row exists in the list.
+    /// Called after the sheet dismiss and whenever the conversations list
+    /// updates. Selecting drives the same `navigationDestination` push a list tap
+    /// does; the metrics navigator fires via the `selectedConversationId`
+    /// onChange.
+    func resolvePendingScanNavigationIfPossible() {
+        guard let pendingId = pendingScanNavigationConversationId,
+              conversations.contains(where: { $0.id == pendingId }) else { return }
+        pendingScanNavigationConversationId = nil
+        selectedConversationId = pendingId
+    }
+
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
         return .init(session: client.session)

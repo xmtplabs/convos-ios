@@ -46,11 +46,25 @@ struct ConversationMembersListView: View {
         return { resolver($0)?.displayName }
     }
 
+    /// Opens the agent builder from this view's own `.sheet(item:)` so it
+    /// stacks over the Members list (itself inside the Info sheet) -- the chat
+    /// view's builder sheet (`viewModel.presentAgentBuilder()`) would present
+    /// beneath the still-visible Info sheet. On the first-ever tap, shows the
+    /// agents explainer first (local mirror of the chat view's intro flow).
+    private func presentAgentBuilderLocally() {
+        if viewModel.consumeAgentsIntroGate() {
+            presentingAgentsIntro = true
+        } else {
+            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+        }
+    }
+
     var body: some View {
         membersList
             .addFromContactsPicker(
                 viewModel: viewModel,
-                isPresented: $presentingAddFromContactsPicker
+                isPresented: $presentingAddFromContactsPicker,
+                onPresentAgentBuilder: presentAgentBuilderLocally
             )
             .sheet(item: $presentingAgentBuilder) { builderViewModel in
                 AgentBuilderView(
@@ -105,16 +119,7 @@ struct ConversationMembersListView: View {
                     onConvoCode: {
                         viewModel.presentingShareView = true
                     },
-                    onCopyLink: {
-                        viewModel.copyInviteLink()
-                    },
-                    onInviteAgent: {
-                        if viewModel.consumeAgentsIntroGate() {
-                            presentingAgentsIntro = true
-                        } else {
-                            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-                        }
-                    },
+                    onInviteAgent: presentAgentBuilderLocally,
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true
                     }

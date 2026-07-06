@@ -32,7 +32,10 @@ struct ConnectionGrantWriterTests {
                 sessionStateManager: sessionStateManager,
                 databaseWriter: databaseManager.dbWriter,
                 databaseReader: databaseManager.dbReader,
-                myProfileWriter: profileWriter,
+                profileMetadataWriter: ProfileMetadataWriter(
+                    myProfileWriter: profileWriter,
+                    databaseReader: databaseManager.dbReader
+                ),
                 servicesStore: Self.makeServicesStore(apiClient: apiClient)
             )
         }

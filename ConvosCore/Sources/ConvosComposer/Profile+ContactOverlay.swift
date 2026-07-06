@@ -2,6 +2,78 @@
 import ConvosCore
 import Foundation
 
+extension Contact {
+    /// Builds a contact-shaped override that takes only the live per-conversation
+    /// member profile's current avatar image, passing every other field through
+    /// from the stored contact unchanged. System-message and read-receipt rows
+    /// resolve avatars through the contact override, but the stored contacts table
+    /// lags a live avatar change (it is mirrored from member profiles
+    /// asynchronously). Preferring the member profile's avatar - the same source
+    /// the message bubble renders - keeps those rows in sync with the bubble after
+    /// a participant changes their photo.
+    ///
+    /// The avatar image (url + its crypto) is taken wholesale from the member
+    /// profile - never field-by-field merged with the stored contact - so a
+    /// change-photo shows the new image, and a partial/malformed member avatar
+    /// renders the same monogram as the bubble (copying the fields verbatim keeps
+    /// `Profile.isEncryptedImage`'s all-or-nothing crypto check identical).
+    ///
+    /// The display name is deliberately left as the stored contact's, so
+    /// contact-authoritative name resolution (and any future local nickname) is
+    /// unaffected - only the avatar is freshened.
+    ///
+    /// Known limitation (deferred): this does not handle a member who *clears*
+    /// their avatar (nil url) or switches to emoji-only. The caller renders via
+    /// `Profile.overlaying(contact:)`, which falls back to the frozen per-message
+    /// snapshot's avatar/metadata when the override carries no avatar url, so the
+    /// row would resurface the stale snapshot photo/emoji rather than the member's
+    /// cleared state. There is no UI to clear an avatar today, so this is
+    /// unreachable in practice; it is fully resolved by member-authoritative
+    /// rendering (`displayAvatar(for:)`) in the ProfilesRepository refactor, when
+    /// this whole stopgap is removed.
+    ///
+    /// Interim stopgap: remove once identity resolves from ProfilesRepository
+    /// (see docs/plans/2026-06-29-profile-table-implementation.md, section 10.1).
+    public static func liveOverride(member: Profile, stored: Contact?) -> Contact {
+        Contact(
+            inboxId: member.inboxId,
+            displayName: stored?.displayName,
+            avatarURL: member.avatar,
+            avatarSalt: member.avatarSalt,
+            avatarNonce: member.avatarNonce,
+            avatarKey: member.avatarKey,
+            addedAt: stored?.addedAt ?? Date(),
+            addedViaConversationId: stored?.addedViaConversationId,
+            isBlocked: stored?.isBlocked ?? false,
+            agentVerification: stored?.agentVerification,
+            agentTemplateId: stored?.agentTemplateId,
+            agentTemplatePublishedURL: stored?.agentTemplatePublishedURL,
+            profileEmoji: member.profileEmoji
+        )
+    }
+
+    /// Builds a member-aware contact resolver: freshens the current conversation
+    /// member's avatar image (the source the message bubble uses) over the lagging
+    /// stored contact, falling back to the stored contact for non-members. Name
+    /// and other identity fields are left as the stored contact's. See
+    /// `liveOverride`. Interim stopgap; see
+    /// docs/plans/2026-06-29-profile-table-implementation.md, section 10.1.
+    public static func memberAwareResolver(
+        members: [ConversationMember],
+        contactLookup: @escaping @Sendable (String) -> Contact?
+    ) -> @Sendable (String) -> Contact? {
+        let memberProfiles: [String: Profile] = Dictionary(
+            members.map { ($0.profile.inboxId, $0.profile) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        return { inboxId in
+            let stored = contactLookup(inboxId)
+            guard let member = memberProfiles[inboxId] else { return stored }
+            return Contact.liveOverride(member: member, stored: stored)
+        }
+    }
+}
+
 public extension Profile {
     /// Returns a new `Profile` with `name` and `avatar*` substituted
     /// from the supplied contact when - and only when - the contact

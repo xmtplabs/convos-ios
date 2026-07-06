@@ -38,6 +38,12 @@
       "allowedVersions": "/^ios-\\d+\\.\\d+\\.\\d+-nightly\\.\\d{8}\\.[a-f0-9]+$/",
       "commitMessageTopic": "libxmtp",
       "commitMessageExtra": "to {{newValue}}"
+    },
+    {
+      "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "platformAutomerge": true
     }
   ]
 }
