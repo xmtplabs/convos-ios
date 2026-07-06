@@ -1252,6 +1252,19 @@ extension MessagingService {
         userInfo: [AnyHashable: Any]
     ) -> DecodedNotificationContent {
         let appGroup = environment.appGroupIdentifier
+        // Same replay guard as the stream fast path
+        // (`StreamProcessor.handlePairingJoinRequestFastPath`): the ledger
+        // is app-group backed, so a nonce already bound to the legitimate
+        // joiner rejects a different inbox replaying a captured slug even
+        // though this extension is a fresh process per push. The re-decode
+        // cannot fail: the detector just verified the slug.
+        guard let invite = try? PairingInvite.fromURLSafeSlug(request.slug) else { return .droppedMessage }
+        if let boundJoiner = PairingNonceLedger.shared.joiner(for: invite.nonce),
+           boundJoiner != request.joinerInboxId {
+            Log.warning("NSE: ignoring pairing join request replaying another joiner's slug")
+            return .droppedMessage
+        }
+        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: request.joinerInboxId)
         if let existing = PendingPairRequestStore.pending(appGroup: appGroup),
            existing.joinerInboxId == request.joinerInboxId,
            Date().timeIntervalSince(existing.receivedAt) < PairingPushConstant.dedupeWindow {

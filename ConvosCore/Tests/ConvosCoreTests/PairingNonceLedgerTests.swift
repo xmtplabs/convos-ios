@@ -36,4 +36,36 @@ struct PairingNonceLedgerTests {
         #expect(ledger.joiner(for: Data("nonce-c".utf8)) == "joiner-1")
         #expect(ledger.joiner(for: Data("nonce-d".utf8)) == "joiner-2")
     }
+
+    @Test("Configured ledgers share bindings across instances")
+    func appGroupBackingSpansInstances() {
+        // Two instances with the same suite stand in for the app and NSE
+        // processes: a binding made by one must reject a different joiner
+        // replaying the same nonce through the other.
+        let suite = "pairing-nonce-ledger-tests-shared"
+        UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let nonce = Data("nonce-e".utf8)
+
+        let appLedger = PairingNonceLedger()
+        appLedger.configure(appGroup: suite)
+        appLedger.bind(nonce: nonce, toJoiner: "joiner-1")
+
+        let nseLedger = PairingNonceLedger()
+        nseLedger.configure(appGroup: suite)
+        #expect(nseLedger.joiner(for: nonce) == "joiner-1")
+        nseLedger.bind(nonce: nonce, toJoiner: "attacker")
+        #expect(nseLedger.joiner(for: nonce) == "joiner-1")
+        #expect(appLedger.joiner(for: nonce) == "joiner-1")
+    }
+
+    @Test("Unconfigured ledger stays in-memory")
+    func unconfiguredLedgerIsIsolated() {
+        let first = PairingNonceLedger()
+        let second = PairingNonceLedger()
+        let nonce = Data("nonce-f".utf8)
+
+        first.bind(nonce: nonce, toJoiner: "joiner-1")
+        #expect(second.joiner(for: nonce) == nil)
+    }
 }

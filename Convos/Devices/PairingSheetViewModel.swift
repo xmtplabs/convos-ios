@@ -33,6 +33,30 @@ final class PairingSheetViewModel: Identifiable {
     /// the same joiner and the handshake would fail on a stale PIN.
     private(set) static weak var active: PairingSheetViewModel?
 
+    /// The most recently created sheet VM and when it was created. A VM
+    /// exists only to be presented, but `active` isn't claimed until the
+    /// sheet's `.task` runs `startPairing()` - leaving a short window
+    /// (creation to first frame) where a concurrent verified join request
+    /// sees `active == nil` and would spawn a second coordinator for the
+    /// same joiner. `isFlowActiveOrStarting` closes that window without
+    /// breaking the dropped-presentation watchdog: a VM whose presentation
+    /// SwiftUI dropped never becomes `active` and stops blocking once the
+    /// grace period lapses.
+    private static weak var starting: PairingSheetViewModel?
+    private static var startingAt: Date?
+
+    /// True while an initiator flow owns, or is about to own, the
+    /// exchange. Callers gating auto-surfaced join requests should check
+    /// this rather than `active` alone; see `starting`.
+    static var isFlowActiveOrStarting: Bool {
+        if active != nil { return true }
+        if starting != nil, let startingAt,
+           Date().timeIntervalSince(startingAt) < Constant.startingGrace {
+            return true
+        }
+        return false
+    }
+
     var flowState: PairingFlowState = .qrCode(url: "")
     var canDismiss: Bool = true
     var title: String = "Pair new device"
@@ -68,6 +92,8 @@ final class PairingSheetViewModel: Identifiable {
             // pairing service bootstraps toward `.showingPin`.
             self.flowState = .syncing
         }
+        Self.starting = self
+        Self.startingAt = Date()
         observeNotifications()
     }
 
@@ -325,5 +351,13 @@ final class PairingSheetViewModel: Identifiable {
 
     func triggerCancel() {
         Task { await cancel() }
+    }
+
+    private enum Constant {
+        /// How long a freshly created VM blocks a second flow before its
+        /// sheet must have presented (and claimed `active`). Matches the
+        /// auto-surface watchdog's presentation grace in
+        /// `ConversationsViewModel` so both sides age out together.
+        static let startingGrace: TimeInterval = 3
     }
 }

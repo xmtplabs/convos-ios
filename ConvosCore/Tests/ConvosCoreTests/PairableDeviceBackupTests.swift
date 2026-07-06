@@ -43,8 +43,11 @@ struct PairableDeviceBackupTests {
         #expect(pairable.first?.deviceName == "Other iPhone")
     }
 
-    @Test("Returns everything when there is no current identity")
-    func keepsAllBackupsWithoutCurrentIdentity() throws {
+    @Test("Returns nothing when the current identity is unknown")
+    func hidesAllBackupsWithoutCurrentIdentity() throws {
+        // A nil current inbox means the keychain read failed, not that
+        // there is nothing to exclude; surfacing anything risks offering
+        // this install's own backup as a self-pair.
         let first = try makeBackup(inboxId: "inbox-a", backedUpAt: Date())
         let second = try makeBackup(inboxId: "inbox-b", backedUpAt: Date())
 
@@ -53,7 +56,7 @@ struct PairableDeviceBackupTests {
             excludingInboxId: nil
         )
 
-        #expect(pairable.count == 2)
+        #expect(pairable.isEmpty)
     }
 
     @Test("Sorts newest backup first, undated backups last")
@@ -65,7 +68,7 @@ struct PairableDeviceBackupTests {
 
         let pairable = PairableDeviceBackup.pairableBackups(
             from: [undated, old, new],
-            excludingInboxId: nil
+            excludingInboxId: "unrelated-inbox"
         )
 
         #expect(pairable.map(\.inboxId) == ["new", "old", "undated"])

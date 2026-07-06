@@ -4,15 +4,18 @@ import os
 /// Binds each verified pairing-invite nonce to the first joiner inbox
 /// that presented it, so a slug captured in transit (photographed QR,
 /// leaked pair URL) can't be replayed by a different inbox to pop an
-/// unsolicited PIN sheet while the original is still unexpired. The
-/// legitimate joiner re-sends its request on a fixed cadence and always
-/// matches its own binding.
+/// unsolicited PIN sheet or pairing banner while the original is still
+/// unexpired. The legitimate joiner re-sends its request on a fixed
+/// cadence and always matches its own binding.
 ///
 /// Process-wide singleton because more than one `StreamProcessor` exists
 /// per process (the syncing manager's and the conversation state
-/// machine's) and a replay can arrive on either. In-memory only: slugs
-/// expire within minutes, so a process restart forgetting bindings
-/// re-opens nothing beyond what expiry already allows.
+/// machine's) and a replay can arrive on either. Optionally backed by
+/// app-group storage (see `configure(appGroup:)`) so bindings also span
+/// processes: the Notification Service Extension is a fresh process per
+/// push, and without a shared backing its ledger would always be empty.
+/// Bindings expire within minutes either way, so losing them re-opens
+/// nothing beyond what slug expiry already allows.
 public final class PairingNonceLedger: Sendable {
     public static let shared: PairingNonceLedger = PairingNonceLedger()
 
@@ -21,16 +24,38 @@ public final class PairingNonceLedger: Sendable {
         let boundAt: Date
     }
 
-    private let bindings: OSAllocatedUnfairLock<[Data: Binding]> = .init(initialState: [:])
+    private struct State {
+        var bindings: [Data: Binding] = [:]
+        var appGroup: String?
+    }
+
+    private let state: OSAllocatedUnfairLock<State> = .init(initialState: State())
 
     init() {}
+
+    /// Backs the ledger with app-group UserDefaults so the app and the
+    /// NSE share bindings. Call once per process at messaging bootstrap;
+    /// later calls are ignored. Without this the ledger is in-memory
+    /// only, which is sufficient inside one long-lived process but blind
+    /// to bindings made by the other.
+    public func configure(appGroup: String) {
+        guard UserDefaults(suiteName: appGroup) != nil else {
+            Log.warning("PairingNonceLedger: app-group suite unavailable, staying in-memory")
+            return
+        }
+        state.withLock { state in
+            guard state.appGroup == nil else { return }
+            state.appGroup = appGroup
+        }
+    }
 
     /// The joiner inbox the nonce is bound to, if any unexpired binding
     /// exists.
     public func joiner(for nonce: Data) -> String? {
-        bindings.withLock { state in
-            prune(&state)
-            return state[nonce]?.joinerInboxId
+        state.withLock { state in
+            mergePersisted(into: &state)
+            prune(&state.bindings)
+            return state.bindings[nonce]?.joinerInboxId
         }
     }
 
@@ -38,25 +63,65 @@ public final class PairingNonceLedger: Sendable {
     /// same pair refreshes the timestamp so a long handshake's resends
     /// keep the binding alive.
     public func bind(nonce: Data, toJoiner joinerInboxId: String) {
-        bindings.withLock { state in
-            prune(&state)
-            if let existing = state[nonce], existing.joinerInboxId != joinerInboxId {
+        state.withLock { state in
+            mergePersisted(into: &state)
+            prune(&state.bindings)
+            if let existing = state.bindings[nonce], existing.joinerInboxId != joinerInboxId {
                 return
             }
-            state[nonce] = Binding(joinerInboxId: joinerInboxId, boundAt: Date())
+            state.bindings[nonce] = Binding(joinerInboxId: joinerInboxId, boundAt: Date())
+            persist(state)
         }
+    }
+
+    /// Folds the other process's persisted bindings into memory. On a
+    /// joiner conflict the earlier binding wins, preserving
+    /// first-writer-wins across processes.
+    private func mergePersisted(into state: inout State) {
+        guard let appGroup = state.appGroup,
+              let defaults = UserDefaults(suiteName: appGroup),
+              let stored = defaults.dictionary(forKey: Constant.storageKey) else { return }
+        for (key, value) in stored {
+            guard let nonce = Data(base64Encoded: key),
+                  let entry = value as? [String: Any],
+                  let joiner = entry[Constant.joinerField] as? String,
+                  let timestamp = entry[Constant.boundAtField] as? TimeInterval else { continue }
+            let persisted = Binding(joinerInboxId: joiner, boundAt: Date(timeIntervalSince1970: timestamp))
+            if let existing = state.bindings[nonce],
+               existing.joinerInboxId != persisted.joinerInboxId,
+               existing.boundAt <= persisted.boundAt {
+                continue
+            }
+            state.bindings[nonce] = persisted
+        }
+    }
+
+    private func persist(_ state: State) {
+        guard let appGroup = state.appGroup,
+              let defaults = UserDefaults(suiteName: appGroup) else { return }
+        var stored: [String: [String: Any]] = [:]
+        for (nonce, binding) in state.bindings {
+            stored[nonce.base64EncodedString()] = [
+                Constant.joinerField: binding.joinerInboxId,
+                Constant.boundAtField: binding.boundAt.timeIntervalSince1970,
+            ]
+        }
+        defaults.set(stored, forKey: Constant.storageKey)
     }
 
     /// Drops bindings comfortably older than any slug's validity window,
     /// keeping the table bounded without a timer.
-    private func prune(_ state: inout [Data: Binding]) {
+    private func prune(_ bindings: inout [Data: Binding]) {
         let cutoff = Date().addingTimeInterval(-Constant.retention)
-        state = state.filter { $0.value.boundAt > cutoff }
+        bindings = bindings.filter { $0.value.boundAt > cutoff }
     }
 
     private enum Constant {
         /// Longest slug validity in the codebase is the iCloud-discovery
         /// flow's 300s window; double it for clock skew headroom.
         static let retention: TimeInterval = 600
+        static let storageKey: String = "convos.pairing.nonceLedger.v1"
+        static let joinerField: String = "j"
+        static let boundAtField: String = "t"
     }
 }

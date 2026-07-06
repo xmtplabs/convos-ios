@@ -110,6 +110,28 @@ struct PendingPairRequestStoreTests {
         #expect(PendingPairRequestStore.consumePending(appGroup: suite) == nil)
     }
 
+    @Test("An undecodable stash is left in place for the next resend to overwrite")
+    func undecodableStashIsNotDestroyed() {
+        let suite = "pending-pair-request-store-tests-corrupt"
+        clearSuite(suite)
+        defer { clearSuite(suite) }
+        let defaults = UserDefaults(suiteName: suite)
+        defaults?.set(Data("not json".utf8), forKey: "convos.pairing.pendingJoinRequest.v1")
+
+        #expect(PendingPairRequestStore.consumePending(appGroup: suite) == nil)
+        // The blob survives the failed consume...
+        #expect(defaults?.data(forKey: "convos.pairing.pendingJoinRequest.v1") != nil)
+
+        // ...and the joiner's next resend replaces it with a good one.
+        let pending = PendingPairRequestStore.Pending(
+            joinerInboxId: "joiner-a",
+            deviceName: "Joiner Phone",
+            receivedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        PendingPairRequestStore.setPending(pending, appGroup: suite)
+        #expect(PendingPairRequestStore.consumePending(appGroup: suite) == pending)
+    }
+
     @Test("A newer request replaces the previous one")
     func newerRequestReplaces() {
         let suite = "pending-pair-request-store-tests-replace"

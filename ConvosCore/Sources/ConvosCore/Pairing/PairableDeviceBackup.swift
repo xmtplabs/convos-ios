@@ -28,7 +28,13 @@ extension PairableDeviceBackup {
         from backups: [KeychainIdentityBackup],
         excludingInboxId currentInboxId: String?
     ) -> [PairableDeviceBackup] {
-        backups
+        // A nil current identity means the keychain read failed, not that
+        // there is nothing to exclude - without the exclusion this
+        // install's own backup would surface in the "Pair <device>?"
+        // prompt and offer a self-pair. Hide the prompt until the
+        // identity read succeeds (the check re-runs on next activation).
+        guard let currentInboxId else { return [] }
+        return backups
             .filter { $0.inboxId != currentInboxId }
             .map { (backup: KeychainIdentityBackup) -> PairableDeviceBackup in
                 PairableDeviceBackup(

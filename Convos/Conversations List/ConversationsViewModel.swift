@@ -821,6 +821,15 @@ extension ConversationsViewModel {
                 guard let session = self?.session else { return }
                 var seeded: Bool = false
                 do {
+                    // The writer drops `imageAssetIdentifier` when
+                    // `imageData` is nil, and that is correct here: the
+                    // identifier is a PhotoKit local identifier scoped to
+                    // the initiator's photo library and cannot resolve on
+                    // this device, and the identity share carries no image
+                    // bytes. Persisting it would only hand the photo
+                    // picker a dangling reference. The avatar itself
+                    // arrives later through per-conversation profile
+                    // snapshots.
                     try await session.messagingService().myGlobalProfileWriter().save(
                         name: displayName,
                         imageData: nil,
@@ -1002,28 +1011,35 @@ extension ConversationsViewModel {
         }
     }
 
-    private func handleVerifiedJoinRequest(joinerInboxId: String, deviceName: String) {
-        // An initiator flow already mid-handshake (the Devices QR sheet
-        // or a previously surfaced request) owns the exchange; a second
-        // coordinator would race PIN generation for the same joiner. The
-        // joiner re-sends its request every few seconds, so a dropped
-        // one here is recovered as soon as the active flow ends.
-        guard PairingSheetViewModel.active == nil else { return }
-        if incomingPairingRequest != nil {
-            // The sheet sets `PairingSheetViewModel.active` from its
-            // `.task` the moment it actually presents. A request that
-            // has sat un-presented well past that point means SwiftUI
-            // dropped the presentation (another sheet was up when it was
-            // assigned); without this reset the stale reference blocks
-            // every resend until app restart.
-            guard let presentedAt = incomingPairingPresentedAt,
-                  Date().timeIntervalSince(presentedAt) > Constant.incomingPairingPresentationGrace else {
-                return
-            }
-            Log.warning("Incoming pairing sheet never presented; resetting and retrying")
-            incomingPairingRequest = nil
-            incomingPairingPresentedAt = nil
+    /// Whether a new auto-surfaced initiator sheet may be presented,
+    /// recovering from dropped presentations along the way. False while
+    /// another initiator flow owns (or is about to own) the exchange - a
+    /// second coordinator would race PIN generation for the same joiner.
+    ///
+    /// The sheet sets `PairingSheetViewModel.active` from its `.task` the
+    /// moment it actually presents. A request that has sat un-presented
+    /// well past that point means SwiftUI dropped the presentation
+    /// (another sheet was up when it was assigned); without the reset the
+    /// stale reference would block every resend - and the NSE stash - until
+    /// app restart.
+    private func canSurfaceIncomingPairingRequest() -> Bool {
+        guard !PairingSheetViewModel.isFlowActiveOrStarting else { return false }
+        guard incomingPairingRequest != nil else { return true }
+        guard let presentedAt = incomingPairingPresentedAt,
+              Date().timeIntervalSince(presentedAt) > Constant.incomingPairingPresentationGrace else {
+            return false
         }
+        Log.warning("Incoming pairing sheet never presented; resetting and retrying")
+        incomingPairingRequest = nil
+        incomingPairingPresentedAt = nil
+        return true
+    }
+
+    private func handleVerifiedJoinRequest(joinerInboxId: String, deviceName: String) {
+        // The joiner re-sends its request every few seconds, so one
+        // dropped here (another flow active, stale sheet inside its
+        // grace window) is recovered as soon as the active flow ends.
+        guard canSurfaceIncomingPairingRequest() else { return }
         if UIApplication.shared.applicationState == .active {
             presentIncomingPairingSheet(joinerInboxId: joinerInboxId, deviceName: deviceName)
         } else {
@@ -1064,13 +1080,14 @@ extension ConversationsViewModel {
 
     private func presentPendingIncomingPairRequestIfNeeded() {
         // Bail before consuming anything when a pairing flow is already
-        // on screen: a second initiator coordinator would race PIN
-        // generation for the same joiner. Consuming first and bailing
-        // after would destructively drop the stash (the app-group read
-        // removes it), losing the request if the joiner has stopped
-        // re-sending (killed/backgrounded). Leave it stashed so the next
-        // activation, once the active flow ends, can present it.
-        guard PairingSheetViewModel.active == nil, incomingPairingRequest == nil else { return }
+        // on screen (the shared helper also recovers a stale
+        // never-presented sheet first, so a dropped presentation can't
+        // strand the stash). Consuming first and bailing after would
+        // destructively drop the stash (the app-group read removes it),
+        // losing the request if the joiner has stopped re-sending
+        // (killed/backgrounded). Leave it stashed so the next activation,
+        // once the active flow ends, can present it.
+        guard canSurfaceIncomingPairingRequest() else { return }
         // Two stash sources: in-memory (request arrived while this
         // process was backgrounded) and the app-group store written by
         // the NSE (request arrived while the app wasn't running at all).

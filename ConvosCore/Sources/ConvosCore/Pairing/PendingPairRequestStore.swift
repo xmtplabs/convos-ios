@@ -62,8 +62,16 @@ public enum PendingPairRequestStore {
     public static func consumePending(appGroup: String) -> Pending? {
         let defs = defaults(for: appGroup)
         guard let data = defs.data(forKey: pendingKey) else { return nil }
+        // Decode before removing so a decode failure (schema drift from a
+        // version skew between the NSE and the app) doesn't silently
+        // destroy the request; an undecodable blob is left for the
+        // joiner's next resend to overwrite via `setPending`.
+        guard let pending = try? JSONDecoder().decode(Pending.self, from: data) else {
+            Log.warning("PendingPairRequestStore: pending request failed to decode, leaving for overwrite")
+            return nil
+        }
         defs.removeObject(forKey: pendingKey)
-        return try? JSONDecoder().decode(Pending.self, from: data)
+        return pending
     }
 }
 
