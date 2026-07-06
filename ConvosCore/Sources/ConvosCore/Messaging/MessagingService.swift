@@ -212,6 +212,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             }
         }
         await sharedProfilesRepository.warmUp()
+        // Carry an upgraded user's existing global avatar into the publisher's
+        // source so it keeps propagating to conversations after the transition.
+        await sharedProfilesRepository.seedSelfAvatarSourceIfNeeded()
         await sharedProfilesRepository.bind(
             session: MessagingProfilePublishSession(
                 sessionStateManager: sessionStateManager

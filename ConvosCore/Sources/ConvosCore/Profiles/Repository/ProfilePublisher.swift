@@ -84,6 +84,18 @@ actor ProfilePublisher {
         _ = try await publishStore.bumpAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, updatedAt: now())
     }
 
+    /// Seeds the avatar source from pre-existing global avatar bytes, but only
+    /// when no source exists yet. Lets an upgraded user's saved avatar propagate
+    /// via the lazy per-conversation publish without clobbering a source the user
+    /// set after upgrading.
+    func seedAvatarSourceIfAbsent(_ avatarBytes: Data) async throws {
+        guard let selfInboxId = await resolveSelfInboxId() else { return }
+        guard try await publishStore.source(inboxId: selfInboxId) == nil else { return }
+        try await publishStore.setSource(
+            DBProfileAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, version: 1, updatedAt: now())
+        )
+    }
+
     /// Seeds a single conversation with the current profile (e.g. a freshly
     /// created or joined group), then drains.
     func publishConversation(_ conversationId: String) async throws {

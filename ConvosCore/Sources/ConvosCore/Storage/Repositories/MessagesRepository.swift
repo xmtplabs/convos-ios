@@ -1025,27 +1025,6 @@ fileprivate extension Database {
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
 
-        // Resolve senders who authored messages/reactions but are no longer in
-        // the active roster (e.g. removed members) from their canonical
-        // `DBProfile`, so those messages keep a name and their reactions survive.
-        let activeInboxIds = Set(activeMemberProfiles.map(\.inboxId))
-        let senderInboxIds = try DBMessage
-            .filter(DBMessage.Columns.conversationId == conversationId)
-            .select(DBMessage.Columns.senderId, as: String.self)
-            .distinct()
-            .fetchAll(self)
-        let historicalInboxIds = Array(Set(senderInboxIds).subtracting(activeInboxIds))
-        let historicalProfiles = historicalInboxIds.isEmpty
-            ? []
-            : try DBProfile.fetchAll(self, inboxIds: historicalInboxIds)
-
-        let memberProfileCache = MemberProfileCache(
-            activeProfiles: activeMemberProfiles,
-            historicalProfiles: historicalProfiles,
-            conversationId: conversationId,
-            currentInboxId: currentInboxId
-        )
-
         var query = DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
             .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
@@ -1056,6 +1035,33 @@ fileprivate extension Database {
         }
 
         let rawMessages = try query.fetchAll(self)
+
+        // Resolve members who are no longer in the active roster (e.g. removed
+        // members) from their canonical `DBProfile`, so their names survive.
+        // Covers both message/reaction *senders* and members that appear only in
+        // an update payload (initiator / added / removed) without ever authoring
+        // a message - otherwise those add/remove events render with no name.
+        let activeInboxIds = Set(activeMemberProfiles.map(\.inboxId))
+        let senderInboxIds = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .select(DBMessage.Columns.senderId, as: String.self)
+            .distinct()
+            .fetchAll(self)
+        let updateInboxIds: [String] = rawMessages.flatMap { message -> [String] in
+            guard let update = message.update else { return [] }
+            return [update.initiatedByInboxId] + update.addedInboxIds + update.removedInboxIds
+        }
+        let historicalInboxIds = Array(Set(senderInboxIds).union(updateInboxIds).subtracting(activeInboxIds))
+        let historicalProfiles = historicalInboxIds.isEmpty
+            ? []
+            : try DBProfile.fetchAll(self, inboxIds: historicalInboxIds)
+
+        let memberProfileCache = MemberProfileCache(
+            activeProfiles: activeMemberProfiles,
+            historicalProfiles: historicalProfiles,
+            conversationId: conversationId,
+            currentInboxId: currentInboxId
+        )
 
         let messageIds = rawMessages.map { $0.id }
         let replySourceIds = rawMessages.compactMap { $0.messageType == .reply ? $0.sourceMessageId : nil }

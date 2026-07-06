@@ -293,6 +293,26 @@ public actor ProfilesRepository {
         await publisher.detach()
     }
 
+    /// Carries an upgraded user's existing global avatar (`DBMyProfile.imageData`)
+    /// into the publisher's avatar source so it keeps propagating to conversations
+    /// after the transition, instead of seeding name-only until the user re-edits.
+    /// No-op when there is no stored image or a source already exists.
+    func seedSelfAvatarSourceIfNeeded() async {
+        guard let selfId = await resolveSelfInboxId() else { return }
+        let imageData: Data?
+        do {
+            imageData = try await databaseReader.read { db -> Data? in
+                try DBMyProfile
+                    .filter(DBMyProfile.Columns.inboxId == selfId)
+                    .fetchOne(db)?.imageData
+            }
+        } catch {
+            return
+        }
+        guard let imageData, !imageData.isEmpty else { return }
+        try? await publisher.seedAvatarSourceIfAbsent(imageData)
+    }
+
     /// Records a name and/or new avatar edit locally and bumps the self
     /// profile's `updatedAt`. Propagation is lazy: the edit reaches a
     /// conversation only when the user next opens or sends in it (via

@@ -282,4 +282,22 @@ struct ProfilePublisherTests {
         let remaining = try await publishStore.activeJobs()
         #expect(remaining.isEmpty)
     }
+
+    @Test("seedAvatarSourceIfAbsent seeds only when no source exists")
+    func seedAvatarSourceIfAbsentIsIdempotent() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+
+        try await publisher.seedAvatarSourceIfAbsent(Data([1, 2, 3]))
+        let seeded = try await publishStore.source(inboxId: "me")
+        #expect(seeded?.version == 1)
+        #expect(seeded?.plaintext == Data([1, 2, 3]))
+
+        // Second call must not overwrite an existing source.
+        try await publisher.seedAvatarSourceIfAbsent(Data([9, 9]))
+        let unchanged = try await publishStore.source(inboxId: "me")
+        #expect(unchanged?.version == 1)
+        #expect(unchanged?.plaintext == Data([1, 2, 3]))
+    }
 }

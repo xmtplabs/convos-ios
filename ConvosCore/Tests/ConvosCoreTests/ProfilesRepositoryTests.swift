@@ -317,4 +317,21 @@ struct ProfilesRepositoryTests {
         let jobs = try await publishStore.activeJobs()
         #expect(!jobs.isEmpty)
     }
+
+    @Test("seedSelfAvatarSourceIfNeeded carries the global avatar into the publish source")
+    func seedsGlobalAvatarSource() async throws {
+        let db: any DatabaseWriter = MockDatabaseManager.makeTestDatabase().dbWriter
+        let publishStore = InMemoryProfilePublishStore()
+        try await db.write { db in
+            try DBMyProfile(inboxId: "me", name: "Me", imageData: Data([7, 7, 7]), updatedAt: Date(timeIntervalSince1970: 1)).save(db)
+        }
+        let repository = try makeRepository(publishStore: publishStore, database: db)
+        await repository.warmUp()
+
+        await repository.seedSelfAvatarSourceIfNeeded()
+
+        let source = try await publishStore.source(inboxId: "me")
+        #expect(source?.plaintext == Data([7, 7, 7]))
+        #expect(source?.version == 1)
+    }
 }

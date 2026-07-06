@@ -83,7 +83,11 @@ struct ContactAvatarView: View {
             inboxId: contact.inboxId,
             fallbackName: contact.resolvedDisplayName,
             placeholderEmoji: contact.profileEmoji,
-            agentVerification: contact.agentVerification ?? .unverified
+            agentVerification: contact.agentVerification ?? .unverified,
+            // Synthetic contacts (suggested agents, agent-share placeholders)
+            // carry their own avatar but have no canonical profile row; keep
+            // rendering that image instead of only reading the repository.
+            fallbackCacheable: contact
         )
     }
 }
@@ -103,15 +107,20 @@ struct InboxProfileAvatarView: View {
     let fallbackName: String
     let placeholderEmoji: String?
     let agentVerification: AgentVerification
+    /// Rendered when the canonical profile has no avatar yet - including a
+    /// synthetic contact (suggested agent, agent-share placeholder) that carries
+    /// its own avatar but has no profile row. Keeps the shared-cache benefit for
+    /// real profiles while preserving the caller's own image instead of dropping
+    /// to the placeholder.
+    var fallbackCacheable: (any ImageCacheable)?
 
     @Environment(\.profilesRepository) private var repository: ProfilesRepository?
     @State private var renderedProfile: Profile?
 
     var body: some View {
-        let cacheable: Profile = renderedProfile ?? Profile.empty(inboxId: inboxId)
         AvatarView(
             fallbackName: fallbackName,
-            cacheableObject: cacheable,
+            cacheableObject: resolvedCacheable,
             placeholderImage: nil,
             placeholderEmoji: placeholderEmoji,
             placeholderImageName: nil,
@@ -120,6 +129,19 @@ struct InboxProfileAvatarView: View {
         .task(id: inboxId) {
             await observeProfile(for: inboxId)
         }
+    }
+
+    /// Prefer the canonical profile's avatar (shared image cache with chat
+    /// surfaces). When it has no image, fall back to the caller's own cacheable
+    /// so a synthetic contact still renders its provided avatar.
+    private var resolvedCacheable: any ImageCacheable {
+        if let renderedProfile, renderedProfile.imageCacheURL != nil {
+            return renderedProfile
+        }
+        if let fallbackCacheable, fallbackCacheable.imageCacheURL != nil {
+            return fallbackCacheable
+        }
+        return renderedProfile ?? Profile.empty(inboxId: inboxId)
     }
 
     /// Subscribes to the unified profile for `subscribedInboxId` and maps each
