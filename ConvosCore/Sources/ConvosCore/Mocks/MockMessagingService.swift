@@ -69,6 +69,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
             selfProfileStore: InMemorySelfProfileStore(),
             publishStore: InMemoryProfilePublishStore(),
             databaseReader: MockDatabaseManager.previews.dbReader,
+            conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: MockDatabaseManager.previews.dbWriter),
             selfInboxIdProvider: { nil }
         )
     }

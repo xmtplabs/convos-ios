@@ -41,6 +41,7 @@ struct ProfileMetadataWriterTests {
                     databaseReader: databaseManager.dbReader
                 ),
                 databaseReader: databaseManager.dbReader,
+                conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: databaseManager.dbWriter),
                 selfInboxIdProvider: { inboxId }
             )
             self.writer = ProfileMetadataWriter(

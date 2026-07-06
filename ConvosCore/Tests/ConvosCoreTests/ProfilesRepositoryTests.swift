@@ -13,14 +13,16 @@ struct ProfilesRepositoryTests {
         profileStore: any ProfileStoreProtocol = InMemoryProfileStore(),
         selfProfileStore: any SelfProfileStoreProtocol = InMemorySelfProfileStore(),
         publishStore: any ProfilePublishStoreProtocol = InMemoryProfilePublishStore(),
-        databaseReader: (any DatabaseReader)? = nil,
+        database: (any DatabaseWriter)? = nil,
         selfInboxId: String = "me"
     ) throws -> ProfilesRepository {
-        ProfilesRepository(
+        let db = try database ?? DatabaseQueue()
+        return ProfilesRepository(
             profileStore: profileStore,
             selfProfileStore: selfProfileStore,
             publishStore: publishStore,
-            databaseReader: try databaseReader ?? DatabaseQueue(),
+            databaseReader: db,
+            conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: db),
             selfInboxIdProvider: { selfInboxId }
         )
     }
@@ -199,15 +201,86 @@ struct ProfilesRepositoryTests {
         #expect(none == nil)
     }
 
-    @Test("publishMyProfileToConversation skips when a self avatar slot already exists")
-    func seedSkipsWhenSelfAvatarPresent() async throws {
-        let profileStore = InMemoryProfileStore()
+    private func seedConversation(_ db: Database, id: String, creatorId: String = "me") throws {
+        try DBMember(inboxId: creatorId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: id,
+            inviteTag: "tag-\(id)",
+            creatorId: creatorId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: true,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false
+        ).insert(db)
+    }
+
+    private func localState(_ conversationId: String, publishedProfileUpdatedAt: Date?) -> ConversationLocalState {
+        ConversationLocalState(
+            conversationId: conversationId,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: Date.distantPast,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+        )
+    }
+
+    @Test("publishMyProfileToConversation publishes and stamps when never published there")
+    func changeAwarePublishesFirstTime() async throws {
+        let db: any DatabaseWriter = MockDatabaseManager.makeTestDatabase().dbWriter
         let publishStore = InMemoryProfilePublishStore()
-        try await profileStore.saveAvatar(DBProfileAvatar(
-            inboxId: "me", conversationId: "c1", url: "u", salt: salt, nonce: nonce,
-            encryptionKey: key, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
-        ))
-        let repository = try makeRepository(profileStore: profileStore, publishStore: publishStore)
+        let updatedAt = Date(timeIntervalSince1970: 100)
+        try await db.write { db in
+            try self.seedConversation(db, id: "c1")
+            try DBMyProfile(inboxId: "me", name: "Me", updatedAt: updatedAt).save(db)
+        }
+        let repository = try makeRepository(publishStore: publishStore, database: db)
+        await repository.warmUp()
+
+        try await repository.publishMyProfileToConversation("c1")
+
+        let jobs = try await publishStore.activeJobs()
+        #expect(!jobs.isEmpty)
+        let stamp = try await db.read { db in
+            try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == "c1")
+                .fetchOne(db)?.publishedProfileUpdatedAt
+        }
+        #expect(stamp == updatedAt)
+    }
+
+    @Test("publishMyProfileToConversation skips when the profile is already current there")
+    func changeAwareSkipsWhenCurrent() async throws {
+        let db: any DatabaseWriter = MockDatabaseManager.makeTestDatabase().dbWriter
+        let publishStore = InMemoryProfilePublishStore()
+        let updatedAt = Date(timeIntervalSince1970: 100)
+        try await db.write { db in
+            try self.seedConversation(db, id: "c1")
+            try DBMyProfile(inboxId: "me", name: "Me", updatedAt: updatedAt).save(db)
+            try self.localState("c1", publishedProfileUpdatedAt: updatedAt).save(db)
+        }
+        let repository = try makeRepository(publishStore: publishStore, database: db)
         await repository.warmUp()
 
         try await repository.publishMyProfileToConversation("c1")
@@ -216,32 +289,29 @@ struct ProfilesRepositoryTests {
         #expect(jobs.isEmpty)
     }
 
-    @Test("publishMyProfileToConversation seeds when no self avatar slot exists")
-    func seedRunsWhenNoSelfAvatar() async throws {
+    @Test("publishMyProfileToConversation republishes when the profile changed since last publish")
+    func changeAwareRepublishesWhenStale() async throws {
+        let db: any DatabaseWriter = MockDatabaseManager.makeTestDatabase().dbWriter
         let publishStore = InMemoryProfilePublishStore()
-        let repository = try makeRepository(publishStore: publishStore)
-        await repository.warmUp()
-
-        try await repository.publishMyProfileToConversation("c2")
-
-        let jobs = try await publishStore.activeJobs()
-        #expect(!jobs.isEmpty)
-    }
-
-    @Test("publishMyProfileToConversation re-seeds a tombstoned self avatar slot")
-    func seedRunsWhenSelfAvatarTombstoned() async throws {
-        let profileStore = InMemoryProfileStore()
-        let publishStore = InMemoryProfilePublishStore()
-        try await profileStore.saveAvatar(DBProfileAvatar(
-            inboxId: "me", conversationId: "c1", url: nil, salt: nil, nonce: nil,
-            encryptionKey: nil, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
-        ))
-        let repository = try makeRepository(profileStore: profileStore, publishStore: publishStore)
+        let oldAt = Date(timeIntervalSince1970: 100)
+        let newAt = Date(timeIntervalSince1970: 200)
+        try await db.write { db in
+            try self.seedConversation(db, id: "c1")
+            try DBMyProfile(inboxId: "me", name: "Me", updatedAt: newAt).save(db)
+            try self.localState("c1", publishedProfileUpdatedAt: oldAt).save(db)
+        }
+        let repository = try makeRepository(publishStore: publishStore, database: db)
         await repository.warmUp()
 
         try await repository.publishMyProfileToConversation("c1")
 
         let jobs = try await publishStore.activeJobs()
         #expect(!jobs.isEmpty)
+        let stamp = try await db.read { db in
+            try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == "c1")
+                .fetchOne(db)?.publishedProfileUpdatedAt
+        }
+        #expect(stamp == newAt)
     }
 }

@@ -117,7 +117,9 @@ struct ProfilePublisherTests {
         let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1", "c2"], imageKeys: ["c1": key, "c2": key])
         await publisher.attach(session: session)
 
-        try await publisher.publish(avatarBytes: Data([1, 2, 3]), priorityConversationId: nil)
+        try await publisher.updateAvatarSource(Data([1, 2, 3]))
+        try await publisher.publishConversation("c1")
+        try await publisher.publishConversation("c2")
 
         let sends = await session.sends
         #expect(sends.count == 2)
@@ -132,20 +134,6 @@ struct ProfilePublisherTests {
         #expect(remaining.isEmpty)
     }
 
-    @Test("priority conversation is published first")
-    func priorityFirst() async throws {
-        let publishStore = InMemoryProfilePublishStore()
-        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
-        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1", "c2"], imageKeys: ["c1": key, "c2": key])
-        await publisher.attach(session: session)
-
-        try await publisher.publish(avatarBytes: Data([1]), priorityConversationId: "c2")
-
-        let sends = await session.sends
-        #expect(sends.first?.conversationId == "c2")
-    }
-
     @Test("a failed upload is retried with backoff and eventually succeeds")
     func retriesFailedUpload() async throws {
         let publishStore = InMemoryProfilePublishStore()
@@ -154,7 +142,8 @@ struct ProfilePublisherTests {
         let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1"], imageKeys: ["c1": key], uploadFailures: 1)
         await publisher.attach(session: session)
 
-        try await publisher.publish(avatarBytes: Data([1]), priorityConversationId: nil)
+        try await publisher.updateAvatarSource(Data([1]))
+        try await publisher.publishConversation("c1")
         let sendsAfterFailure = await session.sends
         #expect(sendsAfterFailure.isEmpty)
         let attemptsAfterFailure = await session.uploadAttempts
@@ -179,7 +168,8 @@ struct ProfilePublisherTests {
         let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1"], imageKeys: [:])
         await publisher.attach(session: session)
 
-        try await publisher.publish(avatarBytes: Data([1]), priorityConversationId: nil)
+        try await publisher.updateAvatarSource(Data([1]))
+        try await publisher.publishConversation("c1")
 
         let sends = await session.sends
         #expect(sends.isEmpty)
@@ -223,7 +213,7 @@ struct ProfilePublisherTests {
         let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1"], imageKeys: ["c1": key])
         await publisher.attach(session: session)
 
-        try await publisher.publish(avatarBytes: nil, priorityConversationId: nil)
+        try await publisher.publishConversation("c1")
 
         let sends = await session.sends
         #expect(sends.count == 1)

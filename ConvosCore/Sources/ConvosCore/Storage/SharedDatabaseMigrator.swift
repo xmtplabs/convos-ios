@@ -264,6 +264,22 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
         migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
         migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
+        migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
+    }
+
+    /// Additive, nullable column recording the `myProfile.updatedAt` of the self
+    /// profile last published to a conversation. The lazy profile sync compares
+    /// it against the current `myProfile.updatedAt` to decide whether a profile
+    /// edit still needs to be sent to this conversation, so edits reach only
+    /// conversations the user re-engages rather than fanning out to all of them.
+    /// `nil` means never published (treated as stale), so no backfill is needed.
+    /// Guarded on column existence for idempotency across dev installs.
+    static func addConversationLocalStatePublishedProfileUpdatedAt(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "conversationLocalState").contains { $0.name == "publishedProfileUpdatedAt" }
+        guard !hasColumn else { return }
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "publishedProfileUpdatedAt", .datetime)
+        }
     }
 
     /// Recreates `profileAvatarLatest` with the deterministic `ROW_NUMBER()`

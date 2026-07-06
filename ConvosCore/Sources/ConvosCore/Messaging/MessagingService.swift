@@ -183,6 +183,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         selfProfileStore: selfProfileStore,
         publishStore: profilePublishStore,
         databaseReader: databaseReader,
+        conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: databaseWriter),
         selfInboxIdProvider: { [sessionStateManager] in
             (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
         }
@@ -314,7 +315,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             backgroundUploadManager: backgroundUploadManager,
             attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
             contactSyncCoordinator: contactSyncCoordinator(),
-            coreActions: coreActions
+            coreActions: coreActions,
+            ensureProfilePublished: { [sharedProfilesRepository] in
+                do {
+                    try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+                } catch {
+                    Log.warning("Failed to publish profile before send to \(conversationId): \(error.localizedDescription)")
+                }
+            }
         )
     }
 

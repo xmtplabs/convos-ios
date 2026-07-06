@@ -70,28 +70,16 @@ actor ProfilePublisher {
         session = nil
     }
 
-    /// Records a new source avatar (when `avatarBytes` is provided) and enqueues
-    /// a publish job per conversation, priority conversation first, then drains.
-    /// A nil `avatarBytes` is a name/metadata-only publish that re-sends the
-    /// existing avatar for each conversation rather than clearing it.
-    func publish(avatarBytes: Data?, priorityConversationId: String?) async throws {
+    /// Records a new source avatar so subsequent per-conversation publishes
+    /// re-encrypt it to each conversation's group key. Does not enqueue or fan
+    /// out - propagation is lazy and per-conversation via `publishConversation`.
+    func updateAvatarSource(_ avatarBytes: Data) async throws {
         guard let selfInboxId = await resolveSelfInboxId() else { return }
-        let conversationIds = try await session?.conversationIds() ?? []
-        var sourceVersion: Int64?
-        var hasAvatar = false
-        if let avatarBytes {
-            let existing = try await publishStore.source(inboxId: selfInboxId)
-            let version = (existing?.version ?? 0) + 1
-            try await publishStore.setSource(
-                DBProfileAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, version: version, updatedAt: now())
-            )
-            sourceVersion = version
-            hasAvatar = true
-        }
-        for conversationId in ordered(conversationIds, priority: priorityConversationId) {
-            try await enqueueJob(conversationId: conversationId, sourceVersion: sourceVersion, hasAvatar: hasAvatar)
-        }
-        await drainReadyJobs()
+        let existing = try await publishStore.source(inboxId: selfInboxId)
+        let version = (existing?.version ?? 0) + 1
+        try await publishStore.setSource(
+            DBProfileAvatarSource(inboxId: selfInboxId, plaintext: avatarBytes, version: version, updatedAt: now())
+        )
     }
 
     /// Seeds a single conversation with the current profile (e.g. a freshly
@@ -131,11 +119,6 @@ actor ProfilePublisher {
         try await publishStore.enqueue(job)
         // A newer publish for this conversation supersedes its older pending jobs.
         try await publishStore.supersedeOlderThan(conversationId: conversationId, seq: seq)
-    }
-
-    private func ordered(_ ids: [String], priority: String?) -> [String] {
-        guard let priority, ids.contains(priority) else { return ids }
-        return [priority] + ids.filter { $0 != priority }
     }
 
     // MARK: - Process

@@ -14,6 +14,7 @@ public actor ProfilesRepository {
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
     private let databaseReader: any DatabaseReader
+    private let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let selfInboxIdProvider: @Sendable () async -> String?
     private let publisher: ProfilePublisher
 
@@ -42,11 +43,13 @@ public actor ProfilesRepository {
         selfProfileStore: any SelfProfileStoreProtocol,
         publishStore: any ProfilePublishStoreProtocol,
         databaseReader: any DatabaseReader,
+        conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
         selfInboxIdProvider: @escaping @Sendable () async -> String?
     ) {
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
         self.databaseReader = databaseReader
+        self.conversationLocalStateWriter = conversationLocalStateWriter
         self.selfInboxIdProvider = selfInboxIdProvider
         self.publisher = ProfilePublisher(
             publishStore: publishStore,
@@ -256,38 +259,69 @@ public actor ProfilesRepository {
         await publisher.detach()
     }
 
-    /// Records a name and/or new avatar and fans the update out to every
-    /// conversation via the durable publish queue. The name is written to the
-    /// self profile first so the publisher's jobs send the current name.
+    /// Records a name and/or new avatar edit locally and bumps the self
+    /// profile's `updatedAt`. Propagation is lazy: the edit reaches a
+    /// conversation only when the user next opens or sends in it (via
+    /// `publishMyProfileToConversation`), so it never fans out to conversations
+    /// the user has stopped engaging with. When a `priorityConversationId` (the
+    /// active conversation) is given, it is published immediately so the user
+    /// sees their change reflected without waiting for the next send.
     public func publishMyProfile(displayName: String?, avatarBytes: Data?, priorityConversationId: String?) async throws {
+        let nameField: SelfProfileEdit.Field<String?>
         if let displayName {
-            try await updateSelfProfile(SelfProfileEdit(name: .set(displayName)))
+            nameField = .set(displayName)
+        } else {
+            nameField = .keep
         }
-        try await publisher.publish(avatarBytes: avatarBytes, priorityConversationId: priorityConversationId)
+        try await updateSelfProfile(SelfProfileEdit(name: nameField))
+        if let avatarBytes {
+            try await publisher.updateAvatarSource(avatarBytes)
+        }
+        if let priorityConversationId {
+            try await publishMyProfileToConversation(priorityConversationId)
+        }
     }
 
-    /// Seeds a freshly created or joined conversation with the current profile.
-    ///
-    /// Idempotent: skips when the current user already has an avatar slot for
-    /// this conversation, i.e. we have already published our profile here. This
-    /// prevents a redundant `ProfileUpdate` on every conversation open. Skipping
-    /// cannot drop a real change - a genuine profile edit fans out to every known
-    /// conversation via `publishMyProfile`, not the seeder. (A name-only user has
-    /// no avatar slot, so they may re-seed on open; a cheap, known residual.)
+    /// Publishes the current self profile to one conversation, but only if it has
+    /// changed since the last profile published there. The comparison is
+    /// `ConversationLocalState.publishedProfileUpdatedAt` (what we last sent here)
+    /// against `DBMyProfile.updatedAt` (the current profile). This is the lazy
+    /// propagation seam: a fresh conversation (no stamp) always publishes, an
+    /// up-to-date conversation is a no-op, and a stale one re-publishes and
+    /// re-stamps. Called on conversation open and before an outgoing send, so it
+    /// is impossible to send a message after editing your profile without also
+    /// sending the profile update.
     public func publishMyProfileToConversation(_ conversationId: String) async throws {
-        if let selfId = await resolveSelfInboxId(),
-           let existing = try? await profileStore.avatar(inboxId: selfId, conversationId: conversationId),
-           existing.url != nil {
-            return
+        guard let selfId = await resolveSelfInboxId() else { return }
+        let decision: (shouldPublish: Bool, target: Date?) = try await databaseReader.read { db -> (shouldPublish: Bool, target: Date?) in
+            guard let myUpdatedAt = try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == selfId)
+                .fetchOne(db)?.updatedAt else {
+                return (false, nil)
+            }
+            let publishedAt = try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                .fetchOne(db)?.publishedProfileUpdatedAt
+            let stale: Bool
+            if let publishedAt {
+                stale = publishedAt < myUpdatedAt
+            } else {
+                stale = true
+            }
+            return (stale, myUpdatedAt)
         }
+        guard decision.shouldPublish, let target = decision.target else { return }
         try await publisher.publishConversation(conversationId)
+        // Optimistic stamp: the publish job is durable and retries until it
+        // lands, so recording it now prevents re-enqueuing on the next
+        // open/send while the profile is unchanged.
+        try await conversationLocalStateWriter.setPublishedProfileUpdatedAt(target, for: conversationId)
     }
 
-    /// Records new self metadata and re-publishes it (a name/metadata-only fan-out
-    /// that re-sends the existing avatar) to every conversation.
+    /// Records new self metadata locally and bumps `updatedAt`. Propagation is
+    /// lazy per conversation, same as `publishMyProfile`.
     public func publishMyProfileMetadata(_ metadata: ProfileMetadata?) async throws {
         try await updateSelfProfile(SelfProfileEdit(metadata: .set(metadata)))
-        try await publisher.publish(avatarBytes: nil, priorityConversationId: nil)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
