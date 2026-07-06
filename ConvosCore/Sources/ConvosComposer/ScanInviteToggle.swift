@@ -1,7 +1,8 @@
+#if canImport(UIKit)
 import SwiftUI
 
 /// The two segments of the invite-code screen's Scan/Invite toggle.
-enum ScanInviteSegment: CaseIterable, Hashable {
+public enum ScanInviteSegment: CaseIterable, Hashable {
     case invite
     case scan
 
@@ -18,10 +19,10 @@ enum ScanInviteSegment: CaseIterable, Hashable {
 /// `fillSubtle` track holds a white selection pill that animates between the
 /// two equal-width segments. Generic over `ScanInviteSegment` only - it is
 /// the single toggle in the invite flow, so it isn't parameterized further.
-struct ScanInviteToggle: View {
+public struct ScanInviteToggle: View {
     @Binding var selection: ScanInviteSegment
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { proxy in
             let segmentWidth: CGFloat = (proxy.size.width - Constant.trackPadding * 2.0) / 2.0
             let selectedIndex: CGFloat = selection == .invite ? 0.0 : 1.0
@@ -86,3 +87,4 @@ struct ScanInviteToggle: View {
         .frame(width: 283.0)
         .padding()
 }
+#endif

@@ -1,19 +1,20 @@
+#if canImport(UIKit)
 import ConvosCore
 import ConvosInvitesCore
 import Foundation
 
-struct InviteURLDetectionResult {
-    let code: String
-    let fullURL: String
-    let range: Range<String.Index>
+public struct InviteURLDetectionResult {
+    public let code: String
+    public let fullURL: String
+    public let range: Range<String.Index>
 }
 
-enum InviteURLDetector {
+public enum InviteURLDetector {
     private static let linkDetector: NSDataDetector? = {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
 
-    static func detectInviteURL(in text: String) -> InviteURLDetectionResult? {
+    public static func detectInviteURL(in text: String) -> InviteURLDetectionResult? {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return nil }
 
@@ -69,7 +70,7 @@ enum InviteURLDetector {
         return url.convosInviteCode
     }
 
-    static func isLikelyInviteCode(_ text: String) -> Bool {
+    public static func isLikelyInviteCode(_ text: String) -> Bool {
         let allowedCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_*")
         guard text.unicodeScalars.allSatisfy({ allowedCharacters.contains($0) }) else {
             return false
@@ -78,7 +79,7 @@ enum InviteURLDetector {
         return text.count >= Constant.minimumInviteCodeLength
     }
 
-    static func removeInviteURL(from text: String, range: Range<String.Index>) -> String {
+    public static func removeInviteURL(from text: String, range: Range<String.Index>) -> String {
         var result = text
         result.removeSubrange(range)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,3 +89,4 @@ enum InviteURLDetector {
         static let minimumInviteCodeLength: Int = 50
     }
 }
+#endif

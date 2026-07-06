@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 /// Distinct, bordered "Read more" pill (per Quarter's Figma spec): a
@@ -51,3 +52,4 @@ struct ReadMoreButton: View {
         }
     }
 }
+#endif

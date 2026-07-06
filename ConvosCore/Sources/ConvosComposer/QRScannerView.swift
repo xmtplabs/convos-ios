@@ -1,10 +1,15 @@
+#if canImport(UIKit)
 @preconcurrency import AVFoundation
 import SwiftUI
 
-struct QRScannerView: UIViewRepresentable {
+public struct QRScannerView: UIViewRepresentable {
     let viewModel: QRScannerViewModel
 
-    class Coordinator {
+    public init(viewModel: QRScannerViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public class Coordinator {
         var orientationObserver: Any?
         var captureSession: AVCaptureSession?
         var previewLayer: AVCaptureVideoPreviewLayer?
@@ -32,11 +37,11 @@ struct QRScannerView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator {
+    public func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> UIView {
+    public func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -167,7 +172,7 @@ struct QRScannerView: UIViewRepresentable {
         viewModel.cameraSetupCompleted = true
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    public func updateUIView(_ uiView: UIView, context: Context) {
         // Update preview layer frame
         if let previewLayer = context.coordinator.previewLayer {
             DispatchQueue.main.async {
@@ -228,7 +233,7 @@ struct QRScannerView: UIViewRepresentable {
         connection.videoRotationAngle = rotationAngle
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    public static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         // Stop the capture session immediately
         if let captureSession = coordinator.captureSession {
             if captureSession.isRunning {
@@ -261,3 +266,4 @@ struct QRScannerView: UIViewRepresentable {
         }
     }
 }
+#endif

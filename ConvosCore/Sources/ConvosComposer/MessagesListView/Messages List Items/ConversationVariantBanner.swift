@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -44,10 +45,13 @@ struct AgentVariantRibbon: View {
 /// The agent profile's variant card: the shared `AgentVariantRibbon` as a header
 /// (so it matches the in-chat ribbon) plus the full what-to-test below. Dev-only;
 /// gated to non-production at the call site.
-struct ConversationVariantBanner: View {
+public struct ConversationVariantBanner: View {
     let variant: AgentVariantStamp
 
-    var body: some View {
+    public init(variant: AgentVariantStamp) {
+        self.variant = variant
+    }
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
             AgentVariantRibbon(variant: variant)
             Text(variant.whatToTest)
@@ -83,3 +87,4 @@ struct ConversationVariantBanner: View {
     .padding()
     .background(Color.colorBackgroundRaisedSecondary)
 }
+#endif

@@ -232,14 +232,14 @@ struct MessagesView<BottomBarContent: View>: View {
                     sentAt: sentAt
                 )
             },
-            agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
-            currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
-            backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             showsInviteScanCard: showsInviteScanCard,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: inviteScanInitialSegment,
             onScannedInviteCode: onScannedInviteCode,
             onInviteShareCompleted: onInviteShareCompleted,
+            agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
+            currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
+            backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
             // `safeAreaBar` below), so the controller must not wait for a

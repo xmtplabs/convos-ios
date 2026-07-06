@@ -473,7 +473,6 @@ struct ShareComposeView: View {
                 invite: .empty,
                 onUserInteraction: {},
                 hasLoadedAllMessages: true,
-                shouldBlurPhotos: false,
                 focusCoordinator: focusCoordinator,
                 onTapAvatar: { _ in },
                 onLoadPreviousMessages: {},
@@ -485,8 +484,6 @@ struct ShareComposeView: View {
                 onTapThinkingIndicator: { _ in },
                 onReply: { _ in },
                 contextMenuState: contextMenuState,
-                onPhotoRevealed: { _ in },
-                onPhotoHidden: { _ in },
                 onPhotoDimensionsLoaded: { _, _, _ in },
                 onAgentOutOfCredits: {},
                 creditsDepleted: false,
@@ -540,7 +537,6 @@ struct ShareComposeView: View {
             canEditProfile: false,
             pinsExpandedInput: true,
             messagesTextFieldEnabled: model.isReady,
-            onProfilePhotoTap: {},
             onSendMessage: handleSend,
             onClearInvite: {},
             onClearLinkPreview: {},
@@ -553,7 +549,6 @@ struct ShareComposeView: View {
             onVoiceMemoTap: {},
             voiceMemoRecorder: voiceMemoRecorder,
             onSendVoiceMemo: {},
-            onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height
             },

@@ -19,13 +19,6 @@ public class MessageContextMenuState: @unchecked Sendable {
     public var isExpanded: Bool = false
     public var sourceID: UUID?
 
-    public var presentedMessage: AnyMessage?
-    public var bubbleFrame: CGRect = .zero
-    public var isOutgoing: Bool = false
-    public var bubbleStyle: MessageBubbleType = .normal
-    public var isReplyParent: Bool = false
-    public var sourceID: UUID?
-
     public var currentSourceFrame: CGRect = .zero
 
     public var isPresented: Bool {

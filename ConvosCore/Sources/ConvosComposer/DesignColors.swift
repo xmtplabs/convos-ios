@@ -17,6 +17,9 @@ extension ShapeStyle where Self == Color {
     static var colorBackgroundSurfaceless: Color { Color("colorBackgroundSurfaceless", bundle: .module) }
     static var colorBlue: Color { Color("colorBlue", bundle: .module) }
     static var colorBorderEdge: Color { Color("colorBorderEdge", bundle: .module) }
+    static var colorBorderInvertedSubtle: Color { Color("colorBorderInvertedSubtle", bundle: .module) }
+    static var colorBorderReadMoreIncoming: Color { Color("colorBorderReadMoreIncoming", bundle: .module) }
+    static var colorWarning: Color { Color("colorWarning", bundle: .module) }
     static var colorBorderSubtle: Color { Color("colorBorderSubtle", bundle: .module) }
     static var colorBorderSubtle2: Color { Color("colorBorderSubtle2", bundle: .module) }
     static var colorBubble: Color { Color("colorBubble", bundle: .module) }

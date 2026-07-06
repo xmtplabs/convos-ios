@@ -40,7 +40,7 @@ extension UIApplication {
     // Uses the receiver rather than UIApplication.shared so this file stays
     // extension-safe (UIApplication.shared is unavailable in app extensions).
     func topMostViewController() -> UIViewController? {
-        connectedScenes
+        let windowScenes = connectedScenes
             .compactMap { $0 as? UIWindowScene }
         let activeScenes = windowScenes.filter { $0.activationState == .foregroundActive }
         let window: UIWindow? = activeScenes.compactMap(\.keyWindow).first

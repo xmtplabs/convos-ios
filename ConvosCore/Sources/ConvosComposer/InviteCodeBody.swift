@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import AVFoundation
 import ConvosCore
 import ConvosCoreiOS
@@ -17,7 +18,7 @@ import UIKit
 /// selection, QR generation, the live scanner, and the screenshot-picker
 /// decode path. Decoded codes (viewfinder or picked screenshot) feed
 /// `onScannedCode`; nil keeps the Scan tab viewfinder-only.
-struct InviteCodeBody: View {
+public struct InviteCodeBody: View {
     let conversation: Conversation
     let encodedURLString: String
     let mode: InviteCodeMode
@@ -46,7 +47,7 @@ struct InviteCodeBody: View {
     @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
-    init(
+    public init(
         conversation: Conversation,
         encodedURLString: String,
         mode: InviteCodeMode,
@@ -65,7 +66,7 @@ struct InviteCodeBody: View {
         _selection = State(initialValue: initialSegment)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             ScanInviteToggle(selection: $selection)
             tileView
@@ -399,3 +400,4 @@ struct InviteCodeBody: View {
         mode: .inConvo
     )
 }
+#endif

@@ -1,17 +1,18 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 import SwiftUI
 
-enum DeepLinkDestination {
+public enum DeepLinkDestination {
     case joinConversation(inviteCode: String)
     case connectionGrant(serviceId: String, conversationId: String)
     case pairDevice(pairingId: String, expiresAt: Date?, initiatorName: String?)
     case agentTemplate(templateId: String)
 }
 
-final class DeepLinkHandler {
+public final class DeepLinkHandler {
     @MainActor
-    static func destination(for url: URL) -> DeepLinkDestination? {
+    public static func destination(for url: URL) -> DeepLinkDestination? {
         let isValidScheme = url.scheme == "https" ?
             isValidHost(url.host) :
             url.scheme == ConfigManager.shared.appUrlScheme
@@ -45,7 +46,7 @@ final class DeepLinkHandler {
         return .joinConversation(inviteCode: inviteCode)
     }
 
-    static func isPairingURL(_ url: URL) -> Bool {
+    public static func isPairingURL(_ url: URL) -> Bool {
         url.convosPairingId != nil
     }
 
@@ -109,7 +110,7 @@ final class DeepLinkHandler {
     /// parsing and logs nothing when `url` is not a template link, so a
     /// scanned conversation invite does not produce spurious warnings.
     @MainActor
-    static func agentTemplateId(from url: URL) -> String? {
+    public static func agentTemplateId(from url: URL) -> String? {
         guard case .agentTemplate(let templateId)? = parseAgentTemplate(from: url) else {
             return nil
         }
@@ -237,3 +238,4 @@ extension URL {
         return name
     }
 }
+#endif

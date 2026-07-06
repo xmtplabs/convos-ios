@@ -1,25 +1,28 @@
+#if canImport(UIKit)
 import AVFoundation
 import SwiftUI
 
 @MainActor
 @Observable
-class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
-    var scannedCode: String?
-    var cameraAuthorized: Bool = false
-    var cameraSetupCompleted: Bool = false
-    var isScanningEnabled: Bool = true
-    var showInvalidInviteCodeFormat: Bool = false
-    var invalidInviteCode: String?
-    var presentingInvalidInviteSheet: Bool = false
+public class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+    public override init() {}
+
+    public var scannedCode: String?
+    public var cameraAuthorized: Bool = false
+    public var cameraSetupCompleted: Bool = false
+    public var isScanningEnabled: Bool = true
+    public var showInvalidInviteCodeFormat: Bool = false
+    public var invalidInviteCode: String?
+    public var presentingInvalidInviteSheet: Bool = false
 
     // Minimum time to wait before allowing another scan (in seconds)
     private let minimumScanInterval: TimeInterval = 3.0
     private var lastScanTime: Date?
 
     // callback for camera setup - set by QRScannerView
-    var setupCameraCallback: (() -> Void)?
+    public var setupCameraCallback: (() -> Void)?
 
-    func requestAccess() {
+    public func requestAccess() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             Task { @MainActor in
                 self?.cameraAuthorized = granted
@@ -31,11 +34,11 @@ class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
     }
 
     /// Triggers camera setup if the callback is available (called when camera becomes authorized)
-    func triggerCameraSetup() {
+    public func triggerCameraSetup() {
         setupCameraCallback?()
     }
 
-    nonisolated func metadataOutput(
+    public nonisolated func metadataOutput(
         _ output: AVCaptureMetadataOutput,
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
@@ -67,14 +70,15 @@ class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         }
     }
 
-    func resetScanning() {
+    public func resetScanning() {
         isScanningEnabled = true
         scannedCode = nil
         // Note: we intentionally do NOT reset lastScanTime here
         // to maintain the minimum interval even across resets
     }
 
-    func resetScanTimer() {
+    public func resetScanTimer() {
         lastScanTime = nil
     }
 }
+#endif

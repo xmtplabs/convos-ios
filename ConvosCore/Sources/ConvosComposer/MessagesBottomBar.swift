@@ -136,7 +136,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         canEditProfile: Bool,
         pinsExpandedInput: Bool = false,
         messagesTextFieldEnabled: Bool,
-        onProfilePhotoTap: @escaping () -> Void,
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
         onClearLinkPreview: @escaping () -> Void,
@@ -149,7 +148,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         onVoiceMemoTap: @escaping () -> Void,
         voiceMemoRecorder: VoiceMemoRecorder,
         onSendVoiceMemo: @escaping () -> Void,
-        onConvosAction: @escaping () -> Void,
         onDebugAttachmentTap: (() -> Void)? = nil,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
@@ -182,7 +180,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.pinsExpandedInput = pinsExpandedInput
         self._isMessageInputFocused = State(initialValue: pinsExpandedInput)
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
-        self.onProfilePhotoTap = onProfilePhotoTap
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
         self.onClearLinkPreview = onClearLinkPreview
@@ -195,7 +192,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.onVoiceMemoTap = onVoiceMemoTap
         self.voiceMemoRecorder = voiceMemoRecorder
         self.onSendVoiceMemo = onSendVoiceMemo
-        self.onConvosAction = onConvosAction
         self.onDebugAttachmentTap = onDebugAttachmentTap
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent

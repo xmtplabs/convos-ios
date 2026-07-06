@@ -23,11 +23,8 @@ public struct MessagesMediaButtonsView: View {
         isCameraPresented: Binding<Bool>,
         onVoiceMemoTap: @escaping () -> Void,
         onFilePickerTap: @escaping () -> Void,
-        onConvosAction: @escaping () -> Void,
         isMediaCapacityFull: Bool = false,
         isVoiceMemoDisabled: Bool = false,
-        isSideConvoDisabled: Bool = false,
-        showsSideConvoButton: Bool = true,
         showsFileButton: Bool = true,
         buttonSpacing: CGFloat = DesignConstants.Spacing.step2x,
         onConnectionsTap: (() -> Void)? = nil,
@@ -37,11 +34,8 @@ public struct MessagesMediaButtonsView: View {
         _isCameraPresented = isCameraPresented
         self.onVoiceMemoTap = onVoiceMemoTap
         self.onFilePickerTap = onFilePickerTap
-        self.onConvosAction = onConvosAction
         self.isMediaCapacityFull = isMediaCapacityFull
         self.isVoiceMemoDisabled = isVoiceMemoDisabled
-        self.isSideConvoDisabled = isSideConvoDisabled
-        self.showsSideConvoButton = showsSideConvoButton
         self.showsFileButton = showsFileButton
         self.buttonSpacing = buttonSpacing
         self.onConnectionsTap = onConnectionsTap

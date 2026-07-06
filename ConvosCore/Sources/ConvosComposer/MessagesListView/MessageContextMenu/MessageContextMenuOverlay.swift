@@ -13,22 +13,16 @@ public struct MessageContextMenuOverlay: View {
 
     public init(
         state: MessageContextMenuState,
-        shouldBlurPhotos: Bool,
         isReadOnly: Bool = false,
         onReaction: @escaping (String, String) -> Void,
         onReply: @escaping (AnyMessage) -> Void,
-        onCopy: @escaping (String) -> Void,
-        onPhotoRevealed: @escaping (String) -> Void,
-        onPhotoHidden: @escaping (String) -> Void
+        onCopy: @escaping (String) -> Void
     ) {
         self.state = state
-        self.shouldBlurPhotos = shouldBlurPhotos
         self.isReadOnly = isReadOnly
         self.onReaction = onReaction
         self.onReply = onReply
         self.onCopy = onCopy
-        self.onPhotoRevealed = onPhotoRevealed
-        self.onPhotoHidden = onPhotoHidden
     }
 
     @State private var appeared: Bool = false

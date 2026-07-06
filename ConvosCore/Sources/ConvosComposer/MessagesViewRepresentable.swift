@@ -92,7 +92,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         invite: Invite,
         onUserInteraction: @escaping () -> Void,
         hasLoadedAllMessages: Bool,
-        shouldBlurPhotos: Bool,
         focusCoordinator: FocusCoordinator,
         onTapAvatar: @escaping (ConversationMember) -> Void,
         onLoadPreviousMessages: @escaping () -> Void,
@@ -106,9 +105,10 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapReadReceipts: @escaping (MessagesGroup) -> Void,
         onTapThinkingIndicator: @escaping (ThinkingSessionDescriptor) -> Void,
         onReply: @escaping (AnyMessage) -> Void,
+        onOpenMessageDetail: ((AnyMessage) -> Void)? = nil,
+        expandedMessageIds: Set<String> = [],
+        onToggleMessageExpanded: @escaping (String) -> Void = { _ in },
         contextMenuState: MessageContextMenuState,
-        onPhotoRevealed: @escaping (String) -> Void,
-        onPhotoHidden: @escaping (String) -> Void,
         onPhotoDimensionsLoaded: @escaping (String, Int, Int) -> Void,
         onAgentOutOfCredits: @escaping () -> Void,
         creditsDepleted: Bool,
@@ -149,7 +149,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.invite = invite
         self.onUserInteraction = onUserInteraction
         self.hasLoadedAllMessages = hasLoadedAllMessages
-        self.shouldBlurPhotos = shouldBlurPhotos
         self.focusCoordinator = focusCoordinator
         self.onTapAvatar = onTapAvatar
         self.onLoadPreviousMessages = onLoadPreviousMessages
@@ -164,8 +163,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onTapThinkingIndicator = onTapThinkingIndicator
         self.onReply = onReply
         self.contextMenuState = contextMenuState
-        self.onPhotoRevealed = onPhotoRevealed
-        self.onPhotoHidden = onPhotoHidden
         self.onPhotoDimensionsLoaded = onPhotoDimensionsLoaded
         self.onAgentOutOfCredits = onAgentOutOfCredits
         self.creditsDepleted = creditsDepleted
@@ -187,6 +184,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.htmlAttachmentTransitionNamespace = htmlAttachmentTransitionNamespace
         self.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         self.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
+        self.onOpenMessageDetail = onOpenMessageDetail
+        self.expandedMessageIds = expandedMessageIds
+        self.onToggleMessageExpanded = onToggleMessageExpanded
         self.showsInviteScanCard = showsInviteScanCard
         self.inviteScanMode = inviteScanMode
         self.inviteScanInitialSegment = inviteScanInitialSegment
@@ -299,46 +299,4 @@ let menuPresented = contextMenuState.isPresented
     }
 }
 
-#Preview {
-    @Previewable @State var bottomBarHeight: CGFloat = 0.0
-    let messages: [MessagesListItemType] = []
-    let invite: Invite = .empty
-
-    MessagesViewRepresentable(
-        conversation: .mock(),
-        messages: messages,
-        invite: invite,
-        onUserInteraction: {},
-        hasLoadedAllMessages: false,
-        focusCoordinator: FocusCoordinator(horizontalSizeClass: nil),
-        onTapAvatar: { _ in },
-        onLoadPreviousMessages: {},
-        onTapInvite: { _ in },
-        onReaction: { _, _ in },
-        onToggleReaction: { _, _ in },
-        onTapReactions: { _ in },
-        onTapReadReceipts: { _ in },
-        onTapThinkingIndicator: { _ in },
-        onReply: { _ in },
-        contextMenuState: .init(),
-        onPhotoDimensionsLoaded: { _, _, _ in },
-        onAgentOutOfCredits: {},
-        creditsDepleted: false,
-        onTapUpdateMember: { _ in },
-        onRetryMessage: { _ in },
-        onDeleteMessage: { _ in },
-        onRetryAgentJoin: {},
-        onCopyInviteLink: {},
-        onConvoCode: {},
-        onInviteAgent: {},
-        onRetryTranscript: { _ in },
-        profileSheetForMember: { _ in AnyView(EmptyView()) },
-        memberContactOverride: { _ in nil },
-        isAgentJoinPending: false,
-        bottomBarHeight: bottomBarHeight,
-        scrollToBottomTrigger: { _ in },
-        messageInputFocusTrigger: { _ in }
-    )
-    .ignoresSafeArea()
-}
 #endif

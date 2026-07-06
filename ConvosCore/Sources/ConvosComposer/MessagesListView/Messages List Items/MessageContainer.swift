@@ -80,7 +80,7 @@ extension View {
     /// Caps a bubble row at `Constant.maxBubbleRowWidth`, pinning it to the
     /// sender's edge when the container offers more width (regular-width
     /// layouts like iPad), then re-expands so the row still spans the list.
-    func bubbleRowWidthCap(alignment: Alignment) -> some View {
+    public func bubbleRowWidthCap(alignment: Alignment) -> some View {
         frame(maxWidth: Constant.maxBubbleRowWidth, alignment: alignment)
             .frame(maxWidth: .infinity, alignment: alignment)
     }

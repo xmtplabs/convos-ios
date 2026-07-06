@@ -2,13 +2,20 @@
 import ConvosCore
 import SwiftUI
 
-struct TextTitleContentView: View {
+public struct TextTitleContentView: View {
     let title: String
     let profile: Profile?
     var agentVerification: AgentVerification = .unverified
     var onTap: (() -> Void)?
 
-    var body: some View {
+    public init(title: String, profile: Profile?, agentVerification: AgentVerification = .unverified, onTap: (() -> Void)? = nil) {
+        self.title = title
+        self.profile = profile
+        self.agentVerification = agentVerification
+        self.onTap = onTap
+    }
+
+    public var body: some View {
         let content = HStack(spacing: DesignConstants.Spacing.stepX) {
             if let profile {
                 MessageAvatarView(

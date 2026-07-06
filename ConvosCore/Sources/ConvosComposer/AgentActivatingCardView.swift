@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Combine
 import ConvosCore
 import SwiftUI
@@ -12,7 +13,7 @@ import SwiftUI
 /// through the build-narration phrases. Because the content is stable within a
 /// phase, the view's timer isn't reset by polls. Handed off to the real agent
 /// contact card once the agent joins (the processor drops this card then).
-struct AgentActivatingCardView: View {
+public struct AgentActivatingCardView: View {
     let content: AgentActivatingCardContent
 
     /// Wall-clock ticks since this card (this phase) appeared. Drives the
@@ -115,7 +116,7 @@ struct AgentActivatingCardView: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             // Cap the card at the message-bubble width (50pt trailing spacer +
             // `bubbleRowWidthCap`), and inset the leading edge by the avatar
@@ -313,3 +314,4 @@ struct AgentActivatingCardView: View {
     .padding()
     .background(Color.colorBackgroundSurfaceless)
 }
+#endif

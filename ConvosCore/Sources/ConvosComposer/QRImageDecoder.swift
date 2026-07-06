@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import CoreImage
 import UIKit
 
@@ -6,10 +7,10 @@ import UIKit
 /// from their photo library. Runs the Core Image QR detector off the main
 /// thread; mirrors the live scanner, which feeds its decoded string into the
 /// same `handleScannedCode` handler.
-enum QRImageDecoder {
+public enum QRImageDecoder {
     /// Returns the first decoded QR message string in `image`, or `nil` when
     /// no readable code is present.
-    static func decode(_ image: UIImage) async -> String? {
+    public static func decode(_ image: UIImage) async -> String? {
         // CIImage(image:) carries the bitmap in its stored orientation, not
         // upright, so a screenshot saved with an EXIF rotation reads as a
         // rotated matrix the detector can't decode. Resolve the EXIF
@@ -54,3 +55,4 @@ enum QRImageDecoder {
         }
     }
 }
+#endif

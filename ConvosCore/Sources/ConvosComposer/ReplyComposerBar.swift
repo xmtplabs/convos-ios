@@ -8,9 +8,8 @@ public struct ReplyComposerBar: View {
     var audioTranscriptText: String?
     let onDismiss: () -> Void
 
-    public init(message: AnyMessage, shouldBlurPhotos: Bool, audioTranscriptText: String? = nil, onDismiss: @escaping () -> Void) {
+    public init(message: AnyMessage, audioTranscriptText: String? = nil, onDismiss: @escaping () -> Void) {
         self.message = message
-        self.shouldBlurPhotos = shouldBlurPhotos
         self.audioTranscriptText = audioTranscriptText
         self.onDismiss = onDismiss
     }
