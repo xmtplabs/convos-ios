@@ -706,6 +706,16 @@ extension ConversationInfoView {
             Text("Metadata")
         }
         NavigationLink {
+            MigrationCapabilitiesView(
+                loadDebugText: { await viewModel.membershipCapabilitiesDebugText() },
+                enableProposals: { force, minVersion in
+                    await viewModel.enableProposals(force: force, minVersion: minVersion)
+                }
+            )
+        } label: {
+            Text("Migration capabilities")
+        }
+        NavigationLink {
             HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
         } label: {
             Text("Hidden messages")

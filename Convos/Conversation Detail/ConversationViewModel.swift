@@ -4265,6 +4265,38 @@ extension ConversationViewModel {
     }
 
     @MainActor
+    func membershipCapabilitiesDebugText() async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            let client = inboxResult.client
+            return try await client.groupMembershipCapabilitiesDebugInfo(
+                conversationId: conversation.id
+            ).debugText
+        } catch {
+            return "Failed to load membership capabilities: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func enableProposals(force: Bool, minVersion: String?) async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            try await inboxResult.client.enableProposals(
+                conversationId: conversation.id,
+                force: force,
+                minVersion: minVersion
+            )
+            let forced = force ? " (forced)" : ""
+            let versioned = minVersion.map { " with minVersion \($0)" } ?? ""
+            return "Enabled proposals\(forced)\(versioned)."
+        } catch {
+            return "Failed to enable proposals: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
     func hiddenMessagesDebugInfo() async throws -> [HiddenMessageDebugEntry] {
         let messagingService = session.messagingService()
         let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
