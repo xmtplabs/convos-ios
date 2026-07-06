@@ -178,6 +178,30 @@ struct ProfileMergeAvatarTests {
         )
         #expect(merged?.url == "new")
     }
+
+    @Test("a set missing the encryption key is rejected and never downgrades an encrypted slot")
+    func keylessSetRejected() {
+        let keyless: IncomingAvatar = .set(url: "u", salt: nil, nonce: nil, key: nil)
+
+        // No existing slot: a keyless set stores nothing (no plaintext avatar).
+        let fresh = ProfileMerge.mergeAvatar(
+            existing: nil, inboxId: "i", conversationId: "c", incoming: keyless,
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(fresh == nil)
+
+        // Existing encrypted slot: a newer keyless set does not overwrite it.
+        let encrypted = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: "enc", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: t1
+        )
+        let preserved = ProfileMerge.mergeAvatar(
+            existing: encrypted, inboxId: "i", conversationId: "c", incoming: keyless,
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(preserved?.url == "enc")
+        #expect(preserved?.hasValidEncryptedAvatar == true)
+    }
 }
 
 @Suite("SelfProfileEdit")

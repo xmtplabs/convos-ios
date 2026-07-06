@@ -266,4 +266,25 @@ struct ProfilePublisherTests {
         let stamped = localStateWriter.publishedProfileUpdatedAtStates["c1"] ?? nil
         #expect(stamped == updatedAt)
     }
+
+    @Test("a job left uploading by an interrupted drain is reclaimed and processed")
+    func reclaimsStalledUploadingJob() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        // Seed a job stuck in-flight, as if a prior drain died mid-upload.
+        let seq = try await publishStore.nextSeq()
+        try await publishStore.enqueue(DBProfilePublishJob(
+            id: "stuck", seq: seq, conversationId: "c1", hasAvatar: false, state: .uploading,
+            nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
+        ))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1"], imageKeys: ["c1": key])
+
+        await publisher.attach(session: session)
+
+        let sends = await session.sends
+        #expect(sends.count == 1)
+        let remaining = try await publishStore.activeJobs()
+        #expect(remaining.isEmpty)
+    }
 }

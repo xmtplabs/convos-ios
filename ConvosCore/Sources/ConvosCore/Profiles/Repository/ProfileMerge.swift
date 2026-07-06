@@ -82,6 +82,13 @@ enum ProfileMerge {
         case .explicitClear:
             setFields = nil
         case let .set(url, salt, nonce, key):
+            // Every profile avatar must be group-encrypted. A set missing any
+            // crypto field is not a valid encrypted avatar; ignore it rather
+            // than store an unencrypted slot or downgrade an existing encrypted
+            // one to plaintext.
+            guard let salt, let nonce, let key else {
+                return existing
+            }
             setFields = AvatarFields(url: url, salt: salt, nonce: nonce, key: key)
         }
 

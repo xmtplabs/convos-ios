@@ -99,29 +99,51 @@ actor ProfilePublisher {
         draining = true
         defer { draining = false }
         guard let selfInboxId = await resolveSelfInboxId() else { return }
+        // Return jobs a previous drain left mid-flight to the ready pool.
+        try? await publishStore.reclaimStalledJobs()
         while let job = try? await publishStore.nextReadyJob(now: now()) {
-            await process(job, session: session, selfInboxId: selfInboxId)
+            guard let claimed = await claim(job) else { break }
+            await process(claimed, session: session, selfInboxId: selfInboxId)
+        }
+    }
+
+    /// Marks a ready job in-flight (`uploading`) before processing it. Because
+    /// `nextReadyJob` only returns `pending` jobs, this guarantees a job whose
+    /// delete or reschedule fails can't be handed straight back to the loop and
+    /// spin it. Returns nil (stop draining) if the claim write itself fails, so
+    /// a persistent write error can't hot-loop. A job left `uploading` by an
+    /// interrupted drain is reclaimed at the next drain.
+    private func claim(_ job: DBProfilePublishJob) async -> DBProfilePublishJob? {
+        var claimed = job
+        claimed.state = .uploading
+        claimed.updatedAt = now()
+        do {
+            try await publishStore.update(claimed)
+            return claimed
+        } catch {
+            Log.error("ProfilePublisher: failed to claim job \(job.id): \(error)")
+            return nil
         }
     }
 
     // MARK: - Enqueue
 
     private func enqueueJob(conversationId: String, sourceVersion: Int64?, hasAvatar: Bool) async throws {
-        let seq = try await publishStore.nextSeq()
         let timestamp = now()
-        let job = DBProfilePublishJob(
-            id: UUID().uuidString,
-            seq: seq,
-            conversationId: conversationId,
-            sourceVersion: sourceVersion,
-            hasAvatar: hasAvatar,
-            nextAttemptAt: timestamp,
-            createdAt: timestamp,
-            updatedAt: timestamp
-        )
-        try await publishStore.enqueue(job)
-        // A newer publish for this conversation supersedes its older pending jobs.
-        try await publishStore.supersedeOlderThan(conversationId: conversationId, seq: seq)
+        // Assign seq, insert, and supersede this conversation's older jobs in one
+        // atomic write so concurrent enqueues can't collide on seq.
+        try await publishStore.enqueueNext { seq in
+            DBProfilePublishJob(
+                id: UUID().uuidString,
+                seq: seq,
+                conversationId: conversationId,
+                sourceVersion: sourceVersion,
+                hasAvatar: hasAvatar,
+                nextAttemptAt: timestamp,
+                createdAt: timestamp,
+                updatedAt: timestamp
+            )
+        }
     }
 
     // MARK: - Process

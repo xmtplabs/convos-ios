@@ -17,11 +17,20 @@ protocol ProfilePublishStoreProtocol: Sendable {
 
     // Job queue
     func enqueue(_ job: DBProfilePublishJob) async throws
+    /// Atomically assigns the next `seq`, inserts the job the closure builds with
+    /// it, and supersedes that conversation's older non-done jobs - all in one
+    /// write so concurrent enqueues can't collide on `seq`.
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws
     func update(_ job: DBProfilePublishJob) async throws
     func job(id: String) async throws -> DBProfilePublishJob?
-    /// The next non-done job whose `nextAttemptAt` has passed, lowest `seq`
-    /// first. Fetch only; the publisher transitions state via `update`.
+    /// The next `pending` job whose `nextAttemptAt` has passed, lowest `seq`
+    /// first. Excludes `uploading` (in-flight) and `done` jobs so a claimed job
+    /// is never handed out twice. Fetch only; the publisher transitions state
+    /// via `update`.
     func nextReadyJob(now: Date) async throws -> DBProfilePublishJob?
+    /// Returns any `uploading` jobs to `pending`, e.g. after a drain was
+    /// interrupted mid-flight, so they become eligible for retry.
+    func reclaimStalledJobs() async throws
     func activeJobs() async throws -> [DBProfilePublishJob]
     func jobs(conversationId: String) async throws -> [DBProfilePublishJob]
     func nextSeq() async throws -> Int64
@@ -67,6 +76,18 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
         }
     }
 
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws {
+        try await databaseWriter.write { db in
+            let seq = try Int64.fetchOne(db, sql: "SELECT COALESCE(MAX(seq), 0) + 1 FROM profilePublishJob") ?? 1
+            let job = makeJob(seq)
+            try job.save(db)
+            _ = try DBProfilePublishJob
+                .filter(DBProfilePublishJob.Columns.conversationId == job.conversationId)
+                .filter(DBProfilePublishJob.Columns.seq < seq)
+                .deleteAll(db)
+        }
+    }
+
     func update(_ job: DBProfilePublishJob) async throws {
         try await databaseWriter.write { db in
             try job.save(db)
@@ -82,10 +103,18 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
     func nextReadyJob(now: Date) async throws -> DBProfilePublishJob? {
         try await databaseReader.read { db in
             try DBProfilePublishJob
-                .filter(DBProfilePublishJob.Columns.state != ProfilePublishJobState.done.rawValue)
+                .filter(DBProfilePublishJob.Columns.state == ProfilePublishJobState.pending.rawValue)
                 .filter(DBProfilePublishJob.Columns.nextAttemptAt <= now)
                 .order(DBProfilePublishJob.Columns.seq)
                 .fetchOne(db)
+        }
+    }
+
+    func reclaimStalledJobs() async throws {
+        try await databaseWriter.write { db in
+            _ = try DBProfilePublishJob
+                .filter(DBProfilePublishJob.Columns.state == ProfilePublishJobState.uploading.rawValue)
+                .updateAll(db, DBProfilePublishJob.Columns.state.set(to: ProfilePublishJobState.pending.rawValue))
         }
     }
 
@@ -174,6 +203,15 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
         jobsById[job.id] = job
     }
 
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) {
+        let seq = (jobsById.values.map(\.seq).max() ?? 0) + 1
+        let job = makeJob(seq)
+        jobsById[job.id] = job
+        for entry in jobsById where entry.value.conversationId == job.conversationId && entry.value.seq < seq {
+            jobsById[entry.key] = nil
+        }
+    }
+
     func update(_ job: DBProfilePublishJob) {
         jobsById[job.id] = job
     }
@@ -184,8 +222,16 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
 
     func nextReadyJob(now: Date) -> DBProfilePublishJob? {
         jobsById.values
-            .filter { $0.state != .done && $0.nextAttemptAt <= now }
+            .filter { $0.state == .pending && $0.nextAttemptAt <= now }
             .min { $0.seq < $1.seq }
+    }
+
+    func reclaimStalledJobs() {
+        for (id, job) in jobsById where job.state == .uploading {
+            var updated = job
+            updated.state = .pending
+            jobsById[id] = updated
+        }
     }
 
     func activeJobs() -> [DBProfilePublishJob] {

@@ -103,6 +103,32 @@ struct ProfilePublishStoreTests {
         let earliestNone = try await store.earliestNextAttempt()
         #expect(earliestNone == nil)
 
+        // enqueueNext assigns a monotonic seq atomically and supersedes older
+        // jobs for the same conversation.
+        try await store.enqueueNext { seq in
+            DBProfilePublishJob(id: "E", seq: seq, conversationId: "conv-1", nextAttemptAt: past1, createdAt: past1, updatedAt: past1)
+        }
+        try await store.enqueueNext { seq in
+            DBProfilePublishJob(id: "F", seq: seq, conversationId: "conv-1", nextAttemptAt: past1, createdAt: past1, updatedAt: past1)
+        }
+        let conv1Next = try await store.jobs(conversationId: "conv-1")
+        // Older E superseded by newer F (same conversation).
+        #expect(conv1Next.map(\.id) == ["F"])
+        let fJob = try await store.job(id: "F")
+        #expect((fJob?.seq ?? 0) > 0)
+
+        // reclaimStalledJobs returns an in-flight (uploading) job to pending so
+        // it is ready again; nextReadyJob excludes it while uploading.
+        if var uploading = try await store.job(id: "F") {
+            uploading.state = .uploading
+            try await store.update(uploading)
+        }
+        let readyWhileUploading = try await store.nextReadyJob(now: now)
+        #expect(readyWhileUploading == nil)
+        try await store.reclaimStalledJobs()
+        let readyAfterReclaim = try await store.nextReadyJob(now: now)
+        #expect(readyAfterReclaim?.id == "F")
+
         // clearSource and deleteAll.
         try await store.clearSource(inboxId: "me")
         let clearedSource = try await store.source(inboxId: "me")
