@@ -172,13 +172,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 await renewalManager.performRenewalIfNeeded()
             }
 
-            // Populate the canonical Profile tables in the background: a one-time
-            // one-time backfill from any legacy memberProfile rows, warm the
-            // cache, and attach the publish session. Self-guards on inbox-ready;
-            // reads are flipped onto the repository at the cutover.
+            // Ensure the messaging service is built at launch. Building it starts
+            // its profile services (backfill + warmUp + bind the publish session)
+            // via loadOrCreateService's freshly-built hook, so we don't call
+            // startProfileServices here as well - that would double-run backfill.
             Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                await self.loadOrCreateService().startProfileServices()
+                _ = self.loadOrCreateService()
             }
         }
     }
@@ -298,13 +298,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     ///   fresh allocation, no fresh state machine, no fresh task — this
     ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
-        cachedMessagingService.withLock { cached in
+        let result: (service: MessagingService, freshlyBuilt: Bool) = cachedMessagingService.withLock { cached in
             let previousWasErrored: Bool
             if let existing = cached {
                 if case .error = existing.sessionStateManager.currentState {
                     previousWasErrored = true
                 } else {
-                    return existing
+                    return (existing, false)
                 }
             } else {
                 previousWasErrored = false
@@ -324,7 +324,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                consecutiveKeychainReadFailures >= 2,
                let lastFailure = lastKeychainReadFailure,
                Date().timeIntervalSince(lastFailure) < Self.keychainRetryBackoff {
-                return existing
+                return (existing, false)
             }
 
             let identity: KeychainIdentity?
@@ -338,7 +338,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 if previousWasErrored, let existing = cached {
                     // Still unhappy; return the frozen errored service we
                     // cached on the previous call. No rebuild thrash.
-                    return existing
+                    return (existing, false)
                 }
                 Log.error("Keychain identity read failed (\(error)); caching dedicated error-state service until next successful read.")
                 let errored = MessagingService(
@@ -352,13 +352,29 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     coreActions: coreActions
                 )
                 cached = errored
-                return errored
+                return (errored, false)
             }
 
             let service = buildMessagingService(for: identity)
             cached = service
-            return service
+            return (service, true)
         }
+        if result.freshlyBuilt {
+            // A freshly built service has an unattached publish session. Start
+            // its profile services (backfill + warmUp + bind the publisher) so
+            // profile edits actually publish in this app session. Without this,
+            // only the one-time launch initialization attaches the session, so a
+            // service rebuilt after deleteAllInboxes / refreshAfterPairingCompleted
+            // would leave edits enqueued-but-undelivered until the next relaunch.
+            // The re-fetch returns the just-cached instance (not freshly built,
+            // so it does not re-trigger). startProfileServices self-gates on
+            // inbox-ready.
+            Task { [weak self] in
+                guard let self else { return }
+                await self.loadOrCreateService().startProfileServices()
+            }
+        }
+        return result.service
     }
 
     /// Build a `MessagingService` for the keychain's current identity, or

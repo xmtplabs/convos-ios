@@ -99,8 +99,17 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         cancellables.removeAll()
 
         let observation = ValueObservation
-            .tracking { db in
-                try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
+            // Handle the fetch per-element so a transient error yields a default
+            // rather than failing the observation, which would complete the
+            // stream (via replaceError) and freeze the My Profile screen until a
+            // re-subscribe. The trailing replaceError remains only as the
+            // Error -> Never conversion for an unrecoverable database error.
+            .tracking { db -> Profile in
+                do {
+                    return try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
+                } catch {
+                    return .empty(inboxId: inboxId, conversationId: conversationId)
+                }
             }
             .publisher(in: databaseReader)
             .replaceError(with: .empty(inboxId: inboxId, conversationId: conversationId))

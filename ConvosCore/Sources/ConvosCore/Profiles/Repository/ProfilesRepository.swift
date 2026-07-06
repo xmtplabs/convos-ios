@@ -55,6 +55,7 @@ public actor ProfilesRepository {
             publishStore: publishStore,
             profileStore: profileStore,
             selfProfileStore: selfProfileStore,
+            conversationLocalStateWriter: conversationLocalStateWriter,
             selfInboxIdProvider: selfInboxIdProvider
         )
     }
@@ -66,7 +67,18 @@ public actor ProfilesRepository {
     /// not depend on the in-memory cache, so it is always current.
     public nonisolated func profilePublisher(inboxId: String) -> AnyPublisher<UnifiedProfile, Never> {
         ValueObservation
-            .tracking { db in try Self.fetchProfile(db, inboxId: inboxId) }
+            // Handle the fetch per-element: a transient error yields a default
+            // rather than throwing, which would fail the observation and, via the
+            // terminal catch, complete the stream - freezing this reactive read
+            // for the subscriber's lifetime. The trailing catch remains only as
+            // the Error -> Never conversion for an unrecoverable database error.
+            .tracking { db -> UnifiedProfile in
+                do {
+                    return try Self.fetchProfile(db, inboxId: inboxId)
+                } catch {
+                    return .empty(inboxId: inboxId)
+                }
+            }
             .removeDuplicates()
             .publisher(in: databaseReader)
             .catch { _ in Just(UnifiedProfile.empty(inboxId: inboxId)) }
@@ -76,11 +88,15 @@ public actor ProfilesRepository {
     nonisolated func profilesPublisher(inboxIds: [String]) -> AnyPublisher<[String: UnifiedProfile], Never> {
         ValueObservation
             .tracking { db -> [String: UnifiedProfile] in
-                var result: [String: UnifiedProfile] = [:]
-                for inboxId in inboxIds {
-                    result[inboxId] = try Self.fetchProfile(db, inboxId: inboxId)
+                do {
+                    var result: [String: UnifiedProfile] = [:]
+                    for inboxId in inboxIds {
+                        result[inboxId] = try Self.fetchProfile(db, inboxId: inboxId)
+                    }
+                    return result
+                } catch {
+                    return [:]
                 }
-                return result
             }
             .removeDuplicates()
             .publisher(in: databaseReader)
@@ -90,7 +106,13 @@ public actor ProfilesRepository {
 
     nonisolated func selfProfilePublisher() -> AnyPublisher<UnifiedProfile?, Never> {
         ValueObservation
-            .tracking { db -> UnifiedProfile? in try Self.fetchSelfProfile(db) }
+            .tracking { db -> UnifiedProfile? in
+                do {
+                    return try Self.fetchSelfProfile(db)
+                } catch {
+                    return nil
+                }
+            }
             .removeDuplicates()
             .publisher(in: databaseReader)
             .catch { _ in Just(nil) }
@@ -293,29 +315,26 @@ public actor ProfilesRepository {
     /// sending the profile update.
     public func publishMyProfileToConversation(_ conversationId: String) async throws {
         guard let selfId = await resolveSelfInboxId() else { return }
-        let decision: (shouldPublish: Bool, target: Date?) = try await databaseReader.read { db -> (shouldPublish: Bool, target: Date?) in
+        let shouldPublish = try await databaseReader.read { db -> Bool in
             guard let myUpdatedAt = try DBMyProfile
                 .filter(DBMyProfile.Columns.inboxId == selfId)
                 .fetchOne(db)?.updatedAt else {
-                return (false, nil)
+                return false
             }
             let publishedAt = try ConversationLocalState
                 .filter(ConversationLocalState.Columns.conversationId == conversationId)
                 .fetchOne(db)?.publishedProfileUpdatedAt
-            let stale: Bool
-            if let publishedAt {
-                stale = publishedAt < myUpdatedAt
-            } else {
-                stale = true
-            }
-            return (stale, myUpdatedAt)
+            guard let publishedAt else { return true }
+            return publishedAt < myUpdatedAt
         }
-        guard decision.shouldPublish, let target = decision.target else { return }
+        guard shouldPublish else { return }
+        // Enqueue the publish. The conversation's publishedProfileUpdatedAt is
+        // stamped by the publisher only after the ProfileUpdate is actually
+        // delivered - never optimistically here - so a send that fails or is
+        // dropped (e.g. the conversation isn't fully joined yet) leaves the
+        // conversation stale and eligible for retry rather than being silently
+        // marked as up to date.
         try await publisher.publishConversation(conversationId)
-        // Optimistic stamp: the publish job is durable and retries until it
-        // lands, so recording it now prevents re-enqueuing on the next
-        // open/send while the profile is unchanged.
-        try await conversationLocalStateWriter.setPublishedProfileUpdatedAt(target, for: conversationId)
     }
 
     /// Records new self metadata locally and bumps `updatedAt`. Propagation is

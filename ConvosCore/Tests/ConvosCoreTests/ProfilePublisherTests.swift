@@ -96,12 +96,14 @@ struct ProfilePublisherTests {
         publishStore: any ProfilePublishStoreProtocol,
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
-        clock: TestClock
+        clock: TestClock,
+        conversationLocalStateWriter: any ConversationLocalStateWriterProtocol = MockConversationLocalStateWriter()
     ) -> ProfilePublisher {
         ProfilePublisher(
             publishStore: publishStore,
             profileStore: profileStore,
             selfProfileStore: selfProfileStore,
+            conversationLocalStateWriter: conversationLocalStateWriter,
             selfInboxIdProvider: { "me" },
             now: { clock.current },
             backoff: PublishBackoff(base: 1, cap: 5, jitterFraction: 0)
@@ -240,5 +242,28 @@ struct ProfilePublisherTests {
         #expect(sends.count == 1)
         let remaining = try await publishStore.activeJobs()
         #expect(remaining.isEmpty)
+    }
+
+    @Test("a successful publish stamps publishedProfileUpdatedAt for the conversation")
+    func stampsConversationOnSuccessfulPublish() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let selfProfileStore = InMemorySelfProfileStore()
+        let updatedAt = Date(timeIntervalSince1970: 500)
+        try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Ziggy", updatedAt: updatedAt))
+        let localStateWriter = MockConversationLocalStateWriter()
+        let publisher = makePublisher(
+            publishStore: publishStore, profileStore: InMemoryProfileStore(),
+            selfProfileStore: selfProfileStore, clock: clock, conversationLocalStateWriter: localStateWriter
+        )
+        let session = FakeProfilePublishSession(inboxId: "me", conversations: ["c1"], imageKeys: ["c1": key])
+        await publisher.attach(session: session)
+
+        try await publisher.publishConversation("c1")
+
+        let sends = await session.sends
+        #expect(sends.count == 1)
+        let stamped = localStateWriter.publishedProfileUpdatedAtStates["c1"] ?? nil
+        #expect(stamped == updatedAt)
     }
 }

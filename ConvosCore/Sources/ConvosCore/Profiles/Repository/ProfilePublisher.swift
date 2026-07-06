@@ -30,6 +30,7 @@ actor ProfilePublisher {
     private let publishStore: any ProfilePublishStoreProtocol
     private let profileStore: any ProfileStoreProtocol
     private let selfProfileStore: any SelfProfileStoreProtocol
+    private let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let selfInboxIdProvider: @Sendable () async -> String?
     private let now: @Sendable () -> Date
     private let backoff: PublishBackoff
@@ -42,6 +43,7 @@ actor ProfilePublisher {
         publishStore: any ProfilePublishStoreProtocol,
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
+        conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
         selfInboxIdProvider: @escaping @Sendable () async -> String?,
         now: @escaping @Sendable () -> Date = { Date() },
         backoff: PublishBackoff = .default
@@ -49,6 +51,7 @@ actor ProfilePublisher {
         self.publishStore = publishStore
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
+        self.conversationLocalStateWriter = conversationLocalStateWriter
         self.selfInboxIdProvider = selfInboxIdProvider
         self.now = now
         self.backoff = backoff
@@ -191,6 +194,7 @@ actor ProfilePublisher {
             updatedAt: now()
         )
         try await profileStore.saveAvatar(slot)
+        await stampPublished(selfProfile, conversationId: job.conversationId)
     }
 
     private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
@@ -198,6 +202,18 @@ actor ProfilePublisher {
         let published = publishedAvatar(from: existing)
         let selfProfile = try await selfProfileStore.load()
         try await session.sendProfileUpdate(name: selfProfile?.name, metadata: selfProfile?.metadata, avatar: published, conversationId: job.conversationId)
+        await stampPublished(selfProfile, conversationId: job.conversationId)
+    }
+
+    /// Records that the self profile as of `selfProfile.updatedAt` has actually
+    /// been delivered to this conversation, so the change-aware lazy sync stops
+    /// re-publishing until the next edit. Stamped only after a successful send -
+    /// never optimistically - so a failed or dropped publish leaves the
+    /// conversation marked stale and eligible for retry. Best-effort: a stamp
+    /// failure just means a harmless duplicate publish next time.
+    private func stampPublished(_ selfProfile: DBMyProfile?, conversationId: String) async {
+        guard let updatedAt = selfProfile?.updatedAt else { return }
+        try? await conversationLocalStateWriter.setPublishedProfileUpdatedAt(updatedAt, for: conversationId)
     }
 
     private func publishedAvatar(from slot: DBProfileAvatar?) -> PublishedAvatar? {

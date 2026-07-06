@@ -246,7 +246,7 @@ struct ProfilesRepositoryTests {
         )
     }
 
-    @Test("publishMyProfileToConversation publishes and stamps when never published there")
+    @Test("publishMyProfileToConversation enqueues a publish when never published there")
     func changeAwarePublishesFirstTime() async throws {
         let db: any DatabaseWriter = MockDatabaseManager.makeTestDatabase().dbWriter
         let publishStore = InMemoryProfilePublishStore()
@@ -260,6 +260,9 @@ struct ProfilesRepositoryTests {
 
         try await repository.publishMyProfileToConversation("c1")
 
+        // Enqueues a publish. The stamp is written by the publisher only after
+        // the ProfileUpdate is actually delivered (there is no session attached
+        // here), so the conversation stays unstamped and eligible for retry.
         let jobs = try await publishStore.activeJobs()
         #expect(!jobs.isEmpty)
         let stamp = try await db.read { db in
@@ -267,7 +270,7 @@ struct ProfilesRepositoryTests {
                 .filter(ConversationLocalState.Columns.conversationId == "c1")
                 .fetchOne(db)?.publishedProfileUpdatedAt
         }
-        #expect(stamp == updatedAt)
+        #expect(stamp == nil)
     }
 
     @Test("publishMyProfileToConversation skips when the profile is already current there")
@@ -307,11 +310,5 @@ struct ProfilesRepositoryTests {
 
         let jobs = try await publishStore.activeJobs()
         #expect(!jobs.isEmpty)
-        let stamp = try await db.read { db in
-            try ConversationLocalState
-                .filter(ConversationLocalState.Columns.conversationId == "c1")
-                .fetchOne(db)?.publishedProfileUpdatedAt
-        }
-        #expect(stamp == newAt)
     }
 }

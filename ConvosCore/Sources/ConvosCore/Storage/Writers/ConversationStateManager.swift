@@ -91,7 +91,13 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     /// Conversations this instance has already handed to the profile seeder.
     /// `.ready` can re-emit, so this prevents launching duplicate concurrent
     /// seeds for the same conversation within one manager's lifetime.
-    private let seededConversationIds: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+    /// Conversations with an in-flight profile seed. Coalesces concurrent seeds
+    /// for the same conversation so a `.ready` re-emission doesn't launch a
+    /// duplicate, but the id is cleared when the seed completes so a later
+    /// re-emission can seed again. The seeder is change-aware and stamps only on
+    /// delivery, so a seed that couldn't publish yet (e.g. before the
+    /// conversation is fully joined) is retried rather than suppressed forever.
+    private let seedingConversationIds: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
 
     // MARK: - Initialization
 
@@ -220,14 +226,17 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     private func scheduleProfileSync(for conversationId: String) {
         guard !DBConversation.isDraft(id: conversationId) else { return }
-        // `.ready` can re-emit; seed each conversation at most once per instance
-        // so a re-emission doesn't launch a duplicate concurrent publish. The
-        // seeder itself is also idempotent (skips when already seeded).
-        let firstSeed = seededConversationIds.withLock { $0.insert(conversationId).inserted }
-        guard firstSeed else { return }
+        // Coalesce only concurrent seeds; clear the id when the seed finishes so
+        // a `.ready` re-emission after completion can retry. The seeder is
+        // change-aware (a no-op once the profile has actually been delivered
+        // here), so retrying is cheap and self-limiting.
+        let shouldStart = seedingConversationIds.withLock { $0.insert(conversationId).inserted }
+        guard shouldStart else { return }
         let seeder = profileConversationSeeder
+        let seeding = seedingConversationIds
         Task.detached {
             await seeder(conversationId)
+            seeding.withLock { _ = $0.remove(conversationId) }
         }
     }
 
