@@ -1,6 +1,5 @@
 import ConvosCore
 import ConvosMetrics
-import PhotosUI
 import SwiftUI
 
 /// Root tab shell for the app. Hosts the existing `ConversationsView` under
@@ -71,15 +70,6 @@ struct MainTabView: View {
     /// because SwiftUI's safe-area inset chain doesn't reliably propagate
     /// to the UIKit collection view.
     @State private var builderBarHeight: CGFloat = 0
-    /// Photo / camera / voice-memo entry points for the
-    /// `AgentBuilderBar`. Tapping the photo or camera icon presents
-    /// the matching picker first; only once the user has actually picked
-    /// (or captured) media do we open the builder sheet, so abandoning
-    /// the picker leaves the user where they were. Voice memo skips the
-    /// picker and opens the builder directly in recording mode.
-    @State private var isPhotoPickerPresented: Bool = false
-    @State private var isCameraPresented: Bool = false
-    @State private var selectedPhotos: [PhotosPickerItem] = []
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
     /// level so both the Chats and Things tabs share a single sheet
@@ -677,8 +667,6 @@ struct MainTabView: View {
         AgentBuilderBar(
             isExpanded: expanded,
             onTap: openBuilder,
-            onTapPhotos: { isPhotoPickerPresented = true },
-            onTapCamera: { isCameraPresented = true },
             onTapVoiceMemo: openBuilderInVoiceMemoMode,
             transitionSourceNamespace: namespace,
             transitionSourceId: Constant.builderTransitionId
@@ -713,49 +701,6 @@ struct MainTabView: View {
     /// to wait for the inner conversation VM's recorder to materialize.
     private func openBuilderInVoiceMemoMode() {
         conversationsViewModel.onStartAgent(entryMode: .voiceMemo)
-    }
-
-    /// Camera capture (still image): open the builder and load the image
-    /// into the inner conversation VM's attachment list. The fullScreenCover
-    /// is dismissed by flipping `isCameraPresented` before opening the
-    /// builder so the sheet sits on top of the (now-dismissing) camera
-    /// cover with no visible flash.
-    private func handleCameraImageCaptured(_ image: UIImage) {
-        isCameraPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        builderViewModel.addPhotoAttachment(image)
-    }
-
-    private func handleCameraVideoCaptured(_ url: URL) {
-        isCameraPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        builderViewModel.addVideoAttachment(url: url)
-    }
-
-    /// Photo / video library selection: load each picked item asynchronously
-    /// (videos transferred as `VideoFile`, stills as `Data` -> `UIImage`)
-    /// and add them to the freshly-created builder VM. The picker is
-    /// dismissed and `selectedPhotos` is cleared synchronously so a
-    /// subsequent tap on the photo icon opens the picker fresh.
-    private func handleSelectedPhotosChanged(to newValue: [PhotosPickerItem]) {
-        guard !newValue.isEmpty else { return }
-        let items = newValue
-        selectedPhotos = []
-        isPhotoPickerPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        Task {
-            for item in items {
-                if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
-                    await MainActor.run { builderViewModel.addVideoAttachment(url: videoFile.url) }
-                } else if let data = try? await item.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) {
-                    await MainActor.run { builderViewModel.addPhotoAttachment(image) }
-                }
-            }
-        }
     }
 
     private enum Constant {
@@ -913,23 +858,17 @@ private struct BuilderBarHeightKey: PreferenceKey {
     }
 }
 
-/// All the sheets / covers / pickers that the `MainTabView` shell hosts,
-/// extracted into a `ViewModifier` so the host's `body` stays within the
+/// All the sheets / covers that the `MainTabView` shell hosts, extracted
+/// into a `ViewModifier` so the host's `body` stays within the
 /// `warn-long-expression-type-checking` budget.
 struct MainTabSheetsModifier: ViewModifier {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     let coreActions: any CoreActions
     @Binding var presentingAppSettings: Bool
-    @Binding var isPhotoPickerPresented: Bool
-    @Binding var isCameraPresented: Bool
-    @Binding var selectedPhotos: [PhotosPickerItem]
     @Binding var thingsAgentContactMember: ConversationMember?
     let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
-    let onPhotosChanged: ([PhotosPickerItem]) -> Void
-    let onCameraImageCaptured: (UIImage) -> Void
-    let onCameraVideoCaptured: (URL) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -943,22 +882,6 @@ struct MainTabSheetsModifier: ViewModifier {
                 .navigationTransition(
                     .zoom(sourceID: "agent-builder-transition-source", in: namespace)
                 )
-            }
-            .photosPicker(
-                isPresented: $isPhotoPickerPresented,
-                selection: $selectedPhotos,
-                maxSelectionCount: maxPendingMediaAttachments,
-                matching: .any(of: [.images, .videos])
-            )
-            .onChange(of: selectedPhotos) { _, newValue in
-                onPhotosChanged(newValue)
-            }
-            .fullScreenCover(isPresented: $isCameraPresented) {
-                CameraPickerView(
-                    onImageCaptured: onCameraImageCaptured,
-                    onVideoCaptured: onCameraVideoCaptured
-                )
-                .ignoresSafeArea()
             }
             .sheet(isPresented: $presentingAppSettings) {
                 AppSettingsView(
@@ -1071,15 +994,9 @@ extension MainTabView {
             profileSettingsViewModel: profileSettingsViewModel,
             coreActions: coreActions,
             presentingAppSettings: $presentingAppSettings,
-            isPhotoPickerPresented: $isPhotoPickerPresented,
-            isCameraPresented: $isCameraPresented,
-            selectedPhotos: $selectedPhotos,
             thingsAgentContactMember: $thingsAgentContactMember,
             thingsPushedConvoVM: thingsPushedConvoVM,
-            namespace: namespace,
-            onPhotosChanged: handleSelectedPhotosChanged(to:),
-            onCameraImageCaptured: handleCameraImageCaptured,
-            onCameraVideoCaptured: handleCameraVideoCaptured
+            namespace: namespace
         )
     }
 }
