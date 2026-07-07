@@ -30,7 +30,20 @@ final class JoinerPairingSheetViewModel: Identifiable {
     private let timeoutInterval: TimeInterval
     private let pairingService: any PairingServiceProtocol
     private let initiatorName: String?
+    /// Copy shown while `.connecting`; nil falls back to the default
+    /// "<device> is requesting to pair" text. The iCloud-discovery entry
+    /// point overrides it with instructions to open the pairing screen on
+    /// the other device.
+    let connectingMessage: String?
+    /// When set, the join request is re-sent on this cadence while the
+    /// flow stays in `.connecting`. The QR flow never needs this - the
+    /// initiator is already streaming when its QR is scanned - but the
+    /// iCloud-discovery flow sends the first request before the user has
+    /// opened the pairing screen on the other device, and the initiator
+    /// only sees requests that arrive while it streams.
+    private let resendJoinRequestInterval: TimeInterval?
     private var countdownTask: Task<Void, Never>?
+    private var resendTask: Task<Void, Never>?
     @ObservationIgnored
     private let observers: PairingNotificationObservers
     private var initiatorInboxId: String?
@@ -52,6 +65,8 @@ final class JoinerPairingSheetViewModel: Identifiable {
         expiresAt: Date? = nil,
         initiatorName: String? = nil,
         timeoutInterval: TimeInterval = 60,
+        connectingMessage: String? = nil,
+        resendJoinRequestInterval: TimeInterval? = nil,
         pairingService: any PairingServiceProtocol,
         onPairingAdopted: (@MainActor () async -> Void)? = nil,
         onApplyAdoptedProfile: (@MainActor (_ displayName: String?, _ imageAssetIdentifier: String?) async -> Void)? = nil,
@@ -62,6 +77,8 @@ final class JoinerPairingSheetViewModel: Identifiable {
         self.pairingId = pairingId
         self.timeoutInterval = timeoutInterval
         self.initiatorName = initiatorName
+        self.connectingMessage = connectingMessage
+        self.resendJoinRequestInterval = resendJoinRequestInterval
         self.pairingService = pairingService
         self.onPairingAdopted = onPairingAdopted
         self.onApplyAdoptedProfile = onApplyAdoptedProfile
@@ -140,8 +157,35 @@ final class JoinerPairingSheetViewModel: Identifiable {
                 slug: pairingId,
                 deviceName: DeviceInfo.deviceName
             )
+            startResendLoopIfNeeded()
         } catch {
             flowState = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Re-sends the join request on a fixed cadence while the flow stays
+    /// in `.connecting`. Duplicate requests are harmless on the initiator:
+    /// before its pairing screen opens nothing is listening, and once a
+    /// handshake is underway `PairingCoordinator.receivedJoinRequest`
+    /// ignores repeats. Send failures are logged and retried - the loop
+    /// only stops when the flow leaves `.connecting`.
+    private func startResendLoopIfNeeded() {
+        guard let interval = resendJoinRequestInterval else { return }
+        resendTask?.cancel()
+        resendTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled, let self else { return }
+                guard self.flowState == .connecting else { return }
+                do {
+                    try await self.pairingService.sendPairingJoinRequest(
+                        slug: self.pairingId,
+                        deviceName: DeviceInfo.deviceName
+                    )
+                } catch {
+                    Log.warning("Pairing: join request resend failed: \(error)")
+                }
+            }
         }
     }
 
@@ -209,6 +253,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
     }
 
     private func onPinReceived(_ pin: String, from senderInboxId: String) {
+        resendTask?.cancel()
         initiatorInboxId = senderInboxId
         // Rebase the countdown when the PIN arrives. The initial window
         // is the slug's expiresAt — by the time the PIN lands the user
@@ -226,6 +271,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
         guard !didComplete else { return }
         didComplete = true
         countdownTask?.cancel()
+        resendTask?.cancel()
         title = "Adopting identity"
         flowState = .syncing
         canDismiss = false
@@ -242,12 +288,14 @@ final class JoinerPairingSheetViewModel: Identifiable {
     }
 
     func onPairingFailed(_ message: String) {
+        resendTask?.cancel()
         flowState = .failed(message)
         canDismiss = true
     }
 
     func cancel() {
         countdownTask?.cancel()
+        resendTask?.cancel()
         Task {
             await pairingService.stop()
         }

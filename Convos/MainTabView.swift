@@ -870,6 +870,29 @@ struct MainTabSheetsModifier: ViewModifier {
     let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
 
+    /// Routes every dismissal of the incoming-pairing sheet through
+    /// `dismissIncomingPairingRequest()` so the flow is cancelled before
+    /// the view model reference is dropped. A plain item binding with an
+    /// `onDismiss` can't do this for interactive (swipe) dismissal:
+    /// SwiftUI nils the binding before `onDismiss` runs, so by then
+    /// there's no view model left to cancel and the pairing service's
+    /// stream keeps running. Cancelling is safe on every path - the view
+    /// model only sends the joiner-facing cancellation error from
+    /// mid-handshake states, and stopping the service after completion
+    /// or failure is the same cleanup the QR flow does on sheet close.
+    private var incomingPairingBinding: Binding<PairingSheetViewModel?> {
+        Binding(
+            get: { conversationsViewModel.incomingPairingRequest },
+            set: { newValue in
+                if newValue == nil {
+                    conversationsViewModel.dismissIncomingPairingRequest()
+                } else {
+                    conversationsViewModel.incomingPairingRequest = newValue
+                }
+            }
+        )
+    }
+
     func body(content: Content) -> some View {
         content
             .sheet(item: $conversationsViewModel.agentBuilderViewModel) { builderViewModel in
@@ -896,6 +919,13 @@ struct MainTabSheetsModifier: ViewModifier {
                 )
                 .interactiveDismissDisabled(conversationsViewModel.appSettingsViewModel.isDeleting)
             }
+            .selfSizingSheet(
+                item: incomingPairingBinding,
+                content: { pairingVM in
+                    PairingSheetView(viewModel: pairingVM)
+                        .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
             .sheet(item: $conversationsViewModel.newConversationViewModel) { newConvoViewModel in
                 NewConversationView(
                     viewModel: newConvoViewModel,

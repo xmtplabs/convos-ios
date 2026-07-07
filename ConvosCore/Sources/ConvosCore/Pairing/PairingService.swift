@@ -23,6 +23,14 @@ public extension Notification.Name {
     /// Posted by the initiator-side PairingService when the joiner echoes
     /// the PIN back. `userInfo` contains `pin: String` and `joinerInboxId: String`.
     static let pairingDidReceivePinEcho: Notification.Name = Notification.Name("convos.pairing.didReceivePinEcho")
+
+    /// Posted by `StreamProcessor` when a `PairingJoinRequest` DM arrives
+    /// via the main message stream (no pairing screen open) and its
+    /// embedded invite slug verifies against this device's own identity
+    /// key. The host app surfaces an initiator pairing sheet in response.
+    /// `userInfo` contains `joinerInboxId: String`, `deviceName: String`,
+    /// and `slug: String`.
+    static let pairingDidReceiveVerifiedJoinRequest: Notification.Name = Notification.Name("convos.pairing.didReceiveVerifiedJoinRequest")
 }
 
 /// Carried in `PairingService.pairingJoinRequestStream` for the initiator

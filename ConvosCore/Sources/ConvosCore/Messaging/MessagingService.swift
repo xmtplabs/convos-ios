@@ -93,6 +93,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
         self.coreActions = coreActions
+        // Both the app and the NSE construct a MessagingService, so this
+        // is the one bootstrap point common to every process that can
+        // verify a pairing join request.
+        PairingNonceLedger.shared.configure(appGroup: environment.appGroupIdentifier)
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
