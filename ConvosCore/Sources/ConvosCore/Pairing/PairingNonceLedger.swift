@@ -39,10 +39,13 @@ public final class PairingNonceLedger: Sendable {
     /// only, which is sufficient inside one long-lived process but blind
     /// to bindings made by the other.
     public func configure(appGroup: String) {
-        guard UserDefaults(suiteName: appGroup) != nil else {
+        guard let defaults = UserDefaults(suiteName: appGroup) else {
             Log.warning("PairingNonceLedger: app-group suite unavailable, staying in-memory")
             return
         }
+        // Pre-release builds stored the whole ledger under one key; the
+        // blob is unreadable by the per-key format, so clear the residue.
+        defaults.removeObject(forKey: "convos.pairing.nonceLedger.v1")
         state.withLock { state in
             guard state.appGroup == nil else { return }
             state.appGroup = appGroup
@@ -69,24 +72,34 @@ public final class PairingNonceLedger: Sendable {
             if let existing = state.bindings[nonce], existing.joinerInboxId != joinerInboxId {
                 return
             }
-            state.bindings[nonce] = Binding(joinerInboxId: joinerInboxId, boundAt: Date())
-            persist(state)
+            let binding = Binding(joinerInboxId: joinerInboxId, boundAt: Date())
+            state.bindings[nonce] = binding
+            persist(nonce: nonce, binding: binding, appGroup: state.appGroup)
         }
     }
 
-    /// Folds the other process's persisted bindings into memory. On a
-    /// joiner conflict the earlier binding wins, preserving
-    /// first-writer-wins across processes.
+    /// Folds the other process's persisted bindings into memory, and
+    /// deletes expired persisted entries along the way. On a joiner
+    /// conflict the earlier binding wins, preserving first-writer-wins
+    /// across processes.
     private func mergePersisted(into state: inout State) {
         guard let appGroup = state.appGroup,
               let defaults = UserDefaults(suiteName: appGroup),
-              let stored = defaults.dictionary(forKey: Constant.storageKey) else { return }
-        for (key, value) in stored {
-            guard let nonce = Data(base64Encoded: key),
+              let domain = defaults.persistentDomain(forName: appGroup) else { return }
+        let cutoff = Date().addingTimeInterval(-Constant.retention)
+        for (key, value) in domain where key.hasPrefix(Constant.keyPrefix) {
+            guard let nonce = Data(base64Encoded: String(key.dropFirst(Constant.keyPrefix.count))),
                   let entry = value as? [String: Any],
                   let joiner = entry[Constant.joinerField] as? String,
-                  let timestamp = entry[Constant.boundAtField] as? TimeInterval else { continue }
+                  let timestamp = entry[Constant.boundAtField] as? TimeInterval else {
+                defaults.removeObject(forKey: key)
+                continue
+            }
             let persisted = Binding(joinerInboxId: joiner, boundAt: Date(timeIntervalSince1970: timestamp))
+            guard persisted.boundAt > cutoff else {
+                defaults.removeObject(forKey: key)
+                continue
+            }
             if let existing = state.bindings[nonce],
                existing.joinerInboxId != persisted.joinerInboxId,
                existing.boundAt <= persisted.boundAt {
@@ -96,21 +109,24 @@ public final class PairingNonceLedger: Sendable {
         }
     }
 
-    private func persist(_ state: State) {
-        guard let appGroup = state.appGroup,
+    /// Writes one binding under its own per-nonce key. Whole-ledger
+    /// snapshot writes would race the other process: the app binding
+    /// nonce A and the NSE binding nonce B concurrently would each
+    /// overwrite the other's entry, silently dropping replay-guard
+    /// state. Per-key writes only ever touch the caller's own nonce.
+    private func persist(nonce: Data, binding: Binding, appGroup: String?) {
+        guard let appGroup,
               let defaults = UserDefaults(suiteName: appGroup) else { return }
-        var stored: [String: [String: Any]] = [:]
-        for (nonce, binding) in state.bindings {
-            stored[nonce.base64EncodedString()] = [
-                Constant.joinerField: binding.joinerInboxId,
-                Constant.boundAtField: binding.boundAt.timeIntervalSince1970,
-            ]
-        }
-        defaults.set(stored, forKey: Constant.storageKey)
+        let entry: [String: Any] = [
+            Constant.joinerField: binding.joinerInboxId,
+            Constant.boundAtField: binding.boundAt.timeIntervalSince1970,
+        ]
+        defaults.set(entry, forKey: Constant.keyPrefix + nonce.base64EncodedString())
     }
 
     /// Drops bindings comfortably older than any slug's validity window,
-    /// keeping the table bounded without a timer.
+    /// keeping the table bounded without a timer. Persisted entries are
+    /// pruned as they're encountered in `mergePersisted`.
     private func prune(_ bindings: inout [Data: Binding]) {
         let cutoff = Date().addingTimeInterval(-Constant.retention)
         bindings = bindings.filter { $0.value.boundAt > cutoff }
@@ -120,7 +136,7 @@ public final class PairingNonceLedger: Sendable {
         /// Longest slug validity in the codebase is the iCloud-discovery
         /// flow's 300s window; double it for clock skew headroom.
         static let retention: TimeInterval = 600
-        static let storageKey: String = "convos.pairing.nonceLedger.v1"
+        static let keyPrefix: String = "convos.pairing.nonceLedger.v2."
         static let joinerField: String = "j"
         static let boundAtField: String = "t"
     }

@@ -898,8 +898,16 @@ extension ConversationsViewModel {
             let backups = await self.session.pairableDeviceBackups()
             QAEvent.emit(.pairing, "found_device_check", ["pairableCount": "\(backups.count)"])
             guard let newest = backups.first else { return }
-            // Don't fight an in-flight deep-link pairing flow.
-            guard self.pendingJoinerPairing == nil, self.foundDevicePairingPrompt == nil else { return }
+            // Don't fight an in-flight deep-link pairing flow - but
+            // un-latch so the next chats-list appearance re-offers the
+            // prompt once that flow ends. Without the reset, a launch
+            // that starts with a /pair deep link would suppress the
+            // found-device prompt for the whole session even if the
+            // deep-link flow is abandoned.
+            guard self.pendingJoinerPairing == nil, self.foundDevicePairingPrompt == nil else {
+                self.didCheckForPairableDevice = false
+                return
+            }
             self.foundDevicePairingPrompt = FoundDevicePairingPrompt(
                 inboxId: newest.inboxId,
                 deviceName: newest.deviceName
@@ -985,6 +993,14 @@ extension ConversationsViewModel {
     private func promotePreparedFoundDevicePairing() {
         guard let prepared = preparedFoundDevicePairing else { return }
         preparedFoundDevicePairing = nil
+        // A /pair deep link may have claimed the slot while the
+        // found-device invite was minting; replacing it mid-flight would
+        // drop the user into the wrong pairing session. Yield to it and
+        // tear down the prepared flow's ephemeral client instead.
+        guard pendingJoinerPairing == nil else {
+            prepared.cancel()
+            return
+        }
         pendingJoinerPairing = prepared
     }
 
@@ -1106,10 +1122,14 @@ extension ConversationsViewModel {
         }
         guard let pending else { return }
         removeDeliveredPairingNotifications()
-        // The joiner re-sends its request for the length of the pairing
-        // window; past that the handshake would just expire on send, so
-        // stale stashes are dropped instead of surfaced.
-        guard Date().timeIntervalSince(pending.receivedAt) < Constant.foundDevicePairingWindow else { return }
+        // A live joiner's resend loop keeps refreshing receivedAt, so a
+        // fresh stash means an active handshake. Cap the surfacing window
+        // at the shortest supported invite lifetime (the QR flow's 120s)
+        // rather than the iCloud flow's 300s: the stash doesn't carry the
+        // slug (deliberately, it's a bearer credential), so the invite's
+        // actual expiry can't be re-checked here and a longer window
+        // could present a PIN sheet for an invite that already expired.
+        guard Date().timeIntervalSince(pending.receivedAt) < Constant.stashedPairRequestWindow else { return }
         presentIncomingPairingSheet(joinerInboxId: pending.joinerInboxId, deviceName: pending.deviceName)
     }
 
@@ -1180,6 +1200,10 @@ extension ConversationsViewModel {
         /// found device only sees requests that arrive while its app is
         /// streaming, so the first send is almost always too early.
         static let foundDevicePairingResendInterval: TimeInterval = 5
+        /// How old a stashed join request may be and still be surfaced on
+        /// activation. Matches the shortest invite lifetime (QR flow,
+        /// 120s) because the stash can't re-check the invite's own expiry.
+        static let stashedPairRequestWindow: TimeInterval = 120
         /// Per-stage (PIN entry, emoji confirmation) window, matching the
         /// initiator sheet's 120s.
         static let foundDevicePairingStageTimeout: TimeInterval = 120

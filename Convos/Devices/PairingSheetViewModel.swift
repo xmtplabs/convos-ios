@@ -228,6 +228,15 @@ final class PairingSheetViewModel: Identifiable {
 
     func onJoinRequestReceived(deviceName: String, joinerInboxId: String) async {
         guard let coordinator else { return }
+        // The joiner's resend loop re-delivers requests this flow has
+        // already answered. The coordinator no-ops on them (it only
+        // accepts from `.waitingForScan`) and keeps its own expiration
+        // timer, so re-processing here would rebase the VM countdown
+        // past the coordinator's real expiry and re-send the PIN for
+        // nothing.
+        if case .showingPin = flowState, joinerInboxId == self.joinerInboxId {
+            return
+        }
 
         do {
             // Let the coordinator validate first — it rejects duplicate
