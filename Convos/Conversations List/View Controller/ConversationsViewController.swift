@@ -171,12 +171,19 @@ final class ConversationsViewController: UIViewController {
                 changed.insert(id)
                 continue
             }
+            // `avatarType` encodes the rendered avatar (the clustered member
+            // profiles and their avatar URLs), so comparing it reconfigures the
+            // cell when a member changes their photo. Without this, a member
+            // avatar update re-emits a fresh conversation but no tracked field
+            // here changes, so every group showing that member keeps a stale
+            // cluster until something else about the row changes.
             if oldConvo.isMuted != newConvo.isMuted ||
                 oldConvo.isUnread != newConvo.isUnread ||
                 oldConvo.isPinned != newConvo.isPinned ||
                 oldConvo.scheduledExplosionDate != newConvo.scheduledExplosionDate ||
                 oldConvo.displayName != newConvo.displayName ||
-                oldConvo.lastMessage != newConvo.lastMessage {
+                oldConvo.lastMessage != newConvo.lastMessage ||
+                oldConvo.avatarType != newConvo.avatarType {
                 changed.insert(id)
             }
         }
