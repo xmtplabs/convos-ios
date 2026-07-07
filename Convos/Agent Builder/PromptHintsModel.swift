@@ -104,7 +104,7 @@ final class PromptHintsModel {
         }
     }
 
-    /// Trim, drop empties, and clamp each hint to the backend's 240-char
+    /// Trim, drop empties, and clamp each hint to the backend's 350-char
     /// contract so a malformed row can't blow out the composer.
     private static func sanitize(_ raw: [String]) -> [String] {
         raw
@@ -117,6 +117,6 @@ final class PromptHintsModel {
 
     private enum Constant {
         static let maxAttempts: Int = 5
-        static let maxHintLength: Int = 240
+        static let maxHintLength: Int = 350
     }
 }
