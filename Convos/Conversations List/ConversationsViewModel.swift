@@ -850,7 +850,16 @@ extension ConversationsViewModel {
                     Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
                 }
                 ProfileSettingsViewModel.shared.rebind(session: session)
-                if seeded {
+                // Only suppress profile onboarding when the adopted
+                // payload actually carried a usable profile. A nil or
+                // empty display name means the initiator never set one
+                // up, and the joiner would otherwise be stranded as
+                // "Somebody" with the prompt permanently suppressed.
+                // (The asset identifier alone doesn't count: it's a
+                // PhotoKit id from the initiator's library and can't
+                // resolve here.)
+                let adoptedUsableProfile = displayName?.isEmpty == false
+                if seeded && adoptedUsableProfile {
                     ConversationOnboardingCoordinator.markCompletedForPairedDevice()
                 }
             },
