@@ -359,7 +359,7 @@ struct MessageContextMenuOverlay: View {
             )
         case .splitLink(let preview, _):
             LinkPreviewBubbleView(
-                preview: preview,
+                preview: TransientLinkPreviewCache.enriched(preview),
                 style: state.bubbleStyle,
                 isOutgoing: state.isOutgoing,
                 profile: message.sender.profile

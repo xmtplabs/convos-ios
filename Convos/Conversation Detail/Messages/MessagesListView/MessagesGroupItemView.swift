@@ -190,6 +190,14 @@ struct MessagesGroupItemView: View {
     private func edgeLinkTextBubble(extraction: EdgeLinkExtraction) -> some View {
         let alignment: HorizontalAlignment = message.sender.isCurrentUser ? .trailing : .leading
         let textStyle: MessageBubbleType = extraction.trailingPreview == nil ? bubbleType : .normal
+        let openDetail: ((String) -> Void)? = onOpenMessageDetail.map { handler in
+            { _ in handler(message) }
+        }
+        let messageId: String = message.messageId
+        let isExpanded: Bool = expandedMessageIds.contains(messageId)
+        let toggleExpand: (() -> Void)? = onToggleMessageExpanded.map { handler in
+            { handler(messageId) }
+        }
         VStack(alignment: alignment, spacing: DesignConstants.Spacing.stepX) {
             if let preview = extraction.leadingPreview {
                 extractedLinkPreviewBubble(preview: preview, style: .normal, edge: .leading)
@@ -198,12 +206,16 @@ struct MessagesGroupItemView: View {
                 style: textStyle,
                 message: extraction.text,
                 isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
+                profile: message.sender.profile,
+                onOpenDetail: openDetail,
+                isExpanded: isExpanded,
+                onToggleExpand: toggleExpand
             )
             .messageGesture(
                 message: message,
                 bubbleStyle: textStyle,
                 segment: .splitText(extraction.text),
+                isExpanded: isExpanded,
                 onReply: onReply,
                 onToggleReaction: onToggleReaction
             )
