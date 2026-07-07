@@ -343,6 +343,38 @@ struct MessageContextMenuOverlay: View {
 
     // MARK: - Bubble Preview
 
+    /// A text message split around an edge link presents only the pressed
+    /// cell: the stripped text bubble or the link card, never the full
+    /// original text.
+    @ViewBuilder
+    private func textSegmentPreview(text: String, message: AnyMessage) -> some View {
+        switch state.presentedSegment {
+        case .splitText(let strippedText):
+            MessageBubble(
+                style: state.bubbleStyle,
+                message: strippedText,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile,
+                isExpanded: state.isExpanded
+            )
+        case .splitLink(let preview, _):
+            LinkPreviewBubbleView(
+                preview: TransientLinkPreviewCache.enriched(preview),
+                style: state.bubbleStyle,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile
+            )
+        case .whole:
+            MessageBubble(
+                style: state.bubbleStyle,
+                message: text,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile,
+                isExpanded: state.isExpanded
+            )
+        }
+    }
+
     @ViewBuilder
     private func bubblePreview(
         message: AnyMessage,
@@ -358,13 +390,7 @@ struct MessageContextMenuOverlay: View {
         Group {
             switch message.content {
             case .text(let text):
-                MessageBubble(
-                    style: state.bubbleStyle,
-                    message: text,
-                    isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile,
-                    isExpanded: state.isExpanded
-                )
+                textSegmentPreview(text: text, message: message)
 
             case .emoji(let text):
                 EmojiBubble(
