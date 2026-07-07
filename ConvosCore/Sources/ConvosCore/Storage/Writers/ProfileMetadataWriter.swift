@@ -2,11 +2,16 @@ import Foundation
 import GRDB
 
 public protocol ProfileMetadataWriterProtocol: Sendable {
-    /// Reads the sender's current per-conversation metadata map, applies the
-    /// caller's mutation closure, and republishes the merged map through
-    /// `MyProfileWriter.updateAndPublish`. The whole read-modify-write runs as
-    /// one serialized unit so two callers (e.g. a connections write and a
-    /// timezone write) can never interleave and clobber each other's keys.
+    /// Reads the current user's self-profile metadata map, applies the caller's
+    /// mutation closure, and republishes the merged map through
+    /// `ProfilesRepository.publishMyProfileMetadata`, which fans it out to every
+    /// conversation. The whole read-modify-write runs as one serialized unit so
+    /// two callers (e.g. a connections write and a timezone write) can never
+    /// interleave and clobber each other's keys.
+    ///
+    /// `conversationId` and `inboxId` are retained on the signature for existing
+    /// callers; the metadata is now global (self-profile) rather than
+    /// per-conversation, so they no longer scope the read.
     func updateMetadata(
         conversationId: String,
         inboxId: String,
@@ -17,22 +22,21 @@ public protocol ProfileMetadataWriterProtocol: Sendable {
 /// Shared serialization choke point for every per-sender
 /// `ProfileUpdate.metadata` write.
 ///
-/// The `ProfileUpdate.metadata` map is per-sender, but a publish rewrites the
-/// whole merged map for that sender (read existing -> merge key -> publish).
-/// Two async tasks in the same process can interleave on this non-atomic
-/// read-merge-write: a timezone publish and a `connections` publish both touch
-/// the same `DBMemberProfile`. If they overlap, the later write overwrites the
-/// earlier with a stale copy of the key the other task just set -- silent data
-/// loss.
+/// The self-profile metadata map is rewritten wholesale on each publish (read
+/// existing -> merge key -> publish). Two async tasks in the same process can
+/// interleave on this non-atomic read-merge-write: a timezone publish and a
+/// `connections` publish both touch the same `selfProfile` row. If they overlap,
+/// the later write overwrites the earlier with a stale copy of the key the other
+/// task just set -- silent data loss.
 ///
-/// To prevent that, all metadata map writes for a given sender/conversation go
-/// through one shared instance of this class. `@MainActor` keeps the bookkeeping
-/// on a single actor, and an internal serial task chain makes each
-/// `updateMetadata` call run to completion (including its async hops) before the
-/// next one starts, so the read-merge-write is atomic across callers.
+/// To prevent that, all metadata map writes go through one shared instance of
+/// this class. `@MainActor` keeps the bookkeeping on a single actor, and an
+/// internal serial task chain makes each `updateMetadata` call run to completion
+/// (including its async hops) before the next one starts, so the read-merge-write
+/// is atomic across callers.
 @MainActor
 public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
-    private let myProfileWriter: any MyProfileWriterProtocol
+    private let profilesRepository: @Sendable () -> ProfilesRepository
     private let databaseReader: any DatabaseReader
 
     /// Tail of the serial task chain. Each new call appends itself after the
@@ -44,10 +48,10 @@ public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
     private nonisolated(unsafe) var tail: Task<Void, Never> = Task {}
 
     public nonisolated init(
-        myProfileWriter: any MyProfileWriterProtocol,
+        profilesRepository: @escaping @Sendable () -> ProfilesRepository,
         databaseReader: any DatabaseReader
     ) {
-        self.myProfileWriter = myProfileWriter
+        self.profilesRepository = profilesRepository
         self.databaseReader = databaseReader
     }
 
@@ -57,22 +61,15 @@ public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
         update: @escaping @Sendable (inout ProfileMetadata) -> Void
     ) async throws {
         let previous = tail
-        let work = Task { @MainActor [myProfileWriter, databaseReader] () -> Result<Void, any Error> in
+        let work = Task { @MainActor [profilesRepository, databaseReader] () -> Result<Void, any Error> in
             await previous.value
             do {
                 let existing = try await databaseReader.read { db in
-                    try DBMemberProfile.fetchOne(
-                        db,
-                        conversationId: conversationId,
-                        inboxId: inboxId
-                    )?.metadata
+                    try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db)?.metadata
                 }
                 var merged: ProfileMetadata = existing ?? [:]
                 update(&merged)
-                try await myProfileWriter.updateAndPublish(
-                    metadata: merged.isEmpty ? nil : merged,
-                    conversationId: conversationId
-                )
+                try await profilesRepository().publishMyProfileMetadata(merged.isEmpty ? nil : merged)
                 return .success(())
             } catch {
                 return .failure(error)

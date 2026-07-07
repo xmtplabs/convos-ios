@@ -172,16 +172,34 @@ public enum ProfileSnapshotBuilder {
         _ = try await group.send(encodedContent: encoded)
     }
 
-    private static func fetchDBProfiles(
+    /// Internal (not private) so the self-union behavior can be exercised in a
+    /// unit test against a seeded database without a live XMTP group.
+    static func fetchDBProfiles(
         _ databaseReader: (any DatabaseReader)?,
         conversationId: String,
         memberInboxIds: [String]
     ) async throws -> [MemberProfile] {
         guard let databaseReader else { return [] }
-        let rows = try await databaseReader.read { db in
-            try DBMemberProfile.fetchAll(db, conversationId: conversationId, inboxIds: memberInboxIds)
+        return try await databaseReader.read { db in
+            var byInboxId: [String: MemberProfile] = [:]
+            for profile in try DBProfile.fetchAll(db, inboxIds: memberInboxIds) {
+                let avatar = try DBProfileAvatar.fetchOne(db, inboxId: profile.inboxId, conversationId: conversationId)
+                if let member = profile.snapshotMemberProfile(avatar: avatar) {
+                    byInboxId[profile.inboxId] = member
+                }
+            }
+            // Self is excluded from `profile`; fold in the locally-authored
+            // `myProfile` rows so a sender always advertises its own identity
+            // to joiners, even before it has published a ProfileUpdate into the
+            // group or after that update has aged out of the message scan.
+            for myProfile in try DBMyProfile.fetchAll(db, inboxIds: memberInboxIds) where byInboxId[myProfile.inboxId] == nil {
+                let avatar = try DBProfileAvatar.fetchOne(db, inboxId: myProfile.inboxId, conversationId: conversationId)
+                if let member = myProfile.snapshotMemberProfile(avatar: avatar) {
+                    byInboxId[myProfile.inboxId] = member
+                }
+            }
+            return Array(byInboxId.values)
         }
-        return rows.compactMap(\.snapshotMemberProfile)
     }
 
     private enum Constant {

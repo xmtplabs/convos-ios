@@ -34,7 +34,7 @@ on:
     branches: ["main", "dev"]
     # `labeled` lets contributors trigger a build by adding the
     # `adhoc-build` label without re-pushing. Filtered in the job's `if:`.
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
 
 concurrency:
   group: firebase-pr-${{ github.event.pull_request.number || github.ref }}

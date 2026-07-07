@@ -14,11 +14,12 @@ struct AssetRenewalURLCollectorTests {
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
             try DBMember(inboxId: "inbox-1").insert(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
+            try DBProfileAvatar(
                 inboxId: "inbox-1",
-                name: "Test User",
-                avatar: avatarURL
+                conversationId: "convo-1",
+                url: avatarURL,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
             ).insert(db)
         }
 
@@ -115,17 +116,19 @@ struct AssetRenewalURLCollectorTests {
             try DBMember(inboxId: "inbox-1").insert(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
             try makeDBConversation(id: "convo-2", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
+            try DBProfileAvatar(
+                inboxId: "inbox-1",
                 conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "User 1",
-                avatar: sharedURL
+                url: sharedURL,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
             ).insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-2",
+            try DBProfileAvatar(
                 inboxId: "inbox-1",
-                name: "User 2",
-                avatar: sharedURL
+                conversationId: "convo-2",
+                url: sharedURL,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
             ).insert(db)
         }
 
@@ -156,17 +159,19 @@ struct AssetRenewalURLCollectorTests {
             try DBMember(inboxId: "my-inbox").insert(db)
             try DBMember(inboxId: "other-inbox").insert(db)
             try makeDBConversation(id: "convo-1", inboxId: "my-inbox", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
+            try DBProfileAvatar(
                 inboxId: "my-inbox",
-                name: "Me",
-                avatar: myAvatarURL
-            ).insert(db)
-            try DBMemberProfile(
                 conversationId: "convo-1",
+                url: myAvatarURL,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
+            ).insert(db)
+            try DBProfileAvatar(
                 inboxId: "other-inbox",
-                name: "Other",
-                avatar: otherAvatarURL
+                conversationId: "convo-1",
+                url: otherAvatarURL,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
             ).insert(db)
         }
 
@@ -180,6 +185,38 @@ struct AssetRenewalURLCollectorTests {
         } else {
             Issue.record("Expected profileAvatar asset")
         }
+    }
+
+    @Test("collectStaleAssets returns never-renewed avatars and excludes freshly renewed")
+    func testCollectStaleAssets() async throws {
+        let fixtures = try await makeTestFixtures()
+        let staleURL = "https://example.com/stale.bin"
+        let freshURL = "https://example.com/fresh.bin"
+        let now = Date()
+        let threshold = now.addingTimeInterval(-3600)
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try makeDBConversation(id: "convo-2", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            // Never renewed -> stale.
+            try DBProfileAvatar(
+                inboxId: "inbox-1", conversationId: "convo-1", url: staleURL,
+                profileSource: .profileUpdate, updatedAt: now, lastRenewed: nil
+            ).insert(db)
+            // Renewed after the threshold -> not stale.
+            try DBProfileAvatar(
+                inboxId: "inbox-1", conversationId: "convo-2", url: freshURL,
+                profileSource: .profileUpdate, updatedAt: now, lastRenewed: now
+            ).insert(db)
+        }
+
+        let collector = AssetRenewalURLCollector(databaseReader: fixtures.dbReader)
+        let assets = try collector.collectStaleAssets(olderThan: threshold)
+
+        #expect(assets.count == 1)
+        #expect(assets.first?.url == staleURL)
     }
 
     @Test("Extracts key from URL path")

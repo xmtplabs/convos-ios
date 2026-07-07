@@ -47,3 +47,9 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.updatedAt = updatedAt
     }
 }
+
+extension DBMyProfile {
+    static func fetchAll(_ db: Database, inboxIds: [String]) throws -> [DBMyProfile] {
+        try fetchAll(db, keys: inboxIds)
+    }
+}

@@ -62,6 +62,11 @@ playground.xcworkspace
 
 .build/
 
+# CI test logs captured by ci/run-tests.sh (uploaded as workflow artifacts).
+ci-test-logs/
+# XMTP integration test logs (CONVOS_TEST_XMTP_LOG_DIR in CI).
+xmtp-test-logs/
+
 # SwiftLint local cache, used by `swiftlint --cache-path .swiftlint-cache`
 # and the GitHub Actions cache.
 .swiftlint-cache/

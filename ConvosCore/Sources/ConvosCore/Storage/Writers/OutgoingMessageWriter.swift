@@ -267,6 +267,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let hasText: Bool
     }
 
+    /// Change-aware self-profile publish for this conversation, run before every
+    /// outgoing message. Enforces the invariant that you can't send a message
+    /// after editing your profile without also sending the profile update here.
+    /// A no-op when the profile is already current in this conversation.
+    private let ensureProfilePublished: (@Sendable () async -> Void)?
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let conversationId: String
@@ -300,7 +305,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         backgroundUploadManager: any BackgroundUploadManagerProtocol,
         attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol,
         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil,
-        coreActions: any CoreActions
+        coreActions: any CoreActions,
+        ensureProfilePublished: (@Sendable () async -> Void)? = nil
     ) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
@@ -311,6 +317,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         self.attachmentLocalStateWriter = attachmentLocalStateWriter
         self.contactSyncCoordinator = contactSyncCoordinator
         self.coreActions = coreActions
+        self.ensureProfilePublished = ensureProfilePublished
     }
 
     private func trackSendMetric(clientMessageId: String, hasText: Bool, attachmentMimeTypes: [String]) {
@@ -2226,6 +2233,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         while !messageQueue.isEmpty {
             let message = messageQueue.removeFirst()
+            // Publish any pending self-profile edit to this conversation before
+            // the message goes out, so a send always carries the current profile.
+            await ensureProfilePublished?()
             do {
                 switch message {
                 case .text(let queued):

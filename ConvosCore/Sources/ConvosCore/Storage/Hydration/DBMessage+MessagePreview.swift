@@ -19,20 +19,21 @@ extension DBLastMessageWithSource {
     ) -> MessagePreview {
         let text: String
         let isCurrentUser = senderId == currentInboxId
-        let senderProfile = members.first { $0.memberProfile.inboxId == senderId }
+        let senderProfile = members.first { $0.inboxId == senderId }
         // Hoisted to a static helper so its branches don't count against
         // this function's cyclomatic complexity score, mirroring the same
         // pattern `resolvedMemberDisplayName` uses in ModelMocks.swift.
         let senderName = Self.resolveSenderName(
             isCurrentUser: isCurrentUser,
             inboxId: senderId,
-            profile: senderProfile?.memberProfile,
+            name: senderProfile?.resolvedName,
+            isAgent: senderProfile?.isAgent ?? false,
             contactNameResolver: contactNameResolver
         )
         let attachmentsCount = attachmentUrls.count
         let attachmentsString = Self.attachmentsPreviewString(attachmentUrls: attachmentUrls, count: attachmentsCount)
 
-        let otherMemberCount = members.filter { $0.memberProfile.inboxId != currentInboxId }.count
+        let otherMemberCount = members.filter { $0.inboxId != currentInboxId }.count
         let shouldShowSenderName = conversationKind == .group && otherMemberCount > 1
 
         switch messageType {
@@ -41,7 +42,7 @@ extension DBLastMessageWithSource {
             case .attachments:
                 text = Self.attachmentsPreviewText(
                     senderName: senderName,
-                    senderIsAgent: !isCurrentUser && senderProfile?.memberProfile.isAgent == true,
+                    senderIsAgent: !isCurrentUser && senderProfile?.isAgent == true,
                     attachmentUrls: attachmentUrls,
                     attachmentsString: attachmentsString,
                     otherMemberCount: otherMemberCount,
@@ -159,13 +160,14 @@ extension DBLastMessageWithSource {
     private static func resolveSenderName(
         isCurrentUser: Bool,
         inboxId: String,
-        profile: DBMemberProfile?,
+        name: String?,
+        isAgent: Bool,
         contactNameResolver: (String) -> String? = { _ in nil }
     ) -> String {
         if isCurrentUser { return "You" }
-        if let name = profile?.name, !name.isEmpty { return name }
+        if let name, !name.isEmpty { return name }
         if let contactName = contactNameResolver(inboxId), !contactName.isEmpty { return contactName }
-        return profile?.isAgent == true ? "Agent" : "Somebody"
+        return isAgent ? "Agent" : "Somebody"
     }
 
     /// Builds the preview line for an attachment message. An agent sending a

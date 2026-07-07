@@ -239,11 +239,16 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                 required: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .including(required: DBConversation.localState)
             .including(optional: DBConversation.agentBuilderSummary)
@@ -255,11 +260,16 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                 all: DBConversation._members
                     .forKey("conversationMembers")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .group(DBConversation.Columns.id)
             .order(sql: "COALESCE(conversationLastMessageWithSource.date, conversation.createdAt) DESC")

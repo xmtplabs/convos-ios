@@ -40,14 +40,18 @@ struct NotificationTitleMembershipTests {
         ).insert(db)
     }
 
+    /// Seeds a member's canonical identity. `computedDisplayName` resolves names
+    /// from `DBProfile` (per-inbox), gated on current `conversation_members`
+    /// membership - so an orphan with a profile but no membership row is still
+    /// excluded from the title.
     private func seedMemberProfile(db: Database, inboxId: String, name: String?, memberKind: DBMemberKind? = nil) throws {
-        try DBMemberProfile(
-            conversationId: conversationId,
+        try DBProfile(
             inboxId: inboxId,
             name: name,
-            avatar: nil,
-            memberKind: memberKind
-        ).insert(db)
+            memberKind: memberKind,
+            profileSource: .profileUpdate,
+            updatedAt: Date()
+        ).save(db)
     }
 
     private func seedConversationMember(db: Database, inboxId: String, role: MemberRole) throws {

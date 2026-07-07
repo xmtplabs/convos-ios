@@ -1320,7 +1320,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
         // MyProfileViewModel fills its "empty" profile with the current user's
         // inboxId. In single-inbox mode that's always the singleton; read it
@@ -1328,7 +1327,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: currentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1418,12 +1417,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
         let draftCurrentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: draftCurrentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 

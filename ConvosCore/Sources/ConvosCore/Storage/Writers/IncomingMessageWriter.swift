@@ -84,7 +84,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         let encodedContentType = prepared.encodedContentType
         let senderVerified = try Self.bootstrapSenderProfile(
             db: db,
-            conversationId: conversation.id,
             senderInboxId: source.senderInboxId
         )
 
@@ -382,32 +381,19 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         return explodeSettings
     }
 
-    /// Ensures the sender has a row in `DBMember` and a `DBMemberProfile` for the
-    /// conversation. Returns true when the existing profile is already marked as a
-    /// verified Convos agent — used to gate persisting sensitive content types
-    /// whose rendering assumes the sender is trusted.
+    /// Ensures the sender has a row in `DBMember`. Returns true when the sender's
+    /// canonical profile is already marked as a verified Convos agent - used to
+    /// gate persisting sensitive content types whose rendering assumes the sender
+    /// is trusted. Verification is read from the per-inbox `profile` table, where
+    /// the inbound seam stores the resolved (attested) member kind.
     static func bootstrapSenderProfile(
         db: Database,
-        conversationId: String,
         senderInboxId: String
     ) throws -> Bool {
         let sender = DBMember(inboxId: senderInboxId)
         try sender.save(db)
-        let existingProfile = try DBMemberProfile.fetchOne(
-            db,
-            conversationId: conversationId,
-            inboxId: senderInboxId
-        )
-        if existingProfile == nil {
-            let newProfile = DBMemberProfile(
-                conversationId: conversationId,
-                inboxId: senderInboxId,
-                name: nil,
-                avatar: nil
-            )
-            try? newProfile.insert(db)
-        }
-        return existingProfile?.agentVerification.isConvosAgent ?? false
+        let identity = try DBProfile.fetchOne(db, inboxId: senderInboxId)
+        return identity?.memberKind?.agentVerification.isConvosAgent ?? false
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.

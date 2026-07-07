@@ -204,7 +204,7 @@ extension SharedDatabaseMigrator {
         Self.registerRemovedStateMigrations(on: &migrator)
         Self.registerConnectionGrantMigrations(on: &migrator)
         Self.registerJoinAndGenerationMigrations(on: &migrator)
-        Self.registerCleanupMigrations(on: &migrator)
+        Self.registerTailMigrations(on: &migrator)
 
         return migrator
     }
@@ -242,7 +242,10 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
     }
 
-    private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
+    /// Tail migrations registered last so they run after every migration above.
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget. Order within: `dropRevealColumns` then the Profile-table schema.
+    private static func registerTailMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
         migrator.registerMigration(
             "addConversationLocalStateLeftHostedInviteSession",
@@ -256,6 +259,93 @@ extension SharedDatabaseMigrator {
             "addConversationLocalStateHasSharedInvite",
             migrate: Self.addConversationLocalStateHasSharedInvite
         )
+        migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+        migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
+        migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
+        migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
+        migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
+        migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
+    }
+
+    /// Additive, nullable column recording the `myProfile.updatedAt` of the self
+    /// profile last published to a conversation. The lazy profile sync compares
+    /// it against the current `myProfile.updatedAt` to decide whether a profile
+    /// edit still needs to be sent to this conversation, so edits reach only
+    /// conversations the user re-engages rather than fanning out to all of them.
+    /// `nil` means never published (treated as stale), so no backfill is needed.
+    /// Guarded on column existence for idempotency across dev installs.
+    static func addConversationLocalStatePublishedProfileUpdatedAt(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "conversationLocalState").contains { $0.name == "publishedProfileUpdatedAt" }
+        guard !hasColumn else { return }
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "publishedProfileUpdatedAt", .datetime)
+        }
+    }
+
+    /// Recreates `profileAvatarLatest` with the deterministic `ROW_NUMBER()`
+    /// definition. Dev installs that ran the earlier `GROUP BY inboxId` revision
+    /// have the nondeterministic view; views carry no data, so a drop+recreate is
+    /// safe. Fresh installs already get the deterministic view from
+    /// `createProfileAvatarLatestView` and this just recreates it identically.
+    static func makeProfileAvatarLatestViewDeterministic(_ db: Database) throws {
+        try db.execute(sql: "DROP VIEW IF EXISTS profileAvatarLatest")
+        try createProfileAvatarLatestView(db)
+    }
+
+    /// Additive, nullable column tracking the last successful asset re-sign time
+    /// for a `profileAvatar` URL. Distinct from `updatedAt` (the merge/recency
+    /// signal) so the asset renewal sweep can stamp a renewal without making the
+    /// avatar look newly authored. `nil` means never renewed (eligible for
+    /// renewal), so no backfill is needed. Guarded because fresh installs already
+    /// get the column from `createProfileTables`, while dev installs that ran an
+    /// earlier revision of it need the `ALTER`.
+    static func addProfileAvatarLastRenewed(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "profileAvatar").contains { $0.name == "lastRenewed" }
+        guard !hasColumn else { return }
+        try db.alter(table: "profileAvatar") { t in
+            t.add(column: "lastRenewed", .datetime)
+        }
+    }
+
+    /// Drops the short-lived `selfProfile` table. Self identity was consolidated
+    /// onto the pre-existing `myProfile` table, so `selfProfile` is unused.
+    /// Guarded on existence because fresh installs never create it (an earlier
+    /// revision of `createProfileTables` did), while dev installs that ran that
+    /// revision still have it.
+    static func dropSelfProfileTable(_ db: Database) throws {
+        if try db.tableExists("selfProfile") {
+            try db.drop(table: "selfProfile")
+        }
+    }
+
+    /// Creates the `profileAvatarLatest` view: exactly one deterministic
+    /// `profileAvatar` row per inbox - the newest by `updatedAt`, with
+    /// `conversationId` as a tie-breaker. The rendering avatar association reads
+    /// through this view so every conversation shows a person's latest avatar
+    /// (one image per person) rather than the per-conversation slot. Each avatar
+    /// row is self-contained (url + salt + nonce + encryptionKey), so its image
+    /// decrypts correctly regardless of which conversation is being rendered.
+    ///
+    /// `ROW_NUMBER()` (not `GROUP BY inboxId`) is required for determinism: when
+    /// an inbox has multiple rows at the same `MAX(updatedAt)` - e.g.
+    /// `ProfileBackfill` writes every legacy avatar at the epoch floor - a
+    /// `GROUP BY` returns bare columns from an arbitrary row in the group, so the
+    /// rendered avatar could be from the wrong conversation. The window function
+    /// picks one deterministic row per inbox.
+    static func createProfileAvatarLatestView(_ db: Database) throws {
+        try db.execute(sql: """
+            CREATE VIEW IF NOT EXISTS profileAvatarLatest AS
+            SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt
+            FROM (
+                SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY inboxId
+                           ORDER BY updatedAt DESC, conversationId DESC
+                       ) AS rn
+                FROM profileAvatar
+            )
+            WHERE rn = 1
+            """)
     }
 
     /// Set-once high-water mark: true once the conversation's invite link
@@ -1231,6 +1321,83 @@ extension SharedDatabaseMigrator {
             index: "idx_agentTemplateContact_displayName",
             on: "agentTemplateContact",
             columns: ["displayName"]
+        )
+    }
+
+    /// Creates the canonical Profile-table schema that replaces per-conversation
+    /// `memberProfile` identity: `profile` (per-person name/kind/metadata),
+    /// `profileAvatar` (per-`(inboxId, conversationId)` encrypted avatar slot),
+    /// `selfProfile` (the local user's authored identity), `profileAvatarSource`
+    /// (the user's plaintext source image), and `profilePublishJob` (durable
+    /// publish queue). Additive: nothing reads these tables until the
+    /// `ProfilesRepository` lands. `avatarContentDigest` / `contentDigest` are
+    /// reserved for the cross-conversation digest optimization (ADR 014) and stay
+    /// nil until that work ships. Extracted as an internal static helper so the
+    /// migration test can drive the real create path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func createProfileTables(_ db: Database) throws {
+        try db.create(table: "profile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("memberKind", .text)
+            t.column("metadata", .jsonText)
+            t.column("profileSource", .text).notNull()
+            t.column("avatarContentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profileAvatar") { t in
+            t.column("inboxId", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("url", .text)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("encryptionKey", .blob)
+            t.column("profileSource", .text).notNull()
+            t.column("contentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+            t.column("lastRenewed", .datetime)
+            t.primaryKey(["inboxId", "conversationId"])
+        }
+
+        try db.create(table: "profileAvatarSource") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("plaintext", .blob).notNull()
+            t.column("version", .integer).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profilePublishJob") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("seq", .integer).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("sourceVersion", .integer)
+            t.column("hasAvatar", .boolean).notNull().defaults(to: false)
+            t.column("state", .text).notNull().defaults(to: ProfilePublishJobState.pending.rawValue)
+            t.column("ciphertext", .blob)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("groupKey", .blob)
+            t.column("filename", .text)
+            t.column("uploadedURL", .text)
+            t.column("attemptCount", .integer).notNull().defaults(to: 0)
+            t.column("nextAttemptAt", .datetime).notNull()
+            t.column("lastError", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(
+            index: "profilePublishJob_ready",
+            on: "profilePublishJob",
+            columns: ["state", "nextAttemptAt", "seq"]
+        )
+        try db.create(
+            index: "profilePublishJob_conversationId",
+            on: "profilePublishJob",
+            columns: ["conversationId"]
         )
     }
 }

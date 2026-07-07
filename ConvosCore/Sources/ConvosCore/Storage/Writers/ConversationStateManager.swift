@@ -10,7 +10,6 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 
     func resetFromError() async
 
-    var myProfileWriter: any MyProfileWriterProtocol { get }
     var draftConversationRepository: any DraftConversationRepositoryProtocol { get }
     var conversationConsentWriter: any ConversationConsentWriterProtocol { get }
     var conversationLocalStateWriter: any ConversationLocalStateWriterProtocol { get }
@@ -63,7 +62,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     public let conversationMetadataWriter: any ConversationMetadataWriterProtocol
@@ -72,6 +70,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - Private Properties
 
     private let sessionStateManager: any SessionStateManagerProtocol
+    /// Seeds a conversation with the current user's global profile when it
+    /// becomes ready. Injected so the concrete implementation
+    /// (`ProfilesRepository.publishMyProfileToConversation`) stays out of this
+    /// type; defaults to a no-op for tests and mocks.
+    private let profileConversationSeeder: @Sendable (String) async -> Void
     private let stateMachine: ConversationStateMachine
     /// Inbox IDs to add to the conversation as part of the initial create
     /// / resume sequence. The contacts picker flow supplies these when
@@ -85,6 +88,17 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
 
+    /// Conversations this instance has already handed to the profile seeder.
+    /// `.ready` can re-emit, so this prevents launching duplicate concurrent
+    /// seeds for the same conversation within one manager's lifetime.
+    /// Conversations with an in-flight profile seed. Coalesces concurrent seeds
+    /// for the same conversation so a `.ready` re-emission doesn't launch a
+    /// duplicate, but the id is cleared when the seed completes so a later
+    /// re-emission can seed again. The seeder is change-aware and stamps only on
+    /// delivery, so a seed that couldn't publish yet (e.g. before the
+    /// conversation is fully joined) is retried rather than suppressed forever.
+    private let seedingConversationIds: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+
     // MARK: - Initialization
 
     public init(
@@ -96,10 +110,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         conversationId: String? = nil,
         initialMemberInboxIds: [String] = [],
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
-        coreActions: any CoreActions = NoOpCoreActions()
+        coreActions: any CoreActions = NoOpCoreActions(),
+        profileConversationSeeder: @escaping @Sendable (String) async -> Void = { _ in }
     ) {
         self.sessionStateManager = sessionStateManager
         self.initialMemberInboxIds = initialMemberInboxIds
+        self.profileConversationSeeder = profileConversationSeeder
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
@@ -119,11 +135,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             contactSyncCoordinator: contactSyncCoordinator
         )
         self.conversationMetadataWriter = metadataWriter
-
-        self.myProfileWriter = MyProfileWriter(
-            sessionStateManager: sessionStateManager,
-            databaseWriter: databaseWriter
-        )
 
         self.conversationConsentWriter = ConversationConsentWriter(
             sessionStateManager: sessionStateManager,
@@ -215,15 +226,17 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     private func scheduleProfileSync(for conversationId: String) {
         guard !DBConversation.isDraft(id: conversationId) else { return }
-        let writer = myProfileWriter
+        // Coalesce only concurrent seeds; clear the id when the seed finishes so
+        // a `.ready` re-emission after completion can retry. The seeder is
+        // change-aware (a no-op once the profile has actually been delivered
+        // here), so retrying is cheap and self-limiting.
+        let shouldStart = seedingConversationIds.withLock { $0.insert(conversationId).inserted }
+        guard shouldStart else { return }
+        let seeder = profileConversationSeeder
+        let seeding = seedingConversationIds
         Task.detached {
-            await ProfileSyncCoordinator.shared.run(conversationId: conversationId) {
-                do {
-                    try await writer.syncFromGlobalProfile(conversationId: conversationId)
-                } catch {
-                    Log.warning("Failed to sync global profile to conversation \(conversationId): \(error.localizedDescription)")
-                }
-            }
+            await seeder(conversationId)
+            seeding.withLock { _ = $0.remove(conversationId) }
         }
     }
 
