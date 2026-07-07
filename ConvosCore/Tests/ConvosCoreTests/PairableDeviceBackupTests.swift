@@ -43,20 +43,22 @@ struct PairableDeviceBackupTests {
         #expect(pairable.first?.deviceName == "Other iPhone")
     }
 
-    @Test("Returns nothing when the current identity is unknown")
-    func hidesAllBackupsWithoutCurrentIdentity() throws {
-        // A nil current inbox means the keychain read failed, not that
-        // there is nothing to exclude; surfacing anything risks offering
-        // this install's own backup as a self-pair.
-        let first = try makeBackup(inboxId: "inbox-a", backedUpAt: Date())
-        let second = try makeBackup(inboxId: "inbox-b", backedUpAt: Date())
+    @Test("Returns every backup when no identity exists yet")
+    func returnsAllBackupsWithoutCurrentIdentity() throws {
+        // A nil current inbox means the primary slot is empty - a true
+        // first launch checking before silent identity registration
+        // completes. That launch is the whole point of the found-device
+        // prompt, so nothing may be hidden; there is no self-pair risk
+        // because an own backup mirror is only written after its primary.
+        let older = try makeBackup(inboxId: "inbox-a", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let newer = try makeBackup(inboxId: "inbox-b", backedUpAt: Date(timeIntervalSince1970: 2_000))
 
         let pairable = PairableDeviceBackup.pairableBackups(
-            from: [first, second],
+            from: [older, newer],
             excludingInboxId: nil
         )
 
-        #expect(pairable.isEmpty)
+        #expect(pairable.map(\.inboxId) == ["inbox-b", "inbox-a"])
     }
 
     @Test("Sorts newest backup first, undated backups last")
