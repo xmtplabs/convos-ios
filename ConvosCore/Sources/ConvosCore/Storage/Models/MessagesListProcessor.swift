@@ -19,6 +19,7 @@ public final class MessagesListProcessor: Sendable {
         previousReadByMembers: [ConversationMember] = [],
         verifiedAgent: ConversationMember? = nil,
         agentBuilderSummary: AgentBuilderSummary? = nil,
+        agentActivating: AgentActivatingCardContent? = nil,
         hiddenBundleMessageIds: Set<String> = [],
         isInAgentBuilderFlow: Bool = false
     ) -> [MessagesListItemType] {
@@ -50,6 +51,7 @@ public final class MessagesListProcessor: Sendable {
             buildMessageIds: buildMessageIds,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
+            agentActivating: agentActivating,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )
     }
@@ -85,26 +87,42 @@ public final class MessagesListProcessor: Sendable {
         return rebuilt
     }
 
-    /// Group build messages into runs of entries adjacent in the message stream.
-    /// One Make sends its prompt + attachment bundle back to back, so they form a
-    /// single run (and a single card); separate Make events split by other
-    /// messages form separate runs and render separate cards.
+    /// Group build messages into runs. One Make sends its prompt + attachment
+    /// bundle back to back, so they form a single run (and a single card);
+    /// separate Make events split by other visible messages form separate runs
+    /// and render separate cards. Rows that never render their own list item
+    /// (silent updates, connection invocations) don't break a run -- one
+    /// landing between the bundle's publishes must not turn one Make into two
+    /// cards.
     private static func buildRuns(in rawMessages: [AnyMessage], buildMessageIds: Set<String>) -> [[AnyMessage]] {
         guard !buildMessageIds.isEmpty else { return [] }
         var runs: [[AnyMessage]] = []
         var current: [AnyMessage] = []
-        var lastIndex: Int?
-        for (index, message) in rawMessages.enumerated() where buildMessageIds.contains(message.messageId) {
-            if let last = lastIndex, index == last + 1 {
+        var visibleRowSinceLastBuildRow: Bool = false
+        for message in rawMessages {
+            if buildMessageIds.contains(message.messageId) {
+                if visibleRowSinceLastBuildRow, !current.isEmpty {
+                    runs.append(current)
+                    current = []
+                }
                 current.append(message)
-            } else {
-                if !current.isEmpty { runs.append(current) }
-                current = [message]
+                visibleRowSinceLastBuildRow = false
+            } else if rendersOwnListRow(message.content) {
+                visibleRowSinceLastBuildRow = true
             }
-            lastIndex = index
         }
         if !current.isEmpty { runs.append(current) }
         return runs
+    }
+
+    /// Whether a message produces its own row in the list. Mirrors the two
+    /// silent paths in `processMessages`: contents hidden by
+    /// `showsInMessagesList`, and connection invocations, which the grouping
+    /// loop skips outright.
+    private static func rendersOwnListRow(_ content: MessageContent) -> Bool {
+        guard content.showsInMessagesList else { return false }
+        if case .connectionInvocation = content { return false }
+        return true
     }
 
     /// The `AgentBuilderConnection` raw values captured in a creator's local
@@ -151,6 +169,7 @@ public final class MessagesListProcessor: Sendable {
             attachments: attachments,
             creatorIsCurrentUser: creator?.isCurrentUser ?? true,
             creatorDisplayName: creator?.profile.displayName ?? "",
+            creatorProfile: creator?.profile,
             connectionIdentifiers: connectionIdentifiers,
             existingConversation: existingConversation,
             transitionEligible: transitionEligible
@@ -238,25 +257,10 @@ public final class MessagesListProcessor: Sendable {
         buildMessageIds: Set<String>,
         verifiedAgent: ConversationMember?,
         agentBuilderSummary: AgentBuilderSummary?,
+        agentActivating: AgentActivatingCardContent? = nil,
         isInAgentBuilderFlow: Bool
     ) -> [MessagesListItemType] {
         var items: [MessagesListItemType] = baseItems
-
-        // Suppress the legacy "Agent joined" update row while the builder UI is
-        // on screen (home flow): pre-Make it sits under the builder overlay, and
-        // during the post-Make morph the summary + contact card already announce
-        // arrival, so the row would only flash through the fade-out. Recipients
-        // and the dismissed existing-conversation builder are never
-        // `isInAgentBuilderFlow`, so they keep the join row as a real event and
-        // as the contact-card anchor. Gates on `addedAgent` (not
-        // `addedVerifiedAgent`): attestation lands after the member-added event,
-        // and the flash window is before verification completes.
-        if isInAgentBuilderFlow {
-            items = items.filter { item in
-                guard case .update(_, let update, _) = item else { return true }
-                return !update.addedAgent
-            }
-        }
 
         if !buildMessageIds.isEmpty {
             items = reconstructBuilderCards(
@@ -290,18 +294,38 @@ public final class MessagesListProcessor: Sendable {
             let withinWindow: Bool = Date().timeIntervalSince(summary.cutoffDate) < Self.pendingCardDisplayWindow
             let awaitingHistory: Bool = rawMessages.isEmpty && summary.existingConversation
             if rowsLanded || (withinWindow && !awaitingHistory) {
+                let messageDates: [String: Date] = Dictionary(
+                    rawMessages.map { ($0.messageId, $0.date) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                // The creator is the current user; resolve their profile (for the
+                // footer avatar) from the build messages' sender once landed, or
+                // any current-user message during the pending window. Nil only in
+                // a brand-new chat with no messages yet -- the avatar fills in on
+                // the next emission.
+                let creatorProfile: Profile? = rawMessages
+                    .first { summaryIds.contains($0.messageId) }?.sender.profile
+                    ?? rawMessages.first { $0.sender.isCurrentUser }?.sender.profile
                 insertSummaryCard(
-                    .agentBuilderSummary(makePendingCardContent(summary: summary)),
+                    .agentBuilderSummary(makePendingCardContent(summary: summary, creatorProfile: creatorProfile)),
                     into: &items,
-                    cutoffDate: summary.cutoffDate
+                    cutoffDate: summary.cutoffDate,
+                    messageDates: messageDates
                 )
             }
         }
 
         if let agent = verifiedAgent {
             items = insertingContactCard(in: items, agent: agent)
+        } else if let agentActivating {
+            // Direct builder, pending the agent's join: append the progressive
+            // "activating" card (avatar + name + description + progress)
+            // beneath the prompt summary. Dropped the moment a verified agent
+            // joins (the branch above takes over with the real contact card).
+            items.append(.agentActivating(agentActivating))
         }
 
+        items = reconcilingFullBleedAdjacency(in: items)
         return clearingDuplicatedLastGroupFlags(in: items)
     }
 
@@ -320,7 +344,7 @@ public final class MessagesListProcessor: Sendable {
                 for later in items[(index + 1)...] {
                     if case .date = later { break }
                     switch later {
-                    case .messages, .update, .connectionEvent, .agentBuilderSummary:
+                    case .messages, .update, .connectionEvent, .agentBuilderSummary, .agentActivating:
                         hasFollowingAnchor = true
                     default:
                         break
@@ -471,6 +495,23 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .capabilityConnect(let prompt) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let agentName = resolvedAskerName(for: prompt, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.capabilityConnect(id: msg.messageId, prompt: prompt, agentName: agentName, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
             if case .connectionInvocationResult(let resultSummary) = content {
                 lastMessageDate = msg.date
                 if !currentGroupMessages.isEmpty, currentSenderId != nil {
@@ -614,7 +655,8 @@ public final class MessagesListProcessor: Sendable {
                             inboxId: info.inboxId,
                             conversationId: info.conversationId,
                             name: info.name,
-                            avatar: info.avatar
+                            avatar: info.avatar,
+                            isAgent: info.isAgent
                         )
                         return ConversationMember(
                             profile: profile,
@@ -726,8 +768,24 @@ public final class MessagesListProcessor: Sendable {
             outcome: summary.outcome,
             icon: summary.icon,
             actor: summary.actor,
-            grantedToInboxId: summary.grantedToInboxId
+            grantedToInboxId: summary.grantedToInboxId,
+            providerId: summary.providerId
         )
+    }
+
+    /// Display name for the agent behind a connect prompt's "<Agent> wants to
+    /// connect" caption. Prefers the live member-profile lookup by the request's
+    /// `askerInboxId` (renames propagate like connection events); falls back to
+    /// the message sender's snapshot, which is the asker in practice.
+    private static func resolvedAskerName(
+        for prompt: CapabilityConnectPrompt,
+        sender: ConversationMember,
+        memberProfiles: [String: MemberProfileInfo]
+    ) -> String {
+        if let name = memberProfiles[prompt.askerInboxId]?.name, !name.isEmpty {
+            return name
+        }
+        return sender.profile.displayName
     }
 }
 
@@ -761,6 +819,34 @@ private extension MessagesListProcessor {
                 } else {
                     seenLastBeforeOtherMembers = true
                 }
+            }
+            if changed { items[index] = .messages(group) }
+        }
+        return items
+    }
+
+    /// The full-bleed adjacency pass runs before the card splices, so a group
+    /// can keep a flag from a full-bleed neighbor that was swallowed or
+    /// replaced by a card row -- rendering hairline padding against a
+    /// non-media row. Clear any flag whose neighbor is no longer a full-bleed
+    /// group (clear-only: a group never gains hairline treatment here).
+    static func reconcilingFullBleedAdjacency(
+        in baseItems: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+        for index in items.indices {
+            guard case .messages(var group) = items[index],
+                  group.adjacentToFullBleedAbove || group.adjacentToFullBleedBelow else { continue }
+            let fullBleedAbove: Bool = index > 0 && items[index - 1].isFullBleedAttachmentGroup
+            let fullBleedBelow: Bool = index < items.count - 1 && items[index + 1].isFullBleedAttachmentGroup
+            var changed: Bool = false
+            if group.adjacentToFullBleedAbove, !fullBleedAbove {
+                group.adjacentToFullBleedAbove = false
+                changed = true
+            }
+            if group.adjacentToFullBleedBelow, !fullBleedBelow {
+                group.adjacentToFullBleedBelow = false
+                changed = true
             }
             if changed { items[index] = .messages(group) }
         }
@@ -930,29 +1016,46 @@ private extension MessagesListProcessor {
     private static func insertSummaryCard(
         _ card: MessagesListItemType,
         into items: inout [MessagesListItemType],
-        cutoffDate: Date
+        cutoffDate: Date,
+        messageDates: [String: Date]
     ) {
-        var firstNewerGroupIndex: Int = items.count
+        var firstNewerIndex: Int = items.count
         for (index, item) in items.enumerated().reversed() {
-            guard case .messages(let group) = item,
-                  let firstDate = group.messages.first?.date,
-                  let lastDate = group.messages.last?.date else { continue }
-            if lastDate <= cutoffDate {
-                items.insert(card, at: index + 1)
-                return
+            switch item {
+            case .messages(let group):
+                guard let firstDate = group.messages.first?.date,
+                      let lastDate = group.messages.last?.date else { continue }
+                if lastDate <= cutoffDate {
+                    items.insert(card, at: index + 1)
+                    return
+                }
+                if firstDate <= cutoffDate {
+                    let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
+                    let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
+                    guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
+                    let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
+                    let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
+                    items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
+                    return
+                }
+                firstNewerIndex = index
+            case .update(let id, _, _):
+                // Update rows carry their date via the raw message lookup, not
+                // the item itself. Honor it so a post-Make membership update
+                // (e.g. the agent joining) sorts below the card instead of
+                // floating above it just because the next *message* group is
+                // newer than the update.
+                guard let date = messageDates[id] else { continue }
+                if date <= cutoffDate {
+                    items.insert(card, at: index + 1)
+                    return
+                }
+                firstNewerIndex = index
+            default:
+                continue
             }
-            if firstDate <= cutoffDate {
-                let older: [AnyMessage] = group.messages.filter { $0.date <= cutoffDate }
-                let newer: [AnyMessage] = group.messages.filter { $0.date > cutoffDate }
-                guard let olderFirst = older.first, let newerFirst = newer.first else { continue }
-                let olderGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + olderFirst.messageId, messages: older)
-                let newerGroup: MessagesGroup = rebuiltGroup(group, id: "group-" + newerFirst.messageId, messages: newer)
-                items.replaceSubrange(index...index, with: [.messages(olderGroup), card, .messages(newerGroup)])
-                return
-            }
-            firstNewerGroupIndex = index
         }
-        items.insert(card, at: firstNewerGroupIndex)
+        items.insert(card, at: firstNewerIndex)
     }
 
     /// Card content built from the summary alone, for the window between Make
@@ -960,7 +1063,10 @@ private extension MessagesListProcessor {
     /// summary's stored snapshots standing in for the not-yet-persisted
     /// messages; the anchor reuses the first bundled id so the cell identity
     /// is stable when the real run-anchored card takes over.
-    private static func makePendingCardContent(summary: AgentBuilderSummary) -> AgentBuilderCardContent {
+    private static func makePendingCardContent(
+        summary: AgentBuilderSummary,
+        creatorProfile: Profile?
+    ) -> AgentBuilderCardContent {
         let anchor: String = summary.bundledMessageIds.min() ?? summary.id.uuidString
         let attachments: [HydratedAttachment] = summary.attachments.compactMap { attachment in
             switch attachment {
@@ -1001,6 +1107,7 @@ private extension MessagesListProcessor {
             attachments: attachments,
             creatorIsCurrentUser: true,
             creatorDisplayName: "",
+            creatorProfile: creatorProfile,
             connectionIdentifiers: builderConnectionIdentifiers(from: summary),
             existingConversation: summary.existingConversation,
             transitionEligible: !summary.existingConversation

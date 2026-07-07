@@ -48,15 +48,19 @@ final class AppSettingsViewModel {
     }
 
     private func resetLocalState() {
-        Self.resetProfile()
+        Self.resetProfile(session: session)
         Self.resetGlobalDefaults()
         Self.resetConversationDefaults()
         Self.resetConversationsDefaults()
         Self.resetOnboardingDefaults()
     }
 
-    private static func resetProfile() {
-        ProfileSettingsViewModel.shared.delete()
+    // The profile singleton holds a writer bound to the old inbox. Delete-all
+    // registers a fresh inbox, so we rebind to point it at the new one;
+    // otherwise a later "My Info" save targets the dead inbox and never reaches
+    // new conversations. rebind also clears the editing fields
+    private static func resetProfile(session: any SessionManagerProtocol) {
+        ProfileSettingsViewModel.shared.rebind(session: session)
     }
 
     private static func resetGlobalDefaults() {

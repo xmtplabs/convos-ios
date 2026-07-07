@@ -84,14 +84,15 @@ steps:
       - cli_send_attachment:
           conversation: "$conversation_id"
           path: "/tmp/test-photo.jpg"
-      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 30 }
+      - wait_for_element: { label_contains: "Photo message", timeout: 30 }
     verify:
-      - element_exists: { label_contains: "Tap pic to reveal" }
+      - element_exists: { label_contains: "Photo message" }
     criteria: cli_attachment_visible
     note: >
-      Attachments render as blurred images with "Tap pic to reveal" label.
-      The previously documented DecodedMessageDBRepresentationError does not
-      occur in current builds.
+      Incoming attachments render immediately as full-width images, unblurred.
+      MessagesGroupItemView sets the "Photo message" accessibility label on
+      the photo bubble. The previously documented
+      DecodedMessageDBRepresentationError does not occur in current builds.
 
 teardown:
   - action: explode_conversation

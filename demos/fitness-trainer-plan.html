@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10k week 1</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #FFF6F2;
+    --text: #2A1A12;
+    --muted: #9A8378;
+    --accent: #E2552C;
+    --row: #FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1F1511;
+      --text: #F7EEE9;
+      --muted: #A89288;
+      --row: #2B201A;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, system-ui, sans-serif;
+    padding: 10px;
+  }
+  h1 { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .sub { font-size: 8px; color: var(--muted); margin-bottom: 8px; }
+  .row {
+    background: var(--row);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 7px;
+    margin-bottom: 4px;
+  }
+  .day {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--accent);
+    width: 24px;
+    flex: none;
+  }
+  .what { font-size: 9px; }
+  .dist { font-size: 8px; color: var(--muted); margin-left: auto; }
+</style>
+</head>
+<body>
+  <h1>🏃 10k plan — week 1</h1>
+  <div class="sub">8 weeks to race day · 3 runs + 1 rest focus</div>
+  <div class="row"><span class="day">TUE</span><span class="what">Easy run, conversational pace</span><span class="dist">3k</span></div>
+  <div class="row"><span class="day">THU</span><span class="what">Intervals 6 &times; 400m, jog recovery</span><span class="dist">4k</span></div>
+  <div class="row"><span class="day">SAT</span><span class="what">Stretch + foam roll, 20 min</span><span class="dist">rest</span></div>
+  <div class="row"><span class="day">SUN</span><span class="what">Long slow run, build the base</span><span class="dist">5k</span></div>
+</body>
+</html>

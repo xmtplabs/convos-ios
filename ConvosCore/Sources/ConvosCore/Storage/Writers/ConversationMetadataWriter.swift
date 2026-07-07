@@ -167,9 +167,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
+        // Key by the conversation id, not `conversation.imageCacheIdentifier`:
+        // until `imageURL` is persisted that identifier resolves to the other
+        // member's inbox id, which would cache the conversation image as that
+        // member's profile avatar everywhere.
         guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
-            for: conversation
+            forIdentifier: conversation.clientConversationId
         ) else {
             throw ConversationMetadataWriterError.failedImageCompression
         }
@@ -251,11 +255,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
-        // Cache the uploaded image using the new URL-tracking API
-        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
-        if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
-        }
+        // Cache under the conversation id, matching the prepareForUpload key
+        // above. The `conversation` parameter still has a nil `imageURL`, so
+        // its `imageCacheIdentifier` would resolve to the other member's
+        // inbox id and record the conversation image as their avatar.
+        ImageCacheContainer.shared.cacheAfterUpload(
+            compressedImageData,
+            for: conversation.clientConversationId,
+            url: encryptedAssetUrl
+        )
 
         try await syncInvitePreview(for: updatedConversation)
 
@@ -421,6 +429,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let currentInboxId = inboxReady.client.inboxId
         try await databaseWriter.write { db in
             for memberInboxId in memberInboxIds {
+                // A directly-added inbox (e.g. a freshly provisioned agent) may
+                // never have been seen locally, so the member parent row the
+                // membership row references doesn't exist yet — create it
+                // first. Members arriving via the stream get theirs from the
+                // welcome/profile path instead.
+                try DBMember(inboxId: memberInboxId).save(db, onConflict: .ignore)
                 let conversationMember = DBConversationMember(
                     conversationId: conversationId,
                     inboxId: memberInboxId,
@@ -430,8 +444,34 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     invitedByInboxId: currentInboxId
                 )
                 try conversationMember.save(db)
+
+                // Seed a per-conversation profile name from the adder's contact
+                // record so the ProfileSnapshot sent below advertises the
+                // directly-added member's name to every other member (agents
+                // especially) instead of "Somebody", until the member
+                // self-attests via their own ProfileUpdate 
+                // Names only. Fill-only: never overwrite an existing profile,
+                // and skip contacts with no stored name. A later ProfileUpdate
+                // from the member wins via the normal inbound name-preservation.
+                let existingProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: memberInboxId)
+                if existingProfile?.name == nil,
+                   let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: memberInboxId) {
+                    let seededProfile = (existingProfile ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: memberInboxId,
+                        name: nil,
+                        avatar: nil
+                    )).with(name: contactName)
+                    try seededProfile.save(db)
+                }
+
                 Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
             }
+            try ConversationWriter.markHasHadOtherMembersIfNeeded(
+                conversationId: conversationId,
+                currentMemberInboxIds: Set(memberInboxIds),
+                in: db
+            )
         }
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
@@ -451,11 +491,10 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
         }
 
-        let allMemberInboxIds = try await group.members.map(\.inboxId)
         do {
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
         } catch {

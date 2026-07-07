@@ -156,21 +156,37 @@ public struct JoinResult: Sendable {
 /// - `malicious`: Signature verification failed in a way that indicates
 ///   tampering. The DM is denied and the device unsubscribes from its
 ///   topic so it can no longer wake the inbox.
-/// - `alreadyMember`: The request decoded and verified, but the joiner is
-///   already in the group - another processing path (stream vs batch vs
-///   poll) handled this request first. No re-add, no snapshot, no error
-///   DM; the DM stays subscribed like `accepted`.
+/// - `alreadyMember`: The request needs no re-add - either the joiner is
+///   already in the group, or this exact message already admitted them
+///   once (handled-request ledger) and they may have since been removed.
+///   Another processing path (stream vs batch vs poll) handled this
+///   request first. No re-add, no error DM; the DM stays subscribed like
+///   `accepted`. A `verified` context is carried when the request was
+///   validated against a known group (the joiner is currently a member), so
+///   the caller can still re-publish a complete profile snapshot and persist
+///   the joiner's own profile - a re-invite, or a dedup race where the accept
+///   that added the member ran in another pass (or on another installation),
+///   still needs the joiner to receive the roster and to appear in it. The
+///   context is nil on the handled-request ledger pre-check, which short
+///   circuits before the conversation is resolved.
 /// - `noJoinRequest`: The message was not a join-request candidate.
 public enum JoinRequestDMOutcome: Sendable {
     case accepted(JoinResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
     case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
-    case alreadyMember(dmConversationId: String, joinerInboxId: String)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String, verified: AlreadyMemberContext?)
     case noJoinRequest
 
     public var joinResult: JoinResult? {
         guard case .accepted(let result, dmConversationId: _) = self else { return nil }
         return result
+    }
+
+    /// The verified context of an already-member outcome, or nil for any other
+    /// case (including a ledger-only already-member result).
+    public var alreadyMemberContext: AlreadyMemberContext? {
+        guard case .alreadyMember(_, _, let verified) = self else { return nil }
+        return verified
     }
 
     public var dmConversationId: String? {
@@ -181,7 +197,7 @@ public enum JoinRequestDMOutcome: Sendable {
             return dmConversationId
         case .malicious(let dmConversationId, _, _):
             return dmConversationId
-        case .alreadyMember(let dmConversationId, _):
+        case .alreadyMember(let dmConversationId, _, _):
             return dmConversationId
         case .noJoinRequest:
             return nil
@@ -200,6 +216,26 @@ public enum JoinRequestDMOutcome: Sendable {
     public var isMalicious: Bool {
         guard case .malicious = self else { return false }
         return true
+    }
+}
+
+/// What a caller needs to finish a verified already-member result: the
+/// conversation to re-publish a roster snapshot for, plus the joiner's own
+/// profile (from the join request) so an installation that never processed the
+/// original accept can still persist it and include the joiner in the snapshot.
+public struct AlreadyMemberContext: Sendable {
+    public let conversationId: String
+    public let profile: JoinRequestProfile?
+    public let metadata: [String: String]?
+
+    public init(
+        conversationId: String,
+        profile: JoinRequestProfile?,
+        metadata: [String: String]?
+    ) {
+        self.conversationId = conversationId
+        self.profile = profile
+        self.metadata = metadata
     }
 }
 
@@ -294,6 +330,35 @@ extension InviteJoinErrorType: Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+
+/// Marker the creator sends in the join DM after honoring a join request.
+///
+/// The local handled-request ledger only covers one device. Other
+/// installations of the creator's inbox (paired devices, reinstalls)
+/// revalidate the same DM history, and without a shared signal an
+/// already-honored request would look actionable to them again once the
+/// member is removed. The DM syncs to every installation, so the marker
+/// is checked the same way error replies are deduped: a request is
+/// handled when a creator-sent marker for the same invite tag exists at
+/// or after the request's send time. That retires the text copy of a
+/// typed+text pair too, while a fresh request after a removal (newer
+/// than any marker) stays actionable - removal is not a block.
+public struct InviteJoinHandled: Codable, Equatable, Sendable {
+    public let inviteTag: String
+
+    /// Message ID of the join request that was honored. Informational:
+    /// suppression compares invite tag and send order, not message IDs,
+    /// so duplicate copies of the same attempt are covered.
+    public let handledMessageId: String
+
+    public let timestamp: Date
+
+    public init(inviteTag: String, handledMessageId: String, timestamp: Date) {
+        self.inviteTag = inviteTag
+        self.handledMessageId = handledMessageId
+        self.timestamp = timestamp
     }
 }
 

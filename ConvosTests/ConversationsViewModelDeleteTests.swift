@@ -293,18 +293,22 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.inboxId(for: conversationId)
     }
 
-    func requestAgentJoin(
-        slug: String,
+    func addAgentToConversation(
+        conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(
-            slug: slug,
+        try await base.addAgentToConversation(
+            conversationId: conversationId,
             templateId: templateId,
             options: options,
             forceErrorCode: forceErrorCode
         )
+    }
+
+    func republishAgentTimezones() async {
+        await base.republishAgentTimezones()
     }
 
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
@@ -363,12 +367,20 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.commitClaimedConversation(id: conversationId)
     }
 
+    func registerClaimedConversation(id conversationId: String) async {
+        await base.registerClaimedConversation(id: conversationId)
+    }
+
     func releaseClaimedConversation(id conversationId: String) async {
         await base.releaseClaimedConversation(id: conversationId)
     }
 
     func discardClaimedConversation(id conversationId: String) async {
         await base.discardClaimedConversation(id: conversationId)
+    }
+
+    func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        await base.discardClaimedConversationIfUnengaged(id: conversationId)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {

@@ -29,6 +29,8 @@ jobs:
 
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.60
 
       - name: Run cleanup
         env:

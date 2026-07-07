@@ -408,16 +408,28 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }()
 
     static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
-        let rows = try DBMemberProfile
-            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+        let rows = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
+                DBConversationMember.Columns.role,
+                DBConversationMember.Columns.createdAt,
+            ])
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
+            .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
         var result: [String: MemberProfileInfo] = [:]
         for row in rows {
             result[row.inboxId] = MemberProfileInfo(
                 inboxId: row.inboxId,
                 conversationId: conversationId,
-                name: row.name,
-                avatar: row.avatar,
+                name: row.resolvedName,
+                avatar: row.avatarSlot?.url,
                 isAgent: row.isAgent,
                 agentVerification: row.agentVerification
             )
@@ -433,6 +445,8 @@ extension Array where Element == DBMessage {
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
+                         capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+                         latestPendingCapabilityRequestId: String? = nil,
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -463,7 +477,9 @@ extension Array where Element == DBMessage {
                     for: dbMessage,
                     currentInboxId: currentInboxId,
                     memberProfileCache: memberProfileCache,
-                    attachmentLocalStates: attachmentLocalStates
+                    attachmentLocalStates: attachmentLocalStates,
+                    capabilityResultsByRequestId: capabilityResultsByRequestId,
+                    latestPendingCapabilityRequestId: latestPendingCapabilityRequestId
                 ) else { return nil }
 
                 let message = Message(
@@ -496,7 +512,9 @@ extension Array where Element == DBMessage {
         for dbMessage: DBMessage,
         currentInboxId: String,
         memberProfileCache: MemberProfileCache,
-        attachmentLocalStates: [String: AttachmentLocalState]
+        attachmentLocalStates: [String: AttachmentLocalState],
+        capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:],
+        latestPendingCapabilityRequestId: String? = nil
     ) -> MessageContent? {
         switch dbMessage.contentType {
         case .text:
@@ -534,8 +552,15 @@ extension Array where Element == DBMessage {
                 return .connectionGrantRequest(request)
             }
             return .text("")
-        case .capabilityRequest, .capabilityRequestResult:
-            // Picker presentation is driven out-of-band; these aren't user-visible in the list.
+        case .capabilityRequest:
+            return resolveCapabilityConnectContent(
+                jsonText: dbMessage.text,
+                resultsByRequestId: capabilityResultsByRequestId,
+                latestPendingRequestId: latestPendingCapabilityRequestId
+            )
+        case .capabilityRequestResult:
+            // Results render indirectly: they flip the request row's pill state via
+            // the compose-time join, and approvals emit their own connection_event.
             return nil
         case .connectionEvent:
             return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionEvent(summary: $0) } ?? .text("")
@@ -551,6 +576,23 @@ extension Array where Element == DBMessage {
     private static func decodeConnectionSummary(jsonText: String?) -> ConnectionEventSummary? {
         guard let jsonText else { return nil }
         return try? JSONDecoder().decode(ConnectionEventSummary.self, from: Data(jsonText.utf8))
+    }
+
+    private static func resolveCapabilityConnectContent(
+        jsonText: String?,
+        resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        latestPendingRequestId: String?
+    ) -> MessageContent? {
+        guard let jsonText,
+              let request = try? JSONDecoder().decode(CapabilityRequest.self, from: Data(jsonText.utf8)) else {
+            return nil
+        }
+        let prompt = CapabilityConnectPrompt.make(
+            request: request,
+            results: resultsByRequestId[request.requestId] ?? [],
+            isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
+        )
+        return .capabilityConnect(prompt: prompt)
     }
 
     private static func resolveUpdateContent(
@@ -757,23 +799,55 @@ struct MemberProfileCache {
 
     init(
         activeProfiles: [DBConversationMemberProfileWithRole],
-        allProfiles: [DBMemberProfile],
+        historicalProfiles: [DBProfile] = [],
+        historicalSelfProfile: DBMyProfile? = nil,
+        historicalSelfAvatar: DBProfileAvatar? = nil,
+        conversationId: String,
         currentInboxId: String
     ) {
         var map: [String: ConversationMember] = [:]
-        map.reserveCapacity(max(activeProfiles.count, allProfiles.count))
+        map.reserveCapacity(activeProfiles.count + historicalProfiles.count)
 
         for profile in activeProfiles {
-            map[profile.memberProfile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
+            map[profile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
         }
 
-        for profile in allProfiles where map[profile.inboxId] == nil {
+        // Members who authored messages/reactions but have since left the
+        // conversation are gone from the active roster, yet their canonical
+        // identity persists in `DBProfile` (per-inbox). Fold them in so their
+        // messages still render with a name and their reactions are not dropped.
+        // An active row always wins.
+        for profile in historicalProfiles where map[profile.inboxId] == nil {
             map[profile.inboxId] = ConversationMember(
-                profile: profile.hydrateProfile(),
+                profile: Profile.from(
+                    profile: profile,
+                    avatar: nil,
+                    inboxId: profile.inboxId,
+                    conversationId: conversationId
+                ),
                 role: .member,
-                isCurrentUser: profile.inboxId == currentInboxId,
-                isAgent: profile.isAgent,
-                agentVerification: profile.agentVerification
+                isCurrentUser: !currentInboxId.isEmpty && profile.inboxId == currentInboxId,
+                isAgent: profile.memberKind?.isAgent ?? false,
+                agentVerification: profile.memberKind?.agentVerification ?? .unverified
+            )
+        }
+
+        // The current user is intentionally excluded from `DBProfile` (self lives
+        // in `DBMyProfile`). If they authored history here but have left the active
+        // roster, the loop above can't resolve them, so fold in the self identity
+        // from `DBMyProfile` to keep their own messages/reactions named.
+        if let historicalSelfProfile, !currentInboxId.isEmpty, map[currentInboxId] == nil {
+            map[currentInboxId] = ConversationMember(
+                profile: Profile.from(
+                    myProfile: historicalSelfProfile,
+                    avatar: historicalSelfAvatar,
+                    inboxId: currentInboxId,
+                    conversationId: conversationId
+                ),
+                role: .member,
+                isCurrentUser: true,
+                isAgent: false,
+                agentVerification: .unverified
             )
         }
 
@@ -818,7 +892,9 @@ fileprivate extension Database {
                 optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([DBConversationMember.Columns.role])
-                    .including(optional: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.myProfileIdentity)
             )
             .including(required: DBConversation.localState)
             .including(optional: DBConversation.agentBuilderSummary)
@@ -826,11 +902,16 @@ fileprivate extension Database {
                 all: DBConversation._members
                     .forKey("conversationMembers")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
@@ -839,7 +920,8 @@ fileprivate extension Database {
 }
 
 private struct LightweightCreatorDetails: Codable, FetchableRecord, Hashable {
-    let memberProfile: DBMemberProfile?
+    let profile: DBProfile?
+    let avatarSlot: DBProfileAvatarLatest?
     let role: MemberRole
 }
 
@@ -857,15 +939,21 @@ private extension LightweightConversationDetails {
             $0.hydrateConversationMember(currentInboxId: currentInboxId)
         }
         let creator: ConversationMember
-        if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
-            let hydratedProfile = profile.hydrateProfile()
-            let isAgent = profile.isAgent
+        if let creatorDetails = conversationCreator {
+            let hydratedProfile = Profile.from(
+                profile: creatorDetails.profile,
+                avatar: creatorDetails.avatarSlot?.asProfileAvatar,
+                inboxId: conversation.creatorId,
+                conversationId: conversation.id
+            )
+            let isAgent = creatorDetails.profile?.memberKind?.isAgent ?? false
+            let agentVerification = creatorDetails.profile?.memberKind?.agentVerification ?? .unverified
             creator = ConversationMember(
                 profile: hydratedProfile,
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == currentInboxId,
+                isCurrentUser: conversation.creatorId == currentInboxId,
                 isAgent: isAgent,
-                agentVerification: profile.agentVerification
+                agentVerification: agentVerification
             )
         } else {
             creator = ConversationMember(
@@ -904,6 +992,7 @@ private extension LightweightConversationDetails {
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
             hidesInviteCard: conversationLocalState.hidesInviteCard,
+            leftHostedInviteSession: conversationLocalState.leftHostedInviteSession,
             wasRemoved: conversationLocalState.wasRemoved,
             lastMessage: nil,
             imageURL: imageURL,
@@ -944,23 +1033,18 @@ fileprivate extension Database {
         let activeMemberProfiles = try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .select([
+                DBConversationMember.Columns.conversationId,
+                DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
             ])
-            .including(required: DBConversationMember.memberProfile)
-            .including(optional: DBConversationMember.inviterProfile)
+            .including(optional: DBConversationMember.profile)
+            .including(optional: DBConversationMember.avatarSlot)
+            .including(optional: DBConversationMember.inviterProfileIdentity)
+            .including(optional: DBConversationMember.myProfileIdentity)
+            .including(optional: DBConversationMember.inviterMyProfileIdentity)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
-
-        let historicalMemberProfiles = try DBMemberProfile
-            .filter(DBMemberProfile.Columns.conversationId == conversationId)
-            .fetchAll(self)
-
-        let memberProfileCache = MemberProfileCache(
-            activeProfiles: activeMemberProfiles,
-            allProfiles: historicalMemberProfiles,
-            currentInboxId: currentInboxId
-        )
 
         var query = DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
@@ -972,6 +1056,47 @@ fileprivate extension Database {
         }
 
         let rawMessages = try query.fetchAll(self)
+
+        // Resolve members who are no longer in the active roster (e.g. removed
+        // members) from their canonical `DBProfile`, so their names survive.
+        // Covers both message/reaction *senders* and members that appear only in
+        // an update payload (initiator / added / removed) without ever authoring
+        // a message - otherwise those add/remove events render with no name.
+        let activeInboxIds = Set(activeMemberProfiles.map(\.inboxId))
+        let senderInboxIds = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .select(DBMessage.Columns.senderId, as: String.self)
+            .distinct()
+            .fetchAll(self)
+        let updateInboxIds: [String] = rawMessages.flatMap { message -> [String] in
+            guard let update = message.update else { return [] }
+            return [update.initiatedByInboxId] + update.addedInboxIds + update.removedInboxIds
+        }
+        let historicalInboxIds = Array(Set(senderInboxIds).union(updateInboxIds).subtracting(activeInboxIds))
+        let historicalProfiles = historicalInboxIds.isEmpty
+            ? []
+            : try DBProfile.fetchAll(self, inboxIds: historicalInboxIds)
+
+        // The current user is never stored in `DBProfile`; their identity lives in
+        // `DBMyProfile`. If they authored history here but have left the active
+        // roster, resolve self from `DBMyProfile` (+ their self avatar slot) so
+        // their own messages/reactions keep the saved name/avatar.
+        let selfIsHistorical = !currentInboxId.isEmpty && historicalInboxIds.contains(currentInboxId)
+        let historicalSelfProfile = selfIsHistorical
+            ? try DBMyProfile.filter(DBMyProfile.Columns.inboxId == currentInboxId).fetchOne(self)
+            : nil
+        let historicalSelfAvatar = historicalSelfProfile == nil
+            ? nil
+            : try DBProfileAvatar.fetchOne(self, inboxId: currentInboxId, conversationId: conversationId)
+
+        let memberProfileCache = MemberProfileCache(
+            activeProfiles: activeMemberProfiles,
+            historicalProfiles: historicalProfiles,
+            historicalSelfProfile: historicalSelfProfile,
+            historicalSelfAvatar: historicalSelfAvatar,
+            conversationId: conversationId,
+            currentInboxId: currentInboxId
+        )
 
         let messageIds = rawMessages.map { $0.id }
         let replySourceIds = rawMessages.compactMap { $0.messageType == .reply ? $0.sourceMessageId : nil }
@@ -999,6 +1124,35 @@ fileprivate extension Database {
             }
         }
 
+        // Correlate capability_request_result rows to the request rows in the
+        // window by requestId (mirrors the reaction join on sourceMessageId).
+        // Results are fetched conversation-wide because the correlation key
+        // lives in the JSON payload, not in sourceMessageId; the rows are rare.
+        // Skipping the query when no request row is visible is safe for the
+        // ValueObservation: the main message query already tracks the table,
+        // so a late-arriving result row still re-fires composition.
+        //
+        // First decision wins, in message-time order: one capability request
+        // is one connection ask for the whole conversation — the earliest
+        // validated (non-asker) result flips the pill for every member; the
+        // agent re-requests under a new requestId if it needs more. Both the
+        // resolution rule and the latest-pending computation are shared with
+        // CapabilityRequestRepository (the tap path), so a pill rendered
+        // `.pending` is always the request the approval sheet would open for.
+        var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
+        var latestPendingCapabilityRequestId: String?
+        if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
+            capabilityResultsByRequestId = try CapabilityRequestRepository.resultRecordsByRequestId(
+                conversationId: conversationId,
+                db: self
+            )
+            latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
+                conversationId: conversationId,
+                db: self,
+                resultsByRequestId: capabilityResultsByRequestId
+            )?.requestId
+        }
+
         let localStates: [AttachmentLocalState]
         if let prefetchedLocalStates {
             localStates = prefetchedLocalStates
@@ -1023,6 +1177,8 @@ fileprivate extension Database {
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
+            capabilityResultsByRequestId: capabilityResultsByRequestId,
+            latestPendingCapabilityRequestId: latestPendingCapabilityRequestId,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating
@@ -1074,8 +1230,6 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
 
     return HydratedAttachment(
         key: key,
-        isRevealed: localState?.isRevealed ?? false,
-        isHiddenByOwner: localState?.isHiddenByOwner ?? false,
         width: width,
         height: height,
         mimeType: mimeType,

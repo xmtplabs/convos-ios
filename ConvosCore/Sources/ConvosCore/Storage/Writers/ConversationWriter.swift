@@ -215,7 +215,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isMuted: false,
                 pinnedOrder: nil,
                 hidesInviteCard: false,
-                wasRemoved: false
+                leftHostedInviteSession: false,
+                wasRemoved: false,
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
             )
             try localState.save(db)
 
@@ -259,6 +262,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         clientConversationId: String? = nil
     ) async throws -> PreparedConversation {
         try await conversation.sync()
+        try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
@@ -275,6 +279,52 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
         )
+    }
+
+    /// Completes the denial carry-forward when `saveConversation`'s
+    /// invite-tag branch inherited .denied from the replaced row (a delete
+    /// that landed between prepare and persist, which the prepare-time check
+    /// below could not see). Pushing the denial into the XMTP consent state
+    /// keeps later syncs from reading allowed consent and resurrecting the
+    /// row. Best effort: the local row is already denied, and the push is a
+    /// local libxmtp write that effectively only fails if the database does.
+    private func pushCarriedForwardDenialIfNeeded(
+        saveResult: ConversationSaveResult,
+        group: XMTPiOS.Group
+    ) async {
+        guard saveResult.deniedConsentCarriedForward else { return }
+        do {
+            try await group.updateConsentState(state: .denied)
+            Log.info("Pushed carried-forward denial to XMTP for conversation \(group.id)")
+        } catch {
+            Log.error("Failed pushing carried-forward denial for \(group.id): \(error)")
+        }
+    }
+
+    /// Deleting a pending-invite draft ("verifying") can only flip the local
+    /// row to denied -- no XMTP group exists yet to deny. When the invite is
+    /// later approved and the real group arrives, carry that denial onto the
+    /// group before its row is built: pushing .denied into the XMTP consent
+    /// state means the persisted row and inbound stream filtering agree the
+    /// conversation stays deleted, and the denial propagates to other
+    /// installations via consent-record sync (they may show the conversation
+    /// transiently until that sync lands). Throws on failure so the group is
+    /// not persisted as allowed with the denial lost.
+    private func denyConsentIfInviteWasLocallyDeleted(for conversation: XMTPiOS.Group) async throws {
+        let inviteTag = try conversation.inviteTag
+        guard !inviteTag.isEmpty else { return }
+        guard try conversation.consentState() != .denied else { return }
+        let conversationId = conversation.id
+        let hasDeniedRowMatchingTag = try await databaseWriter.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.inviteTag == inviteTag)
+                .filter(DBConversation.Columns.id != conversationId)
+                .filter(DBConversation.Columns.consent == Consent.denied)
+                .fetchOne(db) != nil
+        }
+        guard hasDeniedRowMatchingTag else { return }
+        Log.info("Carrying local denial onto arriving group \(conversationId) whose invite tag matches a deleted conversation")
+        try await conversation.updateConsentState(state: .denied)
     }
 
     /// Synchronous, transaction-scoped. Call inside `databaseWriter.write { db in ... }`.
@@ -297,7 +347,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
-            wasRemoved: false
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         )
         try localState.insert(db, onConflict: .ignore)
 
@@ -316,10 +369,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             in: db
         )
 
+        try Self.markHasHadOtherMembersIfNeeded(
+            conversationId: prepared.dbConversation.id,
+            currentMemberInboxIds: currentMemberInboxIds,
+            in: db
+        )
+
         try saveMembers(prepared.dbMembers, in: db)
 
-        // Fill gaps: only write appData profiles for members without message-sourced data
+        // Fill gaps from the group's app-data profiles. The canonical write is
+        // what rendering reads; the legacy `DBMemberProfile` write is kept
+        // defensively for any residual reader until that table is retired.
+        let selfInboxId = try DBInbox.currentInboxId(db)
         try prepared.memberProfiles.forEach { profile in
+            try Self.applyAppDataProfile(
+                db: db,
+                conversationId: prepared.dbConversation.id,
+                profile: profile,
+                selfInboxId: selfInboxId
+            )
+
             let existing = try DBMemberProfile.fetchOne(
                 db,
                 conversationId: prepared.dbConversation.id,
@@ -334,6 +403,77 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         return saveResult
+    }
+
+    /// Timestamp for app-data-sourced canonical writes.
+    ///
+    /// App-data profiles (the member profiles carried in a group's custom
+    /// metadata) have no per-value timestamp of their own, so they are stamped at
+    /// the Unix epoch floor - the lowest possible time. This is deliberate:
+    ///
+    /// - Cross-source precedence already guarantees an `.appData` value never
+    ///   overrides a higher source (`profileSnapshot` / `profileUpdate`)
+    ///   regardless of timestamp, so the floor is purely about ordering *within*
+    ///   the `.appData` source.
+    /// - Seeding at the floor means any real, later-timestamped event supersedes
+    ///   the app-data value by recency, and two app-data observations of the same
+    ///   value do not churn `updatedAt` on every re-sync (the merge only writes
+    ///   when the value actually changes).
+    ///
+    /// Mirrors `ProfileBackfill`'s floor for its `.contact`-sourced seed.
+    private static let appDataProfileFloor: Date = .init(timeIntervalSince1970: 0)
+
+    /// Merges one app-data-sourced member profile into the canonical `profile` /
+    /// `profileAvatar` tables at the `.appData` source, so a member known only
+    /// from group app-data renders instead of showing as "Somebody".
+    ///
+    /// Fill-only by construction: `ProfileMerge` precedence
+    /// (`contact < appData < profileSnapshot < profileUpdate`) guarantees this
+    /// value never overrides a higher-source one and only fills a blank; a later
+    /// real `ProfileUpdate` / `ProfileSnapshot` automatically wins. The current
+    /// user is skipped - self identity lives in `myProfile` and is excluded from
+    /// `DBProfile`.
+    static func applyAppDataProfile(
+        db: Database,
+        conversationId: String,
+        profile: DBMemberProfile,
+        selfInboxId: String?
+    ) throws {
+        let inboxId = profile.inboxId
+        if let selfInboxId, inboxId == selfInboxId { return }
+
+        // Only merge an identity when there is a usable name; app-data carries no
+        // memberKind/metadata, so a nameless entry would only create an empty
+        // identity row. The avatar is handled independently below.
+        if let name = profile.name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let existingIdentity = try DBProfile.fetchOne(db, inboxId: inboxId)
+            let mergedIdentity = ProfileMerge.mergeIdentity(
+                existing: existingIdentity,
+                inboxId: inboxId,
+                incoming: IncomingIdentity(name: name, memberKind: nil, metadata: nil),
+                source: .appData,
+                sentAt: appDataProfileFloor
+            )
+            if mergedIdentity != existingIdentity {
+                try mergedIdentity.save(db)
+            }
+        }
+
+        // Only a valid encrypted image is worth merging; anything else leaves the
+        // slot untouched (silent), so app-data never clears an existing avatar.
+        guard profile.hasValidEncryptedAvatar, let url = profile.avatar else { return }
+        let existingAvatar = try DBProfileAvatar.fetchOne(db, inboxId: inboxId, conversationId: conversationId)
+        let mergedAvatar = ProfileMerge.mergeAvatar(
+            existing: existingAvatar,
+            inboxId: inboxId,
+            conversationId: conversationId,
+            incoming: .set(url: url, salt: profile.avatarSalt, nonce: profile.avatarNonce, key: profile.avatarKey),
+            source: .appData,
+            sentAt: appDataProfileFloor
+        )
+        if let mergedAvatar, mergedAvatar != existingAvatar {
+            try mergedAvatar.save(db)
+        }
     }
 
     /// Clears a persisted removed marker once a synced member list proves the
@@ -355,12 +495,42 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         currentMemberInboxIds: Set<String>,
         in db: Database
     ) throws {
-        guard let localInboxId = try DBInbox.currentInboxId(db),
-              currentMemberInboxIds.contains(localInboxId) else { return }
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            // Expected only during account teardown or before first inbox
+            // registration; logged so an unexpectedly missing inbox is
+            // visible in diagnostics rather than silently skipping the clear.
+            Log.warning("clearRemovedMarkerIfMember: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(localInboxId) else { return }
         try ConversationLocalState
             .filter(ConversationLocalState.Columns.conversationId == conversationId)
             .filter(ConversationLocalState.Columns.wasRemoved == true)
             .updateAll(db, ConversationLocalState.Columns.wasRemoved.set(to: false))
+    }
+
+    /// Latches the set-once `hasHadOtherMembers` high-water mark when the
+    /// synced member list contains an inbox besides the local one. Member
+    /// rows are deleted when a member leaves, so this persisted flag is the
+    /// only durable record that the conversation ever had a second member -
+    /// the engagement gate reads it to keep such conversations from being
+    /// discarded as untouched drafts. Only ever writes true; the flag is
+    /// never reset. Static for unit-testability, mirroring
+    /// `clearRemovedMarkerIfMember`.
+    static func markHasHadOtherMembersIfNeeded(
+        conversationId: String,
+        currentMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws {
+        guard let localInboxId = try DBInbox.currentInboxId(db) else {
+            Log.warning("markHasHadOtherMembersIfNeeded: no current inbox, skipping for \(conversationId)")
+            return
+        }
+        guard currentMemberInboxIds.contains(where: { $0 != localInboxId }) else { return }
+        try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .filter(ConversationLocalState.Columns.hasHadOtherMembers == false)
+            .updateAll(db, ConversationLocalState.Columns.hasHadOtherMembers.set(to: true))
     }
 
     /// Post-persist side effects the stream path runs after each individual
@@ -382,6 +552,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         saveResult: ConversationSaveResult,
         group: XMTPiOS.Group
     ) async {
+        await pushCarriedForwardDenialIfNeeded(saveResult: saveResult, group: group)
         enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
         prefetchEncryptedImages(profiles: prepared.memberProfiles, group: group)
         prefetchEncryptedGroupImage(
@@ -478,6 +649,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let saveResult = try await databaseWriter.write { [self] db in
             try persist(prepared, in: db)
         }
+
+        await pushCarriedForwardDenialIfNeeded(saveResult: saveResult, group: conversation)
 
         // Network-driven member commit just landed (initial conversation
         // arrival or refresh-with-new-members). Fire the contact-sync
@@ -632,6 +805,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let clientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
+        /// True when the invite-tag replacement branch inherited .denied
+        /// from the row it replaced. Callers holding the XMTP group must
+        /// then push the denial into the XMTP consent state, which the
+        /// prepare-time check could not have done (the deleting write
+        /// landed after prepare ran).
+        let deniedConsentCarriedForward: Bool
     }
 
     /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
@@ -646,6 +825,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let actualClientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
+        let deniedConsentCarriedForward: Bool
 
         // Fetch current conversation state inside the transaction to avoid race conditions
         // with concurrent asset renewal that might update imageLastRenewed
@@ -723,6 +903,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if localConversation.isUnused {
                 conversationToSave = conversationToSave.with(isUnused: true)
             }
+            // The row being replaced was deleted by the user (a denied
+            // pending-invite draft). The replacement must not resurrect it.
+            // `prepare` already pushes the denial into the XMTP consent
+            // state; this transactional check covers a delete landing
+            // between prepare and persist. In that race the incoming
+            // consent is still allowed, so the carried-forward denial is
+            // surfaced in the save result for callers to push to XMTP.
+            if localConversation.consent == .denied {
+                deniedConsentCarriedForward = conversationToSave.consent != .denied
+                conversationToSave = conversationToSave.with(consent: .denied)
+            } else {
+                deniedConsentCarriedForward = false
+            }
             // This row is replacing `localConversation`, so its sticky-on
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
@@ -739,10 +932,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             firstTimeSeeingConversationExpired = updateOutcome.firstTimeSeeingConversationExpired
             actualClientConversationId = updateOutcome.actualClientConversationId
+            deniedConsentCarriedForward = false
         } else {
             try conversationToSave.save(db)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired
             actualClientConversationId = conversationToSave.clientConversationId
+            deniedConsentCarriedForward = false
         }
 
         if firstTimeSeeingConversationExpired {
@@ -752,7 +947,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return ConversationSaveResult(
             clientConversationId: actualClientConversationId,
             oldImageURL: oldImageURL,
-            preservedInviteTag: preservedInviteTag
+            preservedInviteTag: preservedInviteTag,
+            deniedConsentCarriedForward: deniedConsentCarriedForward
         )
     }
 
@@ -998,8 +1194,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let conversationId = conversation.id
             let encryptionKey = try? conversation.imageEncryptionKey
 
-            var latestUpdates: [String: ProfileUpdate] = [:]
-            var latestSnapshot: ProfileSnapshot?
+            var latestUpdates: [String: (update: ProfileUpdate, sentAt: Date)] = [:]
+            var latestSnapshot: (snapshot: ProfileSnapshot, sentAt: Date)?
 
             for message in messages {
                 guard let contentType = try? message.encodedContent.type else { continue }
@@ -1008,9 +1204,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                     guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
                     let inboxId = message.senderInboxId
                     guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
-                    latestUpdates[inboxId] = update
+                    latestUpdates[inboxId] = (update, message.sentAt)
                 } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
-                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                    guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { continue }
+                    latestSnapshot = (snapshot, message.sentAt)
                 }
             }
 
@@ -1018,101 +1215,56 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let resolvedSnapshot = latestSnapshot
 
             try await databaseWriter.write { db in
-                for (inboxId, update) in resolvedUpdates {
-                    let profileMetadata = update.profileMetadata
-                    try Self.applyProfileData(
-                        db: db, conversationId: conversationId, inboxId: inboxId,
-                        name: update.hasName ? update.name : nil,
-                        encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
-                        memberKind: update.memberKind.dbMemberKind,
-                        metadata: profileMetadata.isEmpty ? nil : profileMetadata,
+                let selfInboxId = try DBInbox.currentInboxId(db)
+                for (inboxId, entry) in resolvedUpdates {
+                    let metadata = entry.update.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
+                        conversationId: conversationId,
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileUpdate,
+                            name: entry.update.hasName ? entry.update.name : nil,
+                            avatar: .fillIfPresent(entry.update.hasEncryptedImage ? entry.update.encryptedImage : nil),
+                            memberKind: entry.update.memberKind.dbMemberKind,
+                            metadata: metadata.isEmpty ? nil : metadata,
+                            receivedAt: entry.sentAt
+                        ),
+                        selfInboxId: selfInboxId,
                         fallbackEncryptionKey: encryptionKey
                     )
                 }
 
-                if let snapshot = resolvedSnapshot {
-                    for memberProfile in snapshot.profiles {
+                if let resolvedSnapshot {
+                    for memberProfile in resolvedSnapshot.snapshot.profiles {
                         let inboxId = memberProfile.inboxIdString
                         guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
-
-                        let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-                        guard existing?.name == nil, existing?.avatar == nil else { continue }
-
-                        let snapshotMetadata = memberProfile.profileMetadata
-                        try Self.applyProfileData(
-                            db: db, conversationId: conversationId, inboxId: inboxId,
-                            name: memberProfile.hasName ? memberProfile.name : nil,
-                            encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
-                            memberKind: memberProfile.memberKind.dbMemberKind,
-                            metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
+                        let metadata = memberProfile.profileMetadata
+                        try ProfileInboundApplier.apply(
+                            db: db,
+                            conversationId: conversationId,
+                            event: ProfileInboundApplier.Incoming(
+                                inboxId: inboxId,
+                                source: .profileSnapshot,
+                                name: memberProfile.hasName ? memberProfile.name : nil,
+                                avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                                memberKind: memberProfile.memberKind.dbMemberKind,
+                                metadata: metadata.isEmpty ? nil : metadata,
+                                receivedAt: resolvedSnapshot.sentAt
+                            ),
+                            selfInboxId: selfInboxId,
                             fallbackEncryptionKey: encryptionKey
                         )
                     }
                 }
             }
 
-            let profileCount = latestUpdates.count + (latestSnapshot?.profiles.count ?? 0)
+            let profileCount = latestUpdates.count + (latestSnapshot?.snapshot.profiles.count ?? 0)
             if profileCount > 0 {
                 Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
             }
         } catch {
             Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
-        }
-    }
-
-    private static func applyProfileData( // swiftlint:disable:this function_parameter_count
-        db: Database,
-        conversationId: String,
-        inboxId: String,
-        name: String?,
-        encryptedImage: EncryptedProfileImageRef?,
-        memberKind: DBMemberKind?,
-        metadata: ProfileMetadata? = nil,
-        fallbackEncryptionKey: Data?
-    ) throws {
-        let member = DBMember(inboxId: inboxId)
-        try member.save(db)
-
-        var profile = try DBMemberProfile.fetchOne(
-            db, conversationId: conversationId, inboxId: inboxId
-        ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
-
-        profile = profile.with(name: name)
-
-        if let image = encryptedImage, image.isValid {
-            profile = profile.with(
-                avatar: image.url, salt: image.salt, nonce: image.nonce,
-                key: profile.avatarKey ?? fallbackEncryptionKey
-            )
-        }
-
-        if let metadata, !metadata.isEmpty {
-            profile = profile.with(metadata: metadata)
-        }
-
-        let priorMemberKind = profile.memberKind
-        if let memberKind {
-            profile = profile.with(memberKind: memberKind)
-
-            if memberKind == .agent {
-                let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                if verification.isVerified {
-                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                }
-            }
-        }
-
-        if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-           !profile.agentVerification.isVerified {
-            profile = profile.with(memberKind: priorMemberKind)
-        }
-
-        try profile.save(db)
-
-        if profile.agentVerification.isConvosAgent,
-           let conversation = try DBConversation.fetchOne(db, id: conversationId),
-           !conversation.hasHadVerifiedAgent {
-            try conversation.with(hasHadVerifiedAgent: true).save(db)
         }
     }
 
@@ -1163,8 +1315,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let urlString = encryptedRef.url
 
         Task.detached(priority: .background) {
-            // If URL didn't change and we already have a cached image, skip
-            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(for: cacheId) != nil {
+            // If URL didn't change and we already have the bytes, skip. The byte
+            // cache is keyed by URL (cacheAfterUpload writes under urlString), so
+            // probe by URL - probing by cacheId hits the identifier tier and
+            // always misses, re-downloading and re-decrypting every run.
+            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(forURL: urlString) != nil {
                 return
             }
 

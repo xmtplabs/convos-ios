@@ -8,6 +8,12 @@ class MessageContextMenuState: @unchecked Sendable {
     var isOutgoing: Bool = false
     var bubbleStyle: MessageBubbleType = .normal
     var isReplyParent: Bool = false
+    /// Whether the source bubble's long-body inline expansion was on when the
+    /// menu opened, so the preview matches what's on screen (full text when
+    /// expanded, bounded teaser when collapsed). Owned by the conversation view
+    /// model and captured at present time, mirroring the on-screen bubble's
+    /// `isExpanded`.
+    var isExpanded: Bool = false
     var sourceID: UUID?
 
     var currentSourceFrame: CGRect = .zero
@@ -23,11 +29,12 @@ class MessageContextMenuState: @unchecked Sendable {
         return dx > 2 || dy > 2
     }
 
-    func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType) {
+    func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType, isExpanded: Bool) {
         self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = bubbleStyle
         self.isReplyParent = false
+        self.isExpanded = isExpanded
         self.presentedMessage = message
     }
 
@@ -36,6 +43,7 @@ class MessageContextMenuState: @unchecked Sendable {
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = .normal
         self.isReplyParent = true
+        self.isExpanded = false
         self.sourceID = sourceID
         self.presentedMessage = message
     }
@@ -43,6 +51,7 @@ class MessageContextMenuState: @unchecked Sendable {
     func dismiss() {
         presentedMessage = nil
         isReplyParent = false
+        isExpanded = false
         sourceID = nil
     }
 }

@@ -96,12 +96,27 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func requestAgentJoin(
-        slug: String,
+        slug: String? = nil,
+        conversationId: String? = nil,
         templateId: String? = nil,
         options: ConvosAPI.AgentJoinOptions? = nil,
+        timezone: String? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        .init(success: true, joined: true)
+        .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")
+    }
+
+    func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse {
+        // A registered, joined agent — a coherent terminal state (joined ⇒
+        // inbox present), not "starting" paired with an inbox, which masks the
+        // poll loop and can't be told apart from a real in-flight state.
+        .init(
+            success: true,
+            instanceId: instanceId,
+            joinStatus: "joined",
+            joined: true,
+            inboxId: "mock-agent-inbox"
+        )
     }
 
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
@@ -125,6 +140,68 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         ]
         return .init(data: templates, hasMore: false, nextCursor: nil)
     }
+
+    func getAgentPromptHints() async throws -> [String] {
+        [
+            "Plan a 3-day trip to Lisbon with a $1000 budget",
+            "Draft a weekly meal plan and a grocery list",
+            "Summarize long articles into five quick bullet points",
+            "Be my daily Spanish conversation partner",
+            "Track my workouts and suggest the next session",
+        ]
+    }
+
+    func getAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        [
+            .init(
+                slug: "pr-1234",
+                label: "Q+A",
+                whatToTest: "Agent asks clarifying questions before building. Check it doesn't over-ask.",
+                status: "ready",
+                assistantWorkerUrl: "https://ephemeral-pr-1234.convos.fun",
+                builderPromptSlug: "qa-flow-v2",
+                prUrl: "https://github.com/xmtplabs/convos-assistants/pull/1234",
+                branch: "saul/qa-flow",
+                commit: "b9adb65"
+            ),
+            .init(
+                slug: "pr-1251",
+                label: "Artifact",
+                whatToTest: "Replies with an artifact card -- check rendering.",
+                status: "building"
+            ),
+        ]
+    }
+
+    func createAgentTemplateGeneration(
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        connections: [String],
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: UUID().uuidString, status: .pending, templateId: nil, error: nil)
+    }
+
+    func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        .init(generationId: generationId, status: .done, templateId: UUID().uuidString, error: nil)
+    }
+
+    func getAgentTemplateAttachmentPresignedURL(
+        contentType: String,
+        contentLength: Int
+    ) async throws -> (objectKey: String, uploadURL: String) {
+        (objectKey: "build/mock-\(UUID().uuidString)", uploadURL: "https://mock.s3.example.com/upload")
+    }
+
+    func uploadAgentTemplateAttachment(
+        data: Data,
+        contentType: String,
+        to uploadURL: String
+    ) async throws {}
 
     // MARK: - Connections
 

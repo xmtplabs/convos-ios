@@ -1,6 +1,6 @@
 # Test: Send and Receive Video Messages
 
-Verify end-to-end video messaging: selecting a video from the photo picker, sending with compression, receiving from CLI, thumbnail display with play button and duration badge, inline playback, blur/reveal for incoming video, context menu actions, size limit enforcement, and that existing photo messaging continues to work alongside video.
+Verify end-to-end video messaging: selecting a video from the photo picker, sending with compression, receiving from CLI, thumbnail display with play button and duration badge, inline playback, context menu actions, size limit enforcement, and that existing photo messaging continues to work alongside video.
 
 ## Prerequisites
 
@@ -42,32 +42,24 @@ Verify end-to-end video messaging: selecting a video from the photo picker, send
 ### Receive a video from CLI
 
 15. Send a video from the CLI using `send-attachment` with `--mime-type video/mp4`.
-16. Verify the incoming video appears with a blurred thumbnail and "Tap to reveal" overlay. Check for `message.received` event.
-
-### Incoming video blur/reveal
-
-17. Verify the incoming video thumbnail is blurred (screenshot check).
-18. Tap to reveal. Dismiss "Reveal" education sheet if it appears.
-19. Verify the thumbnail is now clear with a play button and duration badge.
-20. Tap the play button to start playback on the revealed video.
+16. Verify the incoming video appears immediately with a clear (unblurred) thumbnail, play button overlay, and duration badge. There is no blur and no "Tap to reveal" overlay. Check for `message.received` event.
+17. Tap the play button to start playback on the incoming video.
 
 ### Video context menu
 
-21. Long-press on the revealed incoming video. Verify Reply, Save, and Blur in context menu.
-22. Tap Blur. Verify the video returns to blurred state.
-23. Long-press the blurred video. Verify menu shows Reveal instead of Blur.
+18. Long-press on the incoming video. Verify Reply, Save, and Share in the context menu, and no "Blur" or "Reveal" action.
 
 ### Own video context menu
 
-24. Long-press on the video sent from the app. Verify Reply, Save, and Blur (own videos start unblurred).
+19. Long-press on the video sent from the app. Verify Reply, Save, and Share, and no "Blur" or "Reveal" action.
 
 ### Photo still works
 
-25. Select and send a photo. Verify it renders as a full-width image (unchanged behavior).
+20. Select and send a photo. Verify it renders as a full-width image (unchanged behavior).
 
 ### Conversation list preview
 
-26. Navigate back to conversations list. Verify the preview text shows "a photo" or "a video" as appropriate for the most recent message.
+21. Navigate back to conversations list. Verify the preview text shows "a photo" or "a video" as appropriate for the most recent message.
 
 ## Teardown
 
@@ -84,12 +76,10 @@ Explode the conversation via CLI.
 - [ ] Tapping playing video pauses it
 - [ ] Video from CLI appears in the app
 - [ ] `message.received` event fires for incoming video
-- [ ] Incoming video is blurred by default
-- [ ] Tapping blurred video reveals the thumbnail
-- [ ] Tapping revealed video starts inline playback
-- [ ] Context menu shows Reply, Save, Blur/Reveal for incoming video
-- [ ] Blur/Reveal toggles work from context menu
-- [ ] Own sent video context menu shows Reply, Save, Blur
+- [ ] Incoming video renders immediately with a clear thumbnail (no blur, no reveal overlay)
+- [ ] Tapping the play button on an incoming video starts inline playback
+- [ ] Context menu shows Reply, Save, and Share for incoming video, with no Blur or Reveal action
+- [ ] Own sent video context menu shows Reply, Save, and Share, with no Blur or Reveal action
 - [ ] Photo sending still works alongside video
 - [ ] Conversation list preview shows "a video" or "a photo" appropriately
 

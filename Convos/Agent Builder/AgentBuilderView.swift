@@ -27,6 +27,10 @@ struct AgentBuilderView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.openURL) private var openURL: OpenURLAction
+    /// Prewarmed prompt hints, injected at `MainTabView` scope. Optional so the
+    /// builder still renders (dice hidden) from entry points / previews that
+    /// don't provide it.
+    @Environment(PromptHintsModel.self) private var promptHints: PromptHintsModel?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
@@ -88,6 +92,17 @@ struct AgentBuilderView: View {
     /// avatar would default to the unverified grey style.
     private var forcedVerification: AgentVerification? {
         viewModel.hasCommitted ? nil : .verified(.convos)
+    }
+
+    /// The dice is shown only when hints exist in memory and the draft is in a
+    /// state that permits a roll (no attachments / connections, composer empty
+    /// or showing an unedited dice result). It is also hidden once the builder
+    /// has committed, otherwise `commit()` clearing `composerText` would let the
+    /// dice reappear in the revealed conversation's toolbar. Hoisted to a typed
+    /// `Bool` so the toolbar modifier chain stays inside the type-check budget.
+    private var isDiceVisible: Bool {
+        let hintsAvailable: Bool = !(promptHints?.hints.isEmpty ?? true)
+        return hintsAvailable && viewModel.allowsDiceRoll && !viewModel.hasCommitted
     }
 
     private var composerHintText: String {
@@ -277,6 +292,7 @@ struct AgentBuilderView: View {
                 .toolbar {
                     if mode == .sheet {
                         closeToolbarItem
+                        diceToolbarItem
                     }
                 }
                 .toolbarTitleDisplayMode(.inline)
@@ -363,12 +379,12 @@ struct AgentBuilderView: View {
                         dismiss()
                         return
                     }
-                    // Hand focus over to the chat's text field BEFORE
-                    // collapsing the composer, so the keyboard stays up
-                    // and MessagesBottomBar's expanded state animates in
-                    // on the next focus-change tick.
+                    // Dismiss the keyboard as the composer collapses. The agent
+                    // still has to build and join before anything can be sent, so
+                    // landing on the conversation with the input focused isn't
+                    // useful -- drop focus instead of handing it to the chat input.
                     if focusState.wrappedValue == .agentBuilder {
-                        focusCoordinator.moveFocus(to: .message)
+                        focusCoordinator.moveFocus(to: nil)
                     }
                     withAnimation(.easeInOut(duration: 0.35)) {
                         viewModel.commit(focusCoordinator: focusCoordinator)
@@ -401,6 +417,12 @@ struct AgentBuilderView: View {
                 .padding(.top, DesignConstants.Spacing.step2x)
                 .padding(.bottom, DesignConstants.Spacing.step3x)
                 .opacity(viewModel.isRecordingVoiceMemo ? 0 : 1)
+
+            if FeatureFlags.shared.isAgentVariantSelectorEnabled, !viewModel.isRecordingVoiceMemo {
+                AgentVariantSelector()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step3x)
+            }
 
             if viewModel.isRecordingVoiceMemo {
                 Spacer(minLength: 0)
@@ -488,6 +510,26 @@ struct AgentBuilderView: View {
         }
     }
 
+    /// Top-right dice control. Tapping drops a random prompt hint into the
+    /// composer (see `AgentBuilderViewModel.rollDice`). The whole item is
+    /// omitted when `isDiceVisible` is false, so the slot stays empty rather
+    /// than reserving space for a hidden control.
+    @ToolbarContentBuilder
+    private var diceToolbarItem: some ToolbarContent {
+        if isDiceVisible {
+            ToolbarItem(placement: .topBarTrailing) {
+                let action = {
+                    viewModel.rollDice(hints: promptHints?.hints ?? [])
+                }
+                Button(action: action) {
+                    Image(systemName: "dice.fill")
+                }
+                .accessibilityLabel("Roll a prompt idea")
+                .accessibilityIdentifier("agent-builder-dice-button")
+            }
+        }
+    }
+
     private func handleCloseTapped() {
         if viewModel.hasCommitted {
             dismiss()
@@ -525,5 +567,6 @@ struct AgentBuilderView: View {
                 viewModel: viewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )
+            .environment(PromptHintsModel.preview())
         }
 }

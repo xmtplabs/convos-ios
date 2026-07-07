@@ -9,6 +9,15 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+/// Moves a staged invite image into the URL-keyed byte cache under the finalized
+/// invite's real image URL, so the invite card renders it without dropping to a
+/// placeholder or re-downloading. No-op when the text has no parseable image URL.
+private func cacheFinalizedInviteImage(_ image: UIImage, inviteText: String) {
+    guard let invite = MessageInvite.from(text: inviteText),
+          let imageURLString = invite.imageURL?.absoluteString else { return }
+    ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+}
+
 struct PendingInvite {
     let code: String
     var fullURL: String
@@ -189,6 +198,42 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// Latest direct-builder generation for this conversation, observed from
+    /// `AgentTemplateRepository`. Drives the pending-agent placeholder while a
+    /// build is in flight. `nil` for conversations that weren't created by the
+    /// direct builder flow.
+    var directBuildGeneration: AgentTemplateGeneration?
+
+    /// `true` while a direct build is active and hasn't failed and the agent
+    /// hasn't joined the conversation yet — covering submit through invite up
+    /// to the moment the agent actually appears as a member. Used to keep the
+    /// pending placeholder up without flashing empty, and to clear it the
+    /// instant the agent lands.
+    private var directBuildAwaitingAgent: Bool {
+        guard let generation = directBuildGeneration else { return false }
+        guard generation.status != .failed else { return false }
+        return !directBuildAgentJoined
+    }
+
+    /// Releases the pending-agent header takeover ("New Agent" title +
+    /// add-agent glyph + "Making agent..." subtitle). That takeover is a
+    /// new-conversation concept -- it stands in for the agent's identity before
+    /// it has one -- so the signal is "the conversation already has another
+    /// member besides me," not specifically "the agent joined":
+    ///   - New agent conversation: the only other member that ever appears is
+    ///     the agent, so this releases exactly when the agent lands.
+    ///   - Existing group (in-chat "New Agent"): other members are already
+    ///     present, so this is true from the start and the header is never
+    ///     hijacked -- the group keeps its own name/avatar/subtitle while the
+    ///     build runs (the in-chat activating card shows progress instead).
+    /// Gating on membership (not `isVerifiedConvosAgent`) also avoids the
+    /// "Joining..." stuck state when an agent joins before publishing its
+    /// verified attestation; the direct path has no time-box backstop like the
+    /// legacy summary flow.
+    private var directBuildAgentJoined: Bool {
+        conversation.members.contains { !$0.isCurrentUser }
+    }
+
     /// Flips true once the post-commit agent-builder placeholder window
     /// (`AgentBuilderPlaceholder.displayDuration` past the summary's
     /// `cutoffDate`) elapses without a verified agent joining. Stops the
@@ -311,10 +356,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
-    private var convosButtonCancellable: AnyCancellable?
-    @ObservationIgnored
-    private var convosButtonTask: Task<Void, Never>?
-    @ObservationIgnored
     private var explodeDurationTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
@@ -333,11 +374,29 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
     @ObservationIgnored
+    private var directBuildGenerationCancellable: AnyCancellable?
+    /// One-shot backstop: cleared/re-armed as the direct build reaches the
+    /// "agent should be joining" state. Fires if the agent never appears so the
+    /// activating card can't linger forever (e.g. provisioning/attestation
+    /// stalls), which is especially important in an existing group.
+    @ObservationIgnored
+    private var directBuildJoinTimeoutTask: Task<Void, Never>?
+    /// How long to keep the activating card up after the build is done + the
+    /// join issued before giving up on the agent appearing. Matches the legacy
+    /// placeholder window.
+    private static let directBuildJoinTimeout: TimeInterval = 180
+    @ObservationIgnored
+    private var observedDirectBuildConversationId: String?
+    @ObservationIgnored
     private var agentBuilderPlaceholderExpiryTask: Task<Void, Never>?
     @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
+    /// Request id whose connect-before-grant step (OS prompt / OAuth) is in
+    /// flight — re-entrancy guard for `onCapabilityApprove`.
+    @ObservationIgnored
+    private var connectOnApproveInFlightRequestId: String?
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -353,6 +412,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private(set) var conversation: Conversation {
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+            latchEverHadOtherMembersIfNeeded()
             syncVerifiedAgentToRepo()
             trackAssistantJoinedIfNeeded(oldValue: oldValue)
             presentingConversationForked = shouldPresentConversationForked
@@ -369,6 +429,42 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
         }
+    }
+
+    /// Invoked synchronously the moment a metadata edit (name, description,
+    /// image, or the "Include info with invites" toggle) is about to be
+    /// written -- before the async writer task spawns, and only when a
+    /// change will actually be written. Wired by
+    /// `NewConversationViewModel` in its inner-VM forwarding block so the
+    /// engagement latch survives the inbox-acquisition VM swap; the latch
+    /// keeps a customized minted conversation from being discarded on
+    /// dismiss even when the write has not landed in the database yet.
+    @ObservationIgnored
+    var onMetadataEdited: (() -> Void)?
+    /// Invoked the first time the conversation gains a member besides the
+    /// local user. Wired like `onMetadataEdited`; feeds the engagement
+    /// latch so a joined-then-left member still keeps the conversation.
+    /// Replayed on assignment when the latch already fired: the initial
+    /// member list is evaluated during init, before any caller has had a
+    /// chance to wire this callback.
+    @ObservationIgnored
+    var onMemberJoined: (() -> Void)? {
+        didSet {
+            if everHadOtherMembers { onMemberJoined?() }
+        }
+    }
+    /// Latched true the first time `membersWithoutCurrent` is non-empty --
+    /// evaluated for the initial member list at init and on every
+    /// conversation update after; never reset for this VM's lifetime. The
+    /// members table only mirrors current membership, so this is the
+    /// in-session record that someone was here even if they left again.
+    @ObservationIgnored
+    private(set) var everHadOtherMembers: Bool = false
+
+    private func latchEverHadOtherMembersIfNeeded() {
+        guard !everHadOtherMembers, !conversation.membersWithoutCurrent.isEmpty else { return }
+        everHadOtherMembers = true
+        onMemberJoined?()
     }
 
     /// Set to `false` by the Agent Builder right before `Make` is tapped
@@ -413,6 +509,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             agent = nil
         }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+        // The built agent has joined and verified: clear the persisted
+        // generation so the activating card can't resurrect if the agent is
+        // later removed (membership going back to no-agent would otherwise
+        // re-open the card's "no verified agent" gate on a still-`.invited`
+        // row). Durable across removal + relaunch; no-op once cleared.
+        if realAgent != nil, directBuildGeneration != nil {
+            session.agentTemplateRepository().clearGeneration(conversationId: conversation.id)
+        }
     }
 
     /// Activate the optimistic agent overlay for an agent-template flow.
@@ -456,10 +560,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let name = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let desc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let toggle = _editingIncludeInfoInPublicPreview
+        let willWriteName = !name.isEmpty && name != (conversation.name ?? "")
+        let willWriteDesc = !desc.isEmpty && desc != (conversation.description ?? "")
+        if willWriteName || willWriteDesc {
+            onMetadataEdited?()
+        }
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
-            if !name.isEmpty, name != (conversation.name ?? "") { try? await metadataWriter.updateName(name, for: conversation.id) }
-            if !desc.isEmpty, desc != (conversation.description ?? "") { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
+            if willWriteName { try? await metadataWriter.updateName(name, for: conversation.id) }
+            if willWriteDesc { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
             if let toggle, toggle != conversation.includeInfoInPublicPreview { self.updateIncludeInfoInPublicPreview(toggle) }
         }
     }
@@ -479,7 +588,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
     var untitledConversationPlaceholder: String {
         if let presentation = pendingAgentPresentation {
-            return presentation.name ?? "Agent"
+            return presentation.name ?? "New Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
@@ -508,6 +617,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
+        // Direct builder: the header intentionally stays generic ("Agent" title
+        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
+        // The draft preview identity is revealed progressively by the dedicated
+        // `.agentActivating` card, not the header; the header only adopts the
+        // real name/emoji once the verified agent actually joins. So fall
+        // through to the generic no-identity pending case below.
         if shouldRenderAsPendingAgentBuilder {
             return PendingAgentPresentation(
                 name: nil,
@@ -538,6 +653,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// appears in `conversation.members`, at which point the regular
     /// member-driven avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgentBuilder: Bool {
+        // Direct builder owns its own pending lifecycle. No AgentBuilderSummary
+        // is ever written on this path, so once a generation row exists the
+        // live generation state is authoritative -- return it and bypass the
+        // legacy summary-based gating below, which would otherwise pin the
+        // placeholder forever (here `isInAgentBuilderFlow` is true but
+        // `agentBuilderSummary` is always nil, so the pre-commit branch never
+        // releases). `directBuildAwaitingAgent` already clears on membership
+        // and on failure.
+        if directBuildGeneration != nil {
+            return directBuildAwaitingAgent
+        }
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
         // Pre-commit: while drafting in the builder (no summary yet), always
         // show the generic agent placeholder -- even if a verified agent has
@@ -605,12 +731,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         if shouldRenderAsPendingAgent {
-            return "Joining..."
+            // Static copy for the whole build; the header subtitle intentionally
+            // does not cycle the build-narration phrases. It flips to the member
+            // count once the agent joins (shouldRenderAsPendingAgent == false).
+            return "Activating"
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+    }
+    /// The "Activating" pending-agent subtitle uses the lava accent to match the
+    /// rest of the build UI; every other subtitle keeps the secondary text color.
+    var conversationInfoSubtitleColor: Color {
+        shouldRenderAsPendingAgent ? .colorLava : .colorTextSecondary
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -875,11 +1009,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingProfileSettings: Bool = false
 
     /// The agent's most-recent unresolved `capability_request` for this conversation.
-    /// When non-nil, `ConversationView` renders the picker card in the same slot the
-    /// `ConversationOnboardingView` would otherwise occupy. Cleared on Approve / Deny /
-    /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
-    /// last request" rule).
-    var pendingCapabilityPickerLayout: CapabilityPickerLayout?
+    /// The transcript's connect pill is the entry point: while non-nil, tapping the
+    /// matching pending pill presents the approval sheet built from this layout.
+    /// Cleared on Approve / Deny / out-of-band resolution; replaced wholesale when a
+    /// newer request arrives (per the "only show the last request" rule).
+    var pendingCapabilityPickerLayout: CapabilityPickerLayout? {
+        didSet {
+            if pendingCapabilityPickerLayout == nil {
+                presentingCapabilityApproval = false
+            }
+        }
+    }
+    /// Drives the approval sheet presentation for `pendingCapabilityPickerLayout`.
+    /// Auto-dismissed whenever the layout clears (another device resolved the
+    /// request, the request was answered here, or observation reset).
+    var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
@@ -908,9 +1052,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
+    /// Drives the `MessageDetailView` sheet for a pathological (very long)
+    /// message body, presented when its bubble "Read More" is tapped.
+    var presentingMessageDetail: AnyMessage?
+    /// Message ids whose long-body inline expansion is on. Held on the view
+    /// model (not as cell-local `@State`) so an expanded message stays expanded
+    /// across `UICollectionView` cell reuse and never bleeds onto a recycled
+    /// cell showing a different message.
+    var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
-    var presentingRevealMediaInfoSheet: Bool = false
+    /// Segment the share overlay opens on when `presentingShareView` flips true.
+    /// The Invite sheet's "Show an invite code" row leaves this `.invite`; its
+    /// `viewfinder` button sets `.scan` so the overlay opens straight to the
+    /// scanner. Reset to `.invite` once the overlay closes.
+    var shareViewInitialSegment: ScanInviteSegment = .invite
     var presentingPhotosInfoSheet: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the
@@ -932,7 +1088,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// via the balance publisher. Drives the in-stream out-of-credits cell
     /// insertion in `MessagesViewController` and the inline status surfaces.
     var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
-    var activeToast: IndicatorToastStyle?
 
     var agentJoinForceErrorCode: Int?
 
@@ -974,7 +1129,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
-    var autoRevealPhotos: Bool = GlobalConvoDefaults.shared.autoRevealPhotos
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -984,27 +1138,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
-    private var hasShownRevealInfoSheet: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownRevealInfoSheetKey) }
-    }
-
-    private static let revealToastKeyPrefix: String = "hasShownRevealToast_"
-    private var hasShownRevealToastKey: String {
-        "\(Self.revealToastKeyPrefix)\(conversation.id)"
-    }
-    private var hasShownRevealToast: Bool {
-        get { UserDefaults.standard.bool(forKey: hasShownRevealToastKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasShownRevealToastKey) }
-    }
+    // Orphaned reveal-mode keys cleared opportunistically on launch.
+    private static let legacyRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
+    private static let legacyRevealToastKeyPrefix: String = "hasShownRevealToast_"
 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: legacyRevealInfoSheetKey)
         defaults.removeObject(forKey: hasShownAgentsIntroKey)
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyRevealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
     }
@@ -1061,10 +1204,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
-    var shouldBlurPhotos: Bool {
-        !autoRevealPhotos
-    }
-
     // MARK: - Onboarding
 
     var onboardingCoordinator: ConversationOnboardingCoordinator = ConversationOnboardingCoordinator()
@@ -1098,7 +1237,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // in-flight request holds `session` strongly and finishes on its own;
         // tying it to the view lifecycle was cancelling joins mid-request, so
         // the backend never provisioned the agent.
-        convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
         pendingSyntheticAgentExpiryTask?.cancel()
@@ -1182,7 +1320,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
         // MyProfileViewModel fills its "empty" profile with the current user's
         // inboxId. In single-inbox mode that's always the singleton; read it
@@ -1190,7 +1327,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: currentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1232,6 +1369,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         startOnboarding()
         registerInlineAttachmentRecovery()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     init(
@@ -1275,12 +1417,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
         let draftCurrentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: draftCurrentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1309,6 +1450,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     // MARK: - Private
@@ -1318,7 +1464,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1355,6 +1500,82 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         scheduleAgentBuilderPlaceholderExpiry()
     }
 
+    /// Subscribe to the direct-builder generation row for this conversation so
+    /// the pending-agent placeholder and failure banner react to submit ->
+    /// poll -> invite transitions. No-op for conversations not created by the
+    /// direct builder (the publisher just emits `nil`).
+    private func observeDirectBuildGeneration() {
+        observeDirectBuildGeneration(for: conversation.id)
+    }
+
+    private func observeDirectBuildGeneration(for conversationId: String) {
+        guard conversationId != observedDirectBuildConversationId else { return }
+        observedDirectBuildConversationId = conversationId
+        directBuildGenerationCancellable?.cancel()
+        directBuildGenerationCancellable = session.agentTemplateRepository()
+            .generationPublisher(conversationId: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] generation in
+                self?.directBuildGeneration = generation
+                self?.syncDirectActivatingCard()
+            }
+    }
+
+    /// Mirror the live generation into the message list's "activating agent"
+    /// card. The processor only inserts it while no verified agent has joined,
+    /// so it's cleared automatically on join; here we just keep the content
+    /// (preview identity + progress phrases) current and drop it on failure.
+    private func syncDirectActivatingCard() {
+        guard let generation = directBuildGeneration, generation.status != .failed else {
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        let phase: AgentActivatingCardContent.Phase
+        switch generation.status {
+        case .submitting, .pending:
+            phase = .preparing
+        case .running:
+            phase = .generating
+        case .done, .invited:
+            phase = .finishing
+        case .failed:
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        messagesListRepository.agentActivating = AgentActivatingCardContent(
+            id: conversation.id,
+            phase: phase,
+            agentName: generation.preview?.agentName,
+            emoji: generation.preview?.emoji,
+            agentDescription: generation.preview?.description,
+            progressPhrases: generation.progressPhrases
+        )
+        // The repo bounds submit/poll (those fail -> the card clears above), but
+        // once the join is issued (`done`/`invited`) nothing else verifies the
+        // agent actually appeared. Arm a one-shot timeout so the card can't
+        // linger forever if the agent never joins/verifies.
+        if generation.status == .done || generation.status == .invited {
+            armDirectBuildJoinTimeoutIfNeeded()
+        }
+    }
+
+    private func armDirectBuildJoinTimeoutIfNeeded() {
+        guard directBuildJoinTimeoutTask == nil else { return }
+        directBuildJoinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.directBuildJoinTimeout))
+            guard let self, !Task.isCancelled else { return }
+            let hasVerifiedAgent: Bool = self.conversation.members.contains(where: \.isVerifiedConvosAgent)
+            guard self.directBuildGeneration != nil, !hasVerifiedAgent else { return }
+            Log.warning("AgentBuilder(direct): agent did not join within timeout; clearing activating card for \(self.conversation.id)")
+            self.messagesListRepository.agentActivating = nil
+            self.session.agentTemplateRepository().clearGeneration(conversationId: self.conversation.id)
+        }
+    }
+
     /// Subscribe to the GRDB-backed thinking session feed for this
     /// conversation. The publisher fires whenever the writer inserts or
     /// closes a row, which propagates into `messagesWithThinkingIndicators`
@@ -1380,6 +1601,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         observeThinkingSessions()
+        observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
         CreditsServices.shared.balancePublisher
@@ -1455,6 +1677,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeDirectBuildGeneration(for: conversation.id)
                     self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
@@ -1471,7 +1694,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 guard let self, !self.isConversationImageDirty else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.conversationImage = await ImageCache.shared.loadImage(for: self.conversation)
+                    self.conversationImage = await ImageCache.shared.loadImageOrContinuity(for: self.conversation)
                     self.isConversationImageDirty = false
                 }
             }
@@ -1514,15 +1737,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    // Best-effort: the picker renders provider-only rows when the
-                    // services catalog is unreachable; bundle rows appear once it is.
-                    let services = (try? await self.messagingService.connectionServicesStore().catalog()) ?? []
-                    let layout = await handler.computeLayout(
+                    let layout = await Self.computeCapabilityPickerLayout(
                         request: request,
                         registry: registry,
                         resolver: resolver,
-                        conversationId: conversationId,
-                        services: services
+                        handler: handler,
+                        servicesStore: self.messagingService.connectionServicesStore(),
+                        cloudConnectionRepository: self.session.cloudConnectionRepository(),
+                        conversationId: conversationId
                     )
                     // Discard if a newer request arrived while we were computing —
                     // otherwise an out-of-order completion can stomp the latest UI.
@@ -1548,7 +1770,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1559,10 +1780,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
-    }
-
-    private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
-        autoRevealPhotos = autoReveal
     }
 
     func setSendReadReceipts(_ value: Bool) {
@@ -1578,19 +1795,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
-    private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
-        guard autoRevealPhotos != autoReveal else { return }
-        autoRevealPhotos = autoReveal
-        persistAutoReveal(autoReveal)
-    }
-
     private func loadConversationImage(for conversation: Conversation) {
         guard !isConversationImageDirty else { return }
 
         loadConversationImageTask?.cancel()
         loadConversationImageTask = Task { [weak self] in
             guard let self else { return }
-            let image = await ImageCache.shared.loadImage(for: conversation)
+            let image = await ImageCache.shared.loadImageOrContinuity(for: conversation)
             guard !Task.isCancelled, !self.isConversationImageDirty else { return }
             self.conversationImage = image
             self.isConversationImageDirty = false
@@ -1780,44 +1991,251 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     // MARK: - Capability picker
 
-    /// Replaces any pending capability request with `layout`. When the agent sends a new
-    /// `capability_request` and we want the picker to display, the host computes the
-    /// layout via `CapabilityRequestHandler.computeLayout` and calls this. Setting nil
-    /// hides the picker and lets the onboarding view take its slot back.
-    func presentCapabilityPicker(_ layout: CapabilityPickerLayout?) {
-        pendingCapabilityPickerLayout = layout
+    /// User tapped the transcript's capability connect pill. Pending pills open
+    /// the approval sheet for the request they carry; connected/dismissed/
+    /// superseded pills are inert. The derivation only renders `.pending` on
+    /// the request `CapabilityRequestRepository` surfaces as the layout (same
+    /// shared rule), so the layout-match guard below is just a race guard: it
+    /// covers the gap while a freshly answered or newly superseded request
+    /// hasn't re-derived yet (e.g. `locallyHandledCapabilityRequestIds`).
+    func onTapCapabilityConnectPrompt(_ prompt: CapabilityConnectPrompt) {
+        guard prompt.status == .pending else { return }
+        guard let layout = pendingCapabilityPickerLayout,
+              layout.request.requestId == prompt.requestId else { return }
+        presentingCapabilityApproval = true
     }
 
-    /// User tapped Approve in the picker card with this provider selection.
-    /// Persists the resolution so future tool calls route to the same set, then
-    /// posts a `capability_request_result(.approved)` reply for the agent.
-    /// `bundleSelection` is the per-service permission-bundle toggle state
-    /// (service id → toggled-on bundle ids) for the cloud providers approved.
+    /// User tapped the approval sheet's primary button with this provider
+    /// selection. Persists the resolution so future tool calls route to the
+    /// same set, then posts a `capability_request_result(.approved)` reply for
+    /// the agent. `bundleSelection` is the per-service permission-bundle toggle
+    /// state (service id → toggled-on bundle ids) for the cloud providers
+    /// approved.
+    ///
+    /// Done-as-revoke: a selected service whose toggles are ALL off is the
+    /// user opting that service out. When the asking agent already holds a
+    /// grant for it, the tap revokes that grant (natural key — connection,
+    /// conversation, agent); without one it's a decline-style no-op. Either
+    /// way the empty selection never reaches the grant writer (an empty
+    /// bundle array escalates to whole-toolkit access) and the request stays
+    /// pending — same posture as a swipe-down dismiss.
+    ///
+    /// Selected providers that aren't linked yet are connected FIRST (device
+    /// kinds run the OS permission prompt, cloud services run OAuth) and the
+    /// SAME approval — including the sheet's toggle state — is sent only after
+    /// every connect succeeds. On cancel/failure the layout recomputes and the
+    /// sheet stays up so the user can retry or swipe down.
     func onCapabilityApprove(
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>] = [:]
     ) {
-        guard let request = pendingCapabilityPickerLayout?.request else {
-            pendingCapabilityPickerLayout = nil
+        guard let layout = pendingCapabilityPickerLayout else { return }
+        let request = layout.request
+        let conversationId = conversation.id
+
+        let split = Self.splitCapabilityApproval(
+            providerIds: providerIds,
+            bundleSelection: bundleSelection
+        )
+        if !split.uncheckedServiceIds.isEmpty {
+            revokeUncheckedCapabilityGrants(
+                serviceIds: split.uncheckedServiceIds,
+                request: request,
+                conversationId: conversationId,
+                recomputeLayoutAfter: split.approvedProviderIds.isEmpty
+            )
+        }
+        guard !split.approvedProviderIds.isEmpty else {
+            // Nothing left to grant: any existing grants for the unchecked
+            // services were revoked above; without one the tap is a pure
+            // decline. No `.approved` result may go out for an empty provider
+            // set, so the request stays pending (the no-Deny posture) and the
+            // pill remains tappable — only the sheet dismisses.
+            presentingCapabilityApproval = false
             return
         }
-        approveCapabilityRequest(
-            request,
-            providerIds: providerIds,
-            bundleSelection: bundleSelection,
-            conversationId: conversation.id
+        let providerIds = split.approvedProviderIds
+        let bundleSelection = split.approvedBundleSelection
+
+        // Sorted for deterministic ordering when several providers need a
+        // connect step (in practice it's one).
+        let unlinked = layout.providers
+            .filter { providerIds.contains($0.id) && !$0.linked }
+            .map(\.id)
+            .sorted { $0.rawValue < $1.rawValue }
+        guard !unlinked.isEmpty else {
+            approveCapabilityRequest(
+                request,
+                providerIds: providerIds,
+                bundleSelection: bundleSelection,
+                conversationId: conversationId
+            )
+            return
+        }
+        // Re-entrancy guard: the OAuth session can stay up a while and the
+        // sheet's button remains tappable underneath it.
+        guard connectOnApproveInFlightRequestId != request.requestId else { return }
+        connectOnApproveInFlightRequestId = request.requestId
+        let authorizer = session.deviceConnectionAuthorizer()
+        let registry = session.capabilityProviderRegistry()
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            let allLinked = await Self.connectUnlinkedProviders(
+                unlinked,
+                authorizer: authorizer,
+                registry: registry,
+                cloudConnectionManager: manager
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.connectOnApproveInFlightRequestId = nil
+                if allLinked {
+                    // Always approve the *captured* request — a newer request
+                    // might have arrived during the connect step and replaced
+                    // the picker layout's request, and we must not approve it
+                    // on the old tap's behalf. The captured conversationId
+                    // keeps the result in the conversation that originated the
+                    // request even if the user navigated away. Approving
+                    // before SessionManager's cloud-connection observer
+                    // registers the newly linked provider is safe because the
+                    // resolver only stores the providerId.
+                    self.approveCapabilityRequest(
+                        request,
+                        providerIds: providerIds,
+                        bundleSelection: bundleSelection,
+                        conversationId: conversationId
+                    )
+                } else {
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
+            }
+        }
+    }
+
+    /// How one Done tap splits across services. Pure value — computed by
+    /// `splitCapabilityApproval` and unit-tested directly.
+    struct CapabilityApprovalSplit: Equatable {
+        /// Providers the `.approved` result (and grant upsert) covers.
+        let approvedProviderIds: Set<ProviderID>
+        /// `bundleSelection` minus the all-off services — every value is
+        /// non-empty, so an empty array can never reach the grant writer.
+        let approvedBundleSelection: [String: Set<String>]
+        /// Cloud service ids whose toggles were all off: revoke when the agent
+        /// holds a grant, no-op otherwise. Sorted for determinism.
+        let uncheckedServiceIds: [String]
+    }
+
+    /// Splits the sheet's Done payload per service: services with at least one
+    /// toggle on are approved as before; services with every toggle off come
+    /// out as `uncheckedServiceIds` and their provider leaves the approved
+    /// set. Services without a bundle entry (no catalog rows) pass through —
+    /// they have no toggles to uncheck.
+    static func splitCapabilityApproval(
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>]
+    ) -> CapabilityApprovalSplit {
+        let uncheckedServiceIds = bundleSelection
+            .filter { $0.value.isEmpty }
+            .keys
+            .sorted()
+        let unchecked = Set(uncheckedServiceIds)
+        let approvedProviderIds = providerIds.filter { providerId in
+            guard let serviceId = providerId.cloudServiceId else { return true }
+            return !unchecked.contains(serviceId)
+        }
+        return CapabilityApprovalSplit(
+            approvedProviderIds: approvedProviderIds,
+            approvedBundleSelection: bundleSelection.filter { !$0.value.isEmpty },
+            uncheckedServiceIds: uncheckedServiceIds
         )
     }
 
-    /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
-    /// tool call doesn't silently route through stale state, then posts a
-    /// `capability_request_result(.denied)` reply for the agent.
-    func onCapabilityDeny() {
-        guard let request = pendingCapabilityPickerLayout?.request else {
-            pendingCapabilityPickerLayout = nil
-            return
+    /// Kicks off the Done-as-revoke side of an approval tap. After the revokes
+    /// land, a pure-revoke tap (nothing approved) recomputes the still-pending
+    /// layout so a re-opened sheet seeds from the post-revoke grant state
+    /// instead of the stale snapshot; an approve alongside already clears the
+    /// layout, and `recomputeCapabilityPickerLayout`'s locally-handled guard
+    /// would discard the result anyway.
+    private func revokeUncheckedCapabilityGrants(
+        serviceIds: [String],
+        request: CapabilityRequest,
+        conversationId: String,
+        recomputeLayoutAfter: Bool
+    ) {
+        let grantWriter = messagingService.connectionGrantWriter()
+        let eventWriter = messagingService.connectionEventWriter()
+        let resolver = session.capabilityResolver()
+        let repository = session.cloudConnectionRepository()
+        let grantedToInboxId = request.askerInboxId
+        Task { @MainActor [weak self] in
+            let revoked = await Self.revokeUncheckedCloudGrants(
+                serviceIds: serviceIds,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId,
+                grantWriter: grantWriter,
+                eventWriter: eventWriter,
+                resolver: resolver,
+                repository: repository
+            )
+            guard recomputeLayoutAfter, !revoked.isEmpty else { return }
+            self?.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
         }
-        denyCapabilityRequest(request, conversationId: conversation.id)
+    }
+
+    /// Done-as-revoke: for each service whose toggles were all off at Done
+    /// time, drop the asking agent's existing grant by its natural key
+    /// (connection, conversation, agent) and mirror the conversation-info
+    /// revoke toggle's side effects in the same order — the user-visible
+    /// `connection_event revoked` group-update line first, then resolver
+    /// cleanup (which re-arms `persistApprovedCloudCapabilities`' idempotency
+    /// gate so a later re-approval emits its own granted line). Services
+    /// without an existing grant are a pure no-op: nothing is created,
+    /// nothing is sent. Returns the service ids actually revoked.
+    static func revokeUncheckedCloudGrants( // swiftlint:disable:this function_parameter_count
+        serviceIds: [String],
+        grantedToInboxId: String,
+        conversationId: String,
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        eventWriter: any ConnectionEventWriterProtocol,
+        resolver: any CapabilityResolver,
+        repository: any CloudConnectionRepositoryProtocol
+    ) async -> [String] {
+        // Fail closed on an unreadable grants table: without proof a grant
+        // exists we must not guess at connection ids to revoke.
+        let grants = (try? await repository.grants(for: conversationId)) ?? []
+        var revokedServiceIds: [String] = []
+        for serviceId in serviceIds {
+            guard let grant = grants.first(where: {
+                $0.serviceId == serviceId && $0.grantedToInboxId == grantedToInboxId
+            }) else { continue }
+            do {
+                try await grantWriter.revokeGrant(
+                    connectionId: grant.connectionId,
+                    from: conversationId,
+                    grantedToInboxId: grantedToInboxId
+                )
+            } catch {
+                Log.error("Failed to revoke cloud grant for \(serviceId) → \(grantedToInboxId): \(error.localizedDescription)")
+                continue
+            }
+            revokedServiceIds.append(serviceId)
+            let providerId = ProviderID(rawValue: "composio.\(serviceId)")
+            // Revoke text is a complete sentence ("Calendar connection
+            // removed") rendered conversation-level, so grantedToInboxId
+            // stays nil — same as the conversation-info revoke path.
+            try? await eventWriter.sendRevoked(
+                providerId: providerId.rawValue,
+                capability: nil,
+                grantedToInboxId: nil,
+                in: conversationId
+            )
+            do {
+                try await resolver.removeProvider(providerId, fromConversation: conversationId)
+            } catch {
+                Log.warning("Failed to clear resolver entries for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        }
+        return revokedServiceIds
     }
 
     private func approveCapabilityRequest(
@@ -1838,19 +2256,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             status: .approved,
             providerIds: providerIds,
             bundleSelection: bundleSelection,
-            conversationId: conversationId
-        )
-    }
-
-    private func denyCapabilityRequest(_ request: CapabilityRequest, conversationId: String) {
-        locallyHandledCapabilityRequestIds.insert(request.requestId)
-        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
-            pendingCapabilityPickerLayout = nil
-        }
-        sendCapabilityResult(
-            request: request,
-            status: .denied,
-            providerIds: [],
             conversationId: conversationId
         )
     }
@@ -2152,123 +2557,74 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
-    /// User tapped a Connect row. Routes to the matching path for the provider's
-    /// kind: device providers go through `DeviceConnectionAuthorizer` for the iOS
-    /// permission prompt, cloud providers run OAuth via `CloudConnectionManager`.
-    /// On success either path treats the connect tap itself as the user's approval —
-    /// they came to this card from a `capability_request`, just granted access, and
-    /// would otherwise have to tap Approve again on the same card. On cancel/decline
-    /// the picker recomputes so the user can pick a different provider or deny.
-    func onCapabilityConnect(providerId: ProviderID) {
-        if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
-            connectDeviceProvider(kind: kind, providerId: providerId)
-            return
-        }
-        if let serviceId = providerId.cloudServiceId {
-            connectCloudProvider(serviceId: serviceId, providerId: providerId)
-            return
-        }
-        Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
-    }
-
-    private func connectDeviceProvider(kind: ConnectionKind, providerId: ProviderID) {
-        guard let request = pendingCapabilityPickerLayout?.request else { return }
-        let conversationId = conversation.id
-        let session = self.session
-        let registry = session.capabilityProviderRegistry()
-        let authorizer = session.deviceConnectionAuthorizer()
-        Task { [weak self] in
-            do {
-                _ = try await authorizer.requestAuthorization(for: kind)
-            } catch {
-                Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
-            }
-            let status = await authorizer.currentAuthorization(for: kind)
-            let isLinked = status.canDeliverData
-            if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
-                // Capture authorizer + kind, not a fixed Bool — the user can revoke
-                // permission in Settings later, and the registry needs the live state.
-                let updated = DeviceCapabilityProvider(
-                    id: spec.id,
-                    subject: spec.subject,
-                    displayName: spec.displayName,
-                    iconName: spec.iconName,
-                    capabilities: spec.capabilities,
-                    subjectNounPhrase: spec.subjectNounPhrase,
-                    linkedByUser: {
-                        await authorizer.currentAuthorization(for: kind).canDeliverData
+    /// Links every provider in `providerIds` that isn't connected yet — device
+    /// kinds run the OS permission prompt via `DeviceConnectionAuthorizer`,
+    /// cloud services run OAuth via `CloudConnectionManager`. Returns true only
+    /// when EVERY provider ends up linked; the caller must not send the
+    /// approval otherwise (fail closed — granting an unlinked provider would
+    /// persist a resolution that can't deliver data).
+    static func connectUnlinkedProviders(
+        _ providerIds: [ProviderID],
+        authorizer: any DeviceConnectionAuthorizer,
+        registry: any CapabilityProviderRegistry,
+        cloudConnectionManager: any CloudConnectionManagerProtocol
+    ) async -> Bool {
+        for providerId in providerIds {
+            if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
+                guard await linkDeviceProvider(kind: kind, authorizer: authorizer, registry: registry) else {
+                    return false
+                }
+            } else if let serviceId = providerId.cloudServiceId {
+                do {
+                    _ = try await cloudConnectionManager.connect(serviceId: serviceId)
+                } catch let oauthError as OAuthError {
+                    if case .cancelled = oauthError {
+                        // User backed out of the OAuth sheet — the approval
+                        // sheet stays up so they can retry or swipe down.
+                    } else {
+                        Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
                     }
-                )
-                await registry.register(updated)
-            }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                if isLinked {
-                    // Always approve the *captured* request — a newer request might
-                    // have arrived during the OS prompt and replaced the picker
-                    // layout's request, and we must not approve it on its behalf.
-                    // Also pass the captured conversationId so the result lands in
-                    // the conversation that originated the request even if the user
-                    // navigated away during the prompt.
-                    // Device providers carry no permission bundles (bundles attach to
-                    // cloud services only), so there is no selection to thread here;
-                    // an empty map means "no per-service selection".
-                    self.approveCapabilityRequest(
-                        request,
-                        providerIds: [providerId],
-                        bundleSelection: [:],
-                        conversationId: conversationId
-                    )
-                } else {
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                    return false
+                } catch {
+                    Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
+                    return false
                 }
+            } else {
+                Log.warning("Unsupported provider for connect-on-approve: \(providerId.rawValue)")
+                return false
             }
         }
+        return true
     }
 
-    private func connectCloudProvider(serviceId: String, providerId: ProviderID) {
-        guard let request = pendingCapabilityPickerLayout?.request else { return }
-        let conversationId = conversation.id
-        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
-        Task { [weak self] in
-            do {
-                _ = try await manager.connect(serviceId: serviceId)
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    // The cloud-connection observer in SessionManager will register the
-                    // newly-linked provider; approving here is safe even if that hasn't
-                    // ticked yet because the resolver only stores the providerId.
-                    // The Connect tap carries no bundle toggle state (onConnect is
-                    // provider-id only), so pass no selection: a nil per-service
-                    // lookup routes the grant through the writer's full-service
-                    // consent path (all catalog bundles, fail closed on a catalog
-                    // outage) — never an empty bundleIds array.
-                    self.approveCapabilityRequest(
-                        request,
-                        providerIds: [providerId],
-                        bundleSelection: [:],
-                        conversationId: conversationId
-                    )
-                }
-            } catch let oauthError as OAuthError {
-                if case .cancelled = oauthError {
-                    // User backed out of the OAuth sheet — leave the picker open so they
-                    // can pick a different provider.
-                } else {
-                    Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
-                }
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
-                }
-            } catch {
-                Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
-                }
-            }
+    private static func linkDeviceProvider(
+        kind: ConnectionKind,
+        authorizer: any DeviceConnectionAuthorizer,
+        registry: any CapabilityProviderRegistry
+    ) async -> Bool {
+        do {
+            _ = try await authorizer.requestAuthorization(for: kind)
+        } catch {
+            Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
         }
+        let status = await authorizer.currentAuthorization(for: kind)
+        if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
+            // Capture authorizer + kind, not a fixed Bool — the user can revoke
+            // permission in Settings later, and the registry needs the live state.
+            let updated = DeviceCapabilityProvider(
+                id: spec.id,
+                subject: spec.subject,
+                displayName: spec.displayName,
+                iconName: spec.iconName,
+                capabilities: spec.capabilities,
+                subjectNounPhrase: spec.subjectNounPhrase,
+                linkedByUser: {
+                    await authorizer.currentAuthorization(for: kind).canDeliverData
+                }
+            )
+            await registry.register(updated)
+        }
+        return status.canDeliverData
     }
 
     private func recomputeCapabilityPickerLayout(for request: CapabilityRequest, conversationId: String) {
@@ -2277,10 +2633,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let handler = CapabilityRequestHandler()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let layout = await handler.computeLayout(
+            let layout = await Self.computeCapabilityPickerLayout(
                 request: request,
                 registry: registry,
                 resolver: resolver,
+                handler: handler,
+                servicesStore: self.messagingService.connectionServicesStore(),
+                cloudConnectionRepository: self.session.cloudConnectionRepository(),
                 conversationId: conversationId
             )
             // If a newer request arrived OR the user already approved/denied this one,
@@ -2291,6 +2650,39 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
             self.pendingCapabilityPickerLayout = layout
         }
+    }
+
+    /// The one place a picker layout is computed: every path MUST resolve the
+    /// services catalog or bundle rows silently disappear and a subsequent
+    /// approve escalates to full-service consent instead of the user's earlier
+    /// per-bundle selection. Best-effort fetch: when the catalog is
+    /// unreachable the sheet renders provider-only rows, and the grant writer
+    /// fails closed on its own catalog resolution.
+    ///
+    /// The conversation's existing grants are fetched alongside so the layout
+    /// carries the asking agent's granted bundle state — the sheet seeds its
+    /// toggles from it and treats unchecking as a revoke. Best-effort too: an
+    /// unreadable grants table only loses the seeded state (the sheet falls
+    /// back to all-ON and a re-approve is an idempotent upsert).
+    static func computeCapabilityPickerLayout( // swiftlint:disable:this function_parameter_count
+        request: CapabilityRequest,
+        registry: any CapabilityProviderRegistry,
+        resolver: any CapabilityResolver,
+        handler: CapabilityRequestHandler,
+        servicesStore: any ConnectionServicesStoreProtocol,
+        cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
+        conversationId: String
+    ) async -> CapabilityPickerLayout {
+        let services = (try? await servicesStore.catalog()) ?? []
+        let existingGrants = (try? await cloudConnectionRepository.grants(for: conversationId)) ?? []
+        return await handler.computeLayout(
+            request: request,
+            registry: registry,
+            resolver: resolver,
+            conversationId: conversationId,
+            services: services,
+            existingGrants: existingGrants
+        )
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {
@@ -2313,6 +2705,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingConversationName = trimmedConversationName
 
         if trimmedConversationName != (conversation.name ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -2327,7 +2720,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
 
         if isConversationImageDirty, let conversationImage = conversationImage {
-            ImageCache.shared.cacheImage(conversationImage, for: conversation.imageCacheIdentifier, imageFormat: .jpg)
+            onMetadataEdited?()
+            // Key by the conversation id, not `imageCacheIdentifier`: before
+            // the image upload persists, that identifier resolves to the other
+            // member's inbox id and would cache this image as their avatar.
+            ImageCache.shared.cacheImage(conversationImage, for: conversation.clientConversationId, imageFormat: .jpg)
             isConversationImageDirty = false
 
             Task { [weak self] in
@@ -2347,6 +2744,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingDescription = trimmedConversationDescription
 
         if trimmedConversationDescription != (conversation.description ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -2904,7 +3302,13 @@ extension ConversationViewModel {
         }
 
         if let invite = MessageInvite.from(text: inviteURL) {
-            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.imageURL?.absoluteString ?? invite.inviteSlug)
+            if let imageURLString = invite.imageURL?.absoluteString {
+                ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+            } else {
+                // No upload URL yet: stage the selected image under the invite's
+                // identity so image(for:) shows it until the real URL arrives.
+                _ = ImageCache.shared.prepareForUpload(image, for: invite)
+            }
         }
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
@@ -2921,6 +3325,7 @@ extension ConversationViewModel {
                 if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
                    let pendingMessageId {
                     try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
+                    cacheFinalizedInviteImage(image, inviteText: updatedInvite.inviteURLString)
                 }
             }
         } catch {
@@ -3125,6 +3530,14 @@ extension ConversationViewModel {
         replyingToMessage = message
     }
 
+    func toggleMessageExpanded(_ messageId: String) {
+        if expandedMessageIds.contains(messageId) {
+            expandedMessageIds.remove(messageId)
+        } else {
+            expandedMessageIds.insert(messageId)
+        }
+    }
+
     func cancelReply() {
         replyingToMessage = nil
     }
@@ -3207,6 +3620,64 @@ extension ConversationViewModel {
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: invite.inviteSlug),
+            coreActions: coreActions
+        )
+    }
+
+    /// Routes a code decoded on the in-conversation Scan tab. An agent
+    /// template QR pulls that agent into the current conversation (the same
+    /// `requestAgentJoin` path the chat "+" menu uses); anything else is a
+    /// conversation invite and joins that convo via the existing
+    /// `presentingNewConversationForInvite` join sheet. Both arrivals become
+    /// contacts through the same member-derived contacts mechanism the rest
+    /// of the add-member / add-agent flows rely on. The share overlay is
+    /// dismissed so the resulting action (the chat's agent-join status, or
+    /// the join sheet) is visible.
+    /// Ends the host's active invite session when the host navigates back to
+    /// home from a hosted conversation, so the inline Invite/Scan card
+    /// collapses to the regular top cell on return. Persisted so the collapse
+    /// survives relaunches. Guarded to host-only, non-draft, and idempotent
+    /// (skips when already ended). SwiftUI does not fire the driving
+    /// `onDisappear` on app backgrounding, so backgrounding never ends the
+    /// session. Mirrors `NewConversationViewModel.persistHidesInviteCardIfNeeded`.
+    func markInviteSessionEndedIfHosting() {
+        let convo = conversation
+        guard convo.creator.isCurrentUser, !convo.isDraft, !convo.leftHostedInviteSession else { return }
+        let conversationId = convo.id
+        // Flip the in-memory conversation synchronously before the async
+        // persist: an instant back-out and re-entry otherwise builds the next
+        // detail view model from the stale in-memory row and flashes the big
+        // inline card until the GRDB write round-trips. The caller mirrors
+        // this copy into the conversations list (see
+        // `ConversationsViewModel.endHostedInviteSessionOnPop`).
+        conversation = convo.withLeftHostedInviteSession(true)
+        // Capture the writer and id locally so the durability-critical persist
+        // still lands even if this view model is deallocated during the pop
+        // (ConversationsViewModel releases it synchronously when the selection
+        // clears, which can happen before this task ticks).
+        let writer = localStateWriter
+        Task {
+            do {
+                try await writer.setLeftHostedInviteSession(true, for: conversationId)
+            } catch {
+                Log.error("Failed to persist leftHostedInviteSession for \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func handleScannedCodeInCurrentConversation(_ code: String) {
+        presentingShareView = false
+        // Dismissing directly bypasses the Presenter binding setter's segment
+        // reset, so reset it here too -- otherwise the next plain share-overlay
+        // open lands on the scanner instead of the invite tab.
+        shareViewInitialSegment = .invite
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            requestAgentJoin(templateId: templateId)
+            return
+        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: code),
             coreActions: coreActions
         )
     }
@@ -3339,16 +3810,22 @@ extension ConversationViewModel {
         guard conversation.includeInfoInPublicPreview != enabled else { return }
         guard !isUpdatingPublicPreview else { return }
         isUpdatingPublicPreview = true
+        // The toggle itself is a metadata customization: latch before the
+        // async write so a toggle-then-dismiss cannot race it, mirroring
+        // the name/description branches.
+        onMetadataEdited?()
         let pendingName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let willWriteName = !pendingName.isEmpty && pendingName != (conversation.name ?? "")
+        let willWriteDesc = !pendingDesc.isEmpty && pendingDesc != (conversation.description ?? "")
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
             defer { self.isUpdatingPublicPreview = false }
             do {
-                if !pendingName.isEmpty, pendingName != (conversation.name ?? "") {
+                if willWriteName {
                     try await metadataWriter.updateName(pendingName, for: conversation.id)
                 }
-                if !pendingDesc.isEmpty, pendingDesc != (conversation.description ?? "") {
+                if willWriteDesc {
                     try await metadataWriter.updateDescription(pendingDesc, for: conversation.id)
                 }
                 try await metadataWriter.updateIncludeInfoInPublicPreview(enabled, for: conversation.id)
@@ -3385,9 +3862,6 @@ extension ConversationViewModel {
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
     func requestAgentJoin(templateId: String?, requestId: String = UUID().uuidString) {
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
-
         agentJoinTask?.cancel()
 
         // Anchor the wait measurement at request time (the pending UI starts
@@ -3402,12 +3876,13 @@ extension ConversationViewModel {
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
+        let variantId = Self.selectedAgentVariantSlug()
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
-                slug: slug,
                 conversationId: conversationId,
                 requestId: requestId,
+                variantId: variantId,
                 forceErrorCode: forceErrorCode,
                 session: session
             )
@@ -3483,8 +3958,6 @@ extension ConversationViewModel {
 
     private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
         guard !joins.isEmpty else { return }
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
 
         // Batch adds return to the chat, so the join progress shows as
         // in-stream pending status bubbles. Anchored at request time for the
@@ -3495,6 +3968,7 @@ extension ConversationViewModel {
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
+        let variantId = Self.selectedAgentVariantSlug()
         Task { [weak self] in
             var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
@@ -3507,9 +3981,9 @@ extension ConversationViewModel {
                 }
                 let outcome = await Self.performAgentJoinCall(
                     templateId: join.templateId,
-                    slug: slug,
                     conversationId: conversationId,
                     requestId: join.requestId,
+                    variantId: variantId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
@@ -3627,11 +4101,20 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
+    /// The dev-selected agent variant slug to route an agent join, or `nil`.
+    /// Gated on the selector flag so a stale persisted selection can't route
+    /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    private static func selectedAgentVariantSlug() -> String? {
+        FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
+    }
+
     private static func performAgentJoinCall(
         templateId: String?,
-        slug: String,
         conversationId: String,
         requestId: String,
+        variantId: String?,
         forceErrorCode: Int?,
         session: any SessionManagerProtocol
     ) async -> AgentJoinOutcome {
@@ -3642,10 +4125,13 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
-            _ = try await session.requestAgentJoin(
-                slug: slug,
+            let options: ConvosAPI.AgentJoinOptions? = variantId.map {
+                ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0)
+            }
+            _ = try await session.addAgentToConversation(
+                conversationId: conversationId,
                 templateId: templateId,
-                options: nil,
+                options: options,
                 forceErrorCode: forceErrorCode
             )
             Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")
@@ -3777,6 +4263,38 @@ extension ConversationViewModel {
     }
 
     @MainActor
+    func membershipCapabilitiesDebugText() async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            let client = inboxResult.client
+            return try await client.groupMembershipCapabilitiesDebugInfo(
+                conversationId: conversation.id
+            ).debugText
+        } catch {
+            return "Failed to load membership capabilities: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func enableProposals(force: Bool, minVersion: String?) async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            try await inboxResult.client.enableProposals(
+                conversationId: conversation.id,
+                force: force,
+                minVersion: minVersion
+            )
+            let forced = force ? " (forced)" : ""
+            let versioned = minVersion.map { " with minVersion \($0)" } ?? ""
+            return "Enabled proposals\(forced)\(versioned)."
+        } catch {
+            return "Failed to enable proposals: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
     func hiddenMessagesDebugInfo() async throws -> [HiddenMessageDebugEntry] {
         let messagingService = session.messagingService()
         let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
@@ -3784,8 +4302,8 @@ extension ConversationViewModel {
     }
 
     /// Resolved display name for the agent that emitted `request`, or nil if the agent
-    /// is not (or no longer) in the conversation. Used by the capability picker card to
-    /// label the asker. Connection-event summaries do their own name resolution at
+    /// is not (or no longer) in the conversation. Used by the capability approval sheet
+    /// to label the asker. Connection-event summaries do their own name resolution at
     /// processor time via `MemberProfileInfo`.
     func askerDisplayName(for request: CapabilityRequest) -> String? {
         conversation.members
@@ -4010,49 +4528,6 @@ extension ConversationViewModel {
 // MARK: - Photo Preferences
 
 extension ConversationViewModel {
-    func onPhotoRevealed(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoRevealed called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markRevealed(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markRevealed completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo revealed: \(error)")
-            }
-        }
-
-        guard !autoRevealPhotos else { return }
-
-        if !hasShownRevealInfoSheet {
-            hasShownRevealInfoSheet = true
-            hasShownRevealToast = true
-            presentingRevealMediaInfoSheet = true
-        } else if !hasShownRevealToast {
-            hasShownRevealToast = true
-            showRevealSettingsToast()
-        }
-    }
-
-    func onPhotoHidden(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoHidden called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markHidden(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markHidden completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo hidden: \(error)")
-            }
-        }
-    }
-
     func onPhotoDimensionsLoaded(_ attachmentKey: String, width: Int, height: Int) {
         Task { [weak self] in
             guard let self else { return }
@@ -4067,25 +4542,6 @@ extension ConversationViewModel {
                 Log.error("Error saving photo dimensions: \(error)")
             }
         }
-    }
-
-    func setAutoReveal(_ autoReveal: Bool) {
-        setAutoRevealPhotosPersisted(autoReveal)
-    }
-
-    private func persistAutoReveal(_ autoReveal: Bool) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
-            } catch {
-                Log.error("Error setting autoReveal: \(error)")
-            }
-        }
-    }
-
-    func showRevealSettingsToast() {
-        activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
     }
 }
 
@@ -4244,8 +4700,6 @@ extension ConversationViewModel {
         guard pendingInvite == nil else { return }
 
         if let result = InviteURLDetector.detectInviteURL(in: messageText) {
-            convosButtonTask?.cancel()
-            convosButtonCancellable?.cancel()
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
@@ -4260,8 +4714,6 @@ extension ConversationViewModel {
               let share = MessageAgentShare.from(text: messageText) else {
             return
         }
-        convosButtonTask?.cancel()
-        convosButtonCancellable?.cancel()
         pendingAgentShare = PendingAgentShare(share: share, resolved: nil)
         messageText = ""
         let resolver = agentShareResolver
@@ -4288,52 +4740,5 @@ extension ConversationViewModel {
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
-    }
-
-    func onConvosButtonTapped() {
-        guard pendingInvite == nil, convosButtonTask == nil else { return }
-        convosButtonTask = Task { [session] in
-            defer { convosButtonTask = nil }
-            let (messagingService, existingConversationId) = await session.prepareNewConversation()
-
-            guard !Task.isCancelled else { return }
-
-            let stateManager: any ConversationStateManagerProtocol
-            if let existingConversationId {
-                // The Convos-button conversation goes straight into invite
-                // generation — there's no compose-then-commit cycle, so the
-                // claimed row should be visible immediately.
-                await session.commitClaimedConversation(id: existingConversationId)
-                stateManager = messagingService.conversationStateManager(for: existingConversationId)
-            } else {
-                stateManager = messagingService.conversationStateManager()
-                do {
-                    try await stateManager.createConversation()
-                } catch {
-                    Log.error("Failed to create conversation for Convos button: \(error)")
-                    return
-                }
-            }
-
-            guard !Task.isCancelled else { return }
-
-            convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
-                .compactMap { $0 }
-                .first { $0.invite?.urlSlug.isEmpty == false }
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] convo in
-                    guard let self, self.pendingInvite == nil, let convoInvite = convo.invite else { return }
-                    let urlString = convoInvite.inviteURLString
-                    let emptyRange = urlString.startIndex ..< urlString.startIndex
-                    self.pendingInvite = PendingInvite(
-                        code: convoInvite.urlSlug,
-                        fullURL: urlString,
-                        range: emptyRange,
-                        linkedConversationId: convo.id
-                    )
-                    self.convosButtonCancellable = nil
-                    self.setInviteExplodeDuration(.twentyFourHours)
-                }
-        }
     }
 }

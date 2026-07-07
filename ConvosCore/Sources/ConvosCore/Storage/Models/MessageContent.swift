@@ -41,19 +41,25 @@ public struct ConnectionEventSummary: Hashable, Codable, Sendable {
     /// nil otherwise. Renderer prefers a live member-list lookup keyed off this id and
     /// falls back to bare text only when the agent is no longer in the conversation.
     public let grantedToInboxId: String?
+    /// Provider the event concerns ("composio.googlecalendar"). Lets the renderer
+    /// substitute a branded service icon for the generic `icon` symbol. Optional so
+    /// summaries persisted before this field existed keep decoding.
+    public let providerId: String?
 
     public init(
         text: String,
         outcome: Outcome,
         icon: Icon,
         actor: Actor? = nil,
-        grantedToInboxId: String? = nil
+        grantedToInboxId: String? = nil,
+        providerId: String? = nil
     ) {
         self.text = text
         self.outcome = outcome
         self.icon = icon
         self.actor = actor
         self.grantedToInboxId = grantedToInboxId
+        self.providerId = providerId
     }
 }
 
@@ -70,6 +76,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
          linkPreview(LinkPreview),
          assistantJoinRequest(status: AgentJoinStatus, requestedByInboxId: String),
          connectionGrantRequest(CloudConnectionGrantRequest),
+         capabilityConnect(prompt: CapabilityConnectPrompt),
          connectionEvent(summary: ConnectionEventSummary),
          connectionInvocation(summary: ConnectionEventSummary),
          connectionInvocationResult(summary: ConnectionEventSummary),
@@ -107,6 +114,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
         case .update,
              .assistantJoinRequest,
              .connectionGrantRequest,
+             .capabilityConnect,
              .connectionEvent,
              .connectionInvocation,
              .connectionInvocationResult,

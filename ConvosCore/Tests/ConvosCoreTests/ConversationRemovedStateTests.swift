@@ -68,7 +68,10 @@ struct ConversationRemovedStateTests {
             isMuted: false,
             pinnedOrder: isPinned ? 1 : nil,
             hidesInviteCard: false,
-            wasRemoved: wasRemoved
+            leftHostedInviteSession: false,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for inboxId in [currentInboxId, otherInboxId] {
@@ -198,6 +201,18 @@ struct ConversationRemovedStateTests {
 
         #expect(conversations.contains { $0.id == "convo-live" })
         #expect(!conversations.contains { $0.id == "convo-removed" })
+    }
+
+    @Test("conversationsCount excludes removed conversations, matching the visible list")
+    func testCountExcludesRemoved() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-live")
+            try Self.seedConversation(db: db, id: "convo-removed", wasRemoved: true)
+        }
+
+        let countRepo = ConversationsCountRepository(databaseReader: dbManager.dbReader, consent: [.allowed])
+        #expect(try countRepo.fetchCount() == 1)
     }
 
     @Test("findOneToOne does not resurface a removed 1:1")

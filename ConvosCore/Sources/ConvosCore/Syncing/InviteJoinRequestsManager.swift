@@ -85,7 +85,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
-         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()) {
+         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+         handledRequestStore: (any HandledJoinRequestStoreProtocol)? = nil) {
         self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
@@ -94,7 +95,11 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 }
                 return identity.keys.privateKey.secp256K1.bytes
             },
-            tagStorage: tagStorage
+            tagStorage: tagStorage,
+            // The persistent ledger is what keeps an already-honored join
+            // request inert across passes and processes; every production
+            // caller funnels through this default.
+            handledRequestStore: handledRequestStore ?? DatabaseHandledJoinRequestStore(databaseWriter: databaseWriter)
         )
     }
 
@@ -157,10 +162,18 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
     }
 
-    private func persistJoinerProfile(_ result: JoinResult) async {
-        let profile = result.profile
-        let metadata = result.metadata
-        guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || metadata != nil else { return }
+    func persistJoinerProfile(
+        joinerInboxId: String,
+        conversationId: String,
+        profile: JoinRequestProfile?,
+        metadata: [String: String]?
+    ) async {
+        // An empty metadata dictionary is non-nil but carries nothing usable;
+        // treating it as present would write an all-blank row and overwrite a
+        // good existing profile back to "Somebody" on the already-member replay
+        // path. Persist only when at least one field is actually populated.
+        let hasMetadata = !(metadata?.isEmpty ?? true)
+        guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || hasMetadata else { return }
 
         let baseMemberKind: DBMemberKind? = profile?.memberKind == "agent" ? .agent : nil
         let profileMetadata: ProfileMetadata? = metadata.flatMap { dict in
@@ -171,8 +184,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         let memberKind: DBMemberKind?
         if baseMemberKind != nil, let profileMetadata {
             let tempProfile = Profile(
-                inboxId: result.joinerInboxId,
-                conversationId: result.conversationId,
+                inboxId: joinerInboxId,
+                conversationId: conversationId,
                 name: profile?.name,
                 avatar: profile?.imageURL,
                 isAgent: true,
@@ -186,29 +199,29 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
         do {
             try await databaseWriter.write { db in
-                let member = DBMember(inboxId: result.joinerInboxId)
+                let member = DBMember(inboxId: joinerInboxId)
                 try member.save(db)
 
                 let dbProfile = DBMemberProfile(
-                    conversationId: result.conversationId,
-                    inboxId: result.joinerInboxId,
+                    conversationId: conversationId,
+                    inboxId: joinerInboxId,
                     name: profile?.name,
                     avatar: profile?.imageURL,
                     memberKind: memberKind,
                     metadata: profileMetadata
                 )
                 // Note: `Date()` here rather than the message's `sentAtNs`
-                // because `JoinResult` doesn't carry the original timestamp.
-                // Tracked as a follow-up — see the contacts MVP plan.
+                // because the join request does not carry the original
+                // timestamp. Tracked as a follow-up — see the contacts MVP plan.
                 try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
                 if dbProfile.agentVerification.isConvosAgent,
-                   let conversation = try DBConversation.fetchOne(db, id: result.conversationId),
+                   let conversation = try DBConversation.fetchOne(db, id: conversationId),
                    !conversation.hasHadVerifiedAgent {
                     try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }
-            Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")
+            Log.debug("Persisted join request profile for \(joinerInboxId) in \(conversationId)")
         } catch {
             Log.warning("Failed to persist join request profile: \(error.localizedDescription)")
         }
@@ -218,12 +231,17 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         _ outcome: JoinRequestDMOutcome,
         client: AnyClientProvider
     ) async -> InviteJoinRequestOutcome {
+        let mapped: InviteJoinRequestOutcome
         switch outcome {
         case let .accepted(result, dmConversationId: dmConversationId):
             logAccepted(result)
-            await persistJoinerProfile(result)
-            await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
-            return .accepted(
+            await persistJoinerProfile(
+                joinerInboxId: result.joinerInboxId,
+                conversationId: result.conversationId,
+                profile: result.profile,
+                metadata: result.metadata
+            )
+            mapped = .accepted(
                 JoinRequestResult(
                     conversationId: result.conversationId,
                     conversationName: result.conversationName,
@@ -235,26 +253,64 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             )
         case let .benignFailure(dmConversationId, senderInboxId, error):
             Log.info("Join request failed without blocking DM \(dmConversationId): \(error)")
-            return .benignFailure(
+            mapped = .benignFailure(
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
             )
         case let .malicious(dmConversationId, senderInboxId, error):
             Log.warning("Join request marked malicious for DM \(dmConversationId), sender \(senderInboxId): \(error)")
-            return .malicious(
+            mapped = .malicious(
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
             )
-        case let .alreadyMember(dmConversationId, joinerInboxId):
+        case let .alreadyMember(dmConversationId, joinerInboxId, verified):
             Log.debug("Join request for \(joinerInboxId) already handled by another pass (DM \(dmConversationId))")
-            return .alreadyMember(
+            // A verified already-member result targets a dedup race or a
+            // re-invite where this installation may never have processed the
+            // original accept, so it has no local row for the joiner. Persist
+            // the joiner's profile (carried on the verified context) before the
+            // snapshot is built, or the re-published roster would omit the
+            // joiner and render them as "Somebody".
+            if let verified {
+                await persistJoinerProfile(
+                    joinerInboxId: joinerInboxId,
+                    conversationId: verified.conversationId,
+                    profile: verified.profile,
+                    metadata: verified.metadata
+                )
+            }
+            mapped = .alreadyMember(
                 dmConversationId: dmConversationId,
                 joinerInboxId: joinerInboxId
             )
         case .noJoinRequest:
-            return .noJoinRequest
+            mapped = .noJoinRequest
+        }
+        // A fresh accept and a verified already-member result both re-publish
+        // the roster: the already-member path covers re-invites and dedup
+        // races where the accept that added the member ran in another pass, so
+        // the joiner still needs a complete snapshot. The persist above runs
+        // first so the snapshot build sees the joiner's own row.
+        if let conversationId = Self.profileSnapshotConversationId(for: outcome) {
+            await sendProfileSnapshotAfterJoin(conversationId: conversationId, client: client)
+        }
+        return mapped
+    }
+
+    /// The conversation whose roster should be (re)published for an outcome, or
+    /// nil when no snapshot is warranted. Verified already-member results carry
+    /// a conversation; the handled-request ledger pre-check does not, and a
+    /// snapshot there would have been sent on the original accept anyway.
+    static func profileSnapshotConversationId(for outcome: JoinRequestDMOutcome) -> String? {
+        switch outcome {
+        case let .accepted(result, dmConversationId: _):
+            return result.conversationId
+        case let .alreadyMember(_, _, verified):
+            return verified?.conversationId
+        case .benignFailure, .malicious, .noJoinRequest:
+            return nil
         }
     }
 
@@ -273,10 +329,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             ), case .group(let group) = conversation else {
                 return
             }
-            let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")
         } catch {

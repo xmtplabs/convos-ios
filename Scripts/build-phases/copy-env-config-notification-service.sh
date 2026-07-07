@@ -112,6 +112,42 @@ enum Secrets {
 // swiftlint:enable all
 EOF
     echo "🏁 Generated Secrets.swift for Dev"
+
+# Part 2b: Generate Secrets.swift for LOCAL Prod builds (the "Convos (Prod)" /
+# "NotificationService (Prod)" schemes use the "Release" configuration). GATED
+# LOCAL-ONLY (mirrors the CI guard at Makefile:50): in CI, `make secrets` runs
+# generate-secrets-secure.sh first and injects the real analytics keys, so this
+# build phase must NOT clobber that output — the Release branch is skipped when
+# $CI or $BITRISE_BUILD_NUMBER is set. Locally we force the backend URL and XMTP
+# host EMPTY so ConfigManager falls back to the prod source-of-truth in
+# config.prod.json. Values are NEVER read from .env here (that local dev backend
+# leak is what this PR fixes); every field is empty except GIT_COMMIT_SHA.
+elif [ "$CONFIGURATION" = "Release" ] && [ -z "$CI" ] && [ -z "$BITRISE_BUILD_NUMBER" ]; then
+    echo "🚀 Local Prod (Release) build detected - resolving backend from config.prod.json"
+
+    SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
+    mkdir -p "${SRCROOT}/Convos/Config"
+
+    # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
+    FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
+
+    cat > "$SECRETS_FILE" << EOF
+import Foundation
+
+// swiftlint:disable all
+enum Secrets {
+    static let CONVOS_API_BASE_URL = ""
+    static let XMTP_CUSTOM_HOST = ""
+    static let GATEWAY_URL = ""
+    static let POSTHOG_API_KEY = ""
+    static let SENTRY_DSN = ""
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
+    static let AGENT_DEBUG_JWKS: String = ""
+}
+// swiftlint:enable all
+EOF
+    echo "🏁 Generated Secrets.swift for local Prod"
 fi
 
 # Part 3: Copy config file to app bundle

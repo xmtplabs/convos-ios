@@ -95,10 +95,17 @@ struct ConversationPresenter<Content: View>: View {
                     invite: viewModel.invite,
                     isPresented: Binding(
                         get: { viewModel.presentingShareView },
-                        set: { viewModel.presentingShareView = $0 }
+                        set: { newValue in
+                            viewModel.presentingShareView = newValue
+                            if !newValue {
+                                viewModel.shareViewInitialSegment = .invite
+                            }
+                        }
                     ),
                     topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions
+                    coreActions: viewModel.coreActions,
+                    initialSegment: viewModel.shareViewInitialSegment,
+                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)
@@ -194,7 +201,7 @@ struct ConversationPresenter<Content: View>: View {
         )
         .padding(.top, indicatorTopInset)
         .padding(.leading, indicatorLeadingInset)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     @ViewBuilder
@@ -212,7 +219,7 @@ struct ConversationPresenter<Content: View>: View {
         .padding(.top, indicatorTopInset)
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.leading, indicatorLeadingInset)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     @ViewBuilder
@@ -254,15 +261,11 @@ struct ConversationIndicatorWrapper: View {
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: placeholderOverride ?? viewModel.untitledConversationPlaceholder,
             subtitle: subtitleOverride ?? viewModel.conversationInfoSubtitle,
+            subtitleColor: subtitleOverride == nil ? viewModel.conversationInfoSubtitleColor : .colorTextSecondary,
             scheduledExplosionDate: viewModel.scheduledExplosionDate,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,
-            activeToast: $viewModel.activeToast,
-            autoRevealPhotos: Binding(
-                get: { viewModel.autoRevealPhotos },
-                set: { viewModel.setAutoReveal($0) }
-            ),
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,

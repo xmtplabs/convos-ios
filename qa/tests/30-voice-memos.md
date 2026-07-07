@@ -14,7 +14,7 @@ Verify that voice memos can be recorded, previewed, and sent as messages.
 
 1. Open a conversation from the conversations list.
 2. If the media buttons are collapsed, tap the expand button to show them.
-3. Verify that a waveform button (SF Symbol "waveform") appears in the media buttons bar, after the camera icon and before the convos button.
+3. Verify that a waveform button (SF Symbol "waveform") appears in the media buttons bar, last in the order Photo, Camera, File, Voice (after the file button).
 
 ### Start recording
 

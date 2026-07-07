@@ -6,6 +6,16 @@ enum ProfileSettingsError: Error {
     case notBound
 }
 
+/// Whether the global profile has been definitively loaded from the active
+/// inbox. Distinct from the profile being empty: `.loading` means the answer
+/// is not known yet (cold launch before inbox ready, pairing transition), so
+/// consumers like the onboarding coordinator must not treat the current
+/// (default) values as "the user has no profile".
+enum ProfileLoadState: Equatable {
+    case loading
+    case loaded
+}
+
 @MainActor
 @Observable
 class ProfileSettingsViewModel {
@@ -31,12 +41,46 @@ class ProfileSettingsViewModel {
 
     var exampleDisplayName: String = "Somebody"
 
+    /// `.loading` until the bound repository delivers its first definitive
+    /// answer. The setter is internal so tests can preset the state; production
+    /// code must only write it from `bindInternal`/`rebind`.
+    var loadState: ProfileLoadState = .loading {
+        didSet { loadStateSubject.send(loadState) }
+    }
+    @ObservationIgnored
+    private let loadStateSubject: CurrentValueSubject<ProfileLoadState, Never> = .init(.loading)
+
     private var session: (any SessionManagerProtocol)?
     private var writer: (any MyGlobalProfileWriterProtocol)?
     private var repository: (any MyGlobalProfileRepositoryProtocol)?
     private var cancellables: Set<AnyCancellable> = []
+    /// The last name loaded from (or saved to) the global profile. Used to
+    /// reject an empty save: once a name is set it cannot be cleared.
+    private var loadedDisplayName: String?
+    /// The last metadata loaded from the global profile. The My Info editor does
+    /// not edit metadata, so we carry this through on save instead of writing
+    /// nil - otherwise a name-only edit would clear stored metadata (e.g. the
+    /// profile emoji). Kept fresh by `apply(profile:)`.
+    private var loadedMetadata: ProfileMetadata?
 
     private init() {}
+
+    /// Suspends until the profile load state is known, returning true, or
+    /// until `timeout` elapses, returning false. Returns immediately when the
+    /// profile is already loaded.
+    func waitForProfileLoad(timeout: TimeInterval) async -> Bool {
+        if loadState == .loaded { return true }
+        let timeoutPublisher = Just(ProfileLoadState.loading)
+            .delay(for: .seconds(timeout), scheduler: DispatchQueue.main)
+        let firstResolution = loadStateSubject
+            .filter { $0 == .loaded }
+            .merge(with: timeoutPublisher)
+            .first()
+        for await state in firstResolution.values {
+            return state == .loaded
+        }
+        return loadState == .loaded
+    }
 
     func bind(session: any SessionManagerProtocol) {
         guard self.session == nil else { return }
@@ -56,10 +100,8 @@ class ProfileSettingsViewModel {
         self.session = nil
         writer = nil
         repository = nil
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
+        loadState = .loading
         bindInternal(session: session)
     }
 
@@ -69,19 +111,30 @@ class ProfileSettingsViewModel {
         self.writer = messagingService.myGlobalProfileWriter()
         let repository = messagingService.myGlobalProfileRepository()
         self.repository = repository
+        // Synchronous fast path: succeeds when the inbox is already ready and
+        // a profile row exists (warm starts), so dependents don't have to wait
+        // for the async observation's first emission.
         if let profile = try? repository.fetch() {
             apply(profile: profile)
+            loadState = .loaded
         }
-        repository.myGlobalProfilePublisher
+        // `.pending` deliberately doesn't downgrade `loadState`: it is the
+        // subject's replayed initial value and would otherwise undo the fast
+        // path above. Transitions back to loading happen only via `rebind`.
+        repository.myGlobalProfileLoadStatePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] profile in
+            .sink { [weak self] state in
+                guard case .loaded(let profile) = state else { return }
                 self?.apply(profile: profile)
+                self?.loadState = .loaded
             }
             .store(in: &cancellables)
     }
 
     private func apply(profile: MyProfile?) {
         editingDisplayName = profile?.name ?? ""
+        loadedDisplayName = profile?.name
+        loadedMetadata = profile?.metadata
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
         profileImageAssetIdentifier = profile?.imageAssetIdentifier
         profileImageContentDigest = profile?.imageContentDigest
@@ -101,15 +154,46 @@ class ProfileSettingsViewModel {
             throw ProfileSettingsError.notBound
         }
         let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
+        // A name, once set, cannot be cleared: an empty field falls back to the
+        // stored name rather than writing nil, and the field is restored so the
+        // UI reflects that the empty value was rejected. First-time users with
+        // no stored name are unaffected (there is nothing to preserve).
+        let rawName: String?
+        if trimmedName.isEmpty, let loadedDisplayName {
+            rawName = loadedDisplayName
+            editingDisplayName = loadedDisplayName
+        } else {
+            rawName = trimmedName.isEmpty ? nil : trimmedName
+        }
+        // Truncate once so `writer.save` (which truncates internally) and the
+        // canonical publish send the same name; otherwise a name over the limit
+        // stores truncated locally but publishes the full string, so other
+        // conversations show a different name than the one saved.
+        let resolvedName: String? = rawName.map { String($0.prefix(NameLimits.maxDisplayNameLength)) }
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         try await writer.save(
             name: resolvedName,
             imageData: imageData,
             imageAssetIdentifier: assetIdentifier,
-            metadata: nil
+            metadata: loadedMetadata
         )
+        // Propagate the global profile through the canonical repository so it
+        // fans out to every conversation via the durable publisher. The
+        // `writer.save` above still owns the edit-side form model (DBMyProfile).
+        try await session?.messagingServiceSync().profilesRepository().publishMyProfile(
+            displayName: resolvedName,
+            avatarBytes: imageData,
+            priorityConversationId: nil
+        )
+        // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
+        // only refreshed by the async profile observation, so a first-time user
+        // who saves a name and then clears + saves again before that fires would
+        // skip the guard above. (The writer also preserves the stored name on an
+        // empty save, so this is defense-in-depth + keeps the field restore working.)
+        if let resolvedName {
+            loadedDisplayName = resolvedName
+        }
         markProfileEditorShownIfPopulated()
     }
 
@@ -132,10 +216,7 @@ class ProfileSettingsViewModel {
     }
 
     func delete() {
-        editingDisplayName = ""
-        profileImage = nil
-        profileImageAssetIdentifier = nil
-        profileImageContentDigest = nil
+        clearEditingFields()
         guard let writer else { return }
         Task {
             do {
@@ -144,5 +225,14 @@ class ProfileSettingsViewModel {
                 Log.error("Failed deleting profile settings: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func clearEditingFields() {
+        editingDisplayName = ""
+        loadedDisplayName = nil
+        loadedMetadata = nil
+        profileImage = nil
+        profileImageAssetIdentifier = nil
+        profileImageContentDigest = nil
     }
 }

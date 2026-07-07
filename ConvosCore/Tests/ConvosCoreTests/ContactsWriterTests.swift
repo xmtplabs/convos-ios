@@ -152,6 +152,61 @@ struct ContactsWriterTests {
         #expect(contact?.displayName == "Newest")
     }
 
+    @Test("A newer update with a nil name preserves the stored name but still applies other fields")
+    func testNilNameDoesNotClearStoredName() async throws {
+        // Clearing a contact name is never the intent of a profile sync, so a
+        // newer update carrying no name leaves the stored name intact while
+        // still updating the other (non-sticky) fields it does carry.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Bob", profileUpdatedAt: Date(timeIntervalSince1970: 100))
+        )
+
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(
+                displayName: nil,
+                avatarURL: "https://example.com/bob.png",
+                profileUpdatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.displayName == "Bob")
+        #expect(contact?.avatarURL == "https://example.com/bob.png")
+        #expect(contact?.profileUpdatedAt == Date(timeIntervalSince1970: 200))
+    }
+
+    @Test("A newer update with a whitespace-only name preserves the stored name")
+    func testBlankNameDoesNotClearStoredName() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Bob", profileUpdatedAt: Date(timeIntervalSince1970: 100))
+        )
+
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(displayName: "   ", profileUpdatedAt: Date(timeIntervalSince1970: 200))
+        )
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.displayName == "Bob")
+    }
+
     @Test("updateProfileIfNewer no-ops when contact does not exist")
     func testUpdateProfileForUnknownContactNoOps() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

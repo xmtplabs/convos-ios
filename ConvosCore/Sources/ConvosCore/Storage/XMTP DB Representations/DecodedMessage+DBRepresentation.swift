@@ -91,7 +91,7 @@ extension XMTPiOS.DecodedMessage {
             // inbound traffic (e.g. LeaveRequest) is visible in exported logs.
             let version = "\(encodedContentType.versionMajor).\(encodedContentType.versionMinor)"
             Log.warning(
-                "Dropping message \(id) in conversation \(conversationId) from \(senderInboxId): "
+                "Dropping message \(id) (dateNs=\(sentAtNs)) in conversation \(conversationId) from \(senderInboxId): "
                 + "unsupported content type \(encodedContentType.authorityID)/\(encodedContentType.typeID) v\(version)"
             )
             throw DecodedMessageDBRepresentationError.unsupportedContentType
@@ -570,6 +570,13 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
+    /// Result rows are persisted verbatim; legitimacy is enforced at derivation
+    /// time by `CapabilityConnectPrompt.resolution`, which only lets a result
+    /// resolve a request when the row's XMTP-attested sender differs from the
+    /// request's asker. Unlike `CloudConnectionGrantRequest` (validated above
+    /// via `validateConnectionGrantRequest`), the result payload carries no
+    /// sender claim to cross-check here — and the matching request row may not
+    /// have synced yet, so the asker comparison can only happen at the join.
     private func handleCapabilityRequestResultContent() throws -> DBMessageComponents {
         let content = try content() as Any
         guard let result = content as? CapabilityRequestResult else {

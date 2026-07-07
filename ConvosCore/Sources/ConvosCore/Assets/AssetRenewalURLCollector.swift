@@ -41,21 +41,21 @@ public struct AssetRenewalURLCollector {
             var seenURLs: Set<String> = []
 
             // 1. My profile avatars (with conversationId for re-upload)
-            let profiles = try DBMemberProfile
-                .filter(allInboxIds.contains(DBMemberProfile.Columns.inboxId))
-                .filter(DBMemberProfile.Columns.avatar != nil)
+            let avatars = try DBProfileAvatar
+                .filter(allInboxIds.contains(DBProfileAvatar.Columns.inboxId))
+                .filter(DBProfileAvatar.Columns.url != nil)
                 .fetchAll(db)
 
-            for profile in profiles {
-                guard let avatar = profile.avatar,
-                      !seenURLs.contains(avatar),
-                      Self.isValidAssetURL(avatar) else { continue }
-                seenURLs.insert(avatar)
+            for avatar in avatars {
+                guard let url = avatar.url,
+                      !seenURLs.contains(url),
+                      Self.isValidAssetURL(url) else { continue }
+                seenURLs.insert(url)
                 assets.append(.profileAvatar(
-                    url: avatar,
-                    conversationId: profile.conversationId,
-                    inboxId: profile.inboxId,
-                    lastRenewed: profile.avatarLastRenewed
+                    url: url,
+                    conversationId: avatar.conversationId,
+                    inboxId: avatar.inboxId,
+                    lastRenewed: avatar.lastRenewed
                 ))
             }
 
@@ -86,25 +86,25 @@ public struct AssetRenewalURLCollector {
             var seenURLs: Set<String> = []
 
             // 1. My profile avatars that are stale (never renewed or renewed before threshold)
-            let profiles = try DBMemberProfile
-                .filter(allInboxIds.contains(DBMemberProfile.Columns.inboxId))
-                .filter(DBMemberProfile.Columns.avatar != nil)
+            let avatars = try DBProfileAvatar
+                .filter(allInboxIds.contains(DBProfileAvatar.Columns.inboxId))
+                .filter(DBProfileAvatar.Columns.url != nil)
                 .filter(
-                    DBMemberProfile.Columns.avatarLastRenewed == nil ||
-                    DBMemberProfile.Columns.avatarLastRenewed < staleThreshold
+                    DBProfileAvatar.Columns.lastRenewed == nil ||
+                    DBProfileAvatar.Columns.lastRenewed < staleThreshold
                 )
                 .fetchAll(db)
 
-            for profile in profiles {
-                guard let avatar = profile.avatar,
-                      !seenURLs.contains(avatar),
-                      Self.isValidAssetURL(avatar) else { continue }
-                seenURLs.insert(avatar)
+            for avatar in avatars {
+                guard let url = avatar.url,
+                      !seenURLs.contains(url),
+                      Self.isValidAssetURL(url) else { continue }
+                seenURLs.insert(url)
                 assets.append(.profileAvatar(
-                    url: avatar,
-                    conversationId: profile.conversationId,
-                    inboxId: profile.inboxId,
-                    lastRenewed: profile.avatarLastRenewed
+                    url: url,
+                    conversationId: avatar.conversationId,
+                    inboxId: avatar.inboxId,
+                    lastRenewed: avatar.lastRenewed
                 ))
             }
 

@@ -395,12 +395,32 @@ final class MessagesViewController: UIViewController {
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
+    /// When nil, the data source forwards nil into `CellConfig` so the bubble's
+    /// "Read more" detail button is suppressed (nil-handler => no button). The
+    /// `didSet` re-applies that mapping whenever the host wires or clears the
+    /// handler, after the data source has been created during setup.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)? {
+        didSet { applyOpenMessageDetailToDataSource() }
+    }
+    var onToggleMessageExpanded: ((String) -> Void)?
+    /// Message ids whose long-body inline expansion is on. Owned by the VM and
+    /// pushed in each render so expansion survives cell reuse; forwarded to the
+    /// data source so reconfigured cells read the current set.
+    var expandedMessageIds: Set<String> = [] {
+        didSet {
+            guard expandedMessageIds != oldValue else { return }
+            dataSource.expandedMessageIds = expandedMessageIds
+            // A change to the set alone produces no DifferenceKit changeset
+            // (the messages are identical), so the visible cell would not
+            // re-render. Reconfigure the cells whose expansion flipped so the
+            // hosted SwiftUI bubble rebuilds from the updated config.
+            reconfigureCells(forMessageIds: expandedMessageIds.symmetricDifference(oldValue))
+        }
+    }
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
 
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     /// Drives the in-stream out-of-credits cell. Set from
@@ -417,6 +437,7 @@ final class MessagesViewController: UIViewController {
         }
     }
     var onTapUpdateMember: ((ConversationMember) -> Void)?
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
@@ -448,13 +469,18 @@ final class MessagesViewController: UIViewController {
     var isAgentJoinPending: Bool = false {
         didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
     }
-    var shouldBlurPhotos: Bool = true {
-        didSet {
-            guard oldValue != shouldBlurPhotos else { return }
-            dataSource.shouldBlurPhotos = shouldBlurPhotos
-            collectionView.reloadData()
-        }
+
+    var showsInviteScanCard: Bool = false {
+        didSet { dataSource.showsInviteScanCard = showsInviteScanCard }
     }
+    var inviteScanMode: InviteCodeMode = .inConvo {
+        didSet { dataSource.inviteScanMode = inviteScanMode }
+    }
+    var inviteScanInitialSegment: ScanInviteSegment = .invite {
+        didSet { dataSource.inviteScanInitialSegment = inviteScanInitialSegment }
+    }
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     private var currentReactionMessageId: String?
     private var reactionCancellable: AnyCancellable?
@@ -471,6 +497,44 @@ final class MessagesViewController: UIViewController {
     @available(*, unavailable, message: "Use init(messageController:) instead")
     required init?(coder: NSCoder) {
         fatalError()
+    }
+
+    /// Reconfigures the visible message cells that contain any of the given
+    /// message ids. Used when the long-body expansion set flips, since that
+    /// change carries no DifferenceKit changeset on its own.
+    /// Forwards the host's optional detail handler to the data source, keeping
+    /// it nil when the host wired none so the bubble's "Read more" detail button
+    /// is suppressed. Called at setup and from `onOpenMessageDetail.didSet`, so
+    /// it stays correct regardless of whether the host sets the handler before
+    /// or after the data source is created.
+    private func applyOpenMessageDetailToDataSource() {
+        dataSource.onOpenMessageDetail = onOpenMessageDetail.map { _ in
+            { [weak self] message in self?.onOpenMessageDetail?(message) }
+        }
+    }
+
+    private func reconfigureCells(forMessageIds messageIds: Set<String>) {
+        guard !messageIds.isEmpty else { return }
+        var indexPaths: [IndexPath] = []
+        for (sectionIndex, section) in dataSource.sections.enumerated() {
+            for (itemIndex, cell) in section.cells.enumerated() {
+                guard case .messages(let group) = cell else { continue }
+                let groupContainsChangedId = group.messages.contains { message in
+                    messageIds.contains(message.messageId)
+                }
+                if groupContainsChangedId {
+                    indexPaths.append(IndexPath(item: itemIndex, section: sectionIndex))
+                }
+            }
+        }
+        guard !indexPaths.isEmpty else { return }
+        collectionView.reconfigureItems(at: indexPaths)
+        // The custom layout only builds `.itemReconfigure` height-diff items
+        // from cells stashed by its own `reconfigureItems`, so pair the
+        // collection-view call with the layout call (matching the DifferenceKit
+        // reconfigure path) or the cell height is not re-measured when a long
+        // message expands or collapses.
+        messagesLayout.reconfigureItems(at: indexPaths)
     }
 
     override func viewDidLoad() {
@@ -656,11 +720,9 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onReply?(message)
         }
-        dataSource.onPhotoRevealed = { [weak self] attachmentKey in
-            self?.onPhotoRevealed?(attachmentKey)
-        }
-        dataSource.onPhotoHidden = { [weak self] attachmentKey in
-            self?.onPhotoHidden?(attachmentKey)
+        applyOpenMessageDetailToDataSource()
+        dataSource.onToggleMessageExpanded = { [weak self] messageId in
+            self?.onToggleMessageExpanded?(messageId)
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
@@ -670,6 +732,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onTapUpdateMember = { [weak self] member in
             self?.onTapUpdateMember?(member)
+        }
+        dataSource.onTapCapabilityConnect = { [weak self] prompt in
+            self?.onTapCapabilityConnect?(prompt)
         }
         dataSource.onOpenFile = { [weak self] attachment, message in
             self?.openFileAttachment(attachment, from: message)
@@ -697,6 +762,12 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.memberContactOverride = { [weak self] inboxId in
             self?.memberContactOverride?(inboxId)
+        }
+        dataSource.onScannedInviteCode = { [weak self] code in
+            self?.onScannedInviteCode?(code)
+        }
+        dataSource.onInviteShareCompleted = { [weak self] activityType, completed, error in
+            self?.onInviteShareCompleted?(activityType, completed, error)
         }
 
         setupImmediateTouchGesture()
@@ -875,6 +946,10 @@ extension MessagesViewController {
         // data source so the `.invite` cell renderer can drop the QR card
         // while keeping the invite menu visible.
         dataSource.hidesInviteCard = conversation.hidesInviteCard
+        // The inline Invite/Scan big card renders for the conversation the
+        // `.invite` cell belongs to; the cell only reads it when
+        // `showsInviteScanCard` is set.
+        dataSource.inviteScanConversation = conversation
 
         // Add invite or conversation info at the beginning if all messages are loaded.
         // A home-flow Agent Builder summary suppresses this whole block - the
@@ -882,11 +957,12 @@ extension MessagesViewController {
         // agent" footer, so the "+ Invite members" pill on top of it is
         // redundant. The in-chat "New Agent" flow (`existingConversation`) is
         // different: it targets a real group, so its invite affordances stay
-        // visible while the card shows. Without a summary, `.hidden` header
-        // mode still renders the `.invite` cell (which surfaces just the
-        // "Invite members" affordance - the QR is gated inside the cell on the
-        // same `headerMode`).
+        // visible while the card shows.
         let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
+        // The `.invite` cell is the top-of-convo invite surface: it renders the
+        // full inline Invite/Scan card during an active hosted session
+        // (`showsInviteScanCard`) and the regular inviter QR + menu once the
+        // session ends. There is no longer a pinned overlay to dedupe against.
         if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
@@ -895,9 +971,15 @@ extension MessagesViewController {
             }
         }
 
-        if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
+        // Only surface the per-agent "lost power" cell for agents the viewer
+        // OWNS. `creditsDepleted` reflects the LOCAL viewer's wallet, which is
+        // only the right signal for the viewer's own agents - for someone
+        // else's funded agent it would mislabel a working agent as depleted.
+        // Gating on `isCurrentUserCreator` keeps the wallet check correct;
+        // non-owners see nothing until a backend per-agent power signal exists.
+        let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
+        if creditsDepleted, isCurrentUserCreator, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
-            let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false

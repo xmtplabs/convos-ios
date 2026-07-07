@@ -26,6 +26,11 @@ protocol MessagesListRepositoryProtocol {
     /// When set, the processor prepends a `.agentBuilderSummary` cell and
     /// filters every messages-group whose timestamp predates `cutoffDate`.
     var agentBuilderSummary: AgentBuilderSummary? { get set }
+    /// Progressive "activating agent" card content for the direct builder
+    /// flow, if a build is in progress. When set (and no verified agent has
+    /// joined yet), the processor appends an `.agentActivating` cell beneath
+    /// the prompt summary.
+    var agentActivating: AgentActivatingCardContent? { get set }
     /// `true` while the conversation is rendered under the agent builder
     /// UI (set by `AgentBuilderView.onAppear`, cleared on disappear). The
     /// processor uses this to suppress the legacy "Agent joined" update
@@ -64,6 +69,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     var agentBuilderSummary: AgentBuilderSummary? {
         didSet {
             guard oldValue != agentBuilderSummary else { return }
+            reprocessCachedMessages()
+        }
+    }
+    var agentActivating: AgentActivatingCardContent? {
+        didSet {
+            guard oldValue != agentActivating else { return }
             reprocessCachedMessages()
         }
     }
@@ -221,6 +232,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             previousReadByMembers: lastReadByMembers,
             verifiedAgent: verifiedAgent,
             agentBuilderSummary: agentBuilderSummary,
+            agentActivating: agentActivating,
             hiddenBundleMessageIds: hiddenBundleMessageIds,
             isInAgentBuilderFlow: isInAgentBuilderFlow
         )

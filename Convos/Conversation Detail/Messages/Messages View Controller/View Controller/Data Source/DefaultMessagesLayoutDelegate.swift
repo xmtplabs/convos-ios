@@ -45,9 +45,15 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .connectionEvent:
                 return .estimated(CGSize(width: width, height: 48.0))
+            case .capabilityConnect:
+                // Caption row + 8pt gap + 44pt pill + vertical padding.
+                return .estimated(CGSize(width: width, height: 100.0))
             case .agentBuilderSummary:
                 // Composer-card height plus "You created an agent" footer.
                 return .estimated(CGSize(width: width, height: 320.0))
+            case .agentActivating:
+                // Avatar + name + description + progress bar + caption.
+                return .estimated(CGSize(width: width, height: 280.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }
@@ -197,7 +203,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 30.0
         case .connectionGrantRequest:
             height = 160.0
-        case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
+        case .capabilityConnect, .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             height = 0.0
         }
 

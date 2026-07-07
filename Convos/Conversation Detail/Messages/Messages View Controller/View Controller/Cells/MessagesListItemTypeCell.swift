@@ -86,19 +86,27 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
                 case .invite(let invite):
-                    VStack(spacing: DesignConstants.Spacing.step4x) {
-                        if config.headerMode == .standard, !config.hidesInviteCard {
-                            InviteView(invite: invite)
-                        }
-                        NewConvoIdentityView(
-                            onCopyLink: config.onCopyInviteLink,
-                            onConvoCode: config.onConvoCode,
-                            onInviteAgent: config.onInviteAgent,
-                            isAgentJoinPending: config.isAgentJoinPending
+                    if config.showsInviteScanCard, let conversation = config.inviteScanConversation {
+                        MessagesListItemTypeCell.inviteScanCardContent(
+                            invite: invite,
+                            conversation: conversation,
+                            config: config
                         )
+                    } else {
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            if config.headerMode == .standard, !config.hidesInviteCard {
+                                InviteView(invite: invite)
+                            }
+                            NewConvoIdentityView(
+                                onCopyLink: config.onCopyInviteLink,
+                                onConvoCode: config.onConvoCode,
+                                onInviteAgent: config.onInviteAgent,
+                                isAgentJoinPending: config.isAgentJoinPending
+                            )
+                        }
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
                     }
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -136,13 +144,24 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case .agentBuilderSummary(let content):
-                    AgentBuilderSummaryView(
-                        content: content,
-                        transitionNamespace: content.transitionEligible ? config.agentBuilderTransitionNamespace : nil
+                case let .capabilityConnect(_, prompt, agentName, _):
+                    CapabilityConnectPromptView(
+                        prompt: prompt,
+                        agentName: agentName,
+                        onTap: { config.onTapCapabilityConnect(prompt) }
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .agentBuilderSummary(let content):
+                    AgentBuilderSummaryView(content: content)
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .agentActivating(let content):
+                    AgentActivatingCardView(content: content)
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .typingIndicator:
                     EmptyView()
@@ -170,12 +189,36 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     // budget when inlined. Mirrors the same shape as the `MessagesGroupView`
     // extraction noted in PR #930.
 
+    /// The full inline Invite/Scan card (segmented toggle + QR / live
+    /// viewfinder + "Share invite link") rendered as the index-0 `.invite`
+    /// cell for an active hosted invite session. Reuses the same
+    /// `InviteCodeBody` the full-screen `InviteCodeOverlay` composes, so the
+    /// toggle + tabs don't fork. Extracted to keep the `setup` switch body
+    /// under the type-check budget.
+    @ViewBuilder
+    fileprivate static func inviteScanCardContent(
+        invite: Invite,
+        conversation: Conversation,
+        config: CellConfig
+    ) -> some View {
+        InviteCodeBody(
+            conversation: conversation,
+            encodedURLString: invite.inviteURLString,
+            mode: config.inviteScanMode,
+            initialSegment: config.inviteScanInitialSegment,
+            isInviteReady: !invite.isEmpty,
+            onScannedCode: config.onScannedInviteCode,
+            onShareCompleted: config.onInviteShareCompleted
+        )
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .frame(maxWidth: .infinity)
+    }
+
     @ViewBuilder
     fileprivate static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
         MessagesGroupView(
             group: group,
             conversationId: config.conversationId,
-            shouldBlurPhotos: config.shouldBlurPhotos,
             onTapAvatar: config.onTapAvatar,
             onTapSender: config.onTapSender,
             onTapInvite: config.onTapInvite,
@@ -185,8 +228,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onReaction: config.onReaction,
             onToggleReaction: config.onToggleReaction,
             onReply: config.onReply,
-            onPhotoRevealed: config.onPhotoRevealed,
-            onPhotoHidden: config.onPhotoHidden,
+            onOpenMessageDetail: config.onOpenMessageDetail,
+            expandedMessageIds: config.expandedMessageIds,
+            onToggleMessageExpanded: config.onToggleMessageExpanded,
             onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
             onOpenFile: config.onOpenFile,
             onRetryMessage: config.onRetryMessage,
@@ -194,7 +238,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onRetryTranscript: config.onRetryTranscript,
             allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
             htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
-            creditsDepleted: config.creditsDepleted
+            creditsDepleted: config.creditsDepleted,
+            memberContactOverride: config.memberContactOverride
         )
     }
 

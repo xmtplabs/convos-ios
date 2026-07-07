@@ -2,10 +2,9 @@ id: "20"
 name: "Send and Receive Photos"
 description: >
   Verify end-to-end photo messaging: sending from app, receiving from CLI,
-  blur/reveal privacy flow, and first-time education sheets. Two education
-  sheets appear on first use: "Pics are personal" (first send) and "Reveal"
-  (first reveal tap).
-tags: [messaging, photos, privacy, core]
+  the photo context menu, and the first-time "Pics are personal" education
+  sheet (shown on first send). Incoming photos render immediately, unblurred.
+tags: [messaging, photos, core]
 depends_on: ["02"]
 estimated_duration_s: 300
 
@@ -53,42 +52,49 @@ steps:
       Known BUG: Sender sees "Failed to load" for their own sent photo
       instead of the actual image.
 
-  - id: receive_photo_blurred
-    name: "Receive photo from CLI (blurred)"
+  - id: receive_photo
+    name: "Receive photo from CLI (renders unblurred)"
     actions:
       - cli_send_attachment:
           conversation: "$conversation_id"
           path: "/tmp/cli-test-photo.jpg"
-      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 15 }
+      - wait_for_element: { label_contains: "Photo message", timeout: 15 }
+      - screenshot: {}
     verify:
-      - element_exists: { label_contains: "Tap pic to reveal" }
-    criteria: photo_received_blurred
-    note: >
-      Incoming photos arrive blurred with "Tap pic to reveal" label
-      and an eye icon. The sender name (e.g., "CLI Bot") is overlaid
-      on the top-left of the blurred image.
-
-  - id: reveal_photo
-    name: "Tap to reveal photo"
-    actions:
-      - tap: { label_contains: "Tap pic to reveal" }
-      - dismiss_education_sheet: { button: "Got it" }
-      - wait_for_element: { id: "message-text-field", timeout: 5 }
-    verify:
+      - element_exists: { label_contains: "Photo message" }
       - element_not_exists: { label_contains: "Tap pic to reveal" }
-    criteria: photo_revealed
+      - visual_check: "Incoming photo renders immediately as a full-width image, sharp and unblurred, with no reveal overlay"
+    criteria: photo_received
     note: >
-      First-time reveal triggers "Reveal" education sheet: "View things
-      when you choose to. Blur or reveal any pic, anytime. Revealing is
-      a personal preference, and no one else in the convo will know your
-      choice." Dismiss with "Got it". Photo becomes fully visible.
+      Incoming photos render immediately as a full-width image, unblurred.
+      There is no blur, no "Tap pic to reveal" overlay, and no tap-to-reveal
+      gesture. MessagesGroupItemView sets the "Photo message" accessibility
+      label on the photo bubble.
+
+  - id: photo_context_menu
+    name: "Photo context menu has no Blur/Reveal action"
+    actions:
+      - long_press: { label_contains: "Photo message", duration: 0.5 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_not_exists: { label: "Blur" }
+      - element_not_exists: { label: "Reveal" }
+    criteria: photo_context_menu_no_reveal
+    note: >
+      The photo context menu shows the standard actions (Reply, Save, Share)
+      for both incoming and own/sent photos. There is no per-message Blur or
+      Reveal action.
+    actions_after:
+      - key: { code: 41 }
 
 teardown: []
 
 criteria:
   photo_sent:
     description: "Photo can be selected and sent from the app"
-  photo_received_blurred:
-    description: "Incoming photo arrives blurred with reveal prompt"
-  photo_revealed:
-    description: "Tapping an incoming photo reveals it"
+  photo_received:
+    description: "Incoming photo renders immediately as a full-width image, unblurred, with no reveal overlay"
+  photo_context_menu_no_reveal:
+    description: "Photo context menu shows Reply and Save but no Blur or Reveal action"

@@ -45,9 +45,12 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func stopAndDelete() async
     func waitForDeletionComplete() async
 
-    func myProfileWriter() -> any MyProfileWriterProtocol
     func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol
     func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol
+
+    /// Canonical identity repository. Authors the current user's own profile
+    /// and fans it out to every conversation via the durable publisher.
+    func profilesRepository() -> ProfilesRepository
 
     func conversationStateManager() -> any ConversationStateManagerProtocol
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol
@@ -81,7 +84,11 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
+    func profileMetadataWriter() -> any ProfileMetadataWriterProtocol
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol
+    /// Per-sender timezone publisher (agent-timezone Channel B). Resolves the
+    /// ready inbox first, so it throws while the inbox is still authorizing.
+    func agentTimezonePublisher() async throws -> any AgentTimezonePublishing
     func connectionServicesStore() -> any ConnectionServicesStoreProtocol
     func connectionEventWriter() -> any ConnectionEventWriterProtocol
     func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol

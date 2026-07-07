@@ -4,8 +4,6 @@ import SwiftUI
 import UIKit
 
 struct MessagesInputView: View {
-    let profile: Profile
-    @Binding var profileImage: UIImage?
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
@@ -30,12 +28,8 @@ struct MessagesInputView: View {
     var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
-    let animateAvatarForProfileSetup: Bool
     let messagesTextFieldEnabled: Bool
-    let isCollapsed: Bool
-    let canEditProfile: Bool
     private let focused: MessagesViewInputFocus = .message
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     var onClearAgentShare: (() -> Void)?
@@ -54,48 +48,11 @@ struct MessagesInputView: View {
         Self.defaultHeight
     }
 
-    @State private var avatarScale: CGFloat = 1.0
-
-    private func updateAnimation() {
-        if animateAvatarForProfileSetup {
-            withAnimation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                avatarScale = 1.2
-            }
-        } else {
-            withAnimation {
-                avatarScale = 1.0
-            }
-        }
-    }
-
     private var hasAttachments: Bool {
         !pendingMediaAttachments.isEmpty
             || pendingInviteURL != nil
             || isShowingAgentShareChip
             || composerLinkPreview != nil
-    }
-
-    private var avatarButton: some View {
-        Button {
-            onProfilePhotoTap()
-        } label: {
-            ProfileAvatarView(
-                profile: profile,
-                profileImage: profileImage,
-                useSystemPlaceholder: animateAvatarForProfileSetup
-            )
-        }
-        .frame(width: sendButtonSize, height: sendButtonSize)
-        .frame(alignment: .bottomLeading)
-        .scaleEffect(avatarScale)
-        .task(id: animateAvatarForProfileSetup) {
-            updateAnimation()
-        }
-        .disabled(!canEditProfile)
-        .hoverEffect(.lift)
-        .hoverEffectDisabled(!canEditProfile)
-        .accessibilityLabel("Edit your profile")
-        .accessibilityIdentifier("profile-avatar-button")
     }
 
     private var sendButton: some View {
@@ -121,7 +78,7 @@ struct MessagesInputView: View {
     private var messageTextField: some View {
         Group {
             TextField(
-                isCollapsed ? "Chat" : "Chat as \(profile.displayName)",
+                "Chat",
                 text: $messageText,
                 axis: .vertical
             )
@@ -150,7 +107,6 @@ struct MessagesInputView: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
-                avatarButton
                 messageTextField
                 sendButton
             }
@@ -720,30 +676,17 @@ private struct ComposerSideConvoCard: View {
 }
 
 #Preview {
-    @Previewable @State var profile: Profile = .mock()
     @Previewable @State var displayName: String = "Andrew"
     @Previewable @State var messageText: String = ""
     @Previewable @State var sendButtonEnabled: Bool = false
-    @Previewable @State var profileImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
-    @Previewable @State var animateAvatarForProfileSetup: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
     VStack {
         Spacer()
-        Button {
-            withAnimation {
-                animateAvatarForProfileSetup.toggle()
-            }
-        } label: {
-            Text("Toggle Profile Setup")
-        }
-        Spacer()
     }
     .safeAreaBar(edge: .bottom) {
         MessagesInputView(
-            profile: profile,
-            profileImage: $profileImage,
             displayName: $displayName,
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
@@ -752,11 +695,7 @@ private struct ComposerSideConvoCard: View {
             pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
-            animateAvatarForProfileSetup: animateAvatarForProfileSetup,
             messagesTextFieldEnabled: true,
-            isCollapsed: true,
-            canEditProfile: true,
-            onProfilePhotoTap: {},
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil }
         )

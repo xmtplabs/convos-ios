@@ -17,15 +17,16 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onReaction: ((String, String) -> Void)? { get set }
     var onToggleReaction: ((String, String) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }
+    var onOpenMessageDetail: ((AnyMessage) -> Void)? { get set }
+    var expandedMessageIds: Set<String> { get set }
+    var onToggleMessageExpanded: ((String) -> Void)? { get set }
     var contextMenuState: MessageContextMenuState? { get set }
-    var shouldBlurPhotos: Bool { get set }
     var conversationId: String { get set }
-    var onPhotoRevealed: ((String) -> Void)? { get set }
-    var onPhotoHidden: ((String) -> Void)? { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
     var creditsDepleted: Bool { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)? { get set }
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
@@ -40,4 +41,10 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var htmlAttachmentTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }
+    var showsInviteScanCard: Bool { get set }
+    var inviteScanConversation: Conversation? { get set }
+    var inviteScanMode: InviteCodeMode { get set }
+    var inviteScanInitialSegment: ScanInviteSegment { get set }
+    var onScannedInviteCode: ((String) -> Void)? { get set }
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? { get set }
 }

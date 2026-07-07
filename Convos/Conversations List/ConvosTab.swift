@@ -20,7 +20,7 @@ enum ConvosTab: Hashable {
         switch self {
         case .chats: "message.fill"
         case .things: "square.grid.2x2.fill"
-        case .contacts: "person.fill"
+        case .contacts: "person.crop.circle.fill"
         }
     }
 }

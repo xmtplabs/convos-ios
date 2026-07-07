@@ -97,8 +97,6 @@ identifiers), pending on-sim validation:
 - `33-read-receipts.yaml` - two devices + CLI. `read-receipts-toggle` and
   `read-receipt-avatars` confirmed real (the md's "needs identifier" note
   was stale). Setting reached via app-indicator-pill -> "Customize".
-- `34-side-convo-stable-emoji.yaml` - two devices. Uses `cli_inspect_invite`
-  (added to the README action vocab) for an exact emoji/metadata cross-check.
 - `38-pair-device.yaml` - two devices. Real revoke controls are
   `stale-device-sheet` + `hold-to-delete-device-button` (the md's
   `stale-device-banner` / `hold-to-reset-device-button` do not exist). Uses

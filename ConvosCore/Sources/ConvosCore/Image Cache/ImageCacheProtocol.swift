@@ -14,8 +14,23 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     /// Get cached image for any ImageCacheable object (synchronous, memory only)
     func image(for object: any ImageCacheable) -> ImageType?
 
-    /// Get cached image for any ImageCacheable object (async, checks memory → disk)
+    /// Get cached image for any ImageCacheable object (async, checks memory → disk).
+    /// Does NOT fall back to the continuity hint - answers "are the real bytes cached?"
     func imageAsync(for object: any ImageCacheable) async -> ImageType?
+
+    /// Probe the URL-keyed byte cache directly (memory → disk) when you have the
+    /// image URL but no object. Matches the key cacheAfterUpload writes under.
+    func imageAsync(forURL url: String) async -> ImageType?
+
+    /// Read-only continuity placeholder for the object's identity (memory hint →
+    /// disk hint). Never fetches the network. Used to bridge a fresh render while
+    /// the authoritative URL is being resolved.
+    func continuityImage(for object: any ImageCacheable) async -> ImageType?
+
+    /// Authoritative resolve with a placeholder bridge: `loadImage`, else the
+    /// continuity hint, so a failed fetch keeps the last image instead of
+    /// blanking. For callers using `loadImage` as their sole source.
+    func loadImageOrContinuity(for object: any ImageCacheable) async -> ImageType?
 
     /// Remove cached image for any ImageCacheable object
     func removeImage(for object: any ImageCacheable)
@@ -24,6 +39,12 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
 
     /// Prepare an image for upload by resizing/compressing and caching it
     func prepareForUpload(_ image: ImageType, for object: any ImageCacheable) -> Data?
+
+    /// Prepare an image for upload, caching it under an explicit identifier.
+    /// Use this when the object's `imageCacheIdentifier` depends on mutable
+    /// state and could resolve to a different entity's key (e.g. a conversation
+    /// without a persisted image resolves to the other member's inbox id).
+    func prepareForUpload(_ image: ImageType, forIdentifier identifier: String) -> Data?
 
     /// Cache an image after upload completes, updating URL tracking
     func cacheAfterUpload(_ image: ImageType, for object: any ImageCacheable, url: String)
@@ -61,12 +82,6 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
 
     /// Remove all persistent images (used for "Delete All Data")
     func removeAllPersistentImages()
-
-    // MARK: - URL Change Detection
-
-    /// Check if the URL has changed for an identifier (without updating tracker)
-    /// Used by prefetcher to detect if it needs to re-fetch encrypted images
-    func hasURLChanged(_ url: String?, for identifier: String) async -> Bool
 
     // MARK: - Observation
 

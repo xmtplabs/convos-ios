@@ -33,6 +33,16 @@ protocol PushTopicSubscriptionManaging: Actor {
         context: String
     ) async
 
+    /// Unsubscribes from a group's message topic. Used when the user leaves
+    /// or is removed from a conversation so the backend stops pushing it
+    /// immediately, rather than waiting for the next full reconcile to diff
+    /// the topic out of the desired set.
+    func unsubscribeFromGroupTopic(
+        conversationId: String,
+        params: SyncClientParams,
+        context: String
+    ) async
+
     /// Re-derives and resends the full topic set (welcome + groups +
     /// invite DMs) so server state matches the local conversation list.
     /// Called on resume / cold start to recover from missed deltas.
@@ -98,6 +108,13 @@ struct XMTPPushTopicConversationLister: PushTopicConversationListing {
 }
 
 actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
+    /// Backend `/v2/notifications/subscribe` and `/unsubscribe` reject any
+    /// request carrying more than 100 topics — wholesale, so a 101-topic
+    /// subscribe applies *nothing*. Every wire call therefore loops in chunks
+    /// of at most this many topics. This is a per-request cap, not a per-device
+    /// total cap: a user in 500 conversations is fine across 5 batches.
+    private static let maxTopicsPerRequest: Int = 100
+
     private enum TopicKind: String, Sendable {
         case welcome
         case group
@@ -218,61 +235,131 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         )
     }
 
-    // Reconcile pipeline (D8 hash debounce + D14 token-change trigger compatible):
+    func unsubscribeFromGroupTopic(
+        conversationId: String,
+        params: SyncClientParams,
+        context: String
+    ) async {
+        await unsubscribeFromGroupTopics(
+            conversationIds: [conversationId],
+            params: params,
+            context: context
+        )
+    }
+
+    func unsubscribeFromGroupTopics(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async {
+        guard !conversationIds.isEmpty else { return }
+        await unsubscribe(
+            topics: conversationIds.map(\.xmtpGroupTopicFormat),
+            params: params,
+            context: context
+        )
+    }
+
+    // Reconcile pipeline (delta-based, applied-topic mirror, ≤100-topic batches):
     //
     //     reconcilePushTopics(params, context)
     //       |
     //       +-- computeReconcileDesiredSubscriptions  (welcome + groups + DMs)
-    //       |
     //       +-- dedupe                                (per-topic uniqueness)
     //       |
     //       +-- if cache + token + identity available:
     //       |     |
     //       |     +-- cacheKey = (inboxId, clientId, deviceId, pushTokenSha256)
-    //       |     +-- hash     = SHA256 of sorted-joined topic set
-    //       |     +-- if cache.lookup(cacheKey) == hash -> SKIP (no wire call)
-    //       |     +-- else                               -> subscribe(cacheKey)
+    //       |     +-- applied  = cache.lookupTopics(cacheKey)   (nil = cold start)
+    //       |     +-- if applied == desired -> SKIP (no wire call)
+    //       |     +-- else:
+    //       |          +-- toAdd    = desired − applied (full desired if nil)
+    //       |          +-- toRemove = applied − desired
+    //       |          +-- subscribe(toAdd)   in ≤100 chunks   (additive)
+    //       |          +-- unsubscribe(toRemove) in ≤100 chunks (delta removal)
+    //       |          +-- if ALL batches succeeded -> cache.storeTopics(desired)
+    //       |          +-- else                     -> leave mirror stale
+    //       |                                          (next reconcile re-converges;
+    //       |                                           additive subscribe is
+    //       |                                           idempotent so retry is safe)
     //       |
     //       +-- else (no cache wired, or no token/identity yet):
-    //             +-- subscribe(cacheKey: nil)            (legacy "always send")
+    //             +-- subscribe(full desired) in ≤100 chunks (legacy "always send")
     //
-    //     subscribe(to:params:context:cacheKey:)
-    //       |
-    //       +-- POST /v2/notifications/subscribe
-    //       |     |
-    //       |     +-- success -> log + if cacheKey != nil { cache.store(hash) }
-    //       |     +-- throw   -> Log.warning + QAEvent + NO cache write
-    //       |                    (next reconcile retries the wire)
+    // HARD RULE: the failure path NEVER calls deleteInstallation/unregister.
+    // A stale mirror plus additive+idempotent re-subscribe is the entire
+    // recovery mechanism; there is no destructive reset anywhere in here.
     func reconcilePushTopics(
         params: SyncClientParams,
         context: String
     ) async {
-        let subscriptions = await computeReconcileDesiredSubscriptions(
+        let desired = await computeReconcileDesiredSubscriptions(
             params: params,
             context: context
         )
-        let deduped = dedupe(subscriptions)
+        let deduped = dedupe(desired.subscriptions)
         guard !deduped.isEmpty else { return }
+        let desiredTopics = deduped.map(\.topic)
 
         guard let cache = cache,
               let cacheKey = await currentCacheKey(params: params, context: context) else {
-            await subscribe(to: deduped, params: params, context: context, cacheKey: nil)
+            // No cache wired (tests) or no token/identity yet: fall back to a
+            // full chunked additive subscribe every time. No mirror to persist.
+            _ = await sendSubscribe(topics: desiredTopics, params: params, context: context)
             return
         }
-        let currentHash = PushTopicHash.of(deduped.map(\.topic))
-        if let cached = cache.lookupHash(forKey: cacheKey.keyString), cached == currentHash {
-            Log.debug("Reconcile no-op \(context): topic hash matches cached state")
+
+        let key = cacheKey.keyString
+        let applied = cache.lookupTopics(forKey: key)
+        let desiredSet = Set(desiredTopics)
+
+        // Mirror already matches desired -> nothing to converge. Only short-
+        // circuit on a non-degraded pass: a degraded desired set that happens
+        // to equal a (previously shrunk) mirror must NOT be treated as settled.
+        if !desired.isDegraded, let applied = applied, Set(applied) == desiredSet {
+            Log.debug("Reconcile no-op \(context): applied topic mirror matches desired state")
             return
         }
-        // Pass currentHash through so subscribe doesn't recompute SHA-256 over
-        // the same topic set on success.
-        await subscribe(
-            to: deduped,
-            params: params,
-            context: context,
-            cacheKey: cacheKey.keyString,
-            precomputedHash: currentHash
-        )
+
+        // Cold start / nil mirror -> toAdd is the full desired set (additive
+        // re-subscribe repairs any missed subscriptions).
+        let appliedSet = Set(applied ?? [])
+        let toAdd = desiredTopics.filter { !appliedSet.contains($0) }
+
+        // CRITICAL: only compute removals from an AUTHORITATIVE (non-degraded)
+        // desired set. When a conversation listing failed, the desired set is
+        // incomplete, so `applied - desired` would wrongly flag every topic of
+        // the failed source for unsubscribe. In that case we do the additive
+        // subscribe only, skip removals, and leave the mirror stale so the next
+        // (hopefully complete) reconcile re-converges. This is the additive,
+        // non-destructive recovery the design relies on — never deleteInstallation.
+        let toRemove: [String] = desired.isDegraded
+            ? []
+            : (applied ?? []).filter { !desiredSet.contains($0) }
+
+        var allSucceeded = true
+        if !toAdd.isEmpty {
+            let added = await sendSubscribe(topics: toAdd, params: params, context: context)
+            allSucceeded = allSucceeded && added
+        }
+        if !toRemove.isEmpty {
+            let removed = await sendUnsubscribe(topics: toRemove, params: params, context: context)
+            allSucceeded = allSucceeded && removed
+        }
+
+        // Persist the mirror = desired ONLY when every batch landed AND the
+        // desired set was authoritative. A degraded pass never persists (its
+        // desired set is incomplete); a partial wire failure never persists
+        // (so the next trigger recomputes the same delta and retries). Subscribe
+        // is additive + idempotent, so re-sending already-applied topics is
+        // harmless.
+        if allSucceeded, !desired.isDegraded {
+            cache.storeTopics(desiredTopics, forKey: key)
+        } else if !allSucceeded {
+            Log.warning("Reconcile partial failure \(context): leaving applied mirror stale for retry")
+        } else {
+            Log.warning("Reconcile degraded \(context): incomplete desired set, leaving mirror stale")
+        }
     }
 
     /// Clears the hash debounce cache. Call on "Delete all data" / sign-out
@@ -306,10 +393,22 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     /// to derive desired state. The per-conversation `subscribeToGroup...` /
     /// `subscribeToInviteDMTopics` paths keep their own narrow builders since
     /// they're firing one-shot deltas, not a full sweep.
+    /// Result of computing the desired topic set for a reconcile. `isDegraded`
+    /// is `true` when one of the conversation listings threw, meaning the
+    /// `subscriptions` set is INCOMPLETE — it is missing the topics for the
+    /// source that failed. The delta reconcile must never treat a degraded
+    /// (incomplete) desired set as authoritative for removals, or a transient
+    /// listing failure would unsubscribe every previously-applied topic for
+    /// that source.
+    private struct DesiredSubscriptions {
+        let subscriptions: [TopicSubscription]
+        let isDegraded: Bool
+    }
+
     private func computeReconcileDesiredSubscriptions(
         params: SyncClientParams,
         context: String
-    ) async -> [TopicSubscription] {
+    ) async -> DesiredSubscriptions {
         var subscriptions: [TopicSubscription] = [welcomeSubscription(params: params)]
         var degradedSources: [String] = []
 
@@ -347,55 +446,35 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             ])
         }
 
-        return subscriptions
+        return DesiredSubscriptions(subscriptions: subscriptions, isDegraded: !degradedSources.isEmpty)
     }
 
     // MARK: - Private
 
+    /// Per-conversation subscribe entry point (group join / invite DM). Sends
+    /// the topics in ≤100 chunks and, on full success, folds them into the
+    /// applied-topic mirror so it stays accurate between full reconciles.
+    /// Returns nothing — callers treat push subscription as best-effort.
     private func subscribe(
         to subscriptions: [TopicSubscription],
         params: SyncClientParams,
-        context: String,
-        cacheKey: String? = nil,
-        precomputedHash: String? = nil
+        context: String
     ) async {
         let subscriptions = dedupe(subscriptions)
         guard !subscriptions.isEmpty else { return }
-        guard let identity = await identity(matching: params) else { return }
-        guard let deviceId = await deviceIdentifier(context: context) else { return }
-
-        if let deviceRegistrationManager {
-            await deviceRegistrationManager.registerDeviceIfNeeded()
-        }
-
-        do {
-            try await params.apiClient.subscribeToTopics(
-                deviceId: deviceId,
-                clientId: identity.clientId,
-                topics: subscriptions.map(\.topic)
-            )
-            Log.info("Subscribed to push topics \(context): \(topicSummary(subscriptions))")
-            Log.debug("Subscribed push topic values \(context): \(subscriptions.map(\.topic).joined(separator: ", "))")
-            // Success-only cache write. A failure path falls through to the
-            // catch arm below and leaves the cache untouched so the next
-            // reconcile retries. The cacheKey is nil for per-conversation
-            // subscribe paths (group join / invite DM) since they're deltas,
-            // not full sweeps and don't participate in reconcile debounce.
-            if let cacheKey = cacheKey, let cache = cache {
-                // Reuse the hash reconcile already computed when checking the
-                // cache miss. Falls back to computing it here only when the
-                // per-conversation path opts into caching (it doesn't today).
-                let hash = precomputedHash ?? PushTopicHash.of(subscriptions.map(\.topic))
-                cache.storeHash(hash, forKey: cacheKey)
-            }
-        } catch {
-            Log.warning("Failed subscribing to push topics \(context): \(error)")
-            QAEvent.emit(.sync, "push_topic_subscribe_failed", [
-                "context": context,
-                "topic_count": String(subscriptions.count),
-                "kinds": kindSummary(subscriptions),
-                "error": String(describing: error),
-            ])
+        let topics = subscriptions.map(\.topic)
+        let succeeded = await sendSubscribe(
+            topics: topics,
+            params: params,
+            context: context,
+            kindSubscriptions: subscriptions
+        )
+        // Mirror update is best-effort and additive: only record topics that
+        // actually landed. A failed batch leaves the mirror untouched so the
+        // next full reconcile re-derives and re-applies the missing topic.
+        if succeeded, let cache = cache,
+           let cacheKey = await currentCacheKey(params: params, context: context) {
+            cache.addTopics(topics, forKey: cacheKey.keyString)
         }
     }
 
@@ -406,22 +485,91 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     ) async {
         let topics = Array(Set(topics)).sorted()
         guard !topics.isEmpty else { return }
-        guard let identity = await identity(matching: params) else { return }
-
-        do {
-            try await params.apiClient.unsubscribeFromTopics(
-                clientId: identity.clientId,
-                topics: topics
-            )
-            Log.info("Unsubscribed from push topics \(context): \(topics.joined(separator: ", "))")
-        } catch {
-            Log.warning("Failed unsubscribing from push topics \(context): \(error)")
-            QAEvent.emit(.sync, "push_topic_unsubscribe_failed", [
-                "context": context,
-                "topic_count": String(topics.count),
-                "error": String(describing: error),
-            ])
+        let succeeded = await sendUnsubscribe(topics: topics, params: params, context: context)
+        // Drop the topics from the mirror only after the wire call succeeded,
+        // mirroring the additive subscribe path. A failed unsubscribe leaves
+        // the mirror as-is; the next full reconcile recomputes toRemove.
+        if succeeded, let cache = cache,
+           let cacheKey = await currentCacheKey(params: params, context: context) {
+            cache.removeTopics(topics, forKey: cacheKey.keyString)
         }
+    }
+
+    /// Low-level chunked subscribe. Resolves identity/device once, then issues
+    /// one `subscribeToTopics` call per ≤100-topic chunk. Returns `true` only
+    /// when every chunk succeeded; a single failed chunk returns `false` (and
+    /// is logged per-chunk) so callers know not to persist the mirror.
+    ///
+    /// `kindSubscriptions` is an optional richer view of the same topics used
+    /// only for human-readable logging/QA summaries on the per-conversation
+    /// path; the reconcile path passes plain topic strings.
+    private func sendSubscribe(
+        topics: [String],
+        params: SyncClientParams,
+        context: String,
+        kindSubscriptions: [TopicSubscription]? = nil
+    ) async -> Bool {
+        guard !topics.isEmpty else { return true }
+        guard let identity = await identity(matching: params) else { return false }
+        guard let deviceId = await deviceIdentifier(context: context) else { return false }
+
+        if let deviceRegistrationManager {
+            await deviceRegistrationManager.registerDeviceIfNeeded()
+        }
+
+        var allSucceeded = true
+        for chunk in topics.chunked(into: Self.maxTopicsPerRequest) {
+            do {
+                try await params.apiClient.subscribeToTopics(
+                    deviceId: deviceId,
+                    clientId: identity.clientId,
+                    topics: chunk
+                )
+                Log.info("Subscribed to push topics \(context): \(chunk.count) topic(s)")
+                Log.debug("Subscribed push topic values \(context): \(chunk.joined(separator: ", "))")
+            } catch {
+                allSucceeded = false
+                Log.warning("Failed subscribing to push topics \(context): \(error)")
+                QAEvent.emit(.sync, "push_topic_subscribe_failed", [
+                    "context": context,
+                    "topic_count": String(chunk.count),
+                    "kinds": kindSummary(kindSubscriptions, fallbackCount: chunk.count),
+                    "error": String(describing: error),
+                ])
+            }
+        }
+        return allSucceeded
+    }
+
+    /// Low-level chunked unsubscribe. One `unsubscribeFromTopics` call per
+    /// ≤100-topic chunk. Returns `true` only when every chunk succeeded.
+    private func sendUnsubscribe(
+        topics: [String],
+        params: SyncClientParams,
+        context: String
+    ) async -> Bool {
+        guard !topics.isEmpty else { return true }
+        guard let identity = await identity(matching: params) else { return false }
+
+        var allSucceeded = true
+        for chunk in topics.chunked(into: Self.maxTopicsPerRequest) {
+            do {
+                try await params.apiClient.unsubscribeFromTopics(
+                    clientId: identity.clientId,
+                    topics: chunk
+                )
+                Log.info("Unsubscribed from push topics \(context): \(chunk.joined(separator: ", "))")
+            } catch {
+                allSucceeded = false
+                Log.warning("Failed unsubscribing from push topics \(context): \(error)")
+                QAEvent.emit(.sync, "push_topic_unsubscribe_failed", [
+                    "context": context,
+                    "topic_count": String(chunk.count),
+                    "error": String(describing: error),
+                ])
+            }
+        }
+        return allSucceeded
     }
 
     /// Drops invite DMs whose current consent is `.denied`. The user has
@@ -518,13 +666,14 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         return result
     }
 
-    private func topicSummary(_ subscriptions: [TopicSubscription]) -> String {
-        subscriptions
-            .map { "\($0.kind.rawValue):\($0.sourceId)" }
-            .joined(separator: ", ")
-    }
-
-    private func kindSummary(_ subscriptions: [TopicSubscription]) -> String {
+    /// Builds the `kinds=...` QA breakdown for a failed subscribe chunk. The
+    /// reconcile path sends plain topic strings (no kind metadata), so it falls
+    /// back to a bare count; the per-conversation path passes the richer
+    /// `TopicSubscription` list and gets a per-kind tally.
+    private func kindSummary(_ subscriptions: [TopicSubscription]?, fallbackCount: Int) -> String {
+        guard let subscriptions = subscriptions else {
+            return "topics=\(fallbackCount)"
+        }
         var counts: [String: Int] = [:]
         for subscription in subscriptions {
             counts[subscription.kind.rawValue, default: 0] += 1
@@ -557,5 +706,17 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             topic: conversationId.xmtpGroupTopicFormat,
             sourceId: conversationId
         )
+    }
+}
+
+private extension Array {
+    /// Splits the array into sub-arrays of at most `size` elements, preserving
+    /// order. Used to keep every push subscribe/unsubscribe wire call within
+    /// the backend's 100-topic-per-request limit.
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return isEmpty ? [] : [Array(self)] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }

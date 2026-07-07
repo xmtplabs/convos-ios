@@ -1181,6 +1181,10 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(byInbox[convosAgentInboxId]?.agentVerification == .verified(.convos))
         #expect(byInbox[oauthAgentInboxId]?.isAgent == true)
         #expect(byInbox[oauthAgentInboxId]?.agentVerification == .verified(.userOAuth))
+        // Avatar views gate the verification badge on the profile's isAgent
+        // flag, so the fallback-built profile must carry it too.
+        #expect(byInbox[convosAgentInboxId]?.profile.isAgent == true)
+        #expect(byInbox[oauthAgentInboxId]?.profile.isAgent == true)
     }
 }
 
@@ -2062,5 +2066,73 @@ extension MessagesListProcessorPendingBuilderCardTests {
         let flagged = g.filter(\.isLastGroupSentByCurrentUser)
         #expect(flagged.count == 1)
         #expect(flagged.first?.messages.map(\.messageId) == ["second"])
+    }
+}
+
+private func makeConnectionInvocation(
+    id: String = UUID().uuidString,
+    sender: ConversationMember = otherUser,
+    date: Date = Date()
+) -> AnyMessage {
+    .message(Message(
+        id: id,
+        sender: sender,
+        source: .incoming,
+        status: .published,
+        content: .connectionInvocation(summary: ConnectionEventSummary(
+            text: "read calendar events",
+            outcome: .success,
+            icon: .calendar
+        )),
+        date: date,
+        reactions: []
+    ), .existing)
+}
+
+extension MessagesListProcessorAgentBuilderCardTests {
+    @Test("An invocation row landing between the bundle's publishes keeps one card")
+    func invisibleRowBetweenBundlePublishesKeepsOneCard() {
+        let now = Date()
+        // The bundle's attachment and prompt rows publish back to back, but a
+        // connection invocation (which never renders its own row) lands
+        // between them. One Make must still render one card, not an
+        // attachments-only card plus a prompt-only card.
+        let messages = [
+            makeAttachment(id: "b-att", sender: currentUser, date: now),
+            makeConnectionInvocation(id: "invoke", date: now.addingTimeInterval(1)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Track the fog", date: now.addingTimeInterval(2)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+        let cards = builderCards(from: result)
+        #expect(cards.count == 1)
+        #expect(cards.first?.prompt == "Track the fog")
+        #expect(cards.first?.attachments.count == 1)
+    }
+
+    @Test("Replacing a full-bleed bundle row with the card clears the neighbor's hairline adjacency")
+    func swallowedFullBleedBundleClearsStaleAdjacency() {
+        let now = Date()
+        // A full-bleed photo sits directly above the bundle's full-bleed
+        // attachment row, so the adjacency pass marks the pair before the
+        // bundle rows are replaced by the card. The photo must not keep
+        // hairline padding against the card row.
+        let messages = [
+            makeAttachment(id: "photo", sender: otherUser, date: now),
+            makeAttachment(id: "b-att", sender: currentUser, date: now.addingTimeInterval(5)),
+            makeMessage(id: "b-text", sender: currentUser, text: "Track the fog", date: now.addingTimeInterval(6)),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            hiddenBundleMessageIds: ["b-att", "b-text"]
+        )
+        #expect(builderCards(from: result).count == 1)
+        let photoGroup = groups(from: result).first { group in
+            group.messages.contains { $0.messageId == "photo" }
+        }
+        #expect(photoGroup != nil)
+        #expect(photoGroup?.adjacentToFullBleedBelow == false)
     }
 }
