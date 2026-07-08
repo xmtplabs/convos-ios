@@ -1064,11 +1064,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     ) async throws {
         Log.debug("Attempting to fetch latest messages...")
 
-        // Get the timestamp of the last stored message
-        let lastMessageNs = try await getLastMessageTimestamp(for: conversation.id)
+        // Fetch after the catch-up cursor, not after the newest stored
+        // message: rows written by the NSE or the live stream advance
+        // MAX(message.dateNs) without fetching the backlog behind them, so
+        // cutting there skipped read receipts older than the newest pushed
+        // message. The cursor only advances once a catch-up has applied the
+        // backlog up to that point. Conversations without a cursor row yet
+        // fall back to the newest stored message (pre-cursor behavior).
+        let conversationId = conversation.id
+        let cursorNs = try await databaseWriter.read { db in
+            try DBConversationCatchUpCursor.caughtUpToNs(for: conversationId, in: db)
+        }
+        let afterNs: Int64?
+        if let cursorNs {
+            afterNs = cursorNs
+        } else {
+            afterNs = try await getLastMessageTimestamp(for: conversationId)
+        }
 
         // Fetch new messages
-        let messages = try await conversation.messages(afterNs: lastMessageNs)
+        let messages = try await conversation.messages(afterNs: afterNs)
         guard !messages.isEmpty else { return }
 
         Log.debug("Found \(messages.count) new messages, catching up...")
@@ -1100,6 +1115,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
+        }
+
+        // Everything in this batch has been applied; advance the cursor to
+        // the newest fetched timestamp (server-stamped, never local clock).
+        if let maxFetchedNs = messages.map(\.sentAtNs).max() {
+            try await databaseWriter.write { db in
+                try DBConversationCatchUpCursor.advance(to: maxFetchedNs, for: conversationId, in: db)
+            }
         }
     }
 

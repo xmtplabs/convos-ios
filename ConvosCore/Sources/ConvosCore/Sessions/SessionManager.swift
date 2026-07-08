@@ -972,6 +972,9 @@ extension SessionManager {
         try DBCapabilityResolution.deleteAll(db)
         try DBCreditBalance.deleteAll(db)
         try DBConversationReadReceipt.deleteAll(db)
+        // conversation_catchup_cursors rows cascade with the DBConversation
+        // deleteAll below (covered by
+        // ConversationCatchUpCursorTests.deletingConversationCascades).
         try DBPendingPhotoUpload.deleteAll(db)
         try DBBuilderBundleHiddenMessage.deleteAll(db)
         try DBVoiceMemoTranscript.deleteAll(db)
@@ -1127,10 +1130,16 @@ public extension SessionManager {
     /// `loadSync()` that follows. Reading in the other order races silent
     /// identity registration and could report this install's own
     /// just-created placeholder as pairable.
+    ///
+    /// A nil primary identity is expected on a true first launch (the
+    /// check runs from the chats list's onAppear, which can beat silent
+    /// registration) and means nothing needs excluding. Only a throwing
+    /// primary read hides the backups, since then an own mirror can't be
+    /// told apart from another device's.
     func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         do {
             let backups = try await identityStore.loadSyncedBackups()
-            let currentInboxId = (try? identityStore.loadSync())?.inboxId
+            let currentInboxId = try identityStore.loadSync()?.inboxId
             return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
         } catch {
             Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")

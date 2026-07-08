@@ -18,7 +18,8 @@ struct BatchCatchUpResult: Sendable {
 /// 1. `client.conversationsProvider.listGroups(lastActivityAfterNs:)`
 ///    discovers conversations that had activity since the cursor.
 /// 2. Per conversation, in parallel:
-///    - Read the local `MAX(message.dateNs)` for that conversation
+///    - Read the local catch-up cursor (`DBConversationCatchUpCursor`,
+///      falling back to `MAX(message.dateNs)` pre-cursor)
 ///    - `Group.messages(afterNs:)` to fetch the backlog from XMTP
 ///    - Split into "regular" messages (text, attachments, link previews,
 ///      group updates — go through `IncomingMessageWriter.persist` in
@@ -181,6 +182,22 @@ struct BatchCatchUp {
             )
         }
 
+        // Phase 3.5: the backlog up to each conversation's newest fetched
+        // timestamp has been applied; advance the catch-up cursors so the
+        // next run fetches forward from here. Deliberately after the
+        // supplemental handlers so a crash mid-batch re-fetches rather than
+        // skips (every handler is idempotent).
+        let cursorAdvances: [(conversationId: String, ns: Int64)] = prepared.compactMap { entry in
+            entry.maxFetchedNs.map { (entry.conversation.dbConversation.id, $0) }
+        }
+        if !cursorAdvances.isEmpty {
+            try await databaseWriter.write { db in
+                for advance in cursorAdvances {
+                    try DBConversationCatchUpCursor.advance(to: advance.ns, for: advance.conversationId, in: db)
+                }
+            }
+        }
+
         // Phase 4: per-conversation side effects (prefetch, invite
         // generation, profile-from-history), off the foreground critical
         // path. `saveResult.clientConversationId` is the *actual*
@@ -212,6 +229,10 @@ struct BatchCatchUp {
         let conversation: ConversationWriter.PreparedConversation
         let regularMessages: [IncomingMessageWriter.PreparedIncomingMessage]
         let supplementalMessages: [XMTPiOS.DecodedMessage]
+        /// Newest `sentAtNs` across everything fetched for this conversation
+        /// (regular, supplemental, and skipped messages alike) — the value
+        /// the catch-up cursor advances to once the batch has been applied.
+        let maxFetchedNs: Int64?
     }
 
     /// Signals collected inside the persist transaction but dispatched
@@ -300,7 +321,7 @@ struct BatchCatchUp {
                         inboxId: inboxId
                     )
 
-                    let perConvCursorNs = try await Self.readLastMessageNs(
+                    let perConvCursorNs = try await Self.readCatchUpCursorNs(
                         for: group.id,
                         in: databaseWriter
                     )
@@ -325,7 +346,8 @@ struct BatchCatchUp {
                         group: group,
                         conversation: preparedConv,
                         regularMessages: regularMessages,
-                        supplementalMessages: supplementalMessages
+                        supplementalMessages: supplementalMessages,
+                        maxFetchedNs: allMessages.map(\.sentAtNs).max()
                     )
                 }
             }
@@ -368,14 +390,19 @@ struct BatchCatchUp {
         }
     }
 
-    /// `MAX(dateNs)` for the conversation, or `0` when the local DB has no messages
-    /// for this conversation yet (cold/new). Mirrors the cursor `fetchAndStoreLatestMessages`
-    /// uses today on the stream catch-up path.
-    private static func readLastMessageNs(
+    /// The conversation's catch-up cursor (see `DBConversationCatchUpCursor`),
+    /// falling back to `MAX(dateNs)` of stored messages when no catch-up has
+    /// completed yet, or `0` when the local DB has no messages for this
+    /// conversation (cold/new). Mirrors the cursor `fetchAndStoreLatestMessages`
+    /// uses on the stream catch-up path.
+    private static func readCatchUpCursorNs(
         for conversationId: String,
         in databaseWriter: any DatabaseWriter
     ) async throws -> Int64 {
         try await databaseWriter.read { db in
+            if let caughtUpToNs = try DBConversationCatchUpCursor.caughtUpToNs(for: conversationId, in: db) {
+                return caughtUpToNs
+            }
             let value: Int64? = try Int64.fetchOne(db, sql: """
                 SELECT MAX(dateNs) FROM message
                 WHERE conversationId = ?
