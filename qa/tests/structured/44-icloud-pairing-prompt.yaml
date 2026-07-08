@@ -94,8 +94,13 @@ steps:
     save:
       found_device_name: "deviceName= param of pairing.found_device_prompt_shown (underscores stand in for spaces)"
     note: >
-      The prompt waits on placeholder registration plus the chats list
-      appearing, hence the generous timeout. Title reads "Pair <name>?"
+      The prompt must appear on this first launch, before silent
+      placeholder registration completes - a check that runs with no
+      primary identity yet treats every backup as pairable. If it only
+      appears after a relaunch, that is the first-launch suppression bug
+      (nil identity used to hide all backups), not a pass. The generous
+      timeout covers app startup plus the chats list appearing. Title
+      reads "Pair <name>?"
       where <name> is the device name stamped on A's backup (for a sim
       clone this is A's simulator name); subtitle: "Your <name> was found
       in iCloud, if you have it nearby, you can pair it now". The only
