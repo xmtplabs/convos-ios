@@ -10,6 +10,16 @@ protocol SelfProfileStoreProtocol: Sendable {
     func save(_ profile: DBMyProfile) async throws
     func load() async throws -> DBMyProfile?
     func clear() async throws
+
+    /// The current user's conversation-scoped metadata map (cloud connection
+    /// grants, agent timezone) for one conversation, or nil when none was ever
+    /// published there. Scoped keys are merged over the global metadata at send
+    /// time; they never live in `DBMyProfile.metadata`.
+    func scopedMetadata(conversationId: String) async throws -> ProfileMetadata?
+
+    /// Persists the conversation-scoped metadata map for one conversation.
+    /// A nil or empty map deletes the row.
+    func saveScopedMetadata(_ metadata: ProfileMetadata?, conversationId: String, updatedAt: Date) async throws
 }
 
 final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
@@ -61,10 +71,40 @@ final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
             _ = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).deleteAll(db)
         }
     }
+
+    func scopedMetadata(conversationId: String) async throws -> ProfileMetadata? {
+        guard let inboxId = await selfInboxIdProvider() else { return nil }
+        return try await databaseReader.read { db in
+            try DBSelfConversationMetadata
+                .filter(DBSelfConversationMetadata.Columns.inboxId == inboxId)
+                .filter(DBSelfConversationMetadata.Columns.conversationId == conversationId)
+                .fetchOne(db)?.metadata
+        }
+    }
+
+    func saveScopedMetadata(_ metadata: ProfileMetadata?, conversationId: String, updatedAt: Date) async throws {
+        guard let inboxId = await selfInboxIdProvider() else { return }
+        try await databaseWriter.write { db in
+            guard let metadata, !metadata.isEmpty else {
+                _ = try DBSelfConversationMetadata
+                    .filter(DBSelfConversationMetadata.Columns.inboxId == inboxId)
+                    .filter(DBSelfConversationMetadata.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                return
+            }
+            try DBSelfConversationMetadata(
+                inboxId: inboxId,
+                conversationId: conversationId,
+                metadata: metadata,
+                updatedAt: updatedAt
+            ).save(db)
+        }
+    }
 }
 
 actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
     private var current: DBMyProfile?
+    private var scopedByConversation: [String: ProfileMetadata] = [:]
 
     func save(_ profile: DBMyProfile) {
         current = profile
@@ -76,5 +116,18 @@ actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
 
     func clear() {
         current = nil
+        scopedByConversation = [:]
+    }
+
+    func scopedMetadata(conversationId: String) -> ProfileMetadata? {
+        scopedByConversation[conversationId]
+    }
+
+    func saveScopedMetadata(_ metadata: ProfileMetadata?, conversationId: String, updatedAt: Date) {
+        guard let metadata, !metadata.isEmpty else {
+            scopedByConversation[conversationId] = nil
+            return
+        }
+        scopedByConversation[conversationId] = metadata
     }
 }

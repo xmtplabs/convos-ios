@@ -2,16 +2,18 @@ import Foundation
 import GRDB
 
 public protocol ProfileMetadataWriterProtocol: Sendable {
-    /// Reads the current user's self-profile metadata map, applies the caller's
-    /// mutation closure, and republishes the merged map through
-    /// `ProfilesRepository.publishMyProfileMetadata`, which fans it out to every
-    /// conversation. The whole read-modify-write runs as one serialized unit so
-    /// two callers (e.g. a connections write and a timezone write) can never
-    /// interleave and clobber each other's keys.
+    /// Reads the current user's conversation-scoped metadata map for
+    /// `conversationId`, applies the caller's mutation closure, and publishes
+    /// the merged map to that conversation immediately through
+    /// `ProfilesRepository.publishMyProfileMetadata(_:toConversation:)`. The
+    /// whole read-modify-write runs as one serialized unit so two callers
+    /// (e.g. a connections write and a timezone write) can never interleave
+    /// and clobber each other's keys.
     ///
-    /// `conversationId` and `inboxId` are retained on the signature for existing
-    /// callers; the metadata is now global (self-profile) rather than
-    /// per-conversation, so they no longer scope the read.
+    /// Scoped keys (cloud connection grants, agent timezone) are
+    /// per-conversation on the wire: the map published to one conversation is
+    /// independent of every other conversation's, and a send failure throws so
+    /// the caller can decline to persist its own dependent state.
     func updateMetadata(
         conversationId: String,
         inboxId: String,
@@ -19,21 +21,21 @@ public protocol ProfileMetadataWriterProtocol: Sendable {
     ) async throws
 }
 
-/// Shared serialization choke point for every per-sender
+/// Shared serialization choke point for every conversation-scoped
 /// `ProfileUpdate.metadata` write.
 ///
-/// The self-profile metadata map is rewritten wholesale on each publish (read
-/// existing -> merge key -> publish). Two async tasks in the same process can
-/// interleave on this non-atomic read-merge-write: a timezone publish and a
-/// `connections` publish both touch the same `selfProfile` row. If they overlap,
-/// the later write overwrites the earlier with a stale copy of the key the other
-/// task just set -- silent data loss.
+/// A conversation's scoped metadata map is rewritten wholesale on each publish
+/// (read existing -> merge key -> publish). Two async tasks in the same process
+/// can interleave on this non-atomic read-merge-write: a timezone publish and a
+/// `connections` publish both touch the same conversation's map. If they
+/// overlap, the later write overwrites the earlier with a stale copy of the key
+/// the other task just set -- silent data loss.
 ///
-/// To prevent that, all metadata map writes go through one shared instance of
-/// this class. `@MainActor` keeps the bookkeeping on a single actor, and an
-/// internal serial task chain makes each `updateMetadata` call run to completion
-/// (including its async hops) before the next one starts, so the read-merge-write
-/// is atomic across callers.
+/// To prevent that, all scoped metadata writes go through one shared instance
+/// of this class. `@MainActor` keeps the bookkeeping on a single actor, and an
+/// internal serial task chain makes each `updateMetadata` call run to
+/// completion (including its async hops) before the next one starts, so the
+/// read-merge-write is atomic across callers.
 @MainActor
 public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
     private let profilesRepository: @Sendable () -> ProfilesRepository
@@ -65,11 +67,17 @@ public final class ProfileMetadataWriter: ProfileMetadataWriterProtocol {
             await previous.value
             do {
                 let existing = try await databaseReader.read { db in
-                    try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db)?.metadata
+                    try DBSelfConversationMetadata
+                        .filter(DBSelfConversationMetadata.Columns.inboxId == inboxId)
+                        .filter(DBSelfConversationMetadata.Columns.conversationId == conversationId)
+                        .fetchOne(db)?.metadata
                 }
                 var merged: ProfileMetadata = existing ?? [:]
                 update(&merged)
-                try await profilesRepository().publishMyProfileMetadata(merged.isEmpty ? nil : merged)
+                try await profilesRepository().publishMyProfileMetadata(
+                    merged.isEmpty ? nil : merged,
+                    toConversation: conversationId
+                )
                 return .success(())
             } catch {
                 return .failure(error)

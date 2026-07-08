@@ -5,6 +5,7 @@ import Testing
 private struct RecordedSend: Sendable {
     let name: String?
     let avatarURL: String?
+    let metadata: ProfileMetadata?
     let conversationId: String
 }
 
@@ -52,7 +53,7 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
             sendFailuresRemaining -= 1
             throw FakeSessionError.send
         }
-        sends.append(RecordedSend(name: name, avatarURL: avatar?.url, conversationId: conversationId))
+        sends.append(RecordedSend(name: name, avatarURL: avatar?.url, metadata: metadata, conversationId: conversationId))
     }
 }
 
@@ -299,5 +300,105 @@ struct ProfilePublisherTests {
         let unchanged = try await publishStore.source(inboxId: "me")
         #expect(unchanged?.version == 1)
         #expect(unchanged?.plaintext == Data([1, 2, 3]))
+    }
+
+    @Test("queue sends carry the conversation's scoped metadata merged over the global map")
+    func queueSendsMergeScopedMetadata() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let selfProfileStore = InMemorySelfProfileStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key, "c2": key])
+        await publisher.attach(session: session)
+
+        // Global identity metadata plus scoped keys for c1 only; the scoped
+        // "emoji" overrides the global value for c1 (scoped wins on conflict).
+        try await selfProfileStore.save(DBMyProfile(
+            inboxId: "me", name: "Me",
+            metadata: ["emoji": .string("global"), "kind": .string("person")],
+            updatedAt: clock.current
+        ))
+        try await selfProfileStore.saveScopedMetadata(
+            ["connections": .string("grants-c1"), "emoji": .string("scoped")],
+            conversationId: "c1",
+            updatedAt: clock.current
+        )
+
+        try await publisher.publishConversation("c1")
+        try await publisher.publishConversation("c2")
+
+        let sends = await session.sends
+        let sendC1 = try #require(sends.first { $0.conversationId == "c1" })
+        let sendC2 = try #require(sends.first { $0.conversationId == "c2" })
+        #expect(sendC1.metadata?["connections"] == .string("grants-c1"))
+        #expect(sendC1.metadata?["emoji"] == .string("scoped"))
+        #expect(sendC1.metadata?["kind"] == .string("person"))
+        // Another conversation never receives c1's scoped keys.
+        #expect(sendC2.metadata?["connections"] == nil)
+        #expect(sendC2.metadata?["emoji"] == .string("global"))
+    }
+
+    @Test("publishScopedMetadata sends immediately, persists on success, and scopes per conversation")
+    func scopedMetadataPublishesImmediately() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let selfProfileStore = InMemorySelfProfileStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+        try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Me", updatedAt: clock.current))
+
+        try await publisher.publishScopedMetadata(["connections": .string("grants-a")], conversationId: "convo-a")
+        try await publisher.publishScopedMetadata(["connections": .string("grants-b")], conversationId: "convo-b")
+
+        // Both sends went out, each carrying only its own conversation's grants.
+        let sends = await session.sends
+        #expect(sends.count == 2)
+        let sendA = try #require(sends.first { $0.conversationId == "convo-a" })
+        let sendB = try #require(sends.first { $0.conversationId == "convo-b" })
+        #expect(sendA.metadata?["connections"] == .string("grants-a"))
+        #expect(sendB.metadata?["connections"] == .string("grants-b"))
+
+        // Writing conversation B never clobbered conversation A's stored map -
+        // the regression this table exists to prevent.
+        let storedA = try await selfProfileStore.scopedMetadata(conversationId: "convo-a")
+        let storedB = try await selfProfileStore.scopedMetadata(conversationId: "convo-b")
+        #expect(storedA?["connections"] == .string("grants-a"))
+        #expect(storedB?["connections"] == .string("grants-b"))
+        // Nothing leaked into the global map.
+        let global = try await selfProfileStore.load()
+        #expect(global?.metadata == nil)
+    }
+
+    @Test("a failed scoped send throws and persists nothing")
+    func scopedMetadataSendFailureLeavesNoTrace() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let selfProfileStore = InMemorySelfProfileStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:], sendFailures: 1)
+        await publisher.attach(session: session)
+
+        await #expect(throws: (any Error).self) {
+            try await publisher.publishScopedMetadata(["connections": .string("grants")], conversationId: "c1")
+        }
+        // The scoped map was not persisted, so no later lazy publish can
+        // deliver a grant the caller declined to keep.
+        let stored = try await selfProfileStore.scopedMetadata(conversationId: "c1")
+        #expect(stored == nil)
+    }
+
+    @Test("publishScopedMetadata without a bound session throws")
+    func scopedMetadataRequiresSession() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let selfProfileStore = InMemorySelfProfileStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
+
+        await #expect(throws: (any Error).self) {
+            try await publisher.publishScopedMetadata(["connections": .string("grants")], conversationId: "c1")
+        }
+        let stored = try await selfProfileStore.scopedMetadata(conversationId: "c1")
+        #expect(stored == nil)
     }
 }

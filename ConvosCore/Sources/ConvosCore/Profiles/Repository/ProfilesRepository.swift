@@ -369,10 +369,24 @@ public actor ProfilesRepository {
         try await publisher.publishConversation(conversationId)
     }
 
-    /// Records new self metadata locally and bumps `updatedAt`. Propagation is
-    /// lazy per conversation, same as `publishMyProfile`.
+    /// Records new global self metadata locally and bumps `updatedAt`.
+    /// Propagation is lazy per conversation, same as `publishMyProfile`.
+    ///
+    /// Global identity metadata only. Conversation-scoped keys (cloud
+    /// connection grants, agent timezone) must go through
+    /// `publishMyProfileMetadata(_:toConversation:)` - putting them here would
+    /// broadcast one conversation's grants to every conversation.
     public func publishMyProfileMetadata(_ metadata: ProfileMetadata?) async throws {
         try await updateSelfProfile(SelfProfileEdit(metadata: .set(metadata)))
+    }
+
+    /// Publishes conversation-scoped metadata to one conversation immediately
+    /// (not via the lazy queue) and persists it for that conversation only, so
+    /// subsequent lazy publishes keep carrying it. Throws when the send cannot
+    /// be delivered; callers rely on that to decline persisting their own
+    /// dependent state (e.g. a cloud connection grant).
+    public func publishMyProfileMetadata(_ metadata: ProfileMetadata?, toConversation conversationId: String) async throws {
+        try await publisher.publishScopedMetadata(metadata, conversationId: conversationId)
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
