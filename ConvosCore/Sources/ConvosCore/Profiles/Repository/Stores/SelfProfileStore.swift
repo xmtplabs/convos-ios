@@ -69,6 +69,9 @@ final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
         guard let inboxId = await selfInboxIdProvider() else { return }
         try await databaseWriter.write { db in
             _ = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).deleteAll(db)
+            _ = try DBSelfConversationMetadata
+                .filter(DBSelfConversationMetadata.Columns.inboxId == inboxId)
+                .deleteAll(db)
         }
     }
 

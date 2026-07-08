@@ -68,5 +68,12 @@ struct SelfProfileStoreTests {
         try await store.saveScopedMetadata([:], conversationId: "convo-b", updatedAt: t)
         let emptied = try await store.scopedMetadata(conversationId: "convo-b")
         #expect(emptied == nil)
+
+        // clear() drops the scoped rows along with the profile, so a cleared
+        // self never resurfaces a previous account's grants or timezone.
+        try await store.saveScopedMetadata(["connections": .string("grants")], conversationId: "convo-a", updatedAt: t)
+        try await store.clear()
+        let scopedAfterClear = try await store.scopedMetadata(conversationId: "convo-a")
+        #expect(scopedAfterClear == nil)
     }
 }

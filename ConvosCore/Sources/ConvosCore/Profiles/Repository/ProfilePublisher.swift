@@ -253,6 +253,16 @@ actor ProfilePublisher {
     /// foreground). The scoped map is persisted only after the send succeeds
     /// for the same reason - a failed publish must leave no trace that later
     /// lazy publishes would deliver.
+    ///
+    /// A persist failure after a successful send also throws, and that ordering
+    /// is deliberate. The remote transiently holds the new map, but the caller
+    /// declines its own state and the next queue publish (reading the old
+    /// stored map) reverts the remote, so everything converges on the pre-send
+    /// state. The alternatives are worse: persisting before the send turns a
+    /// failed send into a durable map that later lazy publishes deliver even
+    /// though the caller rolled back, and swallowing the persist failure lets
+    /// the caller commit state whose metadata the next queue publish silently
+    /// wipes from the remote.
     func publishScopedMetadata(_ metadata: ProfileMetadata?, conversationId: String) async throws {
         guard let session else { throw ProfilePublishError.sessionUnavailable }
         guard let selfInboxId = await resolveSelfInboxId() else {
