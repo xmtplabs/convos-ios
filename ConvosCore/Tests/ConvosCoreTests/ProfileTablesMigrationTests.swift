@@ -206,4 +206,86 @@ struct ProfileTablesMigrationTests {
             #expect(job == nil)
         }
     }
+
+    /// The strip step reads `myProfile`, so the scoped-metadata migration tests
+    /// need that table in the minimal schema too.
+    private func makeSchemaWithMyProfile(_ db: Database) throws {
+        try makeSchema(db)
+        try db.create(table: "myProfile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("imageData", .blob)
+            t.column("imageAssetIdentifier", .text)
+            t.column("imageContentDigest", .text)
+            t.column("metadata", .jsonText)
+            t.column("updatedAt", .datetime).notNull()
+        }
+    }
+
+    @Test("createSelfConversationMetadata creates the table, round-trips, and cascades on conversation delete")
+    func createsSelfConversationMetadata() throws {
+        let dbQueue = try DatabaseQueue()
+        try dbQueue.write { db in
+            try self.makeSchemaWithMyProfile(db)
+            try SharedDatabaseMigrator.createSelfConversationMetadata(db)
+            try self.insertConversation(db, id: "conv-1")
+            try DBSelfConversationMetadata(
+                inboxId: "me",
+                conversationId: "conv-1",
+                metadata: ["connections": .string("grants"), "timezone": .string("Europe/Paris")],
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ).save(db)
+        }
+
+        try dbQueue.read { db in
+            #expect(try db.tableExists("selfConversationMetadata"))
+            let row = try DBSelfConversationMetadata.fetchOne(db)
+            #expect(row?.metadata["connections"] == .string("grants"))
+            #expect(row?.metadata["timezone"] == .string("Europe/Paris"))
+        }
+
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM conversation WHERE id = ?", arguments: ["conv-1"])
+        }
+        try dbQueue.read { db in
+            let remaining = try DBSelfConversationMetadata.fetchCount(db)
+            #expect(remaining == 0)
+        }
+    }
+
+    @Test("createSelfConversationMetadata strips scoped keys from the global myProfile metadata")
+    func stripsScopedKeysFromGlobalMetadata() throws {
+        let dbQueue = try DatabaseQueue()
+        try dbQueue.write { db in
+            try self.makeSchemaWithMyProfile(db)
+            // A build that ran the interim global routing: grants and timezone
+            // were written into the global map next to real global keys.
+            try DBMyProfile(
+                inboxId: "me",
+                name: "Me",
+                metadata: [
+                    "connections": .string("grants"),
+                    "timezone": .string("Europe/Paris"),
+                    "emoji": .string("kept")
+                ],
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ).save(db)
+            try DBMyProfile(
+                inboxId: "only-scoped",
+                metadata: ["timezone": .string("America/New_York")],
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ).save(db)
+            try SharedDatabaseMigrator.createSelfConversationMetadata(db)
+        }
+
+        try dbQueue.read { db in
+            let mixed = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == "me").fetchOne(db)
+            #expect(mixed?.metadata?["connections"] == nil)
+            #expect(mixed?.metadata?["timezone"] == nil)
+            #expect(mixed?.metadata?["emoji"] == .string("kept"))
+            // A map that held only scoped keys collapses to nil.
+            let onlyScoped = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == "only-scoped").fetchOne(db)
+            #expect(onlyScoped?.metadata == nil)
+        }
+    }
 }

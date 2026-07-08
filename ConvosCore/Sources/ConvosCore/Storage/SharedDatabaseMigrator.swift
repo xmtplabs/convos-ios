@@ -281,6 +281,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
         Self.registerCatchUpCursorMigrations(on: &migrator)
+        migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
     }
 
     /// Additive, nullable column recording the `myProfile.updatedAt` of the self
@@ -295,6 +296,60 @@ extension SharedDatabaseMigrator {
         guard !hasColumn else { return }
         try db.alter(table: "conversationLocalState") { t in
             t.add(column: "publishedProfileUpdatedAt", .datetime)
+        }
+    }
+
+    /// Conversation-scoped self metadata (cloud connection grants, agent
+    /// timezone), keyed by `(inboxId, conversationId)`. These keys are
+    /// per-conversation on the wire, so they cannot live in the global
+    /// `myProfile.metadata` map: a global map makes one conversation's grants
+    /// overwrite another's and broadcasts them to every conversation. The FK
+    /// cascade purges a deleted conversation's rows, matching `profileAvatar`.
+    ///
+    /// Also strips the scoped keys out of any existing `myProfile.metadata`:
+    /// builds that ran the interim global routing wrote grants/timezone there,
+    /// and a value left behind would keep broadcasting to every conversation on
+    /// each publish. Decoded in Swift rather than `json_remove` so the stored
+    /// class (text vs blob) doesn't matter.
+    static func createSelfConversationMetadata(_ db: Database) throws {
+        try db.create(table: "selfConversationMetadata") { t in
+            t.column("inboxId", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("metadata", .jsonText).notNull()
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["inboxId", "conversationId"])
+        }
+
+        let scopedKeys = ["connections", "timezone"]
+        let rows = try Row.fetchAll(db, sql: "SELECT inboxId, metadata FROM myProfile WHERE metadata IS NOT NULL")
+        for row in rows {
+            let inboxId: String = row["inboxId"]
+            let raw: Data?
+            if let data = row["metadata"] as Data? {
+                raw = data
+            } else if let text = row["metadata"] as String? {
+                raw = text.data(using: .utf8)
+            } else {
+                raw = nil
+            }
+            guard let raw,
+                  var metadata = try? JSONDecoder().decode(ProfileMetadata.self, from: raw) else { continue }
+            guard scopedKeys.contains(where: { metadata[$0] != nil }) else { continue }
+            for key in scopedKeys {
+                metadata.removeValue(forKey: key)
+            }
+            let encoded: String?
+            if metadata.isEmpty {
+                encoded = nil
+            } else {
+                let data = try JSONEncoder().encode(metadata)
+                encoded = String(bytes: data, encoding: .utf8)
+            }
+            try db.execute(
+                sql: "UPDATE myProfile SET metadata = ? WHERE inboxId = ?",
+                arguments: [encoded, inboxId]
+            )
         }
     }
 

@@ -26,6 +26,12 @@ enum ProfileInboundApplier {
 
     /// One inbound identity + avatar event for a member, before merge. Bundled so
     /// the seam's call sites (and `apply`) stay under the parameter-count limit.
+    ///
+    /// `metadata` semantics: non-nil is the sender's authoritative whole map -
+    /// a winning event replaces the stored one, and an empty map clears it
+    /// (ProfileUpdate paths pass the decoded map through untouched). Nil means
+    /// the event says nothing about metadata (snapshot/fill paths collapse an
+    /// empty map to nil so they can never clear).
     struct Incoming {
         let inboxId: String
         let source: ProfileSource

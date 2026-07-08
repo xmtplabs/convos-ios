@@ -1000,6 +1000,7 @@ extension SessionManager {
         try DBProfileAvatar.deleteAll(db)
         try DBProfileAvatarSource.deleteAll(db)
         try DBProfilePublishJob.deleteAll(db)
+        try DBSelfConversationMetadata.deleteAll(db)
     }
 }
 

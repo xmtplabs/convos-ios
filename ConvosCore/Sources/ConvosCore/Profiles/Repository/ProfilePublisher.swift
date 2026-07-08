@@ -215,7 +215,8 @@ actor ProfilePublisher {
         }
         let published = PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
         let selfProfile = try await selfProfileStore.load()
-        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: selfProfile?.metadata, avatar: published, conversationId: job.conversationId)
+        let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
+        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
         let slot = DBProfileAvatar(
             inboxId: selfInboxId,
             conversationId: job.conversationId,
@@ -234,8 +235,69 @@ actor ProfilePublisher {
         let existing = try await profileStore.avatar(inboxId: selfInboxId, conversationId: job.conversationId)
         let published = publishedAvatar(from: existing)
         let selfProfile = try await selfProfileStore.load()
-        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: selfProfile?.metadata, avatar: published, conversationId: job.conversationId)
+        let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
+        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
         await stampPublished(selfProfile, conversationId: job.conversationId)
+    }
+
+    // MARK: - Scoped metadata
+
+    /// Publishes conversation-scoped metadata (cloud connection grants, agent
+    /// timezone) to one conversation immediately, merged over the global self
+    /// metadata, and persists the scoped map on success.
+    ///
+    /// Deliberately not routed through the durable queue: callers rely on a
+    /// send failure propagating so they can decline to persist their own state
+    /// (`CloudConnectionGrantWriter` declines the local grant change; the
+    /// timezone publisher declines its throttle stamp and retries on the next
+    /// foreground). The scoped map is persisted only after the send succeeds
+    /// for the same reason - a failed publish must leave no trace that later
+    /// lazy publishes would deliver.
+    ///
+    /// A persist failure after a successful send also throws, and that ordering
+    /// is deliberate. The remote transiently holds the new map, but the caller
+    /// declines its own state and the next queue publish (reading the old
+    /// stored map) reverts the remote, so everything converges on the pre-send
+    /// state. The alternatives are worse: persisting before the send turns a
+    /// failed send into a durable map that later lazy publishes deliver even
+    /// though the caller rolled back, and swallowing the persist failure lets
+    /// the caller commit state whose metadata the next queue publish silently
+    /// wipes from the remote.
+    func publishScopedMetadata(_ metadata: ProfileMetadata?, conversationId: String) async throws {
+        guard let session else { throw ProfilePublishError.sessionUnavailable }
+        guard let selfInboxId = await resolveSelfInboxId() else {
+            throw ProfilePublishError.selfInboxUnavailable
+        }
+        let slot = try await profileStore.avatar(inboxId: selfInboxId, conversationId: conversationId)
+        let selfProfile = try await selfProfileStore.load()
+        let merged = Self.mergedMetadata(global: selfProfile?.metadata, scoped: metadata)
+        try await session.sendProfileUpdate(
+            name: selfProfile?.name,
+            metadata: merged,
+            avatar: publishedAvatar(from: slot),
+            conversationId: conversationId
+        )
+        try await selfProfileStore.saveScopedMetadata(metadata, inboxId: selfInboxId, conversationId: conversationId, updatedAt: now())
+    }
+
+    /// The metadata map for an outgoing ProfileUpdate to one conversation: the
+    /// global self metadata with that conversation's scoped keys merged over it
+    /// (scoped wins). Keeps every queue send carrying the conversation's grants
+    /// and timezone, so a later name or avatar publish can never wipe them at
+    /// the receiver. The caller's already-resolved inbox id is threaded through
+    /// so the store read cannot disagree with the publish about the active
+    /// account mid-flight.
+    private func outgoingMetadata(for conversationId: String, selfInboxId: String, selfProfile: DBMyProfile?) async throws -> ProfileMetadata? {
+        let scoped = try await selfProfileStore.scopedMetadata(inboxId: selfInboxId, conversationId: conversationId)
+        return Self.mergedMetadata(global: selfProfile?.metadata, scoped: scoped)
+    }
+
+    static func mergedMetadata(global: ProfileMetadata?, scoped: ProfileMetadata?) -> ProfileMetadata? {
+        var merged = global ?? [:]
+        for (key, value) in scoped ?? [:] {
+            merged[key] = value
+        }
+        return merged.isEmpty ? nil : merged
     }
 
     /// Records that the self profile as of `selfProfile.updatedAt` has actually
@@ -283,4 +345,12 @@ actor ProfilePublisher {
         case staleSource
         case conversationGone
     }
+}
+
+/// Thrown by `publishScopedMetadata` when the immediate send cannot even be
+/// attempted. Surfaced to callers (unlike queue jobs, which reschedule) because
+/// scoped-metadata writers use the error to decline persisting their own state.
+enum ProfilePublishError: Error {
+    case sessionUnavailable
+    case selfInboxUnavailable
 }

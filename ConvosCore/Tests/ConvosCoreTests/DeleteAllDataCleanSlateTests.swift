@@ -61,6 +61,11 @@ struct DeleteAllDataCleanSlateTests {
                 nextAttemptAt: Date(timeIntervalSince1970: 1), createdAt: Date(timeIntervalSince1970: 1),
                 updatedAt: Date(timeIntervalSince1970: 1)
             ).save(db)
+            try DBSelfConversationMetadata(
+                inboxId: "me", conversationId: "c1",
+                metadata: ["connections": .string("grants")],
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ).save(db)
         }
 
         try await dbManager.dbWriter.write { db in
@@ -73,7 +78,8 @@ struct DeleteAllDataCleanSlateTests {
                 profile: try DBProfile.fetchCount(db),
                 avatar: try DBProfileAvatar.fetchCount(db),
                 avatarSource: try DBProfileAvatarSource.fetchCount(db),
-                publishJob: try DBProfilePublishJob.fetchCount(db)
+                publishJob: try DBProfilePublishJob.fetchCount(db),
+                scopedMetadata: try DBSelfConversationMetadata.fetchCount(db)
             )
         }
         #expect(counts.myProfile == 0)
@@ -81,5 +87,6 @@ struct DeleteAllDataCleanSlateTests {
         #expect(counts.avatar == 0)
         #expect(counts.avatarSource == 0)
         #expect(counts.publishJob == 0)
+        #expect(counts.scopedMetadata == 0)
     }
 }

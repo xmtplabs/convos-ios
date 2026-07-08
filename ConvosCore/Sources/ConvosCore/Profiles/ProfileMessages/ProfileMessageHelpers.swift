@@ -83,6 +83,19 @@ public enum ProfileMetadataValue: Codable, Hashable, Sendable {
 
 public typealias ProfileMetadata = [String: ProfileMetadataValue]
 
+/// Metadata keys the sender manages per conversation (backed by the scoped
+/// self-metadata table). On the wire an omitted metadata map is
+/// indistinguishable from an empty one (proto3 map), so an empty map on a
+/// winning ProfileUpdate is read as "my scoped keys are now empty": the merge
+/// clears exactly these keys and leaves every other key (e.g. the agent
+/// attestation) untouched, so a metadata-less name-only update from a client
+/// that doesn't re-send its map cannot wipe unrelated state.
+public enum ConversationScopedMetadataKey {
+    public static let connections: String = "connections"
+    public static let timezone: String = "timezone"
+    public static let all: [String] = [connections, timezone]
+}
+
 extension MetadataValue {
     public init(_ value: ProfileMetadataValue) {
         self.init()

@@ -499,7 +499,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         name: update.hasName ? update.name : nil,
                         avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
                         memberKind: update.memberKind.dbMemberKind,
-                        metadata: metadata.isEmpty ? nil : metadata,
+                        // A ProfileUpdate's map is authoritative; pass it through
+                        // even when empty so a cleared map (e.g. revoked grants)
+                        // propagates as a clear instead of reading as "no change".
+                        metadata: metadata,
                         receivedAt: receivedAt
                     ),
                     selfInboxId: currentInboxId,
