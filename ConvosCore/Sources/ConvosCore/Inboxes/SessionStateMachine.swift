@@ -636,7 +636,69 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await assertInstallationActive(client: client)
 
+        reconcileStaleOwnInstallations()
+
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
+    }
+
+    /// Reinstalls resume the identity from the device keychain but mint a
+    /// new XMTP installation (the previous one's keys died with the
+    /// deleted app container), leaving a permanently-dead installation
+    /// registered on the inbox - a ghost "Device <hex>" row in the
+    /// devices list that reappears after every reinstall cycle. The
+    /// device-local installation marker records which installation this
+    /// device ran last, which proves the orphan was this device's own
+    /// dead installation (and not a legitimately paired device), making
+    /// it safe to revoke automatically.
+    ///
+    /// Best-effort and detached from the authorize flow: a failed revoke
+    /// leaves the stale id in the marker and retries on the next launch.
+    /// Skipped when streaming services are off (the notification service
+    /// extension) - the NSE has no business making revocation calls.
+    private func reconcileStaleOwnInstallations() {
+        guard syncingManager != nil else { return }
+        Task { [weak self] in
+            await self?.performStaleOwnInstallationReconcile()
+        }
+    }
+
+    private func performStaleOwnInstallationReconcile() async {
+        do {
+            // Awaits the ready state rather than capturing the client at
+            // the call site - the client is not Sendable, so it must be
+            // obtained inside this actor-isolated task.
+            let client = try await waitForInboxReadyResult().client
+            let marker = try await identityStore.loadInstallationMarker()
+            let plan = StaleInstallationReconciler.plan(
+                marker: marker,
+                inboxId: client.inboxId,
+                installationId: client.installationId
+            )
+            if plan.marker != marker {
+                try await identityStore.saveInstallationMarker(plan.marker)
+            }
+            guard !plan.candidateStaleIds.isEmpty else { return }
+            let liveIds = try await client.listInstallations(refreshFromNetwork: true).map(\.id)
+            let idsToRevoke = plan.candidateStaleIds.filter(Set(liveIds).contains)
+            if !idsToRevoke.isEmpty {
+                guard let identity = try await identityStore.load() else { return }
+                try await client.revokeInstallations(
+                    signingKey: identity.keys.signingKey,
+                    installationIds: idsToRevoke
+                )
+            }
+            try await identityStore.saveInstallationMarker(
+                InstallationMarker(
+                    inboxId: client.inboxId,
+                    installationId: client.installationId,
+                    staleInstallationIds: []
+                )
+            )
+            Log.info("Reconciled stale own installations after reinstall (revoked \(idsToRevoke.count))")
+            QAEvent.emit(.pairing, "stale_own_installations_revoked", ["count": "\(idsToRevoke.count)"])
+        } catch {
+            Log.warning("Stale own-installation reconcile failed (marker retries next launch): \(error)")
+        }
     }
 
     private func handleClientRegistered(client: any XMTPClientProvider) async throws {
@@ -645,6 +707,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         emitStateChange(.authenticatingBackend(inboxId: client.inboxId))
         Log.info("Authenticating with backend...")
         try await authenticateBackend()
+
+        // A fresh registration has no stale installations by definition;
+        // this just seeds the marker with the new installation id so a
+        // later reinstall can prove which installation was this device's.
+        reconcileStaleOwnInstallations()
 
         try Task.checkCancellation()
 

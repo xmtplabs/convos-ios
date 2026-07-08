@@ -14,6 +14,8 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// inboxId — one entry per backed-up identity, like the real store's
     /// per-identity accounts.
     private let backupState: OSAllocatedUnfairLock<[String: KeychainIdentityBackup]> = .init(initialState: [:])
+    /// In-memory stand-in for the device-local installation marker slot.
+    private let markerState: OSAllocatedUnfairLock<InstallationMarker?> = .init(initialState: nil)
     /// Optional error injection for the load path. Tests simulating a
     /// transient keychain daemon failure set this to a non-nil `Error`;
     /// `loadSync` and `load` both throw it until the test clears it.
@@ -74,6 +76,14 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         if let inboxId {
             backupState.withLock { $0.removeValue(forKey: inboxId) }
         }
+    }
+
+    func loadInstallationMarker() throws -> InstallationMarker? {
+        markerState.withLock { $0 }
+    }
+
+    func saveInstallationMarker(_ marker: InstallationMarker) throws {
+        markerState.withLock { $0 = marker }
     }
 
     /// Test-only — inject an error for the next `loadSync`/`load` calls.

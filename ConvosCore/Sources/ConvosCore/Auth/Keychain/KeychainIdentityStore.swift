@@ -235,6 +235,14 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// flow after the user loses their device.
     func loadSyncedBackups() throws -> [KeychainIdentityBackup]
 
+    /// Reads this device's installation marker (see `InstallationMarker`).
+    /// Device-local like the primary slot, so it survives app deletion
+    /// and never syncs to other devices.
+    func loadInstallationMarker() throws -> InstallationMarker?
+
+    /// Writes (or overwrites) this device's installation marker.
+    func saveInstallationMarker(_ marker: InstallationMarker) throws
+
     /// Mirrors the primary identity into the synced backup slot when its
     /// backup is missing. Installs that registered before the backup
     /// slot existed only ever wrote the primary slot; calling this on
@@ -294,6 +302,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     /// Fixed account key for the identity in the primary slot.
     public static let identityAccount: String = "convos-identity"
+
+    /// Fixed account key for this device's installation marker, stored
+    /// device-local in `defaultService` alongside the identity.
+    public static let installationMarkerAccount: String = "convos-installation-marker"
 
     // MARK: - Initialization
 
@@ -372,6 +384,20 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         }
     }
 
+    public func loadInstallationMarker() throws -> InstallationMarker? {
+        do {
+            let data = try Self.loadKeychainData(with: installationMarkerQuery.toReadDictionary())
+            return try JSONDecoder().decode(InstallationMarker.self, from: data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func saveInstallationMarker(_ marker: InstallationMarker) throws {
+        let data = try JSONEncoder().encode(marker)
+        try saveData(data, with: installationMarkerQuery)
+    }
+
     public func backfillSyncedBackupIfNeeded() {
         guard syncedBackupEnabled else { return }
         do {
@@ -413,6 +439,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private nonisolated var identityQuery: KeychainQuery {
         KeychainQuery(
             account: Self.identityAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+    }
+
+    private nonisolated var installationMarkerQuery: KeychainQuery {
+        KeychainQuery(
+            account: Self.installationMarkerAccount,
             service: keychainService,
             accessGroup: keychainAccessGroup
         )
