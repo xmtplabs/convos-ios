@@ -54,7 +54,6 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 43 | `qa/tests/43-long-message-rendering.md` | Long-message UX: short renders unchanged, long shows Read More + inline expand, pathological pushes MessageDetailView (Back/Copy/Reply), no-hang guard |
 | 44 | `qa/tests/44-icloud-pairing-prompt.md` | First-install iCloud pairing prompt: Pair <device>? sheet from a synced keychain backup, Skip persistence, and the full no-QR pair handshake (two simulators; Device B is a clone of Device A) |
 | 44b | `qa/tests/44b-pairing-prompt-ordering.md` | Pairable-backup ordering rule: backups newer than this install's own key are never offered; verified both directions via the restamp launch hook (single disposable clone) |
-| 44b | `qa/tests/44b-pairing-prompt-ordering.md` | Pairable-backup ordering rule: backups newer than this install's own key are never offered; verified both directions via the restamp launch hook (single disposable clone) |
 
 ## Running Tests
 
