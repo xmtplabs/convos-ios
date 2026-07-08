@@ -32,7 +32,11 @@ struct PairableDeviceBackupTests {
     @Test("Excludes the current install's own identity")
     func excludesCurrentIdentity() throws {
         let own = try makeBackup(inboxId: "own-inbox", backedUpAt: Date())
-        let other = try makeBackup(inboxId: "other-inbox", deviceName: "Other iPhone", backedUpAt: Date())
+        let other = try makeBackup(
+            inboxId: "other-inbox",
+            deviceName: "Other iPhone",
+            backedUpAt: Date(timeIntervalSinceNow: -60)
+        )
 
         let pairable = PairableDeviceBackup.pairableBackups(
             from: [own, other],
@@ -59,6 +63,49 @@ struct PairableDeviceBackupTests {
         )
 
         #expect(pairable.map(\.inboxId) == ["inbox-b", "inbox-a"])
+    }
+
+    @Test("Excludes backups written after this install's own key")
+    func excludesBackupsNewerThanOwnIdentity() throws {
+        // Device A installed first (t=1000), Device B second (t=2000).
+        // Opening A must not offer to pair with B's newer identity;
+        // opening B still offers A's older one.
+        let deviceA = try makeBackup(inboxId: "inbox-a", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let deviceB = try makeBackup(inboxId: "inbox-b", backedUpAt: Date(timeIntervalSince1970: 2_000))
+
+        let pairableOnA = PairableDeviceBackup.pairableBackups(
+            from: [deviceA, deviceB],
+            excludingInboxId: "inbox-a"
+        )
+        let pairableOnB = PairableDeviceBackup.pairableBackups(
+            from: [deviceA, deviceB],
+            excludingInboxId: "inbox-b"
+        )
+
+        #expect(pairableOnA.isEmpty)
+        #expect(pairableOnB.map(\.inboxId) == ["inbox-a"])
+    }
+
+    @Test("Keeps backups when ordering can't be established")
+    func keepsBackupsWithoutOrderingInformation() throws {
+        // An undated foreign backup (legacy blob) stays pairable, and a
+        // missing own mirror leaves even newer backups pairable - only a
+        // provable newer-than-own ordering suppresses.
+        let own = try makeBackup(inboxId: "own-inbox", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let undated = try makeBackup(inboxId: "undated-inbox")
+        let newer = try makeBackup(inboxId: "newer-inbox", backedUpAt: Date(timeIntervalSince1970: 2_000))
+
+        let withOwnMirror = PairableDeviceBackup.pairableBackups(
+            from: [own, undated],
+            excludingInboxId: "own-inbox"
+        )
+        let withoutOwnMirror = PairableDeviceBackup.pairableBackups(
+            from: [newer],
+            excludingInboxId: "own-inbox"
+        )
+
+        #expect(withOwnMirror.map(\.inboxId) == ["undated-inbox"])
+        #expect(withoutOwnMirror.map(\.inboxId) == ["newer-inbox"])
     }
 
     @Test("Sorts newest backup first, undated backups last")
