@@ -320,6 +320,7 @@ struct ProfilePublisherTests {
         ))
         try await selfProfileStore.saveScopedMetadata(
             ["connections": .string("grants-c1"), "emoji": .string("scoped")],
+            inboxId: "me",
             conversationId: "c1",
             updatedAt: clock.current
         )
@@ -361,8 +362,8 @@ struct ProfilePublisherTests {
 
         // Writing conversation B never clobbered conversation A's stored map -
         // the regression this table exists to prevent.
-        let storedA = try await selfProfileStore.scopedMetadata(conversationId: "convo-a")
-        let storedB = try await selfProfileStore.scopedMetadata(conversationId: "convo-b")
+        let storedA = try await selfProfileStore.scopedMetadata(inboxId: "me", conversationId: "convo-a")
+        let storedB = try await selfProfileStore.scopedMetadata(inboxId: "me", conversationId: "convo-b")
         #expect(storedA?["connections"] == .string("grants-a"))
         #expect(storedB?["connections"] == .string("grants-b"))
         // Nothing leaked into the global map.
@@ -384,7 +385,7 @@ struct ProfilePublisherTests {
         }
         // The scoped map was not persisted, so no later lazy publish can
         // deliver a grant the caller declined to keep.
-        let stored = try await selfProfileStore.scopedMetadata(conversationId: "c1")
+        let stored = try await selfProfileStore.scopedMetadata(inboxId: "me", conversationId: "c1")
         #expect(stored == nil)
     }
 
@@ -398,7 +399,7 @@ struct ProfilePublisherTests {
         await #expect(throws: (any Error).self) {
             try await publisher.publishScopedMetadata(["connections": .string("grants")], conversationId: "c1")
         }
-        let stored = try await selfProfileStore.scopedMetadata(conversationId: "c1")
+        let stored = try await selfProfileStore.scopedMetadata(inboxId: "me", conversationId: "c1")
         #expect(stored == nil)
     }
 }

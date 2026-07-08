@@ -43,37 +43,37 @@ struct SelfProfileStoreTests {
 
         // Scoped metadata: per-conversation maps are independent of each other
         // and of the global profile row.
-        let noScoped = try await store.scopedMetadata(conversationId: "convo-a")
+        let noScoped = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
         #expect(noScoped == nil)
 
-        try await store.saveScopedMetadata(["connections": .string("grants-a")], conversationId: "convo-a", updatedAt: t)
-        try await store.saveScopedMetadata(["connections": .string("grants-b")], conversationId: "convo-b", updatedAt: t)
-        let scopedA = try await store.scopedMetadata(conversationId: "convo-a")
-        let scopedB = try await store.scopedMetadata(conversationId: "convo-b")
+        try await store.saveScopedMetadata(["connections": .string("grants-a")], inboxId: "me", conversationId: "convo-a", updatedAt: t)
+        try await store.saveScopedMetadata(["connections": .string("grants-b")], inboxId: "me", conversationId: "convo-b", updatedAt: t)
+        let scopedA = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
+        let scopedB = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-b")
         #expect(scopedA?["connections"] == .string("grants-a"))
         #expect(scopedB?["connections"] == .string("grants-b"))
 
         // Overwrite replaces the map for that conversation only.
-        try await store.saveScopedMetadata(["timezone": .string("Europe/Paris")], conversationId: "convo-a", updatedAt: t)
-        let replaced = try await store.scopedMetadata(conversationId: "convo-a")
+        try await store.saveScopedMetadata(["timezone": .string("Europe/Paris")], inboxId: "me", conversationId: "convo-a", updatedAt: t)
+        let replaced = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
         #expect(replaced?["timezone"] == .string("Europe/Paris"))
         #expect(replaced?["connections"] == nil)
-        let untouched = try await store.scopedMetadata(conversationId: "convo-b")
+        let untouched = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-b")
         #expect(untouched?["connections"] == .string("grants-b"))
 
         // Nil and empty maps delete the row.
-        try await store.saveScopedMetadata(nil, conversationId: "convo-a", updatedAt: t)
-        let deleted = try await store.scopedMetadata(conversationId: "convo-a")
+        try await store.saveScopedMetadata(nil, inboxId: "me", conversationId: "convo-a", updatedAt: t)
+        let deleted = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
         #expect(deleted == nil)
-        try await store.saveScopedMetadata([:], conversationId: "convo-b", updatedAt: t)
-        let emptied = try await store.scopedMetadata(conversationId: "convo-b")
+        try await store.saveScopedMetadata([:], inboxId: "me", conversationId: "convo-b", updatedAt: t)
+        let emptied = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-b")
         #expect(emptied == nil)
 
         // clear() drops the scoped rows along with the profile, so a cleared
         // self never resurfaces a previous account's grants or timezone.
-        try await store.saveScopedMetadata(["connections": .string("grants")], conversationId: "convo-a", updatedAt: t)
+        try await store.saveScopedMetadata(["connections": .string("grants")], inboxId: "me", conversationId: "convo-a", updatedAt: t)
         try await store.clear()
-        let scopedAfterClear = try await store.scopedMetadata(conversationId: "convo-a")
+        let scopedAfterClear = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
         #expect(scopedAfterClear == nil)
     }
 }

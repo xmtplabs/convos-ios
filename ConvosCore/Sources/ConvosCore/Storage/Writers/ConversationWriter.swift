@@ -1204,7 +1204,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                             name: entry.update.hasName ? entry.update.name : nil,
                             avatar: .fillIfPresent(entry.update.hasEncryptedImage ? entry.update.encryptedImage : nil),
                             memberKind: entry.update.memberKind.dbMemberKind,
-                            metadata: metadata.isEmpty ? nil : metadata,
+                            // Authoritative whole map from the newest replayed
+                            // update; empty propagates as a clear. The recency
+                            // guard keeps an older replay from beating live data.
+                            metadata: metadata,
                             receivedAt: entry.sentAt
                         ),
                         selfInboxId: selfInboxId,

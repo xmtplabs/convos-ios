@@ -8,6 +8,11 @@ import Foundation
 /// - Guards: an empty/absent name never clears a populated one, a verified
 ///   assistant kind is never downgraded to generic `agent`, and the avatar is
 ///   tri-state (only `set`/`explicitClear` change a slot; `silent` leaves it).
+/// - Metadata: a non-nil incoming map is the sender's authoritative whole map -
+///   a winning event replaces the stored one, and an empty map clears it
+///   (revoked grants must propagate; every wire client re-sends its full map on
+///   each update, matching the legacy replace-wholesale receivers). Nil means
+///   the event says nothing about metadata and the stored map is kept.
 enum ProfileMerge {
     /// Trimmed, non-empty name, or nil. A name that is nil/blank/whitespace is
     /// treated as "no name provided".
@@ -44,7 +49,7 @@ enum ProfileMerge {
                 inboxId: inboxId,
                 name: nonBlank(incoming.name),
                 memberKind: incoming.memberKind,
-                metadata: incoming.metadata,
+                metadata: nonEmpty(incoming.metadata),
                 profileSource: source,
                 updatedAt: sentAt
             )
@@ -54,7 +59,12 @@ enum ProfileMerge {
         if winsOver(existingSource: existing.profileSource, existingUpdatedAt: existing.updatedAt, source: source, sentAt: sentAt) {
             result.name = nonBlank(incoming.name) ?? existing.name
             result.memberKind = preserveVerifiedKind(existing.memberKind, incoming.memberKind)
-            result.metadata = incoming.metadata ?? existing.metadata
+            // A winning event's non-nil map replaces the stored one wholesale;
+            // empty clears it (a revoked grant must not survive as stale
+            // metadata). Nil says nothing and keeps the stored map.
+            if let metadata = incoming.metadata {
+                result.metadata = metadata.isEmpty ? nil : metadata
+            }
             result.profileSource = source
             result.updatedAt = sentAt
         } else {
@@ -62,9 +72,15 @@ enum ProfileMerge {
             // never let a low-priority event change an existing kind.
             result.name = existing.name ?? nonBlank(incoming.name)
             result.memberKind = existing.memberKind ?? incoming.memberKind
-            result.metadata = existing.metadata ?? incoming.metadata
+            result.metadata = existing.metadata ?? nonEmpty(incoming.metadata)
         }
         return result
+    }
+
+    /// Non-empty map, or nil. An empty map only means something (an explicit
+    /// clear) to a winning event; blank-fill and fresh rows treat it as absent.
+    private static func nonEmpty(_ metadata: ProfileMetadata?) -> ProfileMetadata? {
+        metadata.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     static func mergeAvatar(

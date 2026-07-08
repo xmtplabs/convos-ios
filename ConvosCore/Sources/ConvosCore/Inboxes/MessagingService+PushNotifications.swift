@@ -961,7 +961,9 @@ extension MessagingService {
                         name: update.hasName ? update.name : nil,
                         avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
                         memberKind: update.memberKind.dbMemberKind,
-                        metadata: metadata.isEmpty ? nil : metadata,
+                        // Authoritative whole map; empty propagates as a clear
+                        // (matches the stream path).
+                        metadata: metadata,
                         receivedAt: receivedAt
                     ),
                     selfInboxId: currentInboxId,

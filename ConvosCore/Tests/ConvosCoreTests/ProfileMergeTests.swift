@@ -93,6 +93,62 @@ struct ProfileMergeIdentityTests {
         )
         #expect(upgrade.memberKind == .verifiedConvos)
     }
+
+    @Test("a winning event's metadata is authoritative: replaces wholesale, empty clears, nil keeps")
+    func metadataReplaceClearKeep() {
+        let existing = DBProfile(
+            inboxId: "i", name: "Alice", metadata: ["connections": .string("grants")],
+            profileSource: .profileUpdate, updatedAt: t1
+        )
+
+        let replaced = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(metadata: ["timezone": .string("Europe/Paris")]),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(replaced.metadata?["timezone"] == .string("Europe/Paris"))
+        #expect(replaced.metadata?["connections"] == nil)
+
+        let cleared = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(metadata: [:]),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(cleared.metadata == nil)
+
+        let kept = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(name: "Alice", metadata: nil),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(kept.metadata?["connections"] == .string("grants"))
+    }
+
+    @Test("a losing event's empty metadata neither clears nor fills")
+    func losingEmptyMetadataIsInert() {
+        let existing = DBProfile(
+            inboxId: "i", name: "Alice", metadata: ["connections": .string("grants")],
+            profileSource: .profileUpdate, updatedAt: t2
+        )
+
+        // Older same-source event with an empty map: loses on recency, keeps.
+        let stale = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(metadata: [:]),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(stale.metadata?["connections"] == .string("grants"))
+
+        // Lower-source event with an empty map: fill-only, and empty fills nothing.
+        let lower = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(metadata: [:]),
+            source: .profileSnapshot, sentAt: t2
+        )
+        #expect(lower.metadata?["connections"] == .string("grants"))
+
+        // A fresh row from an empty map stores nil, not an empty map.
+        let fresh = ProfileMerge.mergeIdentity(
+            existing: nil, inboxId: "i", incoming: IncomingIdentity(name: "Alice", metadata: [:]),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(fresh.metadata == nil)
+    }
 }
 
 @Suite("Profile merge - avatar")

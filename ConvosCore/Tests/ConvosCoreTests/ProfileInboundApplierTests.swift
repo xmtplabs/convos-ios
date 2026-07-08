@@ -66,6 +66,7 @@ struct ProfileInboundApplierTests {
         source: ProfileSource = .profileUpdate,
         name: String?,
         avatar: ProfileInboundApplier.AvatarDisposition,
+        metadata: ProfileMetadata? = nil,
         selfInboxId: String? = "me",
         fallbackKey: Data? = nil,
         sentAt: Date
@@ -80,7 +81,7 @@ struct ProfileInboundApplierTests {
                     name: name,
                     avatar: avatar,
                     memberKind: nil,
-                    metadata: nil,
+                    metadata: metadata,
                     receivedAt: sentAt
                 ),
                 selfInboxId: selfInboxId,
@@ -207,5 +208,45 @@ struct ProfileInboundApplierTests {
 
         let contact = try queue.read { db in try DBContact.fetchOne(db, key: "bob") }
         #expect(contact == nil)
+    }
+
+    @Test("a newer update's empty metadata map clears the stored metadata (revoked grants propagate)")
+    func updateEmptyMetadataClears() throws {
+        let queue = try makeQueue()
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: ["connections": .string("grants")], sentAt: Date(timeIntervalSince1970: 1))
+        let seeded = try profile(queue, inboxId: "alice")
+        #expect(seeded?.metadata?["connections"] == .string("grants"))
+
+        // The sender revoked their last grant: the update's map is empty.
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: [:], sentAt: Date(timeIntervalSince1970: 2))
+
+        let cleared = try profile(queue, inboxId: "alice")
+        #expect(cleared?.metadata == nil)
+    }
+
+    @Test("a newer update's non-empty metadata map replaces the stored one wholesale")
+    func updateMetadataReplacesWholesale() throws {
+        let queue = try makeQueue()
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: ["connections": .string("grants")], sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: ["timezone": .string("Europe/Paris")], sentAt: Date(timeIntervalSince1970: 2))
+
+        let replaced = try profile(queue, inboxId: "alice")
+        #expect(replaced?.metadata?["timezone"] == .string("Europe/Paris"))
+        #expect(replaced?.metadata?["connections"] == nil)
+    }
+
+    @Test("an older replayed update cannot clear newer metadata, and a snapshot never clears")
+    func staleAndSnapshotEventsCannotClearMetadata() throws {
+        let queue = try makeQueue()
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: ["connections": .string("grants")], sentAt: Date(timeIntervalSince1970: 5))
+
+        // A replayed older update (empty map) loses on recency.
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: [:], sentAt: Date(timeIntervalSince1970: 1))
+        // A snapshot path collapses empty to nil before the applier, so it says
+        // nothing about metadata even when newer.
+        try apply(queue, inboxId: "alice", source: .profileSnapshot, name: "Alice", avatar: .fillIfPresent(nil), metadata: nil, sentAt: Date(timeIntervalSince1970: 9))
+
+        let kept = try profile(queue, inboxId: "alice")
+        #expect(kept?.metadata?["connections"] == .string("grants"))
     }
 }

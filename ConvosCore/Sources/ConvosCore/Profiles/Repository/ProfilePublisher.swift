@@ -215,7 +215,7 @@ actor ProfilePublisher {
         }
         let published = PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
         let selfProfile = try await selfProfileStore.load()
-        let metadata = try await outgoingMetadata(for: job.conversationId, selfProfile: selfProfile)
+        let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
         try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
         let slot = DBProfileAvatar(
             inboxId: selfInboxId,
@@ -235,7 +235,7 @@ actor ProfilePublisher {
         let existing = try await profileStore.avatar(inboxId: selfInboxId, conversationId: job.conversationId)
         let published = publishedAvatar(from: existing)
         let selfProfile = try await selfProfileStore.load()
-        let metadata = try await outgoingMetadata(for: job.conversationId, selfProfile: selfProfile)
+        let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
         try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
         await stampPublished(selfProfile, conversationId: job.conversationId)
     }
@@ -277,16 +277,18 @@ actor ProfilePublisher {
             avatar: publishedAvatar(from: slot),
             conversationId: conversationId
         )
-        try await selfProfileStore.saveScopedMetadata(metadata, conversationId: conversationId, updatedAt: now())
+        try await selfProfileStore.saveScopedMetadata(metadata, inboxId: selfInboxId, conversationId: conversationId, updatedAt: now())
     }
 
     /// The metadata map for an outgoing ProfileUpdate to one conversation: the
     /// global self metadata with that conversation's scoped keys merged over it
     /// (scoped wins). Keeps every queue send carrying the conversation's grants
     /// and timezone, so a later name or avatar publish can never wipe them at
-    /// the receiver.
-    private func outgoingMetadata(for conversationId: String, selfProfile: DBMyProfile?) async throws -> ProfileMetadata? {
-        let scoped = try await selfProfileStore.scopedMetadata(conversationId: conversationId)
+    /// the receiver. The caller's already-resolved inbox id is threaded through
+    /// so the store read cannot disagree with the publish about the active
+    /// account mid-flight.
+    private func outgoingMetadata(for conversationId: String, selfInboxId: String, selfProfile: DBMyProfile?) async throws -> ProfileMetadata? {
+        let scoped = try await selfProfileStore.scopedMetadata(inboxId: selfInboxId, conversationId: conversationId)
         return Self.mergedMetadata(global: selfProfile?.metadata, scoped: scoped)
     }
 
