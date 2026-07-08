@@ -209,6 +209,20 @@ extension SharedDatabaseMigrator {
         return migrator
     }
 
+    /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
+    /// Tracks how far the backlog has actually been fetched and applied,
+    /// independently of MAX(message.dateNs), so read receipts older than
+    /// the newest pushed message are no longer skipped by catch-up.
+    private static func registerCatchUpCursorMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createConversationCatchUpCursor") { db in
+            try db.create(table: "conversation_catchup_cursors") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("caughtUpToNs", .integer).notNull()
+            }
+        }
+    }
+
     /// Set-once high-water mark: true once a conversation has ever had a
     /// member besides the local inbox. Member rows are deleted on departure
     /// sync, so without this flag a joined-then-left conversation is
@@ -244,7 +258,8 @@ extension SharedDatabaseMigrator {
 
     /// Tail migrations registered last so they run after every migration above.
     /// Grouped into a helper to keep `createMigrator` under the function-length
-    /// budget. Order within: `dropRevealColumns` then the Profile-table schema.
+    /// budget. Order within: `dropRevealColumns`, the Profile-table schema,
+    /// then the catch-up cursor table.
     private static func registerTailMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
         migrator.registerMigration(
@@ -265,6 +280,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
         migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
+        Self.registerCatchUpCursorMigrations(on: &migrator)
     }
 
     /// Additive, nullable column recording the `myProfile.updatedAt` of the self

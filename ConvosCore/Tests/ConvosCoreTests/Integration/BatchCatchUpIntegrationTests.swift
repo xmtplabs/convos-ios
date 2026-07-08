@@ -104,11 +104,11 @@ struct BatchCatchUpIntegrationTests {
         // Single transaction for the whole backlog persist + one post-commit
         // `setUnread` write that mirrors the stream path's tail in
         // `fetchAndStoreLatestMessages` (the conversation here has 25
-        // messages from A, so it qualifies for unread marking on B). The
-        // headline property is that the *persist* is one transaction
-        // regardless of N messages — not that the entire `run` does zero
-        // post-commit work.
-        #expect(counter.commitCount == 2, "Expected exactly 2 committed transactions during batch.run (1 persist + 1 unread mark), got \(counter.commitCount)")
+        // messages from A, so it qualifies for unread marking on B) + one
+        // catch-up cursor advance. The headline property is that the
+        // *persist* is one transaction regardless of N messages — not that
+        // the entire `run` does zero post-commit work.
+        #expect(counter.commitCount == 3, "Expected exactly 3 committed transactions during batch.run (1 persist + 1 unread mark + 1 cursor advance), got \(counter.commitCount)")
 
         // Messages actually landed in B's DB.
         let storedMessageCount = try await fixtures.databaseManager.dbReader.read { db in
@@ -180,9 +180,10 @@ struct BatchCatchUpIntegrationTests {
         )
 
         #expect(result.messagesProcessed >= messageCount, "Expected at least \(messageCount) messages persisted, got \(result.messagesProcessed)")
-        // One transaction for the persist, and crucially no second
-        // transaction for an unread mark -- the conversation is active.
-        #expect(counter.commitCount == 1, "Expected exactly 1 committed transaction (persist only, no unread mark) for the active conversation, got \(counter.commitCount)")
+        // One transaction for the persist plus the catch-up cursor advance,
+        // and crucially no transaction for an unread mark -- the
+        // conversation is active.
+        #expect(counter.commitCount == 2, "Expected exactly 2 committed transactions (persist + cursor advance, no unread mark) for the active conversation, got \(counter.commitCount)")
 
         let isUnread = try await fixtures.databaseManager.dbReader.read { db in
             try ConversationLocalState
@@ -304,6 +305,98 @@ struct BatchCatchUpIntegrationTests {
 
         #expect(result.conversationsProcessed == 0, "Expected 0 changed conversations, got \(result.conversationsProcessed)")
         #expect(result.messagesProcessed == 0, "Expected 0 messages persisted, got \(result.messagesProcessed)")
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Catch-up does not skip read receipts older than the newest stored message")
+    func catchUpFetchesReadReceiptBehindNewerStoredMessage() async throws {
+        let fixtures = TestFixtures()
+        try await fixtures.createTestClients()
+
+        guard let clientA = fixtures.clientA as? Client,
+              let clientB = fixtures.clientB as? Client,
+              let clientIdB = fixtures.clientIdB else {
+            throw TestError.missingClients
+        }
+        let inboxIdB = clientB.inboxID
+
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdB, clientId: clientIdB, createdAt: Date()).insert(db)
+        }
+
+        let group = try await clientA.conversations.newGroup(
+            with: [clientB.inboxID],
+            name: "Receipt Cursor Group"
+        )
+        try await clientB.conversations.sync()
+
+        // Seed: one message from A, then a first catch-up so the
+        // conversation, members, and catch-up cursor all exist locally.
+        _ = try await group.send(content: "seed")
+
+        let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
+        let conversationWriter = ConversationWriter(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            messageWriter: messageWriter
+        )
+        let batch = BatchCatchUp(
+            conversationWriter: conversationWriter,
+            messageWriter: messageWriter,
+            databaseWriter: fixtures.databaseManager.dbWriter
+        )
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+
+        let seededCursor = try await fixtures.databaseManager.dbReader.read { db in
+            try DBConversationCatchUpCursor.caughtUpToNs(for: group.id, in: db)
+        }
+        #expect(seededCursor != nil, "First catch-up should seed the catch-up cursor")
+
+        // While B is "offline": A reads (sends a read receipt), then a newer
+        // regular message lands in B's DB via the NSE without any catch-up
+        // running — so MAX(message.dateNs) moves ahead of the receipt while
+        // the cursor stays put. Pre-cursor, the next catch-up cut at
+        // MAX(message.dateNs) and skipped the receipt forever.
+        _ = try await group.send(encodedContent: ReadReceiptCodec().encode(content: ReadReceipt()))
+        _ = try await group.send(content: "newer than the receipt")
+
+        let pushedDate = Date(timeIntervalSinceNow: 60)
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBMessage(
+                id: "nse-pushed-message",
+                clientMessageId: "nse-pushed-message",
+                conversationId: group.id,
+                senderId: clientA.inboxID,
+                dateNs: pushedDate.nanosecondsSince1970,
+                date: pushedDate,
+                sortId: 999,
+                status: .published,
+                messageType: .original,
+                contentType: .text,
+                text: "pushed while app was closed",
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: [],
+                update: nil
+            ).insert(db)
+        }
+
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+
+        // The read receipt behind the pushed message must have been fetched
+        // and stored.
+        let receipt = try await fixtures.databaseManager.dbReader.read { db in
+            try DBConversationReadReceipt
+                .filter(
+                    DBConversationReadReceipt.Columns.conversationId == group.id
+                        && DBConversationReadReceipt.Columns.inboxId == clientA.inboxID
+                )
+                .fetchOne(db)
+        }
+        #expect(receipt != nil, "Read receipt older than the newest stored message must still be caught up")
 
         try? await fixtures.cleanup()
     }
