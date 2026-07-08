@@ -182,11 +182,16 @@ struct ContactsView: View {
     /// a user with no contacts still sees the invite actions -- the exact moment
     /// they need them. The contacts list renders the same actions via its
     /// `leadingContent`; this covers the branches that don't reach the list.
+    /// The explicit padding mirrors the list's default row insets so the
+    /// actions don't shift when the list takes over (e.g. once the
+    /// suggested-agents page lands).
     @ViewBuilder
     private func emptyStateWithInviteActions<Body: View>(@ViewBuilder body: () -> Body) -> some View {
         if let actions = inviteActionsContent {
             VStack(spacing: 0) {
                 actions
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                 body()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
