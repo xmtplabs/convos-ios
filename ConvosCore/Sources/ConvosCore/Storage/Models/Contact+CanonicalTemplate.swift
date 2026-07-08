@@ -60,9 +60,11 @@ extension Array where Element == Contact {
     /// Collapses template-backed agents to a single representative per
     /// `agentTemplateId` (the first encountered), overlaying the cached
     /// canonical template identity when available; humans and template-less
-    /// contacts pass through untouched. Order is preserved. When the cache
-    /// is still cold for a template, its representative shows instance data
-    /// until the canonical identity arrives.
+    /// contacts pass through untouched. Template-less verified agents therefore
+    /// keep their inbox identity and can be selected as already-running direct
+    /// contacts. Order is preserved. When the cache is still cold for a
+    /// template, its representative shows instance data until the canonical
+    /// identity arrives.
     func dedupingAgentsByTemplate(using templates: [String: AgentTemplateInfo]) -> [Contact] {
         // A block on ANY instance of a template blocks the canonical row, so
         // collapsing instances can never hide a block the user made.

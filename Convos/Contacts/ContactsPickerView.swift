@@ -273,8 +273,10 @@ struct ContactsPickerView: View {
     }
 
     private func performConfirm() {
-        // Split the selection: agents are spawned by template, not added
-        // as members, so they're excluded from the member ids.
+        // Split the selection: template-backed agents are spawned by template,
+        // not added as members, so they're excluded from the member ids.
+        // Verified template-less agents have no template to spawn from, so
+        // they remain in `memberIds` and join by their existing inbox id.
         let agentTemplateIds = viewModel.selectedAgentTemplateIds
         let memberIds = viewModel.selectedInboxIds.subtracting(viewModel.selectedAgentInboxIds)
         onConfirm(memberIds, agentTemplateIds)

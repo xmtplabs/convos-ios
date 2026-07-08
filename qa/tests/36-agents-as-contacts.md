@@ -29,12 +29,12 @@ conversation. (Screenshots captured during the run.)
   (`agent-composer-text-field`) and tap `agent-make-button`; the builder names the
   agent and provisions it. This avoids the invite deep-link path (which opened Safari
   / created non-joining drafts on this build) entirely.
-- **Backend provisioning is required.** The built agent only becomes a *visible*
-  contact once the backend assigns a templateId. If the account isn't provisioned
+- **Local stack caveat:** the browse list now intentionally shows verified agents
+  even before the backend mirrors a templateId. If the account isn't provisioned
   (`GET /accounts/me/credits` 403 / generator `ownerAccountId does not exist`), the
-  agent shows "lost power" and stays template-less -> hidden from contacts. Then
-  `isVisibleInContactsList` is false. (This was the local-stack gap; once the stack
-  provisions the account, the agent is a visible contact.)
+  agent may show "lost power" / missing publish/share affordances, but it remains
+  selectable as an existing inbox. Once the stack provisions the account and assigns
+  a templateId, starting or adding it can spawn a fresh template instance.
 - **Publish/share is a known-issue on local.** Even with a visible contact, Share can
   404 (`agent-templates` registry has no published row for the templateId). The app
   surfaces a readable DisplayError now (not "error 6").

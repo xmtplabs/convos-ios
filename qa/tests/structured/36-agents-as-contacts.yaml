@@ -76,10 +76,11 @@ steps:
     criteria: agent_template_provisioned
     note: >
       Until the templateId is assigned, the agent is verified but template-less
-      (agentTemplateId == nil) and isVisibleInContactsList returns false, so it will
-      NOT appear in the browse list. A "lost power" / "Upgrade" badge here means the
-      local backend credit/generator provisioning failed - see prerequisites.
-
+      (agentTemplateId == nil). It should still appear in the browse list and picker
+      as an existing inbox, but starting/adding it will not spawn a fresh template
+      instance. A "lost power" / "Upgrade" badge here means the local backend
+      account/provisioning path failed; fix the local account seed before treating
+      template-backed spawning/publish-share behavior as an app regression.
   - id: agent_appears_in_contacts
     name: "The built template-backed agent appears in the Contacts list"
     actions:

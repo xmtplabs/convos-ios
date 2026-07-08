@@ -32,11 +32,11 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, carl.inboxId].sorted())
     }
 
-    /// New-conversation mode surfaces humans and template-backed agents
-    /// (you can spawn a fresh instance into the new convo). Template-less
-    /// agents - legacy verified assistants and unverified agents - stay
-    /// hidden.
-    func testNewConversationShowsTemplateBackedAgentsOnly() {
+    /// New-conversation mode surfaces humans, template-backed agents, and
+    /// verified template-less agents. Template-backed selections can spawn a
+    /// fresh instance; template-less verified agents are added by inbox id.
+    /// Unverified agents stay hidden.
+    func testNewConversationShowsVerifiedAgentsIncludingTemplateLessAgents() {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
@@ -56,22 +56,24 @@ final class ContactsPickerViewModelTests: XCTestCase {
         let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
 
         let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
-        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, coffeeAgent.inboxId, legacyAssistant.inboxId].sorted())
     }
 
-    /// Add-to-conversation mode is human-only - agents aren't spawned into
-    /// an existing conversation from the picker.
-    func testAddToConversationShowsAgents() {
-        // Template-backed agents are selectable in add-to-conversation mode
-        // too: confirming spawns a fresh instance of the template into the
-        // existing conversation.
+    /// Add-to-conversation mode surfaces humans and verified agents.
+    func testAddToConversationShowsVerifiedAgents() {
+        // Template-backed agents spawn a fresh instance into the existing
+        // conversation; verified template-less agents are added by inbox id.
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
             agentVerification: .verified(.convos),
             agentTemplateId: "tmpl-coffee"
         )
-        let repo = MockContactsRepository(contacts: [alice, coffeeAgent])
+        let legacyAssistant = Contact.mock(
+            displayName: "Legacy Assistant",
+            agentVerification: .verified(.convos)
+        )
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant])
 
         let viewModel = ContactsPickerViewModel(
             mode: .addToConversation(conversationId: "convo-1", conversationTitle: nil),
@@ -79,7 +81,7 @@ final class ContactsPickerViewModelTests: XCTestCase {
         )
 
         let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
-        XCTAssertEqual(allRowIds, [alice.inboxId, coffeeAgent.inboxId])
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, coffeeAgent.inboxId, legacyAssistant.inboxId].sorted())
     }
 
     /// Multiple agents can be selected alongside humans; each selected
@@ -115,6 +117,21 @@ final class ContactsPickerViewModelTests: XCTestCase {
         // Deselecting one agent leaves the other selected.
         viewModel.toggleSelection(for: coffee.inboxId)
         XCTAssertEqual(viewModel.selectedAgentTemplateIds, ["tmpl-tea"])
+    }
+
+    func testVerifiedTemplateLessAgentSelectionStaysInMemberInboxIds() {
+        let assistant = Contact.mock(
+            displayName: "Legacy Assistant",
+            agentVerification: .verified(.convos)
+        )
+        let repo = MockContactsRepository(contacts: [assistant])
+        let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
+
+        viewModel.toggleSelection(for: assistant.inboxId)
+
+        XCTAssertEqual(viewModel.selectedInboxIds, [assistant.inboxId])
+        XCTAssertTrue(viewModel.selectedAgentInboxIds.isEmpty)
+        XCTAssertTrue(viewModel.selectedAgentTemplateIds.isEmpty)
     }
 
     func testHashBucketSortsLastForNonAlphaNames() {
@@ -305,7 +322,7 @@ final class ContactsPickerViewModelTests: XCTestCase {
 
     /// `pickableContacts` is the shared filter the Compose flow uses to decide
     /// whether the picker is worth showing. It must agree with what the picker
-    /// renders -- named humans only, not blocked, not verified agents.
+    /// renders -- named humans and verified agents, not blocked or hidden rows.
     func testPickableContactsKeepsNamedHumans() {
         let alice = Contact.mock(displayName: "Alice")
         let bob = Contact.mock(displayName: "Bob")
@@ -320,12 +337,15 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.inboxId), [alice.inboxId])
     }
 
-    func testPickableContactsExcludesVerifiedAgents() {
+    func testPickableContactsKeepsVerifiedAgents() {
         let alice = Contact.mock(displayName: "Alice")
         let convosAgent = Contact.mock(displayName: "Convos Assistant", agentVerification: .verified(.convos))
         let oauthAgent = Contact.mock(displayName: "OAuth Bot", agentVerification: .verified(.userOAuth))
         let result = ContactsPickerViewModel.pickableContacts([alice, convosAgent, oauthAgent])
-        XCTAssertEqual(result.map(\.inboxId), [alice.inboxId])
+        XCTAssertEqual(
+            result.map(\.inboxId).sorted(),
+            [alice.inboxId, convosAgent.inboxId, oauthAgent.inboxId].sorted()
+        )
     }
 
     func testPickableContactsExcludesUnnamed() {
@@ -336,14 +356,14 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.inboxId), [named.inboxId])
     }
 
-    /// All agents / blocked / unnamed collapses to empty -- which is exactly
+    /// Hidden / blocked / unnamed contacts collapse to empty -- which is exactly
     /// what makes Compose skip the picker and open the new-conversation view
     /// directly (the bug behind the "13 contacts but empty picker" report).
     func testPickableContactsEmptyWhenNonePickable() {
-        let agent = Contact.mock(displayName: "Agent", agentVerification: .verified(.convos))
+        let unverifiedAgent = Contact.mock(displayName: "Agent", agentVerification: .unverified)
         let blocked = Contact.mock(displayName: "Blocked", isBlocked: true)
         let unnamed = Contact.mock(displayName: nil)
-        XCTAssertTrue(ContactsPickerViewModel.pickableContacts([agent, blocked, unnamed]).isEmpty)
+        XCTAssertTrue(ContactsPickerViewModel.pickableContacts([unverifiedAgent, blocked, unnamed]).isEmpty)
     }
 
     // MARK: - Suggested agents

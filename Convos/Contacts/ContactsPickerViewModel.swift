@@ -235,25 +235,29 @@ final class ContactsPickerViewModel {
         selectedInboxIds.contains(inboxId)
     }
 
-    /// `inboxId`s of the currently selected agents.
+    /// `inboxId`s of selected template-backed agents. Those are excluded from
+    /// member ids at confirmation because they are spawned by template id.
+    /// Verified template-less agents intentionally stay in `selectedInboxIds`
+    /// only, so confirming adds their existing inbox directly.
     var selectedAgentInboxIds: Set<String> {
         Set(selectedContacts.filter { $0.agentTemplateId != nil }.map(\.inboxId))
     }
 
     /// `agentTemplateId`s of the currently selected agents, threaded into
-    /// conversation creation so a fresh instance of each template is
-    /// spawned into the new (or existing) conversation.
+    /// conversation creation so a fresh instance of each template-backed agent
+    /// is spawned into the new (or existing) conversation.
     var selectedAgentTemplateIds: [String] {
         selectedContacts.compactMap(\.agentTemplateId)
     }
 
     /// Single source of truth for "is this contact a valid picker row".
     /// A contact is pickable when it shows in the Contacts browse list
-    /// (`isVisibleInContactsList`: template-backed agents and named humans)
+    /// (`isVisibleInContactsList`: verified agents and named humans)
     /// and the user hasn't blocked it. Blocked contacts stay in the browse
     /// list so they can be unblocked, but they are never a valid picker
     /// target. Template-backed agents are selectable in every mode, since
-    /// starting (or adding to) a conversation spawns a fresh instance.
+    /// starting (or adding to) a conversation spawns a fresh instance;
+    /// template-less verified agents are selected by inbox id.
     static func isPickable(_ contact: Contact) -> Bool {
         !contact.isBlocked && contact.isVisibleInContactsList
     }

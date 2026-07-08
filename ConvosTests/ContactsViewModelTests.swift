@@ -10,11 +10,10 @@ import XCTest
 final class ContactsViewModelTests: XCTestCase {
     // MARK: - Agents in the browse list
 
-    /// Only template-backed agents appear in the browse list (tagged with
-    /// the trailing Agent pill). Humans always show; agents without a
-    /// template id - legacy verified assistants and unverified agents -
-    /// stay in `DBContact` for chat-side resolution but are hidden here.
-    func testSectionsShowOnlyTemplateBackedAgents() {
+    /// Verified agents appear in the browse list even before a template id has
+    /// mirrored. Humans always show; unverified agents stay in `DBContact` for
+    /// chat-side resolution but are hidden here.
+    func testSectionsShowVerifiedAgentsIncludingTemplateLessAgents() {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
@@ -34,14 +33,14 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        // Human + template-backed agent show; template-less agents hidden.
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
+        // Human + verified agents show; only unverified agents are hidden.
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, coffeeAgent.inboxId, legacyAssistant.inboxId].sorted())
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
     /// `ContactsView` body and the compose button's enabled flag. It counts
-    /// only browsable rows - humans and template-backed agents - so a
-    /// template-less agent does not inflate the total.
+    /// only browsable rows - humans and verified agents, including verified
+    /// template-less agents.
     func testContactCountCountsBrowsableRowsOnly() {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
@@ -57,8 +56,8 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        XCTAssertEqual(viewModel.contactCount, 2)
-        XCTAssertEqual(viewModel.sections.flatMap { $0.rows }.count, 2)
+        XCTAssertEqual(viewModel.contactCount, 3)
+        XCTAssertEqual(viewModel.sections.flatMap { $0.rows }.count, 3)
     }
 
     // MARK: - Search

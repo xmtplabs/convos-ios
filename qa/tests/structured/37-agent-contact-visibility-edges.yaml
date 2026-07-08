@@ -8,10 +8,10 @@ description: >
   conversation is inline-disabled, and adding a second agent to a conversation that
   already has one is blocked by the !hasAgent guard. Guards
   ContactsPickerViewModel.isPickable / already-in-chat handling and
-  AddFromContactsPickerModifier.handleConfirm. Two visibility invariants that can't
+  AddFromContactsPickerModifier.handleConfirm. Visibility invariants that can't
   be reproduced cleanly through the builder UI (a verified agent with no templateId
-  staying hidden; a metadata-less name-only update keeping the sticky templateId)
-  are covered by the ConvosCore unit suite and noted below.
+  surfacing as an existing inbox; a metadata-less name-only update keeping the sticky
+  templateId) are covered by the ConvosCore unit suite and noted below.
 tags: [agents, contacts, picker, edge-cases, local-stack, agent-builder]
 depends_on: ["36"]
 estimated_duration_s: 420
