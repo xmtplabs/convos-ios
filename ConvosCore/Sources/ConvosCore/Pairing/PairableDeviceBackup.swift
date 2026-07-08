@@ -36,12 +36,29 @@ extension PairableDeviceBackup {
     /// opposed to returning nil) must not call this with nil - they
     /// can't tell whether an own backup is present and should hide the
     /// prompt until a later check succeeds.
+    ///
+    /// Backups written after this install's own key are also excluded:
+    /// the "Pair <device>?" prompt exists to recover an identity that
+    /// predates this install, and a newer backup means the other device
+    /// was set up after this one (installing on a second device must not
+    /// make the first device offer to demote itself to that newer
+    /// identity). The install's own mirror in `backups` is the reference
+    /// clock - it was stamped when this install's identity was saved.
+    /// When ordering can't be established (no own mirror yet, or either
+    /// side missing a timestamp) the backup stays pairable.
     static func pairableBackups(
         from backups: [KeychainIdentityBackup],
         excludingInboxId currentInboxId: String?
     ) -> [PairableDeviceBackup] {
+        let ownBackedUpAt: Date? = backups
+            .first { $0.inboxId == currentInboxId }?
+            .backedUpAt
         return backups
             .filter { $0.inboxId != currentInboxId }
+            .filter { (backup: KeychainIdentityBackup) -> Bool in
+                guard let ownBackedUpAt, let backedUpAt = backup.backedUpAt else { return true }
+                return backedUpAt <= ownBackedUpAt
+            }
             .map { (backup: KeychainIdentityBackup) -> PairableDeviceBackup in
                 PairableDeviceBackup(
                     inboxId: backup.inboxId,
