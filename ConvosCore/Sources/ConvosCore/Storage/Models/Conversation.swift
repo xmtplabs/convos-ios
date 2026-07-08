@@ -245,14 +245,16 @@ public extension Conversation {
         if otherMembers.count == 1, let member = otherMembers.first {
             return .profile(member.profile, member.agentVerification)
         }
-        if let conversationEmoji, !conversationEmoji.isEmpty {
-            return .emoji(conversationEmoji)
-        }
+        // A group whose members have avatars renders the combined cluster of
+        // their photos. This is checked before the conversation emoji because
+        // that emoji is only ever an auto-seeded fallback (there is no UI to
+        // choose it), so it should show only when there is nothing better - not
+        // suppress the member cluster.
         let otherProfiles = otherMembers.map(\.profile)
-        if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
-            return .emoji(defaultEmoji)
+        if !otherProfiles.isEmpty, otherProfiles.hasAnyAvatar {
+            return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
         }
-        return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
+        return .emoji(defaultEmoji)
     }
 
     var memberNamesString: String {
