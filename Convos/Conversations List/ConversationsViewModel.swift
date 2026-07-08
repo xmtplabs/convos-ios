@@ -895,7 +895,10 @@ extension ConversationsViewModel {
     /// and the conversations count includes the hidden prewarmed convo),
     /// which would permanently suppress the prompt from the second launch
     /// on. The prompt therefore shows whenever another identity's backup
-    /// exists and the user hasn't declined; data on an established
+    /// predating this install's own key exists and the user hasn't
+    /// declined (newer backups are never offered - installing on a second
+    /// device must not make the first offer to demote itself; see
+    /// `PairableDeviceBackup.pairableBackups`). Data on an established
     /// install stays safe because the joiner flow runs its own
     /// hold-to-erase guard before anything destructive.
     func checkForPairableDeviceIfNeeded() {

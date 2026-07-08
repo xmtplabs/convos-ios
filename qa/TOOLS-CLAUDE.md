@@ -153,7 +153,7 @@ tail -c +$((LOG_MARKER_BYTES + 1)) "$APP_GROUP" | grep -F '[EVENT]'
 tail -c +$((LOG_MARKER_BYTES + 1)) "$APP_GROUP" | grep -F '[EVENT] message.sent'
 ```
 
-If the app is relaunched mid-test, the log file is truncated and rewritten — re-read `APP_GROUP` and reset `LOG_MARKER_BYTES` to 0. You can detect this cheaply before any read:
+A relaunch mid-test may truncate and rewrite the log file, or may simply append (observed both ways; clones also inherit the source simulator's full log history). Don't assume either — keep byte-offset markers and run this cheap shrink check before any read:
 
 ```bash
 CURRENT_SIZE=$(wc -c < "$APP_GROUP")

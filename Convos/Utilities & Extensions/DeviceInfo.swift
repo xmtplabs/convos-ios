@@ -1,3 +1,4 @@
+import ConvosCoreiOS
 import Foundation
 import UIKit
 
@@ -30,11 +31,12 @@ struct DeviceInfo {
         return identifierForVendor ?? fallbackIdentifier
     }
 
-    /// Returns the user-facing device name (e.g. "Jarod's iPhone").
-    /// Used by the pairing flow to show "X is requesting to pair" copy
-    /// on the joining device.
+    /// Returns the user-facing device name (e.g. "Jarod's iPhone" when the
+    /// user-assigned-device-name entitlement allows it, "iPhone 16 Pro"
+    /// otherwise - see `DeviceModelName`). Used by the pairing flow to show
+    /// "X is requesting to pair" copy on the joining device.
     static var deviceName: String {
-        UIDevice.current.name
+        DeviceModelName.userFacingDeviceName()
     }
 
     /// Returns the current OS string
