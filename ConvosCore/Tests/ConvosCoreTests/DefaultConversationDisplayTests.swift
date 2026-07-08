@@ -609,6 +609,20 @@ struct DefaultConversationDisplayTests {
         }
     }
 
+    @Test("emptyStateMock avatarType resolves to the supplied emoji")
+    func emptyStateMockAvatarTypeIsSuppliedEmoji() {
+        // The empty-state CTA carousel mock must render its emoji, not a
+        // cluster of never-loading mock avatars, even though member avatars
+        // outrank the conversation emoji for real groups.
+        let conversation = Conversation.emptyStateMock(id: "cta", name: "Book Club", emoji: "📚")
+
+        if case .emoji(let emoji) = conversation.avatarType {
+            #expect(emoji == "📚")
+        } else {
+            #expect(Bool(false), "Expected emoji avatar type - the empty-state mock members must not form a cluster")
+        }
+    }
+
     // MARK: - Member Name Limiting Tests
 
     @Test("Four named profiles shows three and 1 other")
