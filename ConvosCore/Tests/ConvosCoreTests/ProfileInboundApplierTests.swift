@@ -221,7 +221,32 @@ struct ProfileInboundApplierTests {
         try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), metadata: [:], sentAt: Date(timeIntervalSince1970: 2))
 
         let cleared = try profile(queue, inboxId: "alice")
-        #expect(cleared?.metadata == nil)
+        #expect(cleared?.metadata?["connections"] == nil)
+
+        // And a stale snapshot cannot resurrect the revoked grants: the clear
+        // left a tombstone, not a blank.
+        try apply(queue, inboxId: "alice", source: .profileSnapshot, name: "Alice", avatar: .fillIfPresent(nil), metadata: ["connections": .string("grants")], sentAt: Date(timeIntervalSince1970: 3))
+        let afterSnapshot = try profile(queue, inboxId: "alice")
+        #expect(afterSnapshot?.metadata?["connections"] == nil)
+    }
+
+    @Test("a metadata-less update clears scoped keys only, preserving e.g. an attestation")
+    func emptyMetadataPreservesUnscopedKeys() throws {
+        let queue = try makeQueue()
+        try apply(
+            queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil),
+            metadata: ["connections": .string("grants"), "custom": .string("kept")],
+            sentAt: Date(timeIntervalSince1970: 1)
+        )
+
+        // A name-only update from a client that does not re-send its map
+        // decodes as an empty map.
+        try apply(queue, inboxId: "alice", name: "Alice Renamed", avatar: .addressed(nil), metadata: [:], sentAt: Date(timeIntervalSince1970: 2))
+
+        let merged = try profile(queue, inboxId: "alice")
+        #expect(merged?.name == "Alice Renamed")
+        #expect(merged?.metadata?["connections"] == nil)
+        #expect(merged?.metadata?["custom"] == .string("kept"))
     }
 
     @Test("a newer update's non-empty metadata map replaces the stored one wholesale")

@@ -108,17 +108,59 @@ struct ProfileMergeIdentityTests {
         #expect(replaced.metadata?["timezone"] == .string("Europe/Paris"))
         #expect(replaced.metadata?["connections"] == nil)
 
+        // An empty map clears the scoped keys and leaves a tombstone.
         let cleared = ProfileMerge.mergeIdentity(
             existing: existing, inboxId: "i", incoming: IncomingIdentity(metadata: [:]),
             source: .profileUpdate, sentAt: t2
         )
-        #expect(cleared.metadata == nil)
+        #expect(cleared.metadata?["connections"] == nil)
+        #expect(cleared.metadata?.isEmpty == true)
 
         let kept = ProfileMerge.mergeIdentity(
             existing: existing, inboxId: "i", incoming: IncomingIdentity(name: "Alice", metadata: nil),
             source: .profileUpdate, sentAt: t2
         )
         #expect(kept.metadata?["connections"] == .string("grants"))
+    }
+
+    @Test("an empty map clears only the conversation-scoped keys, never e.g. an attestation")
+    func emptyMapClearsOnlyScopedKeys() {
+        let existing = DBProfile(
+            inboxId: "i", name: "Agent",
+            metadata: [
+                "connections": .string("grants"),
+                "timezone": .string("Europe/Paris"),
+                "attestation": .string("signed-attestation")
+            ],
+            profileSource: .profileUpdate, updatedAt: t1
+        )
+
+        // A metadata-less name-only update decodes as an empty map; it must
+        // not wipe keys outside the scoped set.
+        let merged = ProfileMerge.mergeIdentity(
+            existing: existing, inboxId: "i", incoming: IncomingIdentity(name: "Agent", metadata: [:]),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(merged.metadata?["connections"] == nil)
+        #expect(merged.metadata?["timezone"] == nil)
+        #expect(merged.metadata?["attestation"] == .string("signed-attestation"))
+    }
+
+    @Test("the empty-map tombstone stops a stale snapshot from resurrecting revoked keys")
+    func tombstoneBlocksSnapshotResurrection() {
+        // Revoked: the winning clear left an empty-map tombstone.
+        let cleared = DBProfile(
+            inboxId: "i", name: "Alice", metadata: [:],
+            profileSource: .profileUpdate, updatedAt: t2
+        )
+
+        // A snapshot built from a stale view still carries the old grants;
+        // the fill-blank path must not treat the tombstone as "never known".
+        let afterSnapshot = ProfileMerge.mergeIdentity(
+            existing: cleared, inboxId: "i", incoming: IncomingIdentity(metadata: ["connections": .string("stale-grants")]),
+            source: .profileSnapshot, sentAt: t2
+        )
+        #expect(afterSnapshot.metadata?["connections"] == nil)
     }
 
     @Test("a losing event's empty metadata neither clears nor fills")
