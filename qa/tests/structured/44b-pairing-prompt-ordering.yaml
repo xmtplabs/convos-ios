@@ -60,7 +60,9 @@ steps:
       This mirrors test 44's single-sim shortcut: the wipe hook deletes
       the device-local identity, the app registers a fresh placeholder
       (whose backup mirror is stamped now), and the prior identity's
-      older backup is offered. Do not tap Skip - it sets the
+      older backup is offered. pairableCount may exceed 1 if the primary
+      carried backups from earlier wipe cycles - the criteria use >=1
+      and =0 semantics on purpose. Do not tap Skip - it sets the
       hasDeclinedFoundDevicePairing flag and would suppress the prompt
       for the rest of the test. Terminate the app instead to move on.
 
