@@ -65,6 +65,13 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
+    /// Recorded for assertions: every batch passed to `setConsentStates`.
+    public private(set) var setConsentStatesCalls: [(conversationIds: [String], consent: Consent)] = []
+
+    public func setConsentStates(conversationIds: [String], consent: Consent) async throws {
+        setConsentStatesCalls.append((conversationIds: conversationIds, consent: consent))
+    }
+
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
         // No-op for mock
     }

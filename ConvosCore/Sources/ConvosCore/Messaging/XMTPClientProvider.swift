@@ -124,6 +124,11 @@ public protocol XMTPClientProvider: AnyObject {
     func conversation(with id: String) async throws -> XMTPiOS.Conversation?
     func inboxId(for ethereumAddress: String) async throws -> String?
     func update(consent: Consent, for conversationId: String) async throws
+    /// Writes consent records directly at the preferences layer, without
+    /// requiring the conversations to exist locally - records written
+    /// before a conversation's welcome arrives still apply to it. Used to
+    /// restore backed-up consent after a reinstall.
+    func setConsentStates(conversationIds: [String], consent: Consent) async throws
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
@@ -235,6 +240,18 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func setConsentStates(conversationIds: [String], consent: Consent) async throws {
+        guard !conversationIds.isEmpty else { return }
+        let entries = conversationIds.map { (conversationId: String) -> ConsentRecord in
+            ConsentRecord(
+                value: conversationId,
+                entryType: .conversation_id,
+                consentType: consent.consentState
+            )
+        }
+        try await preferences.setConsentState(entries: entries)
     }
 
     public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {

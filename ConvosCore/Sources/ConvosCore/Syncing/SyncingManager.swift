@@ -70,6 +70,7 @@ enum SyncingError: Error {
     case streamRetriesExhausted
 }
 
+// swiftlint:disable:next type_body_length
 actor SyncingManager: SyncingManagerProtocol {
     // MARK: - State Machine
 
@@ -135,6 +136,7 @@ actor SyncingManager: SyncingManagerProtocol {
     /// source of truth for feed visibility). Reconstructed per session
     /// start because it captures the live XMTP client.
     private var consentReconciler: ConversationConsentReconciler?
+    private var consentBackupMirror: ConsentBackupMirror?
 
     /// Populates the agent-template read-through cache for template-backed
     /// agent contacts. Reconstructed per start because it captures the
@@ -214,6 +216,7 @@ actor SyncingManager: SyncingManagerProtocol {
     deinit {
         // Clean up tasks
         consentReconciler?.stop()
+        consentBackupMirror?.stop()
         agentTemplateCacheCoordinator?.stop()
         syncTask?.cancel()
         notificationTask?.cancel()
@@ -1115,17 +1118,21 @@ extension SyncingManager {
         installPushTokenObserver()
     }
 
-    /// Stop and clear the session-scoped observers (consent reconciler and
-    /// agent-template cache coordinator) on pause / teardown.
+    /// Stop and clear the session-scoped observers (consent reconciler,
+    /// consent backup mirror, and agent-template cache coordinator) on
+    /// pause / teardown.
     fileprivate func stopSessionScopedObservers() {
         consentReconciler?.stop()
         consentReconciler = nil
+        consentBackupMirror?.stop()
+        consentBackupMirror = nil
         agentTemplateCacheCoordinator?.stop()
         agentTemplateCacheCoordinator = nil
     }
 
-    /// (Re)start the consent reconciler with the live client. Safe to call
-    /// on every start / resume - the previous instance is stopped first.
+    /// (Re)start the consent reconciler and the consent backup mirror with
+    /// the live client. Safe to call on every start / resume - the
+    /// previous instances are stopped first.
     fileprivate func restartConsentReconciler(client: AnyClientProvider) {
         consentReconciler?.stop()
         let reconciler = ConversationConsentReconciler(
@@ -1135,6 +1142,14 @@ extension SyncingManager {
         )
         reconciler.start()
         consentReconciler = reconciler
+
+        consentBackupMirror?.stop()
+        let mirror = ConsentBackupMirror(
+            databaseReader: databaseReader,
+            identityStore: identityStore
+        )
+        mirror.start()
+        consentBackupMirror = mirror
     }
 
     /// (Re)start the agent-template cache coordinator with the live API

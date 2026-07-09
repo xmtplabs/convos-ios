@@ -243,6 +243,14 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// Writes (or overwrites) this device's installation marker.
     func saveInstallationMarker(_ marker: InstallationMarker) throws
 
+    /// Reads this device's consent backup (see `ConsentBackup`).
+    /// Device-local like the primary slot, so it survives app deletion
+    /// and never syncs to other devices.
+    func loadConsentBackup() throws -> ConsentBackup?
+
+    /// Writes (or overwrites) this device's consent backup.
+    func saveConsentBackup(_ backup: ConsentBackup) throws
+
     /// Mirrors the primary identity into the synced backup slot when its
     /// backup is missing. Installs that registered before the backup
     /// slot existed only ever wrote the primary slot; calling this on
@@ -306,6 +314,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// Fixed account key for this device's installation marker, stored
     /// device-local in `defaultService` alongside the identity.
     public static let installationMarkerAccount: String = "convos-installation-marker"
+
+    /// Fixed account key for this device's consent backup, stored
+    /// device-local in `defaultService` alongside the identity.
+    public static let consentBackupAccount: String = "convos-consent-backup"
 
     // MARK: - Initialization
 
@@ -398,6 +410,20 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         try saveData(data, with: installationMarkerQuery)
     }
 
+    public func loadConsentBackup() throws -> ConsentBackup? {
+        do {
+            let data = try Self.loadKeychainData(with: consentBackupQuery.toReadDictionary())
+            return try JSONDecoder().decode(ConsentBackup.self, from: data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func saveConsentBackup(_ backup: ConsentBackup) throws {
+        let data = try JSONEncoder().encode(backup)
+        try saveData(data, with: consentBackupQuery)
+    }
+
     public func backfillSyncedBackupIfNeeded() {
         guard syncedBackupEnabled else { return }
         do {
@@ -447,6 +473,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private nonisolated var installationMarkerQuery: KeychainQuery {
         KeychainQuery(
             account: Self.installationMarkerAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+    }
+
+    private nonisolated var consentBackupQuery: KeychainQuery {
+        KeychainQuery(
+            account: Self.consentBackupAccount,
             service: keychainService,
             accessGroup: keychainAccessGroup
         )

@@ -707,6 +707,34 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 try await identityStore.saveInstallationMarker(plan.marker)
             }
             guard !plan.candidateStaleIds.isEmpty else { return }
+            // A stale own installation means this launch is a reinstall
+            // resume: the app container (and with it every consent record)
+            // was wiped, so re-welcomed conversations would land as
+            // consent=unknown and never surface. Restore the user's
+            // allowed set from the device-local backup before anything
+            // else - consent records written now also cover welcomes that
+            // haven't arrived yet. Inlined (not a helper taking the
+            // client) so the non-Sendable client stays a disconnected
+            // value used only in sequential awaits. Best-effort: the
+            // backup is never consumed, and a failure retries on the next
+            // launch for as long as the revoke below is also pending.
+            do {
+                let consentIds = try await ConsentBackupRestorer.idsToRestore(
+                    identityStore: identityStore,
+                    inboxId: client.inboxId
+                )
+                if !consentIds.isEmpty {
+                    try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
+                    try await ConsentBackupRestorer.flipStoredUnknownRows(
+                        ids: consentIds,
+                        databaseWriter: databaseWriter
+                    )
+                    Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
+                    QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
+                }
+            } catch {
+                Log.warning("Consent backup restore failed (retries next launch): \(error)")
+            }
             let liveIds = try await client.listInstallations(refreshFromNetwork: true).map(\.id)
             let idsToRevoke = plan.candidateStaleIds.filter(Set(liveIds).contains)
             if !idsToRevoke.isEmpty {

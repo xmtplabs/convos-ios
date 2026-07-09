@@ -149,7 +149,12 @@ steps:
       events fired) but the recovered conversations were saved with
       consent=unknown, so the list showed the first-run empty state and
       nothing was visible in the UI - a UI-visibility failure, not a
-      network delivery failure.
+      network delivery failure. Fixed since: the allowed set is mirrored
+      into the device-local keychain (ConsentBackupMirror) and restored
+      on the reinstall launch - expect
+      conversation.consent_backup_restored count>=1 shortly after the
+      stale-installation revoke, and the conversations to surface as
+      allowed without any workaround (verified in run c4ba3927cf16).
 
   - id: a_to_b_after_reinstall
     name: "The app's post-reinstall messages reach the CLI in both conversations"

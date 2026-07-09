@@ -16,6 +16,8 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let backupState: OSAllocatedUnfairLock<[String: KeychainIdentityBackup]> = .init(initialState: [:])
     /// In-memory stand-in for the device-local installation marker slot.
     private let markerState: OSAllocatedUnfairLock<InstallationMarker?> = .init(initialState: nil)
+    /// In-memory stand-in for the device-local consent backup slot.
+    private let consentBackupState: OSAllocatedUnfairLock<ConsentBackup?> = .init(initialState: nil)
     /// Optional error injection for the load path. Tests simulating a
     /// transient keychain daemon failure set this to a non-nil `Error`;
     /// `loadSync` and `load` both throw it until the test clears it.
@@ -84,6 +86,14 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     func saveInstallationMarker(_ marker: InstallationMarker) throws {
         markerState.withLock { $0 = marker }
+    }
+
+    func loadConsentBackup() throws -> ConsentBackup? {
+        consentBackupState.withLock { $0 }
+    }
+
+    func saveConsentBackup(_ backup: ConsentBackup) throws {
+        consentBackupState.withLock { $0 = backup }
     }
 
     /// Test-only — inject an error for the next `loadSync`/`load` calls.
