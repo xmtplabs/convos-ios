@@ -9,9 +9,9 @@ import UIKit
 // toggle plus its two tabs (Invite = legacy QR card + "Share invite link";
 // Scan = live viewfinder + "Or scan from camera roll"), without any full-screen nav
 // chrome. `InviteCodeOverlay` composes this under its floating liquid-glass
-// nav for the full-screen flow; `ConversationView` embeds it via a top
-// `safeAreaInset` when a "Show an invite code" convo owns the QR inline. Both
-// share this single implementation so the toggle + tabs don't fork.
+// nav for the full-screen flow; the transcript's index-0 `.invite` cell hosts
+// it inline when a convo owns the QR (`showsInviteScanCard`). Both share this
+// single implementation so the toggle + tabs don't fork.
 
 /// The toggle + Invite/Scan tabs, sized to a fixed column. Owns the segment
 /// selection, QR generation, the live scanner, and the screenshot-picker
