@@ -350,8 +350,18 @@ struct MainTabView: View {
             suggestedAgentsService: SuggestedAgentsService.live(),
             scrollTarget: $contactsScrollTarget,
             onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onScanJoinedConversation: handleContactsScanJoinedConversation,
             hasPushedContactDetail: !contactsPath.isEmpty
         )
+    }
+
+    /// A scan started from the Contacts tab joined a conversation. The joined
+    /// convo lives under the Chats tab, so switch there first, then route the
+    /// id through the same parked-selection navigation the home scan uses
+    /// (the row may not be in the list yet; it resolves once it lands).
+    private func handleContactsScanJoinedConversation(_ conversationId: String) {
+        activeTab = .chats
+        conversationsViewModel.navigateToScannedConversation(conversationId)
     }
 
     /// Wraps each tab's content in its own `NavigationStack` carrying the
