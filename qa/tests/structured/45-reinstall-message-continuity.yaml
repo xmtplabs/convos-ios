@@ -1,0 +1,216 @@
+id: "45"
+name: "Reinstall Message Continuity"
+description: >
+  Verify that deleting and reinstalling the app does not break an actively
+  chatting identity: the device keychain outlives the app, so a reinstall
+  resumes the same inbox with a new XMTP installation. After the reinstall,
+  the other participant's messages must reach the app, the app's messages
+  must reach the other participant, and this must hold across every
+  conversation the identity was in - not just one group. Also covers the
+  reinstall side effects: the same inboxId resumes, and the previous
+  (dead) installation is auto-revoked via the installation marker.
+tags: [messaging, reinstall, keychain, installations, core]
+depends_on: ["01"]
+estimated_duration_s: 720
+
+prerequisites:
+  app_running: false
+  cli_initialized: true
+  shared_conversation: false
+  # Runs entirely on a disposable erased clone with a fresh account; the
+  # primary simulator's app state is never touched.
+  screen: none
+
+state:
+  clone_udid: null
+  inbox_id_before: null
+  inbox_id_after: null
+  conversation_1_id: null
+  conversation_2_id: null
+  history_visible_after_reinstall: null
+
+setup:
+  - action: clone_primary_as_reinstall_sim
+    save:
+      clone_udid: "from clone"
+    note: >
+      `xcrun simctl shutdown $PRIMARY`, `xcrun simctl clone $PRIMARY
+      convos-qa-reinstall`, `xcrun simctl erase` the clone (a fresh
+      account, not a copied one, is the point of this test), boot both,
+      relaunch the app on the primary. Install the built Convos.app on
+      the clone. Every launch on the clone needs the App Check debug
+      token for registration: source .env and pass
+      SIMCTL_CHILD_FIRAAppCheckDebugToken="$FIREBASE_APP_CHECK_DEBUG_TOKEN"
+      on each simctl launch.
+
+  - action: create_two_shared_conversations
+    save:
+      conversation_1_id: "first conversation id"
+      conversation_2_id: "second conversation id"
+    note: >
+      Launch the app on the clone (fresh identity registers). Create two
+      conversations shared with the CLI: for each, CLI creates the
+      conversation and generates an invite, the app joins via the invite
+      deep link, and the CLI processes the join request (per invite
+      ordering rules in RULES.md). Start `process-join-requests
+      --watch` in the background before opening the invite deep link:
+      a join request that lands in the same second the watch stream
+      starts is missed, and a later non-watch `process-join-requests`
+      finds 0 pending (validated run 1). If that happens, re-open the
+      same invite URL with the watcher already running - the app
+      re-sends the join request. Record the app's inboxId as
+      inbox_id_before - it appears in the app log's authorization lines
+      ("Started authorization flow for inbox: ..."), or via CLI member
+      listing on either conversation.
+
+steps:
+  - id: pre_reinstall_chat
+    name: "Both directions deliver in both conversations before the reinstall"
+    actions:
+      - cli_send_text: { conversation: "$conversation_1_id", text: "pre-reinstall from B (1)" }
+      - wait_for_element: { label_contains: "pre-reinstall from B (1)", timeout: 15 }
+      - type_in_field: { id: "message-text-field", text: "pre-reinstall from A (1)" }
+      - tap: { id: "send-message-button" }
+      - cli_read_messages: { conversation: "$conversation_1_id", sync: true, grep: "pre-reinstall from A (1)" }
+      - cli_send_text: { conversation: "$conversation_2_id", text: "pre-reinstall from B (2)" }
+      - type_in_field_in_conversation:
+          conversation: "$conversation_2_id"
+          id: "message-text-field"
+          text: "pre-reinstall from A (2)"
+      - cli_read_messages: { conversation: "$conversation_2_id", sync: true, grep: "pre-reinstall from A (2)" }
+    verify:
+      - element_exists: { label_contains: "pre-reinstall from B (1)" }
+      - cli_output_contains: "pre-reinstall from A (1)"
+      - cli_output_contains: "pre-reinstall from A (2)"
+    criteria: baseline_chat_works
+    note: >
+      This is the baseline the reinstall must preserve. Navigate between
+      the two conversations from the chats list as needed - the exact
+      navigation is up to the runner. The iOS keyboard auto-capitalizes
+      the first typed letter ("pre-..." arrives as "Pre-..."), so all
+      cli_read_messages greps for app-typed text must be
+      case-insensitive.
+
+  - id: reinstall
+    name: "Delete and reinstall the app"
+    actions:
+      - terminate_app: {}
+      - uninstall_app: {}
+      - install_app: {}
+      - launch_app: {}
+    verify:
+      - event_exists: { name: "pairing.stale_own_installations_revoked" }
+    expect_event: "pairing.stale_own_installations_revoked"
+    criteria: old_installation_revoked
+    note: >
+      `xcrun simctl uninstall $clone org.convos.ios-preview` deletes the
+      app and app-group containers but the keychain survives; reinstall
+      the same built Convos.app and launch (with the App Check token).
+      The app must resume the same identity from the keychain and mint a
+      new installation; on reaching ready it revokes the previous one
+      (pairing.stale_own_installations_revoked count=1 in the app log,
+      which lives at <group-container>/Logs/convos.log - note the group
+      container path changed with the reinstall). Also confirm the
+      authorization log line carries the same inboxId as before; save it
+      as inbox_id_after.
+
+  - id: identity_resumed
+    name: "The same inbox resumed after reinstall"
+    actions:
+      - compare_state: { left: "$inbox_id_before", right: "$inbox_id_after" }
+    verify:
+      - state_equals: { left: "$inbox_id_before", right: "$inbox_id_after" }
+    criteria: identity_resumed
+
+  - id: b_to_a_after_reinstall
+    name: "CLI's post-reinstall messages reach the app in both conversations"
+    actions:
+      - cli_send_text: { conversation: "$conversation_1_id", text: "post-reinstall from B (1)" }
+      - cli_send_text: { conversation: "$conversation_2_id", text: "post-reinstall from B (2)" }
+      - wait_for_element: { label_contains: "post-reinstall from B (1)", timeout: 90 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "post-reinstall from B (1)" }
+      - element_exists: { label_contains: "post-reinstall from B (2)" }
+    criteria: b_to_a_delivery
+    note: >
+      The reinstalled app starts with an empty local database; the
+      conversations must reappear once the new installation is welcomed
+      back into the groups. Give the first delivery a generous timeout -
+      the CLI's send is also what prompts B's client to commit A's new
+      installation into the group. While waiting, record whether the
+      pre-reinstall messages are visible again as
+      history_visible_after_reinstall (true/false) - both outcomes are
+      observational, not pass/fail; what must work is new-message flow.
+      If nothing appears within the timeout, foreground-cycle the app
+      once (background then foreground triggers a sync) before failing.
+      Check the app log and local DB before concluding delivery failed:
+      in run 1 the messages were received and stored (message.received
+      events fired) but the recovered conversations were saved with
+      consent=unknown, so the list showed the first-run empty state and
+      nothing was visible in the UI - a UI-visibility failure, not a
+      network delivery failure.
+
+  - id: a_to_b_after_reinstall
+    name: "The app's post-reinstall messages reach the CLI in both conversations"
+    note: >
+      If the conversations are invisible in the list (consent=unknown
+      bug from b_to_a_after_reinstall), reach each conversation by
+      re-opening its invite deep link - the rejoin flow navigates to
+      the existing conversation and flips consent back to allowed,
+      after which the list shows both again.
+    actions:
+      - type_in_field_in_conversation:
+          conversation: "$conversation_1_id"
+          id: "message-text-field"
+          text: "post-reinstall from A (1)"
+      - cli_read_messages: { conversation: "$conversation_1_id", sync: true, grep: "post-reinstall from A (1)" }
+      - type_in_field_in_conversation:
+          conversation: "$conversation_2_id"
+          id: "message-text-field"
+          text: "post-reinstall from A (2)"
+      - cli_read_messages: { conversation: "$conversation_2_id", sync: true, grep: "post-reinstall from A (2)" }
+    verify:
+      - cli_output_contains: "post-reinstall from A (1)"
+      - cli_output_contains: "post-reinstall from A (2)"
+    criteria: a_to_b_delivery
+
+  - id: history_observation
+    name: "Record whether pre-reinstall history is visible"
+    actions:
+      - record_state: { key: "history_visible_after_reinstall" }
+      - screenshot: {}
+    verify:
+      - state_recorded: { key: "history_visible_after_reinstall" }
+    criteria: history_state_documented
+    note: >
+      Observational: scroll conversation 1 and note whether the
+      "pre-reinstall" messages are present. Pass with the observation
+      recorded either way; the finding feeds the product decision about
+      reinstall history restore, it is not itself a defect verdict.
+
+teardown:
+  - action: cli_explode_conversations
+    args: { ids: ["$conversation_1_id", "$conversation_2_id"] }
+    optional: true
+  - action: delete_reinstall_sim
+    args: { udid: "$clone_udid" }
+    optional: true
+    note: >
+      `xcrun simctl shutdown $clone_udid && xcrun simctl delete
+      $clone_udid`. The clone held a throwaway identity; the primary
+      simulator was never modified.
+
+criteria:
+  baseline_chat_works:
+    description: "Before the reinstall, messages deliver in both directions in both conversations (app UI shows CLI's texts; CLI reads the app's texts)"
+  old_installation_revoked:
+    description: "The reinstall launch emits pairing.stale_own_installations_revoked with count>=1 (the previous installation was auto-revoked)"
+  identity_resumed:
+    description: "The inboxId after reinstall equals the inboxId before (identity resumed from the device keychain, not re-registered)"
+  b_to_a_delivery:
+    description: "Messages sent by the CLI after the reinstall appear in the app in both conversations"
+  a_to_b_delivery:
+    description: "Messages sent from the app after the reinstall are readable via CLI in both conversations"
+  history_state_documented:
+    description: "Whether pre-reinstall messages are visible after the reinstall is recorded in test state (observational - either outcome passes)"

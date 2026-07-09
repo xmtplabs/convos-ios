@@ -109,14 +109,19 @@ test's `screen` prerequisite or a navigation step doesn't match the screen.
 
 ### Tabs
 
-- Two tabs in the system tab bar: **Chats** (`message.fill`) and **Things**
-  (`square.grid.2x2.fill`). Select a tab by tapping its label ("Chats" /
-  "Things").
+- Three tabs in the system tab bar: **Convos**, **Things**, and
+  **Contacts**. Select a tab by tapping its label. Steps that reference a
+  "Chats" tab are stale - the conversations list lives in the Convos tab.
 - The **Search** tab was removed. Any step that taps a search tab or
   `search-tab` is stale - there is no search entry point right now.
 - On iPhone the tab bar is at the bottom; on iPad it is at the top.
+- An empty Convos tab on a fresh account renders a full-screen
+  agent-marketing hero ("Make little agents"), not an empty list - don't
+  interpret it as a broken conversations list, but if conversations are
+  known to exist and the hero persists, suspect they're being filtered
+  out (e.g. consent=unknown rows never surface; see test 45).
 
-### Conversations list (Chats tab)
+### Conversations list (Convos tab)
 
 - Verified by `compose-button` being present.
 - `compose-button` opens the new-conversation flow (`NewConversationView`).
