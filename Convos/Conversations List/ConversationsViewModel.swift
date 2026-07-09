@@ -267,6 +267,26 @@ final class ConversationsViewModel {
     /// Resolved to a selection once the row appears.
     @ObservationIgnored
     private var pendingScanNavigationConversationId: String?
+    /// Mirrors whether the Chats tab is frontmost in the tab shell (kept
+    /// current by `MainTabView`). Scan navigation must not select a
+    /// conversation while another tab is visible: selecting hides the tab bar
+    /// and lifts the conversation indicator on every tab, while the pushed
+    /// conversation mounts in the background Chats stack -- stranding the
+    /// user on a hybrid screen with no way back. Defaults to true for hosts
+    /// without a tab shell (previews, tests).
+    @ObservationIgnored
+    var isChatsTabActive: Bool = true {
+        didSet {
+            guard isChatsTabActive, !oldValue else { return }
+            resolvePendingScanNavigationIfPossible()
+        }
+    }
+    /// Asks the tab shell to bring the Chats tab frontmost. Invoked when a
+    /// scan resolves so the user is directed to Chats no matter which tab the
+    /// scan started from; the parked navigation is consumed only after the
+    /// switch has committed (see `isChatsTabActive`).
+    @ObservationIgnored
+    var bringChatsTabToFront: (() -> Void)?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -1245,26 +1265,38 @@ extension ConversationsViewModel {
     /// handler unwinds (nil-ing the sheet there would tear down a VM mid-call).
     /// The just-joined row may not be in `conversations` yet, so it's parked and
     /// resolved by the conversations publisher once the row lands.
-    /// Also the landing point for the Contacts-tab scan handoff: the shell
-    /// switches to the Chats tab and routes the joined conversation id here
-    /// (see `MainTabView.contactsTabContent`).
+    /// The landing point for every scan entry (home scanner, Contacts-tab
+    /// sheets, the shared toolbar scan on any tab): it asks the shell to bring
+    /// the Chats tab frontmost, and the parked id is consumed only once that
+    /// switch has committed.
     func navigateToScannedConversation(_ conversationId: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingScanNavigationConversationId = conversationId
             self.newConversationViewModel = nil
+            self.bringChatsTabToFront?()
             self.resolvePendingScanNavigationIfPossible()
         }
     }
 
     /// Selects the parked scan-navigation target once its row exists in the list.
-    /// Called after the sheet dismiss and whenever the conversations list
-    /// updates. Selecting drives the same `navigationDestination` push a list tap
-    /// does; the metrics navigator fires via the `selectedConversationId`
-    /// onChange.
+    /// Called after the sheet dismiss, whenever the conversations list updates,
+    /// and when the Chats tab becomes frontmost. Selecting drives the same
+    /// `navigationDestination` push a list tap does; the metrics navigator fires
+    /// via the `selectedConversationId` onChange.
+    /// Consuming is gated on the Chats tab being frontmost: selecting from any
+    /// other tab would hide the tab bar and float the conversation indicator
+    /// over that tab while the push mounts in the background Chats stack, an
+    /// unrecoverable hybrid screen. When gated, the id stays parked and the
+    /// shell is asked to switch; the `isChatsTabActive` observer re-runs this
+    /// once the switch lands.
     func resolvePendingScanNavigationIfPossible() {
         guard let pendingId = pendingScanNavigationConversationId,
               conversations.contains(where: { $0.id == pendingId }) else { return }
+        guard isChatsTabActive else {
+            bringChatsTabToFront?()
+            return
+        }
         pendingScanNavigationConversationId = nil
         selectedConversationId = pendingId
     }
