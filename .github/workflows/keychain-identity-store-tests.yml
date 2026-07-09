@@ -25,7 +25,11 @@ jobs:
   test:
     name: Run KeychainIdentityStore Tests
     runs-on: macos-26
-    timeout-minutes: 15
+    # A warm-cache run finishes in ~9 minutes, but a Swift package cache
+    # miss forces a cold dependency build that exceeds 15 - the job then
+    # dies mid-compile without running a single test (observed repeatedly
+    # on PR #1151). Sized for the cold path.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
