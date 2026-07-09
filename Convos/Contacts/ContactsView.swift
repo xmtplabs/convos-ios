@@ -53,6 +53,12 @@ struct ContactsView: View {
     /// presented from under this tab's stack, so the shell injects a closure
     /// that calls `ConversationsViewModel.onStartAgent()`. Nil hides the row.
     private let onMakeAgent: (() -> Void)?
+    /// A code scanned inside a presented new-convo sheet resolved to a joined
+    /// conversation. That conversation lives under the Chats tab, which this
+    /// tab can't reach on its own, so the shell injects a closure that
+    /// switches tabs and selects it (mirroring the home-scan navigation).
+    /// Nil leaves the user on this tab after the join.
+    private let onScanJoinedConversation: ((String) -> Void)?
     /// True while a contact detail is pushed on the host's stack (the shell
     /// lifts the stack path and mirrors it here). `onDisappear` fires for a
     /// child push too, not just a real leave, so the claimed invite
@@ -71,6 +77,7 @@ struct ContactsView: View {
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
         scrollTarget: Binding<String?>? = nil,
         onMakeAgent: (() -> Void)? = nil,
+        onScanJoinedConversation: ((String) -> Void)? = nil,
         hasPushedContactDetail: Bool = false
     ) {
         _viewModel = State(initialValue: ContactsViewModel(
@@ -85,6 +92,7 @@ struct ContactsView: View {
         self.showsComposeButton = showsComposeButton
         self.scrollTarget = scrollTarget
         self.onMakeAgent = onMakeAgent
+        self.onScanJoinedConversation = onScanJoinedConversation
         self.hasPushedContactDetail = hasPushedContactDetail
     }
 
@@ -443,8 +451,24 @@ struct ContactsView: View {
         // it, promote it into the chats list. If they dismiss without
         // engaging, `cleanUpDismissedNewConvo` discards it.
         Task { await enteredViewModel.commitConversationVisibility() }
+        enteredViewModel.onScanResolvedConversation = handleScanResolvedConversation
         dismissedNewConvo = enteredViewModel
         presentingNewConvo = enteredViewModel
+    }
+
+    /// A scan inside the presented sheet finished joining a conversation.
+    /// Dismiss the sheet first, then hand the id to the shell so it can
+    /// switch to the Chats tab and select the joined conversation. Deferred
+    /// one hop so the presenting VM's `.ready` handler unwinds before the
+    /// sheet state changes (mirrors the home-scan sequencing in
+    /// `ConversationsViewModel.navigateToScannedConversation`). The joined
+    /// convo survives the dismissal cleanup -- the scanned-code engagement
+    /// latch keeps it (see `cleanUpDismissedNewConvo`).
+    private func handleScanResolvedConversation(_ conversationId: String) {
+        Task { @MainActor in
+            presentingNewConvo = nil
+            onScanJoinedConversation?(conversationId)
+        }
     }
 
     /// Runs the empty-invite teardown for a dismissed new-conversation sheet so
@@ -534,6 +558,7 @@ struct ContactsView: View {
             ),
             coreActions: coreActions
         )
+        viewModel.onScanResolvedConversation = handleScanResolvedConversation
         dismissedNewConvo = viewModel
         presentingNewConvo = viewModel
     }

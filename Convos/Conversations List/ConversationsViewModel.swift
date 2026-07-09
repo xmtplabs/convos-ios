@@ -1245,7 +1245,10 @@ extension ConversationsViewModel {
     /// handler unwinds (nil-ing the sheet there would tear down a VM mid-call).
     /// The just-joined row may not be in `conversations` yet, so it's parked and
     /// resolved by the conversations publisher once the row lands.
-    private func navigateToScannedConversation(_ conversationId: String) {
+    /// Also the landing point for the Contacts-tab scan handoff: the shell
+    /// switches to the Chats tab and routes the joined conversation id here
+    /// (see `MainTabView.contactsTabContent`).
+    func navigateToScannedConversation(_ conversationId: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingScanNavigationConversationId = conversationId
