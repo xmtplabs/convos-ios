@@ -80,15 +80,15 @@ struct ConsentBackupTests {
         #expect(consents["convo-b"] == nil)
     }
 
-    @Test("Mirror never clobbers a non-empty backup with a fresh database's empty snapshot")
-    func mirrorSkipsInitialEmptySnapshot() async throws {
+    @Test("Mirror carries unseen backup ids through a reinstall refill, never shrinking the backup")
+    func mirrorCarriesUnseenBackupIdsThroughRefill() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let identityStore = MockKeychainIdentityStore()
         let keys = try KeychainIdentityKeys.generate()
         _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
-        // The backup a previous install wrote; the fresh (empty) database
-        // must not erase it before the restore reads it.
-        let previous = ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-old"])
+        // The backup a previous install wrote; the fresh database refills
+        // gradually and no intermediate snapshot may shrink the backup.
+        let previous = ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-a", "convo-b"])
         try await identityStore.saveConsentBackup(previous)
 
         let mirror = ConsentBackupMirror(
@@ -98,27 +98,75 @@ struct ConsentBackupTests {
         mirror.start()
         defer { mirror.stop() }
 
-        // The observation's initial emission is empty; give it time to
-        // (wrongly) write, then confirm the backup survived.
+        // Initial empty emission, then a partial refill (only convo-a
+        // arrived) - both would previously shrink the backup.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(try await identityStore.loadConsentBackup() == previous)
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-a", consent: .allowed)
+        }
         try await Task.sleep(nanoseconds: 300_000_000)
         #expect(try await identityStore.loadConsentBackup() == previous)
 
-        // A genuine allowed conversation must flow through.
+        // A new conversation the backup didn't know about joins the set;
+        // convo-b is still refilling and must be carried.
         try await dbManager.dbWriter.write { db in
             try Self.seedConversation(db: db, id: "convo-new", consent: .allowed)
         }
         try await Self.waitUntil {
-            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-new"]
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a", "convo-b", "convo-new"]
         }
 
-        // And once the session has seen a non-empty set, a transition to
-        // empty is real (user deleted everything) and must be written.
+        // Once convo-b has been observed, denying it is a real user
+        // action and the shrink must be written.
         try await dbManager.dbWriter.write { db in
-            guard let conversation = try DBConversation.fetchOne(db) else { return }
+            try Self.seedConversation(db: db, id: "convo-b", consent: .allowed)
+        }
+        try await dbManager.dbWriter.write { db in
+            guard let conversation = try DBConversation
+                .filter(DBConversation.Columns.id == "convo-b")
+                .fetchOne(db) else { return }
             try conversation.with(consent: .denied).save(db)
         }
         try await Self.waitUntil {
-            try await identityStore.loadConsentBackup()?.allowedConversationIds == []
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a", "convo-new"]
+        }
+    }
+
+    @Test("Mirror drops an id denied during the refill window")
+    func mirrorDropsIdDeniedDuringRefill() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try KeychainIdentityKeys.generate()
+        _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
+        try await identityStore.saveConsentBackup(
+            ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-a", "convo-b"])
+        )
+
+        let mirror = ConsentBackupMirror(
+            databaseReader: dbManager.dbReader,
+            identityStore: identityStore
+        )
+        mirror.start()
+        defer { mirror.stop() }
+
+        // convo-a refills, then the user denies it while convo-b is still
+        // pending: the write must drop convo-a (observed, then denied)
+        // but keep carrying convo-b (never observed).
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-a", consent: .allowed)
+        }
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a", "convo-b"]
+        }
+        try await dbManager.dbWriter.write { db in
+            guard let conversation = try DBConversation
+                .filter(DBConversation.Columns.id == "convo-a")
+                .fetchOne(db) else { return }
+            try conversation.with(consent: .denied).save(db)
+        }
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-b"]
         }
     }
 

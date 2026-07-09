@@ -51,52 +51,58 @@ final class ConsentBackupMirror: @unchecked Sendable {
             .removeDuplicates()
             .values(in: databaseReader)
         do {
-            var hasObservedAllowedConversations = false
+            var everObservedIds = Set<String>()
+            var carriedBackupIds: Set<String>?
             for try await ids in stream {
                 if Task.isCancelled { return }
                 await mirror(
                     allowedConversationIds: ids,
-                    hasObservedAllowedConversations: hasObservedAllowedConversations
+                    everObservedIds: &everObservedIds,
+                    carriedBackupIds: &carriedBackupIds
                 )
-                if !ids.isEmpty {
-                    hasObservedAllowedConversations = true
-                }
             }
         } catch {
             Log.error("ConsentBackupMirror: stream failed: \(error.localizedDescription)")
         }
     }
 
-    /// Writes the snapshot when it differs from what's already in the
-    /// keychain. An empty set is written too - if the user deletes every
-    /// conversation, a later reinstall must not resurrect them - but only
-    /// after this session has seen a non-empty set: on a reinstall launch
-    /// the database starts empty and the observation emits immediately,
-    /// racing the reconcile's consent restore, and writing that first
-    /// empty snapshot would clobber the very backup the restore is about
-    /// to read. Skipping empty-over-non-empty until the set has genuinely
-    /// transitioned through non-empty makes the mirror converge with the
-    /// restore instead of racing it. The identity read failing (or no
-    /// identity yet) also skips the write; the observation re-fires on
-    /// the next change and converges.
+    /// Writes the snapshot when the resulting backup differs from what's
+    /// already in the keychain, with one carry rule: ids present in the
+    /// session's initial backup stay in every written snapshot until the
+    /// database has actually shown them once. On a reinstall launch the
+    /// database starts empty and refills over the first minute as
+    /// welcomes and syncs land, and the observation emits each partial
+    /// state immediately - mirroring those directly would shrink or
+    /// clobber the very backup the reconcile's restore is reading, and a
+    /// second uninstall inside that window would lose the missing
+    /// conversations. An id the session has observed and that later
+    /// disappears was denied by the user, so it drops out (deleting
+    /// every conversation still mirrors an empty set once everything has
+    /// been seen); ids never observed are still refilling and are
+    /// carried. In a steady-state session the first emission covers the
+    /// whole backup and the carry set is empty from the start. The
+    /// identity read failing (or no identity yet) skips the write; the
+    /// observation re-fires on the next change and converges.
     private func mirror(
         allowedConversationIds: [String],
-        hasObservedAllowedConversations: Bool
+        everObservedIds: inout Set<String>,
+        carriedBackupIds: inout Set<String>?
     ) async {
         do {
             guard let inboxId = try identityStore.loadSync()?.inboxId else { return }
-            let backup = ConsentBackup(inboxId: inboxId, allowedConversationIds: allowedConversationIds)
             let existing = try await identityStore.loadConsentBackup()
-            guard backup != existing else { return }
-            if allowedConversationIds.isEmpty,
-               !hasObservedAllowedConversations,
-               let existing,
-               existing.inboxId == inboxId,
-               !existing.allowedConversationIds.isEmpty {
-                return
+            if carriedBackupIds == nil {
+                carriedBackupIds = existing?.inboxId == inboxId
+                    ? Set(existing?.allowedConversationIds ?? [])
+                    : []
             }
+            everObservedIds.formUnion(allowedConversationIds)
+            let pendingRefillIds = (carriedBackupIds ?? []).subtracting(everObservedIds)
+            let target = Set(allowedConversationIds).union(pendingRefillIds).sorted()
+            let backup = ConsentBackup(inboxId: inboxId, allowedConversationIds: target)
+            guard backup != existing else { return }
             try await identityStore.saveConsentBackup(backup)
-            Log.info("ConsentBackupMirror: mirrored \(allowedConversationIds.count) allowed conversation(s) to keychain")
+            Log.info("ConsentBackupMirror: mirrored \(target.count) allowed conversation(s) to keychain (\(pendingRefillIds.count) carried)")
         } catch {
             Log.warning("ConsentBackupMirror: failed to mirror consent backup: \(error)")
         }
