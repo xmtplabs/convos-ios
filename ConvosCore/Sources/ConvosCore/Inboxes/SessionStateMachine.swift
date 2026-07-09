@@ -565,6 +565,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try await inboxWriter.save(inboxId: client.inboxId, clientId: identity.clientId)
         Log.info("Saved inbox to database: \(client.inboxId)")
 
+        await seedInstallationMarker(client: client)
+
         enqueueAction(.clientAuthorized(client))
     }
 
@@ -621,7 +623,34 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw error
         }
 
+        await seedInstallationMarker(client: client)
+
         enqueueAction(.clientRegistered(client))
+    }
+
+    /// Records the just-minted installation in the marker as soon as the
+    /// client exists, before backend auth can fail - a launch killed
+    /// between minting the installation and reaching `.ready` must still
+    /// leave the marker behind, or a later reinstall can't prove the
+    /// orphaned installation was this device's own. Cheap (one keychain
+    /// read, at most one write) and non-throwing, so it can sit inline
+    /// on the authorize and register paths. The revocation half of the
+    /// reconcile stays deferred to `.ready`.
+    private func seedInstallationMarker(client: any XMTPClientProvider) async {
+        guard syncingManager != nil else { return }
+        do {
+            let marker = try await identityStore.loadInstallationMarker()
+            let plan = StaleInstallationReconciler.plan(
+                marker: marker,
+                inboxId: client.inboxId,
+                installationId: client.installationId
+            )
+            if plan.marker != marker {
+                try await identityStore.saveInstallationMarker(plan.marker)
+            }
+        } catch {
+            Log.warning("Failed to seed installation marker: \(error)")
+        }
     }
 
     private func handleClientAuthorized(client: any XMTPClientProvider) async throws {
@@ -708,9 +737,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("Authenticating with backend...")
         try await authenticateBackend()
 
-        // A fresh registration has no stale installations by definition;
-        // this just seeds the marker with the new installation id so a
-        // later reinstall can prove which installation was this device's.
+        // The marker was already seeded in handleRegister; a fresh
+        // registration has no stale installations of its own, so this
+        // only matters as the retry path for stales an earlier launch
+        // failed to revoke.
         reconcileStaleOwnInstallations()
 
         try Task.checkCancellation()
