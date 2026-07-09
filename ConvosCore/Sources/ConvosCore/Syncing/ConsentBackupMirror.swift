@@ -91,6 +91,11 @@ final class ConsentBackupMirror: @unchecked Sendable {
         do {
             guard let inboxId = try identityStore.loadSync()?.inboxId else { return }
             let existing = try await identityStore.loadConsentBackup()
+            // Cancellation is cooperative and the loop's check only runs
+            // between emissions - a task cancelled while suspended on the
+            // load above must not write, or a replaced observer's stale
+            // snapshot could land after its successor's.
+            guard !Task.isCancelled else { return }
             if carriedBackupIds == nil {
                 carriedBackupIds = existing?.inboxId == inboxId
                     ? Set(existing?.allowedConversationIds ?? [])
