@@ -72,6 +72,15 @@ extension ConvosAPIClientProtocol {
         []
     }
 
+    func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse {
+        ConvosAPI.AgentVariantUpdateResponse(
+            success: true,
+            instanceId: instanceId,
+            variantId: variantId,
+            applied: "profile_metadata"
+        )
+    }
+
     /// Default for the public agent-template detail fetch used by the
     /// agent-share card/chip resolver. Tests that exercise it specifically
     /// should override on their fixture.

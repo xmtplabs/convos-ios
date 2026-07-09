@@ -1473,6 +1473,16 @@ extension SessionManager {
 // MARK: - Agent-template repository factory
 
 extension SessionManager {
+    public func listAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        try await apiClient.getAgentVariants()
+    }
+
+    public func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse {
+        try await apiClient.updateAgentVariant(instanceId: instanceId, variantId: variantId)
+    }
+}
+
+extension SessionManager {
     public func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol {
         agentTemplateRepositoryInstance
     }

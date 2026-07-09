@@ -80,6 +80,7 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
+    @State private var presentingAgentVariantPicker: Bool = false
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
@@ -97,6 +98,10 @@ struct ContactDetailView: View {
     /// The agent template's description, resolved on appear for template-backed
     /// agents (it isn't stored on the contact). Rendered under the name.
     @State private var agentDescription: String?
+    @State private var agentVariants: [ConvosAPI.AgentVariant] = []
+    @State private var selectedAgentVariantId: String?
+    @State private var isUpdatingAgentVariant: Bool = false
+    @State private var agentVariantErrorMessage: String?
     @State private var navState: ContactCardNavigatorImpl = .init()
     @State private var navigator: ContactCardCollector?
 
@@ -149,6 +154,7 @@ struct ContactDetailView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
+            .task(id: contact.agentInstanceId) { await loadAgentVariants() }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -183,6 +189,23 @@ struct ContactDetailView: View {
                     profileSettingsViewModel: profileSettingsViewModel
                 )
                 .background(.colorBackgroundSurfaceless)
+            }
+            .sheet(isPresented: $presentingAgentVariantPicker) {
+                AgentVariantPickerSheet(
+                    variants: agentVariants,
+                    selectedVariantId: selectedAgentVariantId,
+                    isUpdating: isUpdatingAgentVariant,
+                    onSelect: updateAgentVariant(variantId:),
+                    onClear: { updateAgentVariant(variantId: nil) }
+                )
+                .presentationDetents([.medium, .large])
+            }
+            .alert("Variant update failed", isPresented: agentVariantErrorBinding) {
+                Button("OK", role: .cancel) {
+                    agentVariantErrorMessage = nil
+                }
+            } message: {
+                Text(agentVariantErrorMessage ?? "")
             }
             .navigationDestination(item: $pushedConversation) { vm in
                 pushedConversationView(vm)
@@ -236,6 +259,21 @@ struct ContactDetailView: View {
         guard agentDescription == nil, let session, let templateId = contact.agentTemplateId else { return }
         let info = await session.agentShareResolver().resolve(identifier: templateId)
         agentDescription = info?.descriptionText
+    }
+
+    private func loadAgentVariants() async {
+        guard ConfigManager.shared.currentEnvironment.isInternalBuild,
+              contact.agentInstanceId != nil,
+              let session else {
+            agentVariants = []
+            return
+        }
+        do {
+            agentVariants = try await session.listAgentVariants()
+        } catch {
+            Log.warning("Failed to load agent variants: \(error.localizedDescription)")
+            agentVariants = []
+        }
     }
 
     /// Agent "code card" share flow: a QR encoding the template's published
@@ -356,12 +394,16 @@ struct ContactDetailView: View {
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
+                    showVariantPicker: showsAgentVariantPicker,
+                    selectedVariantLabel: selectedAgentVariantLabel,
+                    isUpdatingVariant: isUpdatingAgentVariant,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
                     agentTemplateConversations: agentTemplateConversations,
                     onSelectConversation: handleSelectAgentTemplateConversation,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
+                    onPickVariant: { presentingAgentVariantPicker = true },
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -411,6 +453,31 @@ struct ContactDetailView: View {
     /// row only - the id itself is always plumbed through.
     private var showsInstanceIdRow: Bool {
         ConfigManager.shared.currentEnvironment.isInternalBuild
+    }
+
+    private var showsAgentVariantPicker: Bool {
+        ConfigManager.shared.currentEnvironment.isInternalBuild
+            && contact.agentInstanceId != nil
+            && !agentVariants.isEmpty
+    }
+
+    private var selectedAgentVariantLabel: String {
+        guard let selectedAgentVariantId,
+              let variant = agentVariants.first(where: { $0.slug == selectedAgentVariantId }) else {
+            return "Default variant"
+        }
+        return variant.label
+    }
+
+    private var agentVariantErrorBinding: Binding<Bool> {
+        Binding(
+            get: { agentVariantErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    agentVariantErrorMessage = nil
+                }
+            }
+        )
     }
 
     /// Pill rendered below the subtitle. "You" for the current user's
@@ -569,6 +636,27 @@ struct ContactDetailView: View {
 
     private func handleRemoveTap() {
         onRemove?()
+    }
+
+    private func updateAgentVariant(variantId: String?) {
+        guard let session,
+              let instanceId = contact.agentInstanceId,
+              !isUpdatingAgentVariant else { return }
+        Task { @MainActor in
+            isUpdatingAgentVariant = true
+            defer { isUpdatingAgentVariant = false }
+            do {
+                let response = try await session.updateAgentVariant(
+                    instanceId: instanceId,
+                    variantId: variantId
+                )
+                selectedAgentVariantId = response.variantId
+                presentingAgentVariantPicker = false
+            } catch {
+                Log.error("Failed to update agent variant \(instanceId): \(error.localizedDescription)")
+                agentVariantErrorMessage = "We couldn't update this agent's variant. Please try again."
+            }
+        }
     }
 
     private func applyBlockChange(block: Bool) {
@@ -767,6 +855,74 @@ private struct ContactDetailSubtitle: View {
 
 // MARK: - Action stack
 
+private struct AgentVariantPickerSheet: View {
+    let variants: [ConvosAPI.AgentVariant]
+    let selectedVariantId: String?
+    let isUpdating: Bool
+    let onSelect: (String) -> Void
+    let onClear: () -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Button(action: onClear) {
+                    variantRow(
+                        title: "Default variant",
+                        subtitle: "Use the standard agent profile",
+                        isSelected: selectedVariantId == nil
+                    )
+                }
+                .disabled(isUpdating)
+
+                ForEach(variants) { variant in
+                    Button(action: { onSelect(variant.slug) }) {
+                        variantRow(
+                            title: variant.label,
+                            subtitle: variant.whatToTest,
+                            isSelected: selectedVariantId == variant.slug
+                        )
+                    }
+                    .disabled(isUpdating)
+                }
+            }
+            .navigationTitle("Variant")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func variantRow(title: String, subtitle: String, isSelected: Bool) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step1x) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: DesignConstants.Spacing.step2x)
+            if isUpdating && isSelected {
+                ProgressView()
+            } else if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
 /// Renders the "Convos with you" sections (template-backed agents only),
 /// then the chat CTA ("New chat" for agents, "Chat" for human members),
 /// Share, Remove, and Block - in that order. The chat CTA is the
@@ -793,6 +949,9 @@ private struct ContactDetailActions: View {
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
+    let showVariantPicker: Bool
+    let selectedVariantLabel: String
+    let isUpdatingVariant: Bool
     /// True on Dev/Local builds. Hides the row on production.
     let showsInstanceIdRow: Bool
     /// Agent's published attestation signature (`nil` when it joined without
@@ -808,6 +967,7 @@ private struct ContactDetailActions: View {
     /// Called with the conversation when a "Convos with you" row is tapped.
     let onSelectConversation: (Conversation) -> Void
     let onSendMessage: () -> Void
+    let onPickVariant: () -> Void
     let onShare: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
@@ -822,6 +982,9 @@ private struct ContactDetailActions: View {
             }
             if showChat {
                 chatButton
+            }
+            if showVariantPicker {
+                variantRow
             }
             if showShare {
                 shareRow
@@ -884,6 +1047,18 @@ private struct ContactDetailActions: View {
             accessibilityLabel: "Share \(contactDisplayName)",
             accessibilityIdentifier: "contact-detail-share-agent-row",
             action: onShare
+        )
+    }
+
+    private var variantRow: some View {
+        ContactDetailActionRow(
+            label: "Variant",
+            footer: selectedVariantLabel,
+            color: .colorTextPrimary,
+            isDisabled: isUpdatingVariant,
+            accessibilityLabel: "Change agent variant",
+            accessibilityIdentifier: "contact-detail-agent-variant",
+            action: onPickVariant
         )
     }
 

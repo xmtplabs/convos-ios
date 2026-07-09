@@ -138,6 +138,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
+    func listAgentVariants() async throws -> [ConvosAPI.AgentVariant]
+    func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse
+
     /// Opportunistic foreground republish of the user's timezone across every
     /// agent conversation (agent-timezone Channel B refresh). Throttled so a
     /// conversation is only republished when the device timezone changed since
@@ -306,5 +309,18 @@ extension SessionManagerProtocol {
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         try await addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil, forceErrorCode: nil)
+    }
+
+    public func listAgentVariants() async throws -> [ConvosAPI.AgentVariant] {
+        []
+    }
+
+    public func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse {
+        ConvosAPI.AgentVariantUpdateResponse(
+            success: true,
+            instanceId: instanceId,
+            variantId: variantId,
+            applied: "profile_metadata"
+        )
     }
 }

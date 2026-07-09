@@ -228,6 +228,41 @@ public enum ConvosAPI {
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
     }
 
+    public struct AgentVariantUpdateRequest: Encodable, Sendable {
+        public let variantId: String?
+
+        public init(variantId: String?) {
+            self.variantId = variantId
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            if let variantId {
+                try container.encode(variantId, forKey: .variantId)
+            } else {
+                try container.encodeNil(forKey: .variantId)
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case variantId
+        }
+    }
+
+    public struct AgentVariantUpdateResponse: Codable, Sendable {
+        public let success: Bool
+        public let instanceId: String
+        public let variantId: String?
+        public let applied: String
+
+        public init(success: Bool, instanceId: String, variantId: String?, applied: String) {
+            self.success = success
+            self.instanceId = instanceId
+            self.variantId = variantId
+            self.applied = applied
+        }
+    }
+
     public struct AgentJoinResponse: Codable {
         public let success: Bool
         public let joined: Bool

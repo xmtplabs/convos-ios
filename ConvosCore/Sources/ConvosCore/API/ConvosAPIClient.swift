@@ -107,6 +107,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the poll hit the default worker, which has no record of the instance.
     func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse
 
+    func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
@@ -941,6 +943,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // request. Kept well under the loop's overall deadline so a stuck
         // request fails fast and the next iteration's deadline check fires.
         request.timeoutInterval = 10
+        return try await performRequest(request)
+    }
+
+    func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse {
+        let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
+        var request = try authenticatedRequest(for: "v2/agents/\(encoded)/variant", method: "PATCH")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(ConvosAPI.AgentVariantUpdateRequest(variantId: variantId))
         return try await performRequest(request)
     }
 

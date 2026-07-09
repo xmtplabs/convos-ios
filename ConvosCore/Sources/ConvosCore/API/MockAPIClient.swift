@@ -119,6 +119,15 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
+    func updateAgentVariant(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentVariantUpdateResponse {
+        .init(
+            success: true,
+            instanceId: instanceId,
+            variantId: variantId,
+            applied: "profile_metadata"
+        )
+    }
+
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         .init(
             id: UUID().uuidString,
