@@ -1,17 +1,8 @@
 _: {
   config.perSystem =
-    { pkgs, lib, ... }:
+    { pkgs, inputs', ... }:
     let
       xcode = pkgs.darwin.xcode_26_3;
-      root = ./../..;
-      gems = pkgs.bundlerEnv {
-        name = "fastlane-gems";
-        ruby = pkgs.ruby_3_4;
-        gemfile = root + /Gemfile;
-        lockfile = root + /Gemfile.lock;
-        gemset = root + /nix/gemset.nix;
-        extraConfigPaths = [ (root + /fastlane/Pluginfile) ];
-      };
       # mkShellNoCC keeps nix's clang/ld off PATH so xcodebuild uses Xcode's
       # We also override stdenv to drop the apple-sdk setup hook, which would
       # otherwise re-export SDKROOT/DEVELOPER_DIR after we set them.
@@ -27,8 +18,9 @@ _: {
     {
       devShells.default = (pkgs.mkShellNoCC.override { stdenv = stdenvNoAppleSdk; }) {
         packages = [
-          gems
-          (lib.lowPrio gems.wrappedRuby)
+          # fastlane + lanes from convos-releases; the wrapper exports
+          # CONVOS_LANES for the stub Fastfile.
+          inputs'.convos-releases.packages.fastlane
           # dSYM upload to Sentry in the prod TestFlight workflow
           pkgs.sentry-cli
         ];
