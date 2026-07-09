@@ -80,6 +80,59 @@ struct ConsentBackupTests {
         #expect(consents["convo-b"] == nil)
     }
 
+    @Test("Mirror never clobbers a non-empty backup with a fresh database's empty snapshot")
+    func mirrorSkipsInitialEmptySnapshot() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try KeychainIdentityKeys.generate()
+        _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
+        // The backup a previous install wrote; the fresh (empty) database
+        // must not erase it before the restore reads it.
+        let previous = ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-old"])
+        try await identityStore.saveConsentBackup(previous)
+
+        let mirror = ConsentBackupMirror(
+            databaseReader: dbManager.dbReader,
+            identityStore: identityStore
+        )
+        mirror.start()
+        defer { mirror.stop() }
+
+        // The observation's initial emission is empty; give it time to
+        // (wrongly) write, then confirm the backup survived.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(try await identityStore.loadConsentBackup() == previous)
+
+        // A genuine allowed conversation must flow through.
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-new", consent: .allowed)
+        }
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-new"]
+        }
+
+        // And once the session has seen a non-empty set, a transition to
+        // empty is real (user deleted everything) and must be written.
+        try await dbManager.dbWriter.write { db in
+            guard let conversation = try DBConversation.fetchOne(db) else { return }
+            try conversation.with(consent: .denied).save(db)
+        }
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == []
+        }
+    }
+
+    /// Polls `condition` until it holds or a 5s deadline expires (the
+    /// mirror reacts to GRDB observation emissions asynchronously).
+    private static func waitUntil(_ condition: () async throws -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if try await condition() { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        Issue.record("Condition not met within deadline")
+    }
+
     private static func seedConversation(
         db: Database,
         id: String,

@@ -78,6 +78,8 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         if let inboxId {
             backupState.withLock { $0.removeValue(forKey: inboxId) }
         }
+        markerState.withLock { $0 = nil }
+        consentBackupState.withLock { $0 = nil }
     }
 
     func loadInstallationMarker() throws -> InstallationMarker? {

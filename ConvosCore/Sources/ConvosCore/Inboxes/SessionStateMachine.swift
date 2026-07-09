@@ -110,6 +110,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private let xmtpClientFactory: XMTPClientFactory
 
     private var currentTask: Task<Void, Never>?
+    /// The stale-installation reconcile in flight, if any. Cancelled on
+    /// stop and delete so a teardown racing the reconcile can't issue
+    /// revocations or rewrite keychain state for a session being removed.
+    private var staleReconcileTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
@@ -686,7 +690,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// extension) - the NSE has no business making revocation calls.
     private func reconcileStaleOwnInstallations() {
         guard syncingManager != nil else { return }
-        Task { [weak self] in
+        staleReconcileTask?.cancel()
+        staleReconcileTask = Task { [weak self] in
             await self?.performStaleOwnInstallationReconcile()
         }
     }
@@ -715,26 +720,26 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             // else - consent records written now also cover welcomes that
             // haven't arrived yet. Inlined (not a helper taking the
             // client) so the non-Sendable client stays a disconnected
-            // value used only in sequential awaits. Best-effort: the
-            // backup is never consumed, and a failure retries on the next
-            // launch for as long as the revoke below is also pending.
-            do {
-                let consentIds = try await ConsentBackupRestorer.idsToRestore(
-                    identityStore: identityStore,
-                    inboxId: client.inboxId
+            // value used only in sequential awaits. The backup is never
+            // consumed, and a restore failure aborts the reconcile before
+            // the revoke: the marker keeps its stale ids, so both the
+            // restore and the revoke retry on the next launch (letting
+            // the revoke clear the marker after a failed restore would
+            // end the retries and leave the conversations hidden).
+            let consentIds = try await ConsentBackupRestorer.idsToRestore(
+                identityStore: identityStore,
+                inboxId: client.inboxId
+            )
+            if !consentIds.isEmpty {
+                try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
+                try await ConsentBackupRestorer.flipStoredUnknownRows(
+                    ids: consentIds,
+                    databaseWriter: databaseWriter
                 )
-                if !consentIds.isEmpty {
-                    try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
-                    try await ConsentBackupRestorer.flipStoredUnknownRows(
-                        ids: consentIds,
-                        databaseWriter: databaseWriter
-                    )
-                    Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
-                    QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
-                }
-            } catch {
-                Log.warning("Consent backup restore failed (retries next launch): \(error)")
+                Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
+                QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
             }
+            try Task.checkCancellation()
             let liveIds = try await client.listInstallations(refreshFromNetwork: true).map(\.id)
             let idsToRevoke = plan.candidateStaleIds.filter(Set(liveIds).contains)
             if !idsToRevoke.isEmpty {
@@ -812,6 +817,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId: \(initialClientId)...")
+        staleReconcileTask?.cancel()
+        staleReconcileTask = nil
         defer { enqueueAction(.stop) }
 
         let liveContext: (client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol)?
@@ -878,6 +885,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleStop() async throws {
         Log.info("Stopping inbox with clientId \(initialClientId)...")
+        staleReconcileTask?.cancel()
+        staleReconcileTask = nil
         stopRevocationObserver()
 
         let clientToClose: (any XMTPClientProvider)?

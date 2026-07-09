@@ -457,6 +457,13 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         if let inboxId = primary?.inboxId {
             try deleteData(with: syncedBackupQuery(inboxId: inboxId))
         }
+        // Sweep the device-local slots too: leaving the installation
+        // marker or consent backup behind would let a later sign-in on
+        // this device reconcile against - or restore consent from - state
+        // the user explicitly wiped. Best-effort: a failure here only
+        // leaves data the next identity ignores via its inboxId check.
+        try? deleteData(with: installationMarkerQuery)
+        try? deleteData(with: consentBackupQuery)
         try deleteData(with: identityQuery)
     }
 
