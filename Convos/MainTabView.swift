@@ -278,6 +278,8 @@ struct MainTabView: View {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
+                conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
+                conversationsViewModel.isChatsTabActive = activeTab == .chats
             }
             .modifier(metricsObserversModifier)
     }
@@ -329,8 +331,12 @@ struct MainTabView: View {
             }
         }
         .tint(Color.colorTextPrimary)
-        .onChange(of: activeTab) { _, _ in
+        .onChange(of: activeTab) { _, newTab in
             updateBuilderBarReveal(forOffset: activeTabScrollOffset)
+            // Fires after SwiftUI has applied the tab switch, so a parked
+            // scan navigation gated on the Chats tab consumes only once the
+            // switch has actually committed.
+            conversationsViewModel.isChatsTabActive = newTab == .chats
         }
     }
 
@@ -356,11 +362,11 @@ struct MainTabView: View {
     }
 
     /// A scan started from the Contacts tab joined a conversation. The joined
-    /// convo lives under the Chats tab, so switch there first, then route the
-    /// id through the same parked-selection navigation the home scan uses
-    /// (the row may not be in the list yet; it resolves once it lands).
+    /// convo lives under the Chats tab; `navigateToScannedConversation` asks
+    /// the shell to switch there (via `bringChatsTabToFront`) and selects the
+    /// conversation only once the switch has committed and the row is in the
+    /// list, so the push can never land while Contacts is frontmost.
     private func handleContactsScanJoinedConversation(_ conversationId: String) {
-        activeTab = .chats
         conversationsViewModel.navigateToScannedConversation(conversationId)
     }
 
