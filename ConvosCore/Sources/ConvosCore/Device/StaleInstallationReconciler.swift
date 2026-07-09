@@ -18,7 +18,10 @@ public struct InstallationMarker: Codable, Sendable, Equatable {
     public let installationId: String
     /// Installations this device orphaned but has not yet successfully
     /// revoked - carried across launches so an offline launch retries
-    /// later instead of leaking the ghost forever.
+    /// later instead of leaking the ghost forever. Growth is bounded in
+    /// practice by requiring a full reinstall cycle per entry while every
+    /// revoke attempt keeps failing; the first launch with network
+    /// drains the whole list in one revoke call.
     public let staleInstallationIds: [String]
 
     public init(inboxId: String, installationId: String, staleInstallationIds: [String]) {
