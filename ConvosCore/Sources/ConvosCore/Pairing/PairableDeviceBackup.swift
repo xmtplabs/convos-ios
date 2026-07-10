@@ -26,7 +26,10 @@ public struct PairableDeviceBackup: Sendable, Equatable, Identifiable {
 /// key was created first. `backedUpAt` is the best available proxy for
 /// key creation (a mirror is written when the identity is saved; pairing
 /// re-saves and late backfills can re-stamp it, the same caveat the
-/// prompt's ordering rule carries).
+/// prompt's ordering rule carries). Identical timestamps tie-break on
+/// the lexicographically smaller inboxId - deterministic, but it means
+/// the Main designation is approximate when keys were created in the
+/// same instant.
 ///
 /// Unlike `PairableDeviceBackup.pairableBackups`, `otherDevices` is not
 /// filtered by the newer-than-own ordering rule: that rule exists so the
