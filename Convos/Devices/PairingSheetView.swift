@@ -65,8 +65,11 @@ struct PairingSheetView: View {
 
     @ViewBuilder
     private func qrCodeContent(url: String) -> some View {
+        let scanInstruction: String = viewModel.targetDeviceName.map {
+            "Open Convos on \"\($0)\" and scan this code to pair"
+        } ?? "Scan this code with your new device to pair"
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text("Scan this code with your new device to pair")
+            Text(scanInstruction)
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)

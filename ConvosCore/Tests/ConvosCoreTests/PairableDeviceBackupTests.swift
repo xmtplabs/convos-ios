@@ -124,6 +124,77 @@ struct PairableDeviceBackupTests {
     }
 }
 
+@Suite("iCloud Device Backups Snapshot")
+struct ICloudDeviceBackupsSnapshotTests {
+    private func makeBackup(
+        inboxId: String,
+        deviceName: String? = nil,
+        backedUpAt: Date? = nil
+    ) throws -> KeychainIdentityBackup {
+        let keys = try KeychainIdentityKeys.generate()
+        let identity = KeychainIdentity(inboxId: inboxId, clientId: UUID().uuidString, keys: keys)
+        if let backedUpAt {
+            return KeychainIdentityBackup(identity: identity, deviceName: deviceName, backedUpAt: backedUpAt)
+        }
+        let stamped = KeychainIdentityBackup(identity: identity, deviceName: deviceName, backedUpAt: Date())
+        let encoded = try JSONEncoder().encode(stamped)
+        var json = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] ?? [:]
+        json.removeValue(forKey: "backedUpAt")
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(KeychainIdentityBackup.self, from: data)
+    }
+
+    @Test("Current identity holding the oldest key is the main device")
+    func currentDeviceIsMainWhenOldest() throws {
+        let own = try makeBackup(inboxId: "own", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let other = try makeBackup(inboxId: "other", backedUpAt: Date(timeIntervalSince1970: 2_000))
+
+        let snapshot = ICloudDeviceBackupsSnapshot.snapshot(from: [other, own], currentInboxId: "own")
+
+        #expect(snapshot.currentDevice?.inboxId == "own")
+        #expect(snapshot.otherDevices.map(\.inboxId) == ["other"])
+        #expect(snapshot.mainDeviceInboxId == "own")
+        #expect(snapshot.currentDeviceIsMain)
+    }
+
+    @Test("Unlike the prompt filter, newer-than-own backups are listed, oldest first, and the oldest is main")
+    func listsAllOthersUnfiltered() throws {
+        let own = try makeBackup(inboxId: "own", backedUpAt: Date(timeIntervalSince1970: 2_000))
+        let older = try makeBackup(inboxId: "older", deviceName: "Old iPhone", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let newer = try makeBackup(inboxId: "newer", backedUpAt: Date(timeIntervalSince1970: 3_000))
+
+        let snapshot = ICloudDeviceBackupsSnapshot.snapshot(from: [newer, own, older], currentInboxId: "own")
+
+        #expect(snapshot.otherDevices.map(\.inboxId) == ["older", "newer"])
+        #expect(snapshot.mainDeviceInboxId == "older")
+        #expect(!snapshot.currentDeviceIsMain)
+    }
+
+    @Test("Undated keys never claim the main designation, and no dated key means no main")
+    func undatedKeysDontClaimMain() throws {
+        let own = try makeBackup(inboxId: "own", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let undated = try makeBackup(inboxId: "undated")
+
+        let withDatedOwn = ICloudDeviceBackupsSnapshot.snapshot(from: [own, undated], currentInboxId: "own")
+        #expect(withDatedOwn.mainDeviceInboxId == "own")
+
+        let allUndated = ICloudDeviceBackupsSnapshot.snapshot(from: [undated], currentInboxId: "own")
+        #expect(allUndated.mainDeviceInboxId == nil)
+        #expect(!allUndated.currentDeviceIsMain)
+    }
+
+    @Test("No identity yet leaves the current device nil and lists everything")
+    func nilIdentityListsEverything() throws {
+        let first = try makeBackup(inboxId: "a", backedUpAt: Date(timeIntervalSince1970: 1_000))
+
+        let snapshot = ICloudDeviceBackupsSnapshot.snapshot(from: [first], currentInboxId: nil)
+
+        #expect(snapshot.currentDevice == nil)
+        #expect(snapshot.otherDevices.map(\.inboxId) == ["a"])
+        #expect(!snapshot.currentDeviceIsMain)
+    }
+}
+
 @Suite("Pairing Invite Signing")
 struct PairingInviteSigningTests {
     @Test("Signed invite round-trips through full slug validation")

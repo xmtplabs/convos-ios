@@ -92,6 +92,18 @@ struct DevicesView: View {
                 ForEach(viewModel.devices) { device in
                     deviceRow(device)
                 }
+            } footer: {
+                Text("Devices paired to your account")
+            }
+
+            if !viewModel.iCloudDevices.isEmpty {
+                Section {
+                    ForEach(viewModel.iCloudDevices) { backup in
+                        iCloudDeviceRow(backup)
+                    }
+                } footer: {
+                    Text("Other devices in iCloud")
+                }
             }
 
             Section {
@@ -112,8 +124,43 @@ struct DevicesView: View {
         .background(.colorBackgroundRaisedSecondary)
     }
 
+    private func iCloudDeviceRow(_ backup: PairableDeviceBackup) -> some View {
+        let pairAction = { viewModel.pairICloudDevice(backup) }
+        let isMain: Bool = viewModel.mainDeviceInboxId == backup.inboxId
+        return Button(action: pairAction) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: "icloud")
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(backup.deviceName ?? DevicesViewModel.shortICloudDeviceName(inboxId: backup.inboxId))
+                        .foregroundStyle(.colorTextPrimary)
+
+                    if isMain {
+                        Text("Main device")
+                            .font(.caption)
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("icloud-device-row-\(backup.inboxId)")
+    }
+
     private func deviceRow(_ device: PairedDevice) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
+        let caption: String? = {
+            guard device.isCurrentDevice else { return nil }
+            return viewModel.currentDeviceIsMain ? "This device · Main device" : "This device"
+        }()
+        return HStack(spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "iphone.gen3")
                 .foregroundStyle(.colorTextPrimary)
                 .frame(width: 24)
@@ -122,8 +169,8 @@ struct DevicesView: View {
                 Text(device.name)
                     .foregroundStyle(.colorTextPrimary)
 
-                if device.isCurrentDevice {
-                    Text("This device")
+                if let caption {
+                    Text(caption)
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                 }

@@ -1,0 +1,169 @@
+id: "46"
+name: "Devices Screen iCloud Section"
+description: >
+  Verify the expanded Devices screen (Settings > Devices): the paired
+  section carries the "Devices paired to your account" footer, a second
+  "Other devices in iCloud" section lists identities from the
+  iCloud-synced keychain backup that aren't paired to the current
+  account, the oldest key is designated the Main device (badged in
+  whichever section holds it), tapping an iCloud device opens the
+  initiator pairing sheet with the scan instruction naming that device,
+  and the delete-all confirmation escalates its copy on the main device.
+  Runs on a single disposable clone using the
+  CONVOS_QA_WIPE_PRIMARY_IDENTITY launch hook to mint a second identity.
+tags: [devices, pairing, icloud, keychain, settings]
+depends_on: ["01"]
+estimated_duration_s: 420
+
+prerequisites:
+  app_running: false
+  cli_initialized: false
+  shared_conversation: false
+  screen: none
+
+state:
+  clone_udid: null
+  main_inbox_id: null
+  main_device_name: null
+
+setup:
+  - action: clone_primary_as_devices_sim
+    save:
+      clone_udid: "from clone"
+    note: >
+      `xcrun simctl shutdown $PRIMARY`, `xcrun simctl clone $PRIMARY
+      convos-qa-devices`, `xcrun simctl erase` the clone (fresh account),
+      boot both, relaunch the app on the primary, install the built
+      Convos.app on the clone. Every clone launch needs
+      SIMCTL_CHILD_FIRAAppCheckDebugToken="$FIREBASE_APP_CHECK_DEBUG_TOKEN"
+      (source .env).
+
+steps:
+  - id: main_device_delete_guard
+    name: "Delete-all confirmation escalates on the main device"
+    actions:
+      - launch_app: {}
+      - navigate: "Convos tab -> convos-logo-button -> app settings"
+      - tap: { id: "delete-all-data-button" }
+      - wait_for_element: { label_contains: "This is your main device", timeout: 10 }
+      - screenshot: {}
+      - dismiss_sheet: { via: "Cancel" }
+    verify:
+      - element_exists: { label_contains: "This is your main device" }
+    criteria: delete_guard_escalates
+    note: >
+      On this first launch the account's identity is the only (hence
+      oldest) key in the keychain slot, so the device is the main
+      device and the delete-all subtitle must carry the escalated
+      sentence. Cancel without holding the delete button. The identity's
+      mirror is written on registration; give the app ~10s after first
+      launch before opening the sheet so the backup slot is populated.
+      Validated gotchas: the fresh clone's first launch presents the
+      first-launch profile sheet (profile-setup-sheet: name field +
+      agree toggle + "Come in") which must be completed before the
+      settings sheet can open; convos-logo-button is nested inside the
+      pill idb reports as app-indicator-pill - tap that frame's center;
+      delete-all-data-button is below the fold, scroll the settings
+      sheet down first and re-read its frame right before tapping; the
+      confirmation's Cancel button has no accessibility id (find by
+      label).
+
+  - id: second_identity_seeded
+    name: "Wipe hook mints a second identity so the first becomes a foreign iCloud key"
+    actions:
+      - terminate_app: {}
+      - launch_app_with_env:
+          env: { CONVOS_QA_WIPE_PRIMARY_IDENTITY: "1" }
+      - wait_for_element: { id: "skip-found-device-pairing-button", timeout: 45 }
+      - tap: { id: "skip-found-device-pairing-button" }
+    verify:
+      - event_exists: { name: "app.qa_wiped_primary_identity" }
+    criteria: second_identity_seeded
+    save:
+      main_inbox_id: "inboxId= param of pairing.found_device_prompt_shown"
+      main_device_name: "deviceName= param of pairing.found_device_prompt_shown"
+    note: >
+      The hook wipes the device-local identity; the app registers a
+      fresh placeholder, and the original identity's backup remains in
+      the slot as another device's key - older than the new one, so it
+      is the Main device. The found-device prompt for it appears (the
+      ordering rule offers older keys); tap Skip - this test exercises
+      the Devices screen surface, not the prompt (test 44 covers that).
+      Skip's decline flag only suppresses the prompt, not the Devices
+      section. Validated: pass the hook as
+      SIMCTL_CHILD_CONVOS_QA_WIPE_PRIMARY_IDENTITY=1 on simctl launch;
+      the relaunch does not re-present the profile sheet (placeholder
+      registers silently) and lands on the empty Convos tab.
+
+  - id: devices_screen_sections
+    name: "Devices screen shows both sections with the specified footers"
+    actions:
+      - navigate: "Convos tab -> convos-logo-button -> app settings -> devices-row"
+      - wait_for_element: { id: "devices-view", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Devices paired to your account" }
+      - element_exists: { label_contains: "Other devices in iCloud" }
+      - element_exists: { id: "icloud-device-row-$main_inbox_id" }
+    criteria: sections_and_footers
+    note: >
+      Section 1 lists the current account's installations with the
+      "Devices paired to your account" footer. Section 2 lists the
+      foreign key with the "Other devices in iCloud" footer. The row id
+      embeds the foreign identity's full inboxId. Validated: both
+      footer strings surface as static text in the idb accessibility
+      tree - element_exists works, no screenshot fallback needed.
+
+  - id: main_designation
+    name: "The oldest key is badged as the Main device"
+    actions:
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Main device" }
+    criteria: main_badge
+    note: >
+      The foreign key predates the current placeholder, so its iCloud
+      row carries the "Main device" caption and the current-device row
+      shows plain "This device" (not "This device - Main device").
+      Verify both: exactly one Main designation, on the iCloud row.
+
+  - id: pair_sheet_targets_device
+    name: "Tapping an iCloud device opens the initiator sheet naming it"
+    actions:
+      - tap: { id: "icloud-device-row-$main_inbox_id" }
+      - wait_for_element: { label_contains: "and scan this code to pair", timeout: 15 }
+      - screenshot: {}
+      - dismiss_sheet: {}
+    verify:
+      - element_exists: { label_contains: "Open Convos on" }
+      - event_exists: { name: "pairing.devices_icloud_pair_tapped" }
+    expect_event: "pairing.devices_icloud_pair_tapped"
+    criteria: pair_sheet_targeted
+    note: >
+      The standard initiator pairing sheet (QR + countdown) presents,
+      with the scan instruction reading 'Open Convos on "<name>" and
+      scan this code to pair' where <name> is the tapped backup's
+      device name (or its "Device <suffix>" fallback). The current
+      account stays the main account - this arms the invite; the join
+      would happen from the other device. Dismiss without pairing.
+
+teardown:
+  - action: delete_devices_sim
+    args: { udid: "$clone_udid" }
+    optional: true
+    note: >
+      `xcrun simctl shutdown $clone_udid && xcrun simctl delete
+      $clone_udid`. The clone held throwaway identities; the primary
+      simulator was never modified.
+
+criteria:
+  delete_guard_escalates:
+    description: "On the sole-key (main) device, the delete-all confirmation subtitle includes the escalated 'This is your main device' sentence"
+  second_identity_seeded:
+    description: "The wipe hook replaced the primary identity (qa_wiped_primary_identity status=0) and the original key remains in iCloud as a foreign device"
+  sections_and_footers:
+    description: "The Devices screen shows the paired-devices section with footer 'Devices paired to your account' and an 'Other devices in iCloud' section listing the foreign key"
+  main_badge:
+    description: "Exactly one Main-device designation is shown, on the row holding the oldest key (the foreign iCloud row in this flow)"
+  pair_sheet_targeted:
+    description: "Tapping the iCloud row emits pairing.devices_icloud_pair_tapped and presents the initiator pairing sheet whose scan instruction names the tapped device"
