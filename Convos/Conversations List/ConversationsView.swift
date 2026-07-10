@@ -365,6 +365,9 @@ private struct ConversationsSheetModifier: ViewModifier {
                     .padding(.top, DesignConstants.Spacing.step5x)
                 }
             )
+            .selfSizingSheet(isPresented: $viewModel.presentingFirstLaunchProfileSetup) {
+                ProfileSetupSheet(mode: .firstLaunch)
+            }
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()
             }

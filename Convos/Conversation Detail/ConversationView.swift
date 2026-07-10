@@ -570,22 +570,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
             capabilityApprovalSheet
         }
-        .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            MyInfoView(
-                profile: .constant(viewModel.myProfileViewModel.profile),
-                profileImage: $viewModel.myProfileViewModel.profileImage,
-                editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                profileSettingsViewModel: profileSettingsViewModel,
-                showsCancelButton: true,
-                showsProfile: true,
-                showsUseProfileButton: true,
-                canEditProfile: false
-            ) { profileSettings in
-                viewModel.onUseProfile(profileSettings.profile, profileSettings.profileImage)
-            }
-            .onDisappear {
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingProfileSettings,
+            onDismiss: {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
             }
+        ) {
+            ProfileSetupSheet(mode: .edit)
         }
         .toolbar { topBarTrailing }
         .debugConnectionInjectorSheet(

@@ -67,6 +67,7 @@ struct AppSettingsView: View {
     @State private var versionTapCount: Int = 0
     @State private var lastVersionTapAt: Date?
     @State private var showingEnableDebugConfirmation: Bool = false
+    @State private var presentingMyInfoSheet: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -144,22 +145,16 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var myInfoSection: some View {
         Section {
-            NavigationLink {
-                MyInfoView(
-                    profile: .constant(.empty()),
-                    profileImage: .constant(nil),
-                    editingDisplayName: .constant(""),
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    showsCancelButton: false,
-                    showsProfile: false,
-                    showsUseProfileButton: false,
-                    canEditProfile: true
-                ) { _ in }
-                .onAppear { navigator?.navigateTo(myInfo: MyInfoNavigatorArgs()) }
+            Button {
+                presentingMyInfoSheet = true
+                navigator?.navigateTo(myInfo: MyInfoNavigatorArgs())
             } label: {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+            .selfSizingSheet(isPresented: $presentingMyInfoSheet) {
+                ProfileSetupSheet(mode: .edit)
+            }
         }
     }
 
