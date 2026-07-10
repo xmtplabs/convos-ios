@@ -627,11 +627,11 @@ The invite flow is multi-step and requires coordination between the inviting sid
 3. Wait 2-3 seconds for the app to process the deep link and send the join request.
 4. **Then** run `process-join-requests` from the CLI.
 
-**Always use `--watch` with `--timeout`** when running `process-join-requests`. The join request may take a moment to arrive over the network. Example:
+**Always use `--watch`** when running `process-join-requests`, and bound it externally — the CLI has no `--timeout` flag. The join request may take a moment to arrive over the network. The correct command form (validated against convos CLI 0.10.x; the old `convos conversation ... <convo-id>` positional form is not a valid command):
 ```bash
-convos conversation process-join-requests <convo-id> --watch --timeout 30
+timeout 45 convos conversations process-join-requests --conversation <convo-id> --watch
 ```
-Never run `process-join-requests` without `--timeout` — it can hang indefinitely with `--watch`, or miss the request without `--watch`. A 30-second timeout is a safe default.
+Do not kill the watcher as soon as it prints its "Adding ..." line — that consumes the join request without completing the add-member commit and the joiner never lands. Wait for the "Sent ProfileSnapshot" line before stopping it. Running without `--watch` can miss a request that hasn't arrived yet and silently succeed.
 
 ### Test Results
 
