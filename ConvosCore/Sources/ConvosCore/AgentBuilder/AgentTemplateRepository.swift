@@ -179,6 +179,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             createdAt: now,
             updatedAt: now
         )
+        Log.info("AgentTemplateRepository: starting generation \(idempotencyKey) for conversation \(conversationId)")
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -308,7 +309,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 return await applyResponse(response, to: row.idempotencyKey)
             } catch let error as AgentGenerationError {
                 switch error {
-                case .server:
+                case .server(let message):
+                    Log.error("AgentTemplateRepository: submit server error (attempt \(attempt + 1)/\(Constant.maxSubmitAttempts)): \(message ?? "no message")")
                     attempt += 1
                     await backoff(attempt: attempt)
                     continue
@@ -325,6 +327,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     return await markFailed(idempotencyKey: row.idempotencyKey, message: "Not found")
                 }
             } catch {
+                Log.error("AgentTemplateRepository: submit failed (attempt \(attempt + 1)/\(Constant.maxSubmitAttempts)): \(error.localizedDescription)")
                 attempt += 1
                 await backoff(attempt: attempt)
                 continue
@@ -345,14 +348,19 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 let response = try await apiClient.getAgentTemplateGeneration(generationId: generationId)
                 let updated = await applyResponse(response, to: row.idempotencyKey)
                 if let updated, updated.statusValue == .done || updated.statusValue == .failed {
+                    if updated.statusValue == .failed {
+                        Log.error("AgentTemplateRepository: generation \(generationId) reported failed by backend: \(updated.errorMessage ?? "no error message")")
+                    }
                     return updated
                 }
             } catch let error as AgentGenerationError {
                 if case .notFound = error {
                     return await markFailed(idempotencyKey: row.idempotencyKey, message: "Build expired")
                 }
+                Log.warning("AgentTemplateRepository: poll error for generation \(generationId) (attempt \(attempt + 1)/\(Constant.maxPollAttempts)): \(error)")
             } catch {
                 // network blip - keep polling
+                Log.warning("AgentTemplateRepository: poll transient error for generation \(generationId) (attempt \(attempt + 1)/\(Constant.maxPollAttempts)): \(error.localizedDescription)")
             }
             attempt += 1
             await backoff(attempt: min(attempt, Constant.pollBackoffCap))
@@ -368,6 +376,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Missing template id")
             return
         }
+        Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId)")
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
@@ -380,6 +389,9 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 if let handler {
                     try await handler(row.conversationId, templateId, row.variantId)
                 } else {
+                    // Reaching this outside tests means the agent gets provisioned
+                    // but never direct-added, so it silently never joins.
+                    Log.warning("AgentTemplateRepository: join handler unset; raw join without direct-add for template \(templateId)")
                     let options = row.variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
                     _ = try await apiClient.requestAgentJoin(
                         slug: nil,
@@ -390,6 +402,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                         forceErrorCode: nil
                     )
                 }
+                Log.info("AgentTemplateRepository: invite succeeded for template \(templateId) in conversation \(row.conversationId)")
                 Self.cleanupAttachments(idempotencyKey: row.idempotencyKey)
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
                 return
@@ -423,6 +436,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         to idempotencyKey: String
     ) async -> DBAgentTemplateGeneration? {
         await updateRow(idempotencyKey: idempotencyKey) { row in
+            let previousStatus = row.status
             row.generationId = response.generationId
             row.templateId = response.templateId ?? row.templateId
             switch response.status {
@@ -446,6 +460,9 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             }
             if let phrases = response.progressPhrases, !phrases.isEmpty {
                 row.progressPhrases = Self.encodePhrases(phrases)
+            }
+            if row.status != previousStatus {
+                Log.info("AgentTemplateRepository: generation \(response.generationId) status \(previousStatus) -> \(row.status)")
             }
         }
     }
@@ -572,6 +589,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     }
 
     private func markFailed(idempotencyKey: String, message: String) async -> DBAgentTemplateGeneration? {
+        Log.error("AgentTemplateRepository: generation \(idempotencyKey) marked failed: \(message)")
         Self.cleanupAttachments(idempotencyKey: idempotencyKey)
         return await updateRow(idempotencyKey: idempotencyKey) { row in
             row.status = DBAgentTemplateGeneration.Status.failed.rawValue

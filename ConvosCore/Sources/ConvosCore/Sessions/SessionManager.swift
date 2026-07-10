@@ -1329,6 +1329,7 @@ extension SessionManager {
         )
         let instanceId = resolved.instanceId
         let agentInboxId = resolved.inboxId
+        Log.info("Direct-add: provisioned instance \(instanceId) with inbox \(agentInboxId); adding to conversation \(conversationId)")
 
         // 2. Add: a plain member add by this device — synchronous, no DM
         //    round-trip, no online-accepter dependency. The add durably
