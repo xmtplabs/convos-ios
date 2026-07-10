@@ -235,6 +235,22 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// flow after the user loses their device.
     func loadSyncedBackups() throws -> [KeychainIdentityBackup]
 
+    /// Reads this device's installation marker (see `InstallationMarker`).
+    /// Device-local like the primary slot, so it survives app deletion
+    /// and never syncs to other devices.
+    func loadInstallationMarker() throws -> InstallationMarker?
+
+    /// Writes (or overwrites) this device's installation marker.
+    func saveInstallationMarker(_ marker: InstallationMarker) throws
+
+    /// Reads this device's consent backup (see `ConsentBackup`).
+    /// Device-local like the primary slot, so it survives app deletion
+    /// and never syncs to other devices.
+    func loadConsentBackup() throws -> ConsentBackup?
+
+    /// Writes (or overwrites) this device's consent backup.
+    func saveConsentBackup(_ backup: ConsentBackup) throws
+
     /// Mirrors the primary identity into the synced backup slot when its
     /// backup is missing. Installs that registered before the backup
     /// slot existed only ever wrote the primary slot; calling this on
@@ -282,6 +298,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let keychainAccessGroup: String
     private let syncedBackupEnabled: Bool
     private let deviceNameProvider: (@Sendable () -> String?)?
+    /// Set by `delete()` and cleared by the next identity `save`. While
+    /// set, the device-local slot writes (installation marker, consent
+    /// backup) are no-ops - see the comment in `delete()`.
+    private var deviceSlotsSwept: Bool = false
 
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
@@ -294,6 +314,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     /// Fixed account key for the identity in the primary slot.
     public static let identityAccount: String = "convos-identity"
+
+    /// Fixed account key for this device's installation marker, stored
+    /// device-local in `defaultService` alongside the identity.
+    public static let installationMarkerAccount: String = "convos-installation-marker"
+
+    /// Fixed account key for this device's consent backup, stored
+    /// device-local in `defaultService` alongside the identity.
+    public static let consentBackupAccount: String = "convos-consent-backup"
 
     // MARK: - Initialization
 
@@ -339,6 +367,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             removeSyncedBackup(inboxId: displacedInboxId)
         }
         try saveData(data, with: identityQuery)
+        deviceSlotsSwept = false
         mirrorToSyncedBackup(identity)
         return identity
     }
@@ -370,6 +399,36 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
                 return nil
             }
         }
+    }
+
+    public func loadInstallationMarker() throws -> InstallationMarker? {
+        do {
+            let data = try Self.loadKeychainData(with: installationMarkerQuery.toReadDictionary())
+            return try JSONDecoder().decode(InstallationMarker.self, from: data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func saveInstallationMarker(_ marker: InstallationMarker) throws {
+        guard !deviceSlotsSwept else { return }
+        let data = try JSONEncoder().encode(marker)
+        try saveData(data, with: installationMarkerQuery)
+    }
+
+    public func loadConsentBackup() throws -> ConsentBackup? {
+        do {
+            let data = try Self.loadKeychainData(with: consentBackupQuery.toReadDictionary())
+            return try JSONDecoder().decode(ConsentBackup.self, from: data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func saveConsentBackup(_ backup: ConsentBackup) throws {
+        guard !deviceSlotsSwept else { return }
+        let data = try JSONEncoder().encode(backup)
+        try saveData(data, with: consentBackupQuery)
     }
 
     public func backfillSyncedBackupIfNeeded() {
@@ -405,6 +464,22 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         if let inboxId = primary?.inboxId {
             try deleteData(with: syncedBackupQuery(inboxId: inboxId))
         }
+        // Sweep the device-local slots too: leaving the installation
+        // marker or consent backup behind would let a later sign-in on
+        // this device reconcile against - or restore consent from - state
+        // the user explicitly wiped. Best-effort: a failure here only
+        // leaves data the next identity ignores via its inboxId check.
+        //
+        // The swept flag closes the teardown race: an in-flight mirror or
+        // reconcile task already past its cancellation check can still be
+        // queued behind this delete on the actor, and its save would
+        // otherwise re-create the slot after the sweep. All device-local
+        // slot writes go through this actor, so turning them into no-ops
+        // until the next identity save serializes the race at its only
+        // choke point.
+        deviceSlotsSwept = true
+        try? deleteData(with: installationMarkerQuery)
+        try? deleteData(with: consentBackupQuery)
         try deleteData(with: identityQuery)
     }
 
@@ -413,6 +488,22 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private nonisolated var identityQuery: KeychainQuery {
         KeychainQuery(
             account: Self.identityAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+    }
+
+    private nonisolated var installationMarkerQuery: KeychainQuery {
+        KeychainQuery(
+            account: Self.installationMarkerAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+    }
+
+    private nonisolated var consentBackupQuery: KeychainQuery {
+        KeychainQuery(
+            account: Self.consentBackupAccount,
             service: keychainService,
             accessGroup: keychainAccessGroup
         )
