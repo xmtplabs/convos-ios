@@ -230,6 +230,11 @@ steps:
     verify:
       - element_exists: { label_contains: "Edited In Convo" }
     criteria: convo_edit_updates_global
+    note: >
+      The My info row renders the display name as its row text and exposes
+      it as the accessibility VALUE (accessibility label "My info", id
+      my-info-row, trailing pencil glyph, "Your name and pic" footer).
+      Match the name against the row's value/text.
 
   - id: convo_b_gets_edit
     name: "Conversation B picks up the edit via activate-sync"
