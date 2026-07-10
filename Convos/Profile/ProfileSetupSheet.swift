@@ -62,6 +62,11 @@ struct ProfileSetupSheet: View {
     @State private var contentHeight: CGFloat
 
     private static let privacyAndTermsURL: String = "https://hq.convos.org/privacy-and-terms"
+    /// How far the header band's background bleeds above the content's top
+    /// edge. Only the sheet-clipped gap left by keyboard avoidance is ever
+    /// visible, so the value just needs to comfortably exceed the largest
+    /// such gap on any device; the overdraw is otherwise clipped away.
+    private static let headerBleedHeight: CGFloat = 400.0
 
     init(mode: ProfileSetupSheetMode, onSaved: (() -> Void)? = nil) {
         self.mode = mode
@@ -180,7 +185,7 @@ struct ProfileSetupSheet: View {
         // the presentation background above the header. One paint layer, so
         // there is no seam at the band's own edge.
         .background {
-            Color.colorLava.padding(.top, -400.0)
+            Color.colorLava.padding(.top, -Self.headerBleedHeight)
         }
     }
 
