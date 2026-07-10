@@ -1,6 +1,6 @@
 # Test: Devices Screen iCloud Section
 
-Verify the expanded Devices screen (Settings > Devices): the paired section's "Devices paired to your account" footer, the "Other devices in iCloud" section listing keys from the iCloud-synced keychain backup that aren't paired to the current account, the Main-device designation on the oldest key, the targeted initiator pairing sheet when an iCloud device is tapped, and the escalated delete-all copy on the main device.
+Verify the expanded Devices screen (Settings > Devices): the paired section's "Devices using this account" footer, the "Other devices in iCloud" section listing keys from the iCloud-synced keychain backup that aren't paired to the current account, the Main-device designation on the oldest key, the targeted initiator pairing sheet when an iCloud device is tapped, and the escalated delete-all copy on the main device.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ Verify the expanded Devices screen (Settings > Devices): the paired section's "D
 
 ### Devices screen
 
-3. Navigate to Settings > Devices. Verify the paired section's footer "Devices paired to your account", the "Other devices in iCloud" footer, and `icloud-device-row-<inboxId>` for the foreign key.
+3. Navigate to Settings > Devices. Verify the paired section's footer "Devices using this account", the "Other devices in iCloud" footer, and `icloud-device-row-<inboxId>` for the foreign key.
 4. Verify exactly one "Main device" designation, on the foreign iCloud row (the current-device row shows plain "This device").
 5. Tap the iCloud row: `pairing.devices_icloud_pair_tapped` fires and the initiator pairing sheet presents with the scan instruction 'Open Convos on "<name>" and scan this code to pair'. The current account stays the main account - the join would happen from the other device. Dismiss without pairing.
 

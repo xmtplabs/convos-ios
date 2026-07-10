@@ -93,7 +93,7 @@ struct DevicesView: View {
                     deviceRow(device)
                 }
             } footer: {
-                Text("Devices paired to your account")
+                Text("Devices using this account")
             }
 
             if !viewModel.iCloudDevices.isEmpty {

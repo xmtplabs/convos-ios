@@ -2,7 +2,7 @@ id: "46"
 name: "Devices Screen iCloud Section"
 description: >
   Verify the expanded Devices screen (Settings > Devices): the paired
-  section carries the "Devices paired to your account" footer, a second
+  section carries the "Devices using this account" footer, a second
   "Other devices in iCloud" section lists identities from the
   iCloud-synced keychain backup that aren't paired to the current
   account, the oldest key is designated the Main device (badged in
@@ -102,13 +102,13 @@ steps:
       - wait_for_element: { id: "devices-view", timeout: 15 }
       - screenshot: {}
     verify:
-      - element_exists: { label_contains: "Devices paired to your account" }
+      - element_exists: { label_contains: "Devices using this account" }
       - element_exists: { label_contains: "Other devices in iCloud" }
       - element_exists: { id: "icloud-device-row-$main_inbox_id" }
     criteria: sections_and_footers
     note: >
       Section 1 lists the current account's installations with the
-      "Devices paired to your account" footer. Section 2 lists the
+      "Devices using this account" footer. Section 2 lists the
       foreign key with the "Other devices in iCloud" footer. The row id
       embeds the foreign identity's full inboxId. Validated: both
       footer strings surface as static text in the idb accessibility
@@ -162,7 +162,7 @@ criteria:
   second_identity_seeded:
     description: "The wipe hook replaced the primary identity (qa_wiped_primary_identity status=0) and the original key remains in iCloud as a foreign device"
   sections_and_footers:
-    description: "The Devices screen shows the paired-devices section with footer 'Devices paired to your account' and an 'Other devices in iCloud' section listing the foreign key"
+    description: "The Devices screen shows the paired-devices section with footer 'Devices using this account' and an 'Other devices in iCloud' section listing the foreign key"
   main_badge:
     description: "Exactly one Main-device designation is shown, on the row holding the oldest key (the foreign iCloud row in this flow)"
   pair_sheet_targeted:
