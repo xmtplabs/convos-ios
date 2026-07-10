@@ -174,7 +174,14 @@ struct ProfileSetupSheet: View {
         // 132pt band per design: 40 above the text block, 28 below.
         .padding(.top, DesignConstants.Spacing.step10x)
         .padding(.bottom, 28.0)
-        .background(.colorLava)
+        // The negative padding bleeds the band upward, past the content's
+        // top edge; the sheet's shape clips it. Keyboard avoidance lays the
+        // content out below the sheet's top edge, which otherwise exposes
+        // the presentation background above the header. One paint layer, so
+        // there is no seam at the band's own edge.
+        .background {
+            Color.colorLava.padding(.top, -400.0)
+        }
     }
 
     private var nameRow: some View {
