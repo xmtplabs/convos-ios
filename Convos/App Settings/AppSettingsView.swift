@@ -152,7 +152,7 @@ struct AppSettingsView: View {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
-            .selfSizingSheet(isPresented: $presentingMyInfoSheet) {
+            .sheet(isPresented: $presentingMyInfoSheet) {
                 ProfileSetupSheet(mode: .edit)
             }
         }

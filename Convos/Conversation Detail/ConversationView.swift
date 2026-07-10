@@ -570,7 +570,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
             capabilityApprovalSheet
         }
-        .selfSizingSheet(
+        .sheet(
             isPresented: $viewModel.presentingProfileSettings,
             onDismiss: {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)

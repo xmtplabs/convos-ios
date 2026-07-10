@@ -49,6 +49,12 @@ struct ProfileSetupSheet: View {
     @State private var isCameraPresented: Bool = false
     @State private var hasAgreedToTerms: Bool = false
     @State private var isSaving: Bool = false
+    /// Drives the sheet's height detent. Seeded with the mode's expected
+    /// height and corrected by measurement, so the detent only ever gets
+    /// same-kind `.height` updates: a sheet presented at `.medium` (the
+    /// selfSizingSheet approach) never re-snaps down to a smaller
+    /// `.height`, which left dead space around this content.
+    @State private var contentHeight: CGFloat
 
     private static let privacyAndTermsURL: String = "https://hq.convos.org/privacy-and-terms"
 
@@ -59,6 +65,7 @@ struct ProfileSetupSheet: View {
         _displayName = State(initialValue: viewModel.editingDisplayName)
         _profileImage = State(initialValue: viewModel.profileImage)
         _profileImageAssetIdentifier = State(initialValue: viewModel.profileImageAssetIdentifier)
+        _contentHeight = State(initialValue: mode.showsTermsRow ? 398.0 : 343.0)
     }
 
     /// Live preview for the avatar: monogram of the typed name until a
@@ -94,17 +101,15 @@ struct ProfileSetupSheet: View {
             .padding(.bottom, DesignConstants.Spacing.step10x)
         }
         .background(.colorBackgroundRaisedSecondary)
-        // The self-sizing detent can settle a hair taller than the measured
-        // content (and rubber-banding exposes the area beyond it), which
-        // shows the presentation background around the content. Paint it to
-        // match the card: lava above (continuing the header band into the
-        // top corners), card gray below.
-        .presentationBackground {
-            Color.colorBackgroundRaisedSecondary
-                .overlay(alignment: .top) {
-                    Color.colorLava.frame(height: 240.0)
-                }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { measured in
+            contentHeight = measured
         }
+        .presentationDetents([.height(contentHeight)])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(.colorBackgroundRaisedSecondary)
         .accessibilityIdentifier("profile-setup-sheet")
         .sheet(isPresented: $isImagePickerPresented) {
             PhotoLibraryPicker(
@@ -192,7 +197,7 @@ struct ProfileSetupSheet: View {
                 Button {
                     isCameraPresented = true
                 } label: {
-                    Image(systemName: "camera")
+                    Image(systemName: "camera.fill")
                 }
                 .accessibilityLabel("Take photo")
                 .accessibilityIdentifier("profile-setup-camera-button")
