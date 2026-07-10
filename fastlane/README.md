@@ -51,14 +51,6 @@ fastlane ios verify_api_key
 
 Sanity check API Key
 
-### ios latest_build
-
-```sh
-fastlane ios latest_build
-```
-
-
-
 ### ios bootstrap
 
 ```sh
