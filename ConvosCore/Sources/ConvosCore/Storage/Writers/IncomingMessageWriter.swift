@@ -100,15 +100,11 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
         let messageExistsInDB = try DBMessage.exists(db, key: message.id)
         let localInboxId = try DBInbox.currentInboxId(db)
-        let wasRemovedFromConversation: Bool = {
-            guard let localInboxId, let update = message.update else { return false }
-            // A self-leave echo (leave-request the local user sent) names the
-            // local inbox as both initiator and removed member; it must not
-            // set the removed-by-someone-else marker -- the leave flow already
-            // hid the conversation via the consent path.
-            guard update.initiatedByInboxId != localInboxId else { return false }
-            return update.removedInboxIds.contains(localInboxId)
-        }()
+        let wasRemovedFromConversation = Self.isRemovedFromConversation(
+            update: message.update,
+            localInboxId: localInboxId,
+            conversationConsent: conversation.consent
+        )
 
         Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
         if !message.attachmentUrls.isEmpty {
@@ -220,6 +216,31 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             wasRemovedFromConversation: wasRemovedFromConversation,
             messageAlreadyExists: messageExistsInDB
         )
+    }
+
+    /// True when the update removes the local user from the conversation, so
+    /// the removed marker and the live-hide notification must fire.
+    ///
+    /// A self-leave echo (leave-request the local user's inbox sent) names
+    /// the local inbox as both initiator and removed member. On the
+    /// installation that initiated the leave, the leave flow already hid the
+    /// conversation via the consent path, so the echo must not re-mark it.
+    /// A paired sibling installation of the same inbox receives the identical
+    /// echo but never ran the local leave flow, and the finalization commit
+    /// reports self-leaves via `leftInboxes`, which is deliberately not
+    /// mapped -- the echo is the only removal signal the sibling gets before
+    /// consent sync converges. The conversation's consent state is the
+    /// discriminator: the initiator is already denied when the echo lands,
+    /// while a sibling is still allowed and must process the removal.
+    static func isRemovedFromConversation(
+        update: DBMessage.Update?,
+        localInboxId: String?,
+        conversationConsent: Consent
+    ) -> Bool {
+        guard let localInboxId, let update else { return false }
+        guard update.removedInboxIds.contains(localInboxId) else { return false }
+        guard update.initiatedByInboxId == localInboxId else { return true }
+        return conversationConsent != .denied
     }
 
     /// Marks the conversation as removed-for-the-local-user. Idempotent and
