@@ -309,12 +309,12 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
     }
 
-    @Test("Hide failure after a benign-swallowed leave propagates the raw error, not the post-leave case")
+    @Test("Hide failure after the still-a-member benign rejection propagates the raw error")
     func hideFailureAfterBenignLeavePropagatesRawError() async throws {
-        // The single-member rejection means the leave never committed and the
-        // user is still a member; wrapping the hide failure as
-        // hideFailedAfterLeave would make the caller announce a completed
-        // leave that did not happen.
+        // The single-member rejection is the one benign case that keeps the
+        // user a member; wrapping the hide failure as hideFailedAfterLeave
+        // would make the caller announce a completed leave that did not
+        // happen.
         let fixtures = Fixtures()
         fixtures.operations.setSuperAdmins([elder])
         fixtures.operations.failLeave(with: BenignLeaveError(
@@ -327,6 +327,46 @@ struct ConversationLeaveWriterTests {
                 conversation: .mock(id: conversationId),
                 successorCandidates: [human(elder, joinedAt: earliest)]
             )
+        }
+    }
+
+    @Test("Hide failure after an already-out benign rejection surfaces the post-leave error")
+    func hideFailureAfterAlreadyOutRejectionIsPostLeave() async throws {
+        // A concurrent removal already ended the membership; the hide failing
+        // must not read as a failed leave, or the caller would keep a group
+        // the user is no longer in onscreen without announcing the departure.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: only a member of the group can send a leave request or retract a leave request"
+        ))
+        fixtures.consentWriter.deleteError = StubError.hideFailed
+
+        do {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+            Issue.record("Expected hideFailedAfterLeave to be thrown")
+        } catch ConversationLeaveError.hideFailedAfterLeave(let id, _) {
+            #expect(id == conversationId)
+        }
+    }
+
+    @Test("Hide failure after the group is already gone surfaces the post-leave error")
+    func hideFailureAfterConversationNotFoundIsPostLeave() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.failSuperAdmins(with: ConversationLeaveError.conversationNotFound(conversationId))
+        fixtures.consentWriter.deleteError = StubError.hideFailed
+
+        do {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+            Issue.record("Expected hideFailedAfterLeave to be thrown")
+        } catch ConversationLeaveError.hideFailedAfterLeave(let id, _) {
+            #expect(id == conversationId)
         }
     }
 
@@ -380,6 +420,56 @@ struct ConversationLeaveWriterTests {
             return false
         }
         #expect(!hasPromote)
+        let hasLeave = fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId))
+        #expect(!hasLeave)
+        #expect(fixtures.consentWriter.deletedConversations.isEmpty)
+    }
+
+    @Test("Co-super-admin with announced departure: a successor is promoted before self-demotion")
+    func departingCoSuperAdminTriggersSuccessorPromotion() async throws {
+        // The other super admin is on their way out; without a promotion the
+        // group would finalize into zero super admins once their leave
+        // completes. The departing super admin is marker-excluded from the
+        // member rows, so the candidates only carry the remaining members.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId, elder])
+        try fixtures.markDeparture(inboxId: elder, conversationId: conversationId)
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(younger, joinedAt: latest)]
+        )
+
+        #expect(fixtures.operations.calls == [
+            .currentInboxId,
+            .superAdminInboxIds(conversationId: conversationId),
+            .promoteToSuperAdmin(inboxId: younger, conversationId: conversationId),
+            .demoteFromSuperAdmin(inboxId: selfInboxId, conversationId: conversationId),
+            .leaveGroup(conversationId: conversationId)
+        ])
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Co-super-admin departing with no candidate to promote: the leave aborts")
+    func departingCoSuperAdminWithNoCandidateAbortsLeave() async throws {
+        // Demoting self here would leave only a departing super admin behind;
+        // aborting keeps the group from finalizing into zero super admins.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId, elder])
+        try fixtures.markDeparture(inboxId: elder, conversationId: conversationId)
+
+        await #expect(throws: ConversationLeaveError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: []
+            )
+        }
+
+        let hasDemote = fixtures.operations.calls.contains { call in
+            if case .demoteFromSuperAdmin = call { return true }
+            return false
+        }
+        #expect(!hasDemote)
         let hasLeave = fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId))
         #expect(!hasLeave)
         #expect(fixtures.consentWriter.deletedConversations.isEmpty)

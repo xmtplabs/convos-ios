@@ -9,12 +9,14 @@ public protocol ConversationLeaveWriterProtocol: Sendable {
     /// the MLS remove-commit finalizes async.
     ///
     /// The protocol forbids a super admin from leaving (and from being
-    /// removed), so a super-admin leaver is demoted first. When the leaver is
-    /// also the sole super admin, the role is transferred to a remaining
-    /// member before the demotion so the group always keeps at least one
-    /// super admin. `successorCandidates` is the remaining membership
-    /// (excluding the leaver); the writer applies a human-preferred,
-    /// agent-fallback tenure policy to pick who to promote.
+    /// removed), so a super-admin leaver is demoted first. When no other
+    /// super admin would remain after the demotion (the leaver is the sole
+    /// super admin, or every other super admin has announced their own
+    /// departure), the role is transferred to a remaining member before the
+    /// demotion so the group always keeps at least one super admin.
+    /// `successorCandidates` is the remaining membership (excluding the
+    /// leaver); the writer applies a human-preferred, agent-fallback tenure
+    /// policy to pick who to promote.
     func leave(
         conversation: Conversation,
         successorCandidates: [LeaveSuccessorCandidate]
@@ -52,17 +54,20 @@ protocol LeaveGroupOperationsProtocol: Sendable {
 public enum ConversationLeaveError: LocalizedError {
     case conversationNotFound(String)
     case notGroupConversation(String)
-    /// The MLS self-removal committed in this call, but the optimistic
-    /// consent-hide failed afterwards. The user is off the group, so callers
-    /// should treat the conversation as left; the hide converges on a later
-    /// consent sync. Not thrown when the leave was benignly swallowed (the
-    /// raw hide error propagates instead, so the leave reads as failed and
-    /// stays retryable).
+    /// The user's membership already ended (the MLS self-removal committed
+    /// in this call, or a benign rejection showed it was already over or
+    /// already pending), but the optimistic consent-hide failed afterwards.
+    /// The user is off the group either way, so callers should treat the
+    /// conversation as left; the hide converges on a later consent sync. Not
+    /// thrown for the one benign rejection that keeps the user a member (the
+    /// single-member group): there the raw hide error propagates instead, so
+    /// the leave reads as failed and stays retryable.
     case hideFailedAfterLeave(String, underlying: any Error)
-    /// The leaver is the sole super admin and no successor could be promoted:
-    /// every candidate announced their own departure since the candidate
-    /// snapshot was taken. The leave aborts so the group is not left with a
-    /// departing member as its only super admin.
+    /// The leaver is the last super admin not already departing, and no
+    /// successor could be promoted: every candidate announced their own
+    /// departure since the candidate snapshot was taken, or none remains.
+    /// The leave aborts so the group is not left without an active super
+    /// admin.
     case noViableSuccessor(String)
 
     public var errorDescription: String? {
@@ -146,15 +151,13 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
     ) async throws {
         // Self-remove from the MLS roster. Benign outcomes are logged and
         // swallowed so the optimistic consent-hide below still runs and the
-        // conversation leaves the UI regardless:
-        // - we're the last member, so libxmtp rejects the 1 -> 0 commit,
-        // - the group is already gone locally or another admin removed us
-        //   first (conversationNotFound / NotFound::MlsGroup) -- the leave's
-        //   goal is already achieved, only the local hide remains.
-        // The benign filter covers the whole flow because the not-found case
-        // also surfaces from the pre-leave super-admin lookup, not just from
-        // leaveGroup itself.
-        var leaveCommitted = true
+        // conversation leaves the UI regardless. Each benign case is also
+        // classified by what it implies for the membership (see
+        // `benignLeaveOutcome(for:)`) because that decides what a hide
+        // failure afterwards means. The benign filter covers the whole flow
+        // because the not-found case also surfaces from the pre-leave
+        // super-admin lookup, not just from leaveGroup itself.
+        var membershipEnded = true
         do {
             let myInboxId = try await operations.currentInboxId()
             try await relinquishSuperAdminIfNeeded(
@@ -164,25 +167,25 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
             )
             try await operations.leaveGroup(conversationId: conversation.id)
         } catch {
-            guard Self.isBenignLeaveError(error) else { throw error }
-            leaveCommitted = false
+            guard let outcome = Self.benignLeaveOutcome(for: error) else { throw error }
+            membershipEnded = outcome == .membershipEnded
             Log.info("Leave skipped for \(conversation.id): \(error.localizedDescription)")
         }
 
         // Optimistic hide, reusing the existing consent-hide path: consent
         // `.denied` + push-topic unsubscribe + local row hide. The MLS
         // remove-commit is finalized async by an authorized admin/agent.
-        // When the self-removal committed above, a failure here is surfaced
-        // as a typed error: the caller must still treat the conversation as
-        // left rather than as a failed leave. When the leave was benignly
-        // swallowed instead, nothing committed in this call, so the raw hide
-        // error propagates and the leave reads as failed and retryable;
-        // announcing a completed leave here could be false (a single-member
-        // rejection leaves the user a member of a still-visible group).
+        // When the membership already ended above (the self-removal
+        // committed, or a benign rejection showed it was already over), a
+        // failure here is surfaced as a typed error: the caller must still
+        // treat the conversation as left rather than as a failed leave. When
+        // the user is still a member instead (the single-member rejection),
+        // the raw hide error propagates and the leave reads as failed and
+        // retryable; announcing a completed leave there would be false.
         do {
             try await consentWriter.delete(conversation: conversation)
         } catch {
-            guard leaveCommitted else { throw error }
+            guard membershipEnded else { throw error }
             throw ConversationLeaveError.hideFailedAfterLeave(conversation.id, underlying: error)
         }
     }
@@ -190,7 +193,8 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
     /// The protocol rejects `leaveGroup()` while the leaver is a super admin
     /// (super admins cannot be removed), so a super-admin leaver must be
     /// demoted before the leave. Protects the "group always keeps at least
-    /// one super admin" invariant: when the leaver is the sole super admin,
+    /// one super admin" invariant: when no other super admin remains viable -
+    /// there is none, or every other one has announced their own departure -
     /// the preferred successor is promoted before the self-demotion. Awaited
     /// rather than best-effort: if the transfer or demotion can't land we
     /// abort the leave rather than strand the group with no super admin or
@@ -203,20 +207,47 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
         let superAdmins = try await operations.superAdminInboxIds(conversationId: conversationId)
         guard superAdmins.contains(myInboxId) else { return }
 
-        if superAdmins.count == 1 {
+        let otherSuperAdmins = superAdmins.filter { $0 != myInboxId }
+        let keepsAViableSuperAdmin: Bool = try await hasViableOtherSuperAdmin(
+            among: otherSuperAdmins,
+            conversationId: conversationId
+        )
+        if !keepsAViableSuperAdmin {
             let ordered = Self.orderedSuccessorInboxIds(from: successorCandidates, excluding: myInboxId)
-            guard !ordered.isEmpty else {
+            if ordered.isEmpty && otherSuperAdmins.isEmpty {
                 // No one left to promote: the leaver is effectively the last
                 // member, so keep the role and let `leaveGroup()` resolve it
                 // (the 1 -> 0 commit is rejected as a benign error).
                 Log.warning("Leaving \(conversationId) as sole super admin with no successor to promote")
                 return
             }
+            guard !ordered.isEmpty else {
+                // Every other super admin announced their own departure and
+                // no other member remains to promote: demoting self would let
+                // the group finalize into zero super admins once those leaves
+                // complete.
+                throw ConversationLeaveError.noViableSuccessor(conversationId)
+            }
             try await promoteFirstViableSuccessor(from: ordered, conversationId: conversationId)
         }
 
         try await operations.demoteFromSuperAdmin(inboxId: myInboxId, conversationId: conversationId)
         Log.info("Demoted self from super admin before leaving \(conversationId)")
+    }
+
+    /// True when at least one of the other super admins has not announced
+    /// their own departure, so the group still has a super admin after the
+    /// leaver's self-demotion. A departing super admin does not count: their
+    /// pending removal would finalize the group into zero super admins.
+    private func hasViableOtherSuperAdmin(
+        among inboxIds: [String],
+        conversationId: String
+    ) async throws -> Bool {
+        for inboxId in inboxIds {
+            let departing = try await hasAnnouncedDeparture(inboxId: inboxId, conversationId: conversationId)
+            if !departing { return true }
+        }
+        return false
     }
 
     /// Tries candidates in preference order. The snapshot behind the
@@ -298,34 +329,61 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
         }
     }
 
+    /// What a benign leave rejection implies for the user's membership. The
+    /// distinction decides what a subsequent consent-hide failure means for
+    /// the caller.
+    private enum BenignLeaveOutcome {
+        /// The membership is already over, or its removal is already pending
+        /// finalization - the same state a successful `leaveGroup()` leaves
+        /// behind. A hide failure afterwards still means the user is off the
+        /// group.
+        case membershipEnded
+        /// The rejection keeps the user a member: they are the group's sole
+        /// member and libxmtp forbids the 1 -> 0 commit. Only the local hide
+        /// ends this membership, so a hide failure means the leave failed.
+        case stillMember
+    }
+
     /// libxmtp surfaces MLS failures as FFI errors whose full message is only
     /// visible via `String(describing:)`. `LeaveCantProcessed` is the wrapper
     /// for every leave validation failure - including super-admin and DM
     /// rejections that mean the user is still a member - so matching on the
     /// wrapper name alone would turn those into a silent local hide. Only the
     /// specific rejections whose goal is already achieved (or unachievable by
-    /// protocol) are benign, matched by their stable libxmtp messages:
-    /// - "only one member": we're the last member and the 1 -> 0 invariant
-    ///   rejects the commit; the group is dead by protocol.
-    /// - "only a member of the group can send a leave request": a concurrent
-    ///   removal already took us out before the leave-request landed.
-    /// - "already exists in the pending leave list": a leave-request from a
-    ///   retry or another installation is already awaiting finalization.
-    /// - `NotFound::MlsGroup`: a concurrent remove already deleted the group.
-    /// - `conversationNotFound`: the client no longer has the group at all
-    ///   (another admin removed us and the welcome/group was purged); the
-    ///   local hide is all that's left to do.
-    private static func isBenignLeaveError(_ error: any Error) -> Bool {
+    /// protocol) are benign, matched by their stable libxmtp messages, and
+    /// each carries what it implies for the membership:
+    /// - "only one member" (still a member): libxmtp raises it only when the
+    ///   user is a member and the sole occupant; the 1 -> 0 invariant rejects
+    ///   the commit and the group is dead by protocol, but only the local
+    ///   hide removes it from view.
+    /// - "only a member of the group can send a leave request" (ended): a
+    ///   concurrent removal already took us out before the leave-request
+    ///   landed.
+    /// - "already exists in the pending leave list" (ended): a leave-request
+    ///   from a retry or another installation is already awaiting
+    ///   finalization.
+    /// - `NotFound::MlsGroup` (ended): a concurrent remove already deleted
+    ///   the group.
+    /// - `conversationNotFound` (ended): the client no longer has the group
+    ///   at all (another admin removed us and the welcome/group was purged);
+    ///   the local hide is all that's left to do.
+    /// Returns nil for any other error: not benign, the leave failed.
+    private static func benignLeaveOutcome(for error: any Error) -> BenignLeaveOutcome? {
         if case ConversationLeaveError.conversationNotFound = error {
-            return true
+            return .membershipEnded
         }
         let description = String(describing: error)
-        let benignFragments = [
-            "cannot leave a group that has only one member",
+        if description.contains("cannot leave a group that has only one member") {
+            return .stillMember
+        }
+        let membershipEndedFragments = [
             "only a member of the group can send a leave request",
             "inbox ID already exists in the pending leave list",
             "NotFound::MlsGroup",
         ]
-        return benignFragments.contains { description.contains($0) }
+        if membershipEndedFragments.contains(where: { description.contains($0) }) {
+            return .membershipEnded
+        }
+        return nil
     }
 }

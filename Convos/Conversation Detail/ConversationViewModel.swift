@@ -4277,10 +4277,10 @@ extension ConversationViewModel {
                 )
                 self.finishLeave()
             } catch ConversationLeaveError.hideFailedAfterLeave(_, let underlying) {
-                // The MLS self-removal committed; only the local consent-hide
-                // failed afterwards. The user is off the group either way, so
-                // surface the leave and let a later consent sync converge the
-                // hide.
+                // The user's membership already ended (the MLS self-removal
+                // committed, or it was already over or pending); only the
+                // local consent-hide failed afterwards. Surface the leave and
+                // let a later consent sync converge the hide.
                 Log.error("Left convo but hiding it failed: \(underlying.localizedDescription)")
                 self.finishLeave()
             } catch {
