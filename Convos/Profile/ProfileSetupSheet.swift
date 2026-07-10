@@ -94,6 +94,17 @@ struct ProfileSetupSheet: View {
             .padding(.bottom, DesignConstants.Spacing.step10x)
         }
         .background(.colorBackgroundRaisedSecondary)
+        // The self-sizing detent can settle a hair taller than the measured
+        // content (and rubber-banding exposes the area beyond it), which
+        // shows the presentation background around the content. Paint it to
+        // match the card: lava above (continuing the header band into the
+        // top corners), card gray below.
+        .presentationBackground {
+            Color.colorBackgroundRaisedSecondary
+                .overlay(alignment: .top) {
+                    Color.colorLava.frame(height: 240.0)
+                }
+        }
         .accessibilityIdentifier("profile-setup-sheet")
         .sheet(isPresented: $isImagePickerPresented) {
             PhotoLibraryPicker(
