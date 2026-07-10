@@ -4264,22 +4264,36 @@ extension ConversationViewModel {
     func leaveGroupConvo() {
         let leaveWriter = leaveWriter
         let conversation = conversation
-        let successorCandidates = leaveSuccessorCandidates()
         Task { [weak self] in
             guard let self else { return }
+            // Derived at execution time rather than at tap time so the
+            // writer sees the freshest membership when picking a super-admin
+            // successor.
+            let successorCandidates = self.leaveSuccessorCandidates()
             do {
                 try await leaveWriter.leave(
                     conversation: conversation,
                     successorCandidates: successorCandidates
                 )
-                await MainActor.run {
-                    self.presentingConversationSettings = false
-                    self.conversation.postLeftConversationNotification()
-                }
+                self.finishLeave()
+            } catch ConversationLeaveError.hideFailedAfterLeave(_, let underlying) {
+                // The MLS self-removal committed; only the local consent-hide
+                // failed afterwards. The user is off the group either way, so
+                // surface the leave and let a later consent sync converge the
+                // hide.
+                Log.error("Left convo but hiding it failed: \(underlying.localizedDescription)")
+                self.finishLeave()
             } catch {
                 Log.error("Error leaving convo: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Dismisses settings and announces the departure once the leave is
+    /// effective on the MLS side.
+    private func finishLeave() {
+        presentingConversationSettings = false
+        conversation.postLeftConversationNotification()
     }
 
     /// Remaining members (excluding the current user) as super-admin successor

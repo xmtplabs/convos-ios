@@ -217,6 +217,120 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.consentWriter.deletedConversations.count == 1)
     }
 
+    @Test("Concurrent removal (not a group member) is benign; consent-hide still runs")
+    func notAGroupMemberStillHides() async throws {
+        // We were removed between the roster snapshot and the leave-request;
+        // the leave's goal is already achieved.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: only a member of the group can send a leave request or retract a leave request"
+        ))
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(elder, joinedAt: earliest)]
+        )
+
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Leave already pending (retry or another installation) is benign; consent-hide still runs")
+    func leaveAlreadyPendingStillHides() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: inbox ID already exists in the pending leave list"
+        ))
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [human(elder, joinedAt: earliest)]
+        )
+
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("A super-admin leave rejection is not benign: it propagates and skips the hide")
+    func superAdminRejectionPropagates() async throws {
+        // If this fires the pre-leave demotion did not land and the user is
+        // still a member; hiding the conversation would fake a leave.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: super-admin cannot leave a group; must be demoted first"
+        ))
+
+        await #expect(throws: BenignLeaveError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+        }
+        #expect(fixtures.consentWriter.deletedConversations.isEmpty)
+    }
+
+    @Test("A DM leave rejection is not benign: it propagates and skips the hide")
+    func dmRejectionPropagates() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: cannot leave a DM conversation"
+        ))
+
+        await #expect(throws: BenignLeaveError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+        }
+        #expect(fixtures.consentWriter.deletedConversations.isEmpty)
+    }
+
+    @Test("Consent-hide failure after a committed leave surfaces the typed post-leave error")
+    func hideFailureAfterLeaveSurfacesTypedError() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.consentWriter.deleteError = StubError.hideFailed
+
+        do {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+            Issue.record("Expected hideFailedAfterLeave to be thrown")
+        } catch ConversationLeaveError.hideFailedAfterLeave(let id, _) {
+            #expect(id == conversationId)
+        }
+
+        // The MLS self-removal did commit; the caller must treat the
+        // conversation as left despite the error.
+        #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
+    }
+
+    @Test("Stale first successor falls back to the next candidate")
+    func promoteFallsBackToNextCandidate() async throws {
+        // The candidate snapshot is taken before the leave executes; the
+        // preferred successor can have left meanwhile. Their rejected
+        // promotion must not abort the leave while valid candidates remain.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId])
+        fixtures.operations.failPromote(forInboxId: elder, with: StubError.promoteFailed)
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [
+                human(elder, joinedAt: earliest),
+                human(younger, joinedAt: latest),
+            ]
+        )
+
+        #expect(fixtures.operations.calls.contains(.promoteToSuperAdmin(inboxId: elder, conversationId: conversationId)))
+        #expect(fixtures.operations.calls.contains(.promoteToSuperAdmin(inboxId: younger, conversationId: conversationId)))
+        #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
     @Test("Non-benign leaveGroup error propagates and skips the consent-hide")
     func nonBenignLeaveErrorPropagates() async throws {
         let fixtures = Fixtures()
@@ -293,6 +407,7 @@ struct ConversationLeaveWriterTests {
         case leaveFailed
         case promoteFailed
         case demoteFailed
+        case hideFailed
     }
 
     private struct BenignLeaveError: Error, CustomStringConvertible {
