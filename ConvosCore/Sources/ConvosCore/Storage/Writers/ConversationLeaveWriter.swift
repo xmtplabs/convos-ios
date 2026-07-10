@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 @preconcurrency import XMTPiOS
 
 public protocol ConversationLeaveWriterProtocol: Sendable {
@@ -51,11 +52,18 @@ protocol LeaveGroupOperationsProtocol: Sendable {
 public enum ConversationLeaveError: LocalizedError {
     case conversationNotFound(String)
     case notGroupConversation(String)
-    /// The MLS self-removal already committed (or was benignly unnecessary),
-    /// but the optimistic consent-hide failed afterwards. The user is off the
-    /// group either way, so callers should treat the conversation as left;
-    /// the hide converges on a later consent sync.
+    /// The MLS self-removal committed in this call, but the optimistic
+    /// consent-hide failed afterwards. The user is off the group, so callers
+    /// should treat the conversation as left; the hide converges on a later
+    /// consent sync. Not thrown when the leave was benignly swallowed (the
+    /// raw hide error propagates instead, so the leave reads as failed and
+    /// stays retryable).
     case hideFailedAfterLeave(String, underlying: any Error)
+    /// The leaver is the sole super admin and no successor could be promoted:
+    /// every candidate announced their own departure since the candidate
+    /// snapshot was taken. The leave aborts so the group is not left with a
+    /// departing member as its only super admin.
+    case noViableSuccessor(String)
 
     public var errorDescription: String? {
         switch self {
@@ -65,6 +73,8 @@ public enum ConversationLeaveError: LocalizedError {
             return "Cannot leave non-group conversation: \(id)"
         case let .hideFailedAfterLeave(id, underlying):
             return "Left conversation \(id) but hiding it failed: \(underlying.localizedDescription)"
+        case .noViableSuccessor(let id):
+            return "No viable super-admin successor remains in conversation: \(id)"
         }
     }
 }
@@ -113,18 +123,21 @@ struct XMTPLeaveGroupOperations: LeaveGroupOperationsProtocol {
     }
 }
 
-/// @unchecked Sendable: both stored properties are immutable Sendable
+/// @unchecked Sendable: all stored properties are immutable Sendable
 /// references and every method is async with no shared mutable state.
 final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked Sendable {
     private let operations: any LeaveGroupOperationsProtocol
     private let consentWriter: any ConversationConsentWriterProtocol
+    private let databaseReader: any DatabaseReader
 
     init(
         operations: any LeaveGroupOperationsProtocol,
-        consentWriter: any ConversationConsentWriterProtocol
+        consentWriter: any ConversationConsentWriterProtocol,
+        databaseReader: any DatabaseReader
     ) {
         self.operations = operations
         self.consentWriter = consentWriter
+        self.databaseReader = databaseReader
     }
 
     func leave(
@@ -141,6 +154,7 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
         // The benign filter covers the whole flow because the not-found case
         // also surfaces from the pre-leave super-admin lookup, not just from
         // leaveGroup itself.
+        var leaveCommitted = true
         do {
             let myInboxId = try await operations.currentInboxId()
             try await relinquishSuperAdminIfNeeded(
@@ -151,18 +165,24 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
             try await operations.leaveGroup(conversationId: conversation.id)
         } catch {
             guard Self.isBenignLeaveError(error) else { throw error }
+            leaveCommitted = false
             Log.info("Leave skipped for \(conversation.id): \(error.localizedDescription)")
         }
 
         // Optimistic hide, reusing the existing consent-hide path: consent
         // `.denied` + push-topic unsubscribe + local row hide. The MLS
         // remove-commit is finalized async by an authorized admin/agent.
-        // A failure here happens after the self-removal committed, so it is
-        // surfaced as a typed error: the caller must still treat the
-        // conversation as left rather than as a failed leave.
+        // When the self-removal committed above, a failure here is surfaced
+        // as a typed error: the caller must still treat the conversation as
+        // left rather than as a failed leave. When the leave was benignly
+        // swallowed instead, nothing committed in this call, so the raw hide
+        // error propagates and the leave reads as failed and retryable;
+        // announcing a completed leave here could be false (a single-member
+        // rejection leaves the user a member of a still-visible group).
         do {
             try await consentWriter.delete(conversation: conversation)
         } catch {
+            guard leaveCommitted else { throw error }
             throw ConversationLeaveError.hideFailedAfterLeave(conversation.id, underlying: error)
         }
     }
@@ -203,14 +223,22 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
     /// candidates is taken before the leave runs, so a candidate can have
     /// left the group meanwhile and their promotion is rejected; falling
     /// back to the next candidate keeps a valid leave from aborting on a
-    /// stale snapshot. Only when every promotion fails does the last error
-    /// propagate, aborting the leave to protect the super-admin invariant.
+    /// stale snapshot. A candidate can also have announced their own
+    /// departure since the snapshot; libxmtp still accepts a pending leaver
+    /// in the admin list, so the departure markers are re-checked right
+    /// before each attempt and marked candidates are skipped. Only when no
+    /// candidate can be promoted does an error propagate, aborting the leave
+    /// to protect the super-admin invariant.
     private func promoteFirstViableSuccessor(
         from orderedInboxIds: [String],
         conversationId: String
     ) async throws {
         var lastError: (any Error)?
         for inboxId in orderedInboxIds {
+            guard try await !hasAnnouncedDeparture(inboxId: inboxId, conversationId: conversationId) else {
+                Log.info("Skipping successor \(inboxId) in \(conversationId): departure announced since the candidate snapshot")
+                continue
+            }
             do {
                 try await operations.promoteToSuperAdmin(inboxId: inboxId, conversationId: conversationId)
                 Log.info("Transferred super admin to \(inboxId) before leaving \(conversationId)")
@@ -221,8 +249,24 @@ final class ConversationLeaveWriter: ConversationLeaveWriterProtocol, @unchecked
             }
         }
         // Callers guarantee a non-empty candidate list, so reaching this
-        // point means every promotion attempt failed.
+        // point means every promotion attempt failed or was skipped.
         if let lastError { throw lastError }
+        throw ConversationLeaveError.noViableSuccessor(conversationId)
+    }
+
+    /// True when a local departure marker exists for the inbox: the member
+    /// announced they are leaving and their remove-commit hasn't finalized,
+    /// so they must not become the group's super admin.
+    private func hasAnnouncedDeparture(
+        inboxId: String,
+        conversationId: String
+    ) async throws -> Bool {
+        try await databaseReader.read { db in
+            try DBMemberDeparture
+                .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+                .filter(DBMemberDeparture.Columns.inboxId == inboxId)
+                .fetchCount(db) > 0
+        }
     }
 
     /// Successor inbox ids in promotion-preference order. Human members come

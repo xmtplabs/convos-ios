@@ -1,5 +1,6 @@
 @testable import ConvosCore
 import Foundation
+import GRDB
 import Testing
 
 /// Self-removal flow coverage: transfer super admin when the leaver is the
@@ -308,6 +309,82 @@ struct ConversationLeaveWriterTests {
         #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
     }
 
+    @Test("Hide failure after a benign-swallowed leave propagates the raw error, not the post-leave case")
+    func hideFailureAfterBenignLeavePropagatesRawError() async throws {
+        // The single-member rejection means the leave never committed and the
+        // user is still a member; wrapping the hide failure as
+        // hideFailedAfterLeave would make the caller announce a completed
+        // leave that did not happen.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([elder])
+        fixtures.operations.failLeave(with: BenignLeaveError(
+            description: "[GroupError::LeaveCantProcessed] Group error: cannot leave a group that has only one member"
+        ))
+        fixtures.consentWriter.deleteError = StubError.hideFailed
+
+        await #expect(throws: StubError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [human(elder, joinedAt: earliest)]
+            )
+        }
+    }
+
+    @Test("A successor who announced departure after the snapshot is skipped, not promoted")
+    func promoteSkipsCandidateWithAnnouncedDeparture() async throws {
+        // libxmtp accepts a pending leaver in the admin list, so the
+        // promotion-rejection fallback alone cannot catch this; the departure
+        // markers must be re-checked right before each promotion attempt.
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId])
+        try fixtures.markDeparture(inboxId: elder, conversationId: conversationId)
+
+        try await fixtures.writer.leave(
+            conversation: .mock(id: conversationId),
+            successorCandidates: [
+                human(elder, joinedAt: earliest),
+                human(younger, joinedAt: latest),
+            ]
+        )
+
+        let hasElderPromote = fixtures.operations.calls.contains(
+            .promoteToSuperAdmin(inboxId: elder, conversationId: conversationId)
+        )
+        #expect(!hasElderPromote)
+        #expect(fixtures.operations.calls.contains(
+            .promoteToSuperAdmin(inboxId: younger, conversationId: conversationId)
+        ))
+        #expect(fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId)))
+        #expect(fixtures.consentWriter.deletedConversations.count == 1)
+    }
+
+    @Test("Every successor announced departure: the leave aborts with no promotion")
+    func allSuccessorsDepartedAbortsLeave() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.setSuperAdmins([selfInboxId])
+        try fixtures.markDeparture(inboxId: elder, conversationId: conversationId)
+        try fixtures.markDeparture(inboxId: younger, conversationId: conversationId)
+
+        await #expect(throws: ConversationLeaveError.self) {
+            try await fixtures.writer.leave(
+                conversation: .mock(id: conversationId),
+                successorCandidates: [
+                    human(elder, joinedAt: earliest),
+                    human(younger, joinedAt: latest),
+                ]
+            )
+        }
+
+        let hasPromote = fixtures.operations.calls.contains { call in
+            if case .promoteToSuperAdmin = call { return true }
+            return false
+        }
+        #expect(!hasPromote)
+        let hasLeave = fixtures.operations.calls.contains(.leaveGroup(conversationId: conversationId))
+        #expect(!hasLeave)
+        #expect(fixtures.consentWriter.deletedConversations.isEmpty)
+    }
+
     @Test("Stale first successor falls back to the next candidate")
     func promoteFallsBackToNextCandidate() async throws {
         // The candidate snapshot is taken before the leave executes; the
@@ -387,6 +464,7 @@ struct ConversationLeaveWriterTests {
     private final class Fixtures {
         let operations: MockLeaveGroupOperations
         let consentWriter: MockConversationConsentWriter
+        let database: MockDatabaseManager
         let writer: ConversationLeaveWriter
 
         init() {
@@ -394,12 +472,27 @@ struct ConversationLeaveWriterTests {
             let ops = MockLeaveGroupOperations()
             ops.setInboxId("inbox-self")
             let consent = MockConversationConsentWriter()
+            let database = MockDatabaseManager.makeTestDatabase()
             self.operations = ops
             self.consentWriter = consent
+            self.database = database
             self.writer = ConversationLeaveWriter(
                 operations: ops,
-                consentWriter: consent
+                consentWriter: consent,
+                databaseReader: database.dbReader
             )
+        }
+
+        /// Seeds a departure marker: the state a candidate gains when their
+        /// leave-request is ingested after the successor snapshot was taken.
+        func markDeparture(inboxId: String, conversationId: String) throws {
+            try database.dbWriter.write { db in
+                try DBMemberDeparture(
+                    conversationId: conversationId,
+                    inboxId: inboxId,
+                    dateNs: 1
+                ).save(db)
+            }
         }
     }
 
