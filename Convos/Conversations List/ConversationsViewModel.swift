@@ -87,6 +87,11 @@ final class ConversationsViewModel {
     /// Drives the first-install "Pair <device>?" sheet when another
     /// device's identity is found in the iCloud-synced keychain backup.
     var foundDevicePairingPrompt: FoundDevicePairingPrompt?
+    /// Drives the first-launch "Hello / My name is" profile setup sheet.
+    /// Presented only when the pairable-device check found no other
+    /// identity in the iCloud-synced keychain backup and no pairing UI is
+    /// on screen (see `presentFirstLaunchProfileSetupIfNeeded`).
+    var presentingFirstLaunchProfileSetup: Bool = false
     /// Joiner pairing flow prepared by `pairWithFoundDevice()`, promoted
     /// to `pendingJoinerPairing` once the prompt sheet finishes
     /// dismissing - presenting both sheets in the same tick can drop the
@@ -929,7 +934,13 @@ extension ConversationsViewModel {
             guard let self else { return }
             let backups = await self.session.pairableDeviceBackups()
             QAEvent.emit(.pairing, "found_device_check", ["pairableCount": "\(backups.count)"])
-            guard let newest = backups.first else { return }
+            guard let newest = backups.first else {
+                // No other identity in iCloud, so pairing will never be
+                // offered - this is the moment first-launch profile setup
+                // becomes eligible.
+                await self.presentFirstLaunchProfileSetupIfNeeded()
+                return
+            }
             // Don't fight an in-flight deep-link pairing flow - but
             // un-latch so the next chats-list appearance re-offers the
             // prompt once that flow ends. Without the reset, a launch
@@ -949,6 +960,45 @@ extension ConversationsViewModel {
                 "deviceName": newest.deviceName ?? ""
             ])
         }
+    }
+
+    /// First-launch profile setup: shows the "Hello / My name is" sheet
+    /// once, instead of the in-conversation "Add your name and pic"
+    /// prompt. Only reached when `checkForPairableDeviceIfNeeded` found no
+    /// other identity in the iCloud-synced keychain backup, so it can
+    /// never race the found-device pairing prompt; the explicit pairing
+    /// guards below cover deep-link and incoming pairing flows. The
+    /// in-conversation onboarding flow stays as a fallback for users who
+    /// dismiss this sheet without saving.
+    private func presentFirstLaunchProfileSetupIfNeeded() async {
+        guard ConversationOnboardingCoordinator.shouldOfferFirstLaunchProfileSheet else { return }
+        guard pendingJoinerPairing == nil,
+              foundDevicePairingPrompt == nil,
+              incomingPairingRequest == nil else { return }
+        // Don't decide on an unloaded snapshot: at cold launch the shared
+        // profile view model holds default values even for a fully
+        // onboarded user. On timeout skip without latching so the next
+        // launch retries (mirrors ConversationOnboardingCoordinator).
+        let profileLoaded = await ProfileSettingsViewModel.shared.waitForProfileLoad(
+            timeout: Constant.firstLaunchProfileLoadTimeout
+        )
+        guard profileLoaded else {
+            QAEvent.emit(.onboarding, "first_launch_profile_sheet_load_timeout")
+            return
+        }
+        guard ProfileSettingsViewModel.shared.profileSettings.isDefault else {
+            // A profile already exists (e.g. restored data): never show.
+            ConversationOnboardingCoordinator.markFirstLaunchProfileSheetShown()
+            return
+        }
+        // Re-check the pairing guards: a deep-link pairing flow may have
+        // started while we awaited the profile load.
+        guard pendingJoinerPairing == nil,
+              foundDevicePairingPrompt == nil,
+              incomingPairingRequest == nil else { return }
+        ConversationOnboardingCoordinator.markFirstLaunchProfileSheetShown()
+        presentingFirstLaunchProfileSetup = true
+        QAEvent.emit(.onboarding, "first_launch_profile_sheet_shown")
     }
 
     /// Primary action of the prompt sheet: dismisses the prompt
@@ -1247,6 +1297,10 @@ extension ConversationsViewModel {
         /// presentation was dropped. Generous against slow presentation
         /// animations; tiny against the 5s resend cadence that retries.
         static let incomingPairingPresentationGrace: TimeInterval = 3
+        /// How long first-launch profile setup waits for the global
+        /// profile to load before giving up for this launch. Matches
+        /// `ConversationOnboardingCoordinator.profileLoadTimeout`.
+        static let firstLaunchProfileLoadTimeout: TimeInterval = 10
     }
 }
 

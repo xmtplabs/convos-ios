@@ -51,7 +51,7 @@ prevents flaky test starts caused by leftover navigation state.
 | `conversations_list` | `compose-button` is visible (the **Chats** tab) | Tap the "Chats" tab; tap `BackButton` / `close-new-conversation` / swipe a sheet down until `compose-button` appears |
 | `conversation_detail` | `message-text-field` is visible and `BackButton` exists | Navigate from `conversations_list`, then tap the target conversation |
 | `settings` | A settings row such as `my-info-row` or `delete-all-data-button` is visible | Tap `app-indicator-pill` from `conversations_list` (no settings tab / gear icon). Dismiss with a swipe-down. |
-| `profile_editor` | `profile-display-name-field` is visible | Open from settings (`my-info-row`) or the conversation toolbar |
+| `profile_editor` | `profile-setup-name-field` is visible (the "Hello / My name is" sheet) | Open from settings (`my-info-row`) or your own member row / avatar in a conversation. Save with `profile-setup-save-button`; dismiss with a swipe-down. Self-presents on first launch (see test 01). |
 
 > Shell note: the home is a standard `TabView` with **Chats** and **Things**
 > tabs (Search was removed). Settings opens from the `app-indicator-pill`,

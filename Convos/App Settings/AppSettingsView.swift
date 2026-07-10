@@ -67,6 +67,7 @@ struct AppSettingsView: View {
     @State private var versionTapCount: Int = 0
     @State private var lastVersionTapAt: Date?
     @State private var showingEnableDebugConfirmation: Bool = false
+    @State private var presentingMyInfoSheet: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -144,22 +145,25 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var myInfoSection: some View {
         Section {
-            NavigationLink {
-                MyInfoView(
-                    profile: .constant(.empty()),
-                    profileImage: .constant(nil),
-                    editingDisplayName: .constant(""),
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    showsCancelButton: false,
-                    showsProfile: false,
-                    showsUseProfileButton: false,
-                    canEditProfile: true
-                ) { _ in }
-                .onAppear { navigator?.navigateTo(myInfo: MyInfoNavigatorArgs()) }
+            Button {
+                presentingMyInfoSheet = true
+                navigator?.navigateTo(myInfo: MyInfoNavigatorArgs())
             } label: {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+            .accessibilityLabel("My info")
+            .accessibilityValue(
+                profileSettingsViewModel.editingDisplayName.isEmpty
+                    ? "Not set"
+                    : profileSettingsViewModel.editingDisplayName
+            )
+            .listRowInsets(.all, DesignConstants.Spacing.step2x)
+            .sheet(isPresented: $presentingMyInfoSheet) {
+                ProfileSetupSheet(mode: .edit)
+            }
+        } footer: {
+            Text("Your name and pic")
         }
     }
 
@@ -192,29 +196,40 @@ struct AppSettingsView: View {
         }
     }
 
+    /// Mirrors the profile sheet's name row: avatar, name, and a trailing
+    /// pencil affordance. Tapping anywhere opens the profile sheet.
     @ViewBuilder
     private var myInfoRowLabel: some View {
-        HStack {
-            Image(systemName: "lanyardcard.fill")
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+        let displayName = profileSettingsViewModel.editingDisplayName
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Group {
+                if !displayName.isEmpty || profileSettingsViewModel.profileImage != nil {
+                    ProfileAvatarView(
+                        profile: profileSettingsViewModel.profile,
+                        profileImage: profileSettingsViewModel.profileImage,
+                        useSystemPlaceholder: false
+                    )
+                } else {
+                    ZStack {
+                        Circle().fill(.colorBackgroundInverted)
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 20.0))
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                    }
+                }
+            }
+            .frame(width: 36.0, height: 36.0)
 
-            Text("My info")
-                .foregroundStyle(.colorTextPrimary)
+            Text(displayName.isEmpty ? "Name" : displayName)
+                .font(.body)
+                .foregroundStyle(displayName.isEmpty ? .colorTextTertiary : .colorTextPrimary)
 
             Spacer()
 
-            if !profileSettingsViewModel.profileSettings.isDefault {
-                Text(profileSettingsViewModel.editingDisplayName)
-                    .foregroundStyle(.colorTextSecondary)
-
-                ProfileAvatarView(
-                    profile: profileSettingsViewModel.profile,
-                    profileImage: profileSettingsViewModel.profileImage,
-                    useSystemPlaceholder: false
-                )
-                .frame(width: 16.0, height: 16.0)
-            }
+            Image(systemName: "pencil")
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.trailing, DesignConstants.Spacing.step2x)
         }
     }
 

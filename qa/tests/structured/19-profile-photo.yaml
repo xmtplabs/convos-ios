@@ -50,6 +50,14 @@ steps:
       After selecting a photo, the quick-edit image picker shows a round
       thumbnail of the selected photo. Profile photo appears on sent
       message avatars and the composer bar avatar.
+      NOTE: setup-profile-button is now a fallback — it only appears when
+      the user dismissed the first-launch profile sheet (test 01) without
+      saving. When the profile is already set, set the photo via the
+      "Hello / My name is" sheet instead: my-info-row in settings, or your
+      own member row in a conversation (profile-setup-avatar /
+      profile-setup-photo-button opens the photo library,
+      profile-setup-camera-button the camera; save with
+      profile-setup-save-button).
 
   - id: profile_photo_syncs
     name: "Profile photo syncs to other participants"

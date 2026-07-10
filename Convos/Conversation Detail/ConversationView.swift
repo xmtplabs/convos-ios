@@ -571,21 +571,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             capabilityApprovalSheet
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            MyInfoView(
-                profile: .constant(viewModel.myProfileViewModel.profile),
-                profileImage: $viewModel.myProfileViewModel.profileImage,
-                editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                profileSettingsViewModel: profileSettingsViewModel,
-                showsCancelButton: true,
-                showsProfile: true,
-                showsUseProfileButton: true,
-                canEditProfile: false
-            ) { profileSettings in
-                viewModel.onUseProfile(profileSettings.profile, profileSettings.profileImage)
-            }
-            .onDisappear {
-                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
-            }
+            // ProfileSetupSheet owns the full save; no dismiss handler —
+            // the old onProfileSettingsDismissed re-saved from the stale
+            // myProfileViewModel and clobbered the just-saved profile.
+            ProfileSetupSheet(mode: .edit)
         }
         .toolbar { topBarTrailing }
         .debugConnectionInjectorSheet(
