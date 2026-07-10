@@ -47,7 +47,7 @@ struct ProfileSetupSheet: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
-    @State private var hasAgreedToTerms: Bool = false
+    @State private var hasAgreedToTerms: Bool = true
     @State private var isSaving: Bool = false
     /// Drives the sheet's height detent. Seeded with the mode's expected
     /// height and corrected by measurement, so the detent only ever gets

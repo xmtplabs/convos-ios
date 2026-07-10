@@ -55,13 +55,12 @@ steps:
       identity exists in the iCloud-synced keychain backup — an erased
       simulator satisfies that. If the found-device pairing sheet appears
       instead, the simulator was not fully erased. The CTA reads "Come in"
-      and is disabled until a name is entered and the terms toggle is on.
+      and is disabled until a name is entered (the terms toggle defaults on).
 
   - id: first_launch_profile_setup
     name: "Set name via the first-launch sheet"
     actions:
       - type_in_field: { id: "profile-setup-name-field", text: "QA Tester", clear_first: true }
-      - tap: { id: "profile-setup-terms-toggle" }
       - tap: { id: "profile-setup-save-button" }
       - wait_for_element: { id: "compose-button", timeout: 10 }
     verify:
@@ -72,12 +71,14 @@ steps:
       by tapping "Continue" before typing. Empty state: the name field
       placeholder is "Name", the avatar shows person.crop.circle.fill (it
       becomes a monogram once a name is typed, or the photo once one is
-      picked), the terms toggle is OFF, and the CTA is disabled/gray. Both a
-      name and the toggle are required before "Come in" enables. Saving
-      publishes the global profile and dismisses the sheet. Tapping the
-      avatar, photo, or camera buttons (profile-setup-avatar /
-      profile-setup-photo-button / profile-setup-camera-button) is covered
-      by test 19.
+      picked), the terms toggle is ON by default, and the CTA is
+      disabled/gray until a name is entered. Turning the toggle off disables
+      the CTA again. Saving publishes the global profile and dismisses the
+      sheet. Tapping the avatar, photo, or camera buttons
+      (profile-setup-avatar / profile-setup-photo-button /
+      profile-setup-camera-button) is covered by test 19. Note for
+      automation: idb taps don't register on the SwiftUI toggle — use a
+      short swipe across the knob if the toggle needs flipping.
 
   - id: create_conversation
     name: "Create a new conversation"
