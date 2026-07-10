@@ -181,6 +181,101 @@ struct ConsentBackupTests {
         Issue.record("Condition not met within deadline")
     }
 
+    @Test("Carry window expiry drops ids the session never observed")
+    func carryWindowExpiryDropsUnobservedIds() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try KeychainIdentityKeys.generate()
+        _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
+        // convo-gone was denied from another device while this app was
+        // closed: it will never appear in this database's allowed set,
+        // and carrying it past the settling window would resurrect it on
+        // the next reinstall.
+        try await identityStore.saveConsentBackup(
+            ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-a", "convo-gone"])
+        )
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-a", consent: .allowed)
+        }
+
+        let mirror = ConsentBackupMirror(
+            databaseReader: dbManager.dbReader,
+            identityStore: identityStore,
+            carryWindow: .milliseconds(600)
+        )
+        mirror.start()
+        defer { mirror.stop() }
+
+        // Inside the window the unobserved id is carried.
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a", "convo-gone"]
+        }
+        // After the window's flush it is dropped, even with no further
+        // database changes to re-fire the observation.
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a"]
+        }
+    }
+
+    @Test("A failed keychain write is retried on the next emission")
+    func failedSaveRetriesOnNextChange() async throws {
+        struct TransientKeychainError: Error {}
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try KeychainIdentityKeys.generate()
+        _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
+
+        let mirror = ConsentBackupMirror(
+            databaseReader: dbManager.dbReader,
+            identityStore: identityStore
+        )
+        identityStore._setConsentBackupSaveError(TransientKeychainError())
+        mirror.start()
+        defer { mirror.stop() }
+
+        // This emission's write fails; the ids must still count as
+        // observed and the write must be retried later.
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-a", consent: .allowed)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(try await identityStore.loadConsentBackup() == nil)
+
+        identityStore._setConsentBackupSaveError(nil)
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db: db, id: "convo-b", consent: .allowed)
+        }
+        try await Self.waitUntil {
+            try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-a", "convo-b"]
+        }
+    }
+
+    @Test("Device-local slot writes are no-ops after delete until a new identity is saved")
+    func sweptSlotsRejectWrites() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try KeychainIdentityKeys.generate()
+        _ = try await identityStore.save(inboxId: "inbox-1", clientId: "client-1", keys: keys)
+        try await identityStore.delete()
+
+        // A racing task that lost the teardown race must not resurrect
+        // the wiped slots.
+        try await identityStore.saveConsentBackup(
+            ConsentBackup(inboxId: "inbox-1", allowedConversationIds: ["convo-a"])
+        )
+        try await identityStore.saveInstallationMarker(
+            InstallationMarker(inboxId: "inbox-1", installationId: "i1", staleInstallationIds: [])
+        )
+        #expect(try await identityStore.loadConsentBackup() == nil)
+        #expect(try await identityStore.loadInstallationMarker() == nil)
+
+        // A new identity re-enables the slots.
+        _ = try await identityStore.save(inboxId: "inbox-2", clientId: "client-2", keys: keys)
+        try await identityStore.saveConsentBackup(
+            ConsentBackup(inboxId: "inbox-2", allowedConversationIds: ["convo-b"])
+        )
+        #expect(try await identityStore.loadConsentBackup()?.allowedConversationIds == ["convo-b"])
+    }
+
     private static func seedConversation(
         db: Database,
         id: String,

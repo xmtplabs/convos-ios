@@ -638,10 +638,14 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// leave the marker behind, or a later reinstall can't prove the
     /// orphaned installation was this device's own. Cheap (one keychain
     /// read, at most one write) and non-throwing, so it can sit inline
-    /// on the authorize and register paths. The revocation half of the
-    /// reconcile stays deferred to `.ready`.
+    /// on the authorize and register paths. Deliberately not gated on
+    /// `syncingManager` (unlike the reconcile): the notification service
+    /// extension can also mint an installation when it authorizes against
+    /// a wiped database after a reinstall, and one the marker never
+    /// records becomes a permanently unrevokable ghost. Seeding makes no
+    /// network calls, so it is safe in every session mode; only the
+    /// revocation half stays app-only.
     private func seedInstallationMarker(client: any XMTPClientProvider) async {
-        guard syncingManager != nil else { return }
         do {
             let marker = try await identityStore.loadInstallationMarker()
             let plan = StaleInstallationReconciler.plan(
@@ -715,33 +719,54 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             // A stale own installation means this launch is a reinstall
             // resume: the app container (and with it every consent record)
             // was wiped, so re-welcomed conversations would land as
-            // consent=unknown and never surface. Restore the user's
-            // allowed set from the device-local backup before anything
-            // else - consent records written now also cover welcomes that
-            // haven't arrived yet. Inlined (not a helper taking the
-            // client) so the non-Sendable client stays a disconnected
-            // value used only in sequential awaits. The backup is never
-            // consumed, and a restore failure aborts the reconcile before
-            // the revoke: the marker keeps its stale ids, so both the
-            // restore and the revoke retry on the next launch (letting
-            // the revoke clear the marker after a failed restore would
-            // end the retries and leave the conversations hidden).
-            let consentIds = try await ConsentBackupRestorer.idsToRestore(
-                identityStore: identityStore,
-                inboxId: client.inboxId
-            )
-            if !consentIds.isEmpty {
-                try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
-                try await ConsentBackupRestorer.flipStoredUnknownRows(
-                    ids: consentIds,
-                    databaseWriter: databaseWriter
-                )
-                Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
-                QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
-            }
-            try Task.checkCancellation()
+            // consent=unknown and never surface. The live installation
+            // list decides how consent comes back before anything else
+            // runs. Inlined (not a helper taking the client) so the
+            // non-Sendable client stays a disconnected value used only in
+            // sequential awaits. A restore failure aborts the reconcile
+            // before the revoke: the marker keeps its stale ids, so both
+            // retry on the next launch (letting the revoke clear the
+            // marker after a failed restore would end the retries and
+            // leave the conversations hidden).
             let liveIds = try await client.listInstallations(refreshFromNetwork: true).map(\.id)
             let idsToRevoke = plan.candidateStaleIds.filter(Set(liveIds).contains)
+            let livePeerIds = Set(liveIds)
+                .subtracting(idsToRevoke)
+                .subtracting([client.installationId])
+            if livePeerIds.isEmpty {
+                // Sole surviving installation: the device-local backup is
+                // the only consent source, and "denied from elsewhere" is
+                // impossible with no other installation, so restoring the
+                // backed-up allowed set is safe. Records written now also
+                // cover welcomes that haven't arrived yet; the backup is
+                // never consumed.
+                let consentIds = try await ConsentBackupRestorer.idsToRestore(
+                    identityStore: identityStore,
+                    inboxId: client.inboxId
+                )
+                if !consentIds.isEmpty {
+                    try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
+                    try await ConsentBackupRestorer.flipStoredUnknownRows(
+                        ids: consentIds,
+                        databaseWriter: databaseWriter
+                    )
+                    Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
+                    QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
+                }
+            } else {
+                // Live paired installations exist: they hold the inbox's
+                // current consent, including denies made while this device
+                // was uninstalled. Writing fresh-timestamp allowed records
+                // from the backup would override those denies via
+                // last-writer-wins, so request preference sync instead -
+                // peers replay consent records with their original
+                // timestamps. Best-effort: the peers also push updates on
+                // their own sync cadence.
+                try? await client.syncPreferences()
+                Log.info("Deferred reinstall consent restore to \(livePeerIds.count) live installation(s)")
+                QAEvent.emit(.conversation, "consent_restore_deferred_to_peers", ["peers": "\(livePeerIds.count)"])
+            }
+            try Task.checkCancellation()
             if !idsToRevoke.isEmpty {
                 guard let identity = try await identityStore.load() else { return }
                 try await client.revokeInstallations(
@@ -749,6 +774,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                     installationIds: idsToRevoke
                 )
             }
+            try Task.checkCancellation()
             try await identityStore.saveInstallationMarker(
                 InstallationMarker(
                     inboxId: client.inboxId,

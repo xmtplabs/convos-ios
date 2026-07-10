@@ -298,6 +298,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let keychainAccessGroup: String
     private let syncedBackupEnabled: Bool
     private let deviceNameProvider: (@Sendable () -> String?)?
+    /// Set by `delete()` and cleared by the next identity `save`. While
+    /// set, the device-local slot writes (installation marker, consent
+    /// backup) are no-ops - see the comment in `delete()`.
+    private var deviceSlotsSwept: Bool = false
 
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
@@ -363,6 +367,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             removeSyncedBackup(inboxId: displacedInboxId)
         }
         try saveData(data, with: identityQuery)
+        deviceSlotsSwept = false
         mirrorToSyncedBackup(identity)
         return identity
     }
@@ -406,6 +411,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func saveInstallationMarker(_ marker: InstallationMarker) throws {
+        guard !deviceSlotsSwept else { return }
         let data = try JSONEncoder().encode(marker)
         try saveData(data, with: installationMarkerQuery)
     }
@@ -420,6 +426,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func saveConsentBackup(_ backup: ConsentBackup) throws {
+        guard !deviceSlotsSwept else { return }
         let data = try JSONEncoder().encode(backup)
         try saveData(data, with: consentBackupQuery)
     }
@@ -462,6 +469,15 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         // this device reconcile against - or restore consent from - state
         // the user explicitly wiped. Best-effort: a failure here only
         // leaves data the next identity ignores via its inboxId check.
+        //
+        // The swept flag closes the teardown race: an in-flight mirror or
+        // reconcile task already past its cancellation check can still be
+        // queued behind this delete on the actor, and its save would
+        // otherwise re-create the slot after the sweep. All device-local
+        // slot writes go through this actor, so turning them into no-ops
+        // until the next identity save serializes the race at its only
+        // choke point.
+        deviceSlotsSwept = true
         try? deleteData(with: installationMarkerQuery)
         try? deleteData(with: consentBackupQuery)
         try deleteData(with: identityQuery)

@@ -72,6 +72,12 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         setConsentStatesCalls.append((conversationIds: conversationIds, consent: consent))
     }
 
+    public private(set) var syncPreferencesCallCount: Int = 0
+
+    public func syncPreferences() async throws {
+        syncPreferencesCallCount += 1
+    }
+
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
         // No-op for mock
     }

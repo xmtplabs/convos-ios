@@ -129,6 +129,12 @@ public protocol XMTPClientProvider: AnyObject {
     /// before a conversation's welcome arrives still apply to it. Used to
     /// restore backed-up consent after a reinstall.
     func setConsentStates(conversationIds: [String], consent: Consent) async throws
+    /// Requests preference (consent) sync from the inbox's other live
+    /// installations via the device-sync group. Used after a reinstall
+    /// when live peers exist: their replayed consent records carry the
+    /// original timestamps, so denies made while this device was
+    /// uninstalled are preserved instead of overridden.
+    func syncPreferences() async throws
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
@@ -252,6 +258,10 @@ extension XMTPiOS.Client: XMTPClientProvider {
             )
         }
         try await preferences.setConsentState(entries: entries)
+    }
+
+    public func syncPreferences() async throws {
+        try await preferences.sync()
     }
 
     public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {

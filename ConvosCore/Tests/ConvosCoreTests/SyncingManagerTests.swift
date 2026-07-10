@@ -85,6 +85,9 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func setConsentStates(conversationIds: [String], consent: Consent) async throws {
     }
 
+    func syncPreferences() async throws {
+    }
+
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 

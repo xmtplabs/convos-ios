@@ -159,11 +159,13 @@ steps:
   - id: a_to_b_after_reinstall
     name: "The app's post-reinstall messages reach the CLI in both conversations"
     note: >
-      If the conversations are invisible in the list (consent=unknown
-      bug from b_to_a_after_reinstall), reach each conversation by
-      re-opening its invite deep link - the rejoin flow navigates to
-      the existing conversation and flips consent back to allowed,
-      after which the list shows both again.
+      Reach each conversation from the Convos list only. Do not use the
+      invite deep link to reach an invisible conversation - the rejoin
+      flow flips consent to allowed as a side effect, which would let
+      this step pass during a consent-restore regression and mask the
+      exact defect the feature prevents. If the conversations are not in
+      the list, b_to_a_after_reinstall has already failed; record this
+      step as blocked by that failure instead of working around it.
     actions:
       - type_in_field_in_conversation:
           conversation: "$conversation_1_id"
