@@ -47,7 +47,7 @@ struct ProfileSetupSheet: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
-    @State private var hasAgreedToTerms: Bool = true
+    @State private var hasAgreedToTerms: Bool = false
     @State private var isSaving: Bool = false
 
     private static let privacyAndTermsURL: String = "https://hq.convos.org/privacy-and-terms"
@@ -67,11 +67,14 @@ struct ProfileSetupSheet: View {
         ProfileSettings(displayName: displayName, profileImage: profileImage).profile
     }
 
-    private var canSave: Bool {
-        let hasName = !displayName
+    private var hasName: Bool {
+        !displayName
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
-        return hasName && (!mode.showsTermsRow || hasAgreedToTerms) && !isSaving
+    }
+
+    private var canSave: Bool {
+        hasName && (!mode.showsTermsRow || hasAgreedToTerms) && !isSaving
     }
 
     var body: some View {
@@ -84,9 +87,10 @@ struct ProfileSetupSheet: View {
                     termsRow
                 }
                 saveButton
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
             .padding(.horizontal, DesignConstants.Spacing.step6x)
-            .padding(.top, DesignConstants.Spacing.step16x)
+            .padding(.top, DesignConstants.Spacing.step9x)
             .padding(.bottom, DesignConstants.Spacing.step10x)
         }
         .background(.colorBackgroundRaisedSecondary)
@@ -125,7 +129,9 @@ struct ProfileSetupSheet: View {
         }
         .foregroundStyle(.colorTextPrimaryInverted)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, DesignConstants.Spacing.step10x)
+        // 132pt band per design: 40 above the text block, 28 below.
+        .padding(.top, DesignConstants.Spacing.step10x)
+        .padding(.bottom, 28.0)
         .background(.colorLava)
     }
 
@@ -134,17 +140,31 @@ struct ProfileSetupSheet: View {
             Button {
                 isImagePickerPresented = true
             } label: {
-                ProfileAvatarView(
-                    profile: previewProfile,
-                    profileImage: profileImage,
-                    useSystemPlaceholder: false
-                )
+                // Empty state is person.crop.circle.fill on an inverted
+                // circle; a typed name switches to its monogram, a chosen
+                // photo to the photo.
+                Group {
+                    if hasName || profileImage != nil {
+                        ProfileAvatarView(
+                            profile: previewProfile,
+                            profileImage: profileImage,
+                            useSystemPlaceholder: false
+                        )
+                    } else {
+                        ZStack {
+                            Circle().fill(.colorBackgroundInverted)
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 20.0))
+                                .foregroundStyle(.colorTextPrimaryInverted)
+                        }
+                    }
+                }
                 .frame(width: 36.0, height: 36.0)
             }
             .accessibilityLabel(profileImage != nil ? "Change photo" : "Choose photo")
             .accessibilityIdentifier("profile-setup-avatar")
 
-            TextField(profileSettingsViewModel.exampleDisplayName, text: $displayName)
+            TextField("Name", text: $displayName)
                 .font(.body)
                 .submitLabel(.done)
                 .accessibilityIdentifier("profile-setup-name-field")
@@ -166,7 +186,7 @@ struct ProfileSetupSheet: View {
                 .accessibilityLabel("Take photo")
                 .accessibilityIdentifier("profile-setup-camera-button")
             }
-            .font(.body)
+            .font(.body.weight(.medium))
             .foregroundStyle(.colorTextSecondary)
             .padding(.trailing, DesignConstants.Spacing.step2x)
         }
@@ -200,9 +220,13 @@ struct ProfileSetupSheet: View {
             Text(mode.ctaTitle)
                 .font(.body)
                 .frame(maxWidth: .infinity)
-                .frame(height: DesignConstants.Spacing.step10x)
+                // 56pt total with RoundedButtonStyle's 16pt vertical padding.
+                .frame(height: DesignConstants.Spacing.step6x)
         }
-        .convosButtonStyle(.rounded(fullWidth: true))
+        .convosButtonStyle(.rounded(
+            fullWidth: true,
+            backgroundColor: canSave ? .colorFillPrimary : .colorFillSecondary
+        ))
         .disabled(!canSave)
         .accessibilityIdentifier("profile-setup-save-button")
     }

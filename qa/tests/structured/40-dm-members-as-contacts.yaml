@@ -46,6 +46,7 @@ steps:
     actions:
       - wait_for_element: { id: "profile-setup-name-field", timeout: 20 }
       - type_in_field: { id: "profile-setup-name-field", text: "$device_a_name", clear_first: true }
+      - tap: { id: "profile-setup-terms-toggle" }
       - tap: { id: "profile-setup-save-button" }
       - wait_for_element: { id: "compose-button", timeout: 10 }
     verify:
@@ -104,6 +105,7 @@ steps:
     actions:
       - wait_for_element: { id: "profile-setup-name-field", timeout: 20 }
       - type_in_field: { id: "profile-setup-name-field", text: "$device_b_name", clear_first: true }
+      - tap: { id: "profile-setup-terms-toggle" }
       - tap: { id: "profile-setup-save-button" }
       - wait_for_element: { id: "compose-button", timeout: 10 }
     verify:

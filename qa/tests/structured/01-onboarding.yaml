@@ -61,6 +61,7 @@ steps:
     name: "Set name via the first-launch sheet"
     actions:
       - type_in_field: { id: "profile-setup-name-field", text: "QA Tester", clear_first: true }
+      - tap: { id: "profile-setup-terms-toggle" }
       - tap: { id: "profile-setup-save-button" }
       - wait_for_element: { id: "compose-button", timeout: 10 }
     verify:
@@ -68,10 +69,15 @@ steps:
     criteria: profile_can_be_set
     note: >
       A keyboard tutorial overlay may appear on fresh simulators — dismiss it
-      by tapping "Continue" before typing. Saving publishes the global
-      profile and dismisses the sheet. Tapping the avatar, photo, or camera
-      buttons (profile-setup-avatar / profile-setup-photo-button /
-      profile-setup-camera-button) is covered by test 19.
+      by tapping "Continue" before typing. Empty state: the name field
+      placeholder is "Name", the avatar shows person.crop.circle.fill (it
+      becomes a monogram once a name is typed, or the photo once one is
+      picked), the terms toggle is OFF, and the CTA is disabled/gray. Both a
+      name and the toggle are required before "Come in" enables. Saving
+      publishes the global profile and dismisses the sheet. Tapping the
+      avatar, photo, or camera buttons (profile-setup-avatar /
+      profile-setup-photo-button / profile-setup-camera-button) is covered
+      by test 19.
 
   - id: create_conversation
     name: "Create a new conversation"
