@@ -1151,7 +1151,16 @@ public extension SessionManager {
     /// Same slot read as `pairableDeviceBackups`, but shaped for the
     /// Devices screen: includes the current identity's own mirror and
     /// applies no ordering filter (see `ICloudDeviceBackupsSnapshot`).
-    /// Best-effort: keychain failures return an empty snapshot.
+    ///
+    /// Best-effort: keychain failures return an empty snapshot, and a
+    /// primary-slot read failure deliberately empties it even when the
+    /// backups loaded. Building the snapshot without the current inboxId
+    /// would classify the install's own mirror as another device -
+    /// listing the user's own key as pairable-to-self, badging it Main
+    /// in the wrong section, and un-escalating the delete-all guard on
+    /// the actual main device. A briefly empty section that recovers on
+    /// the next screen visit is the safer degradation (same reasoning
+    /// as `pairableBackups`' nil-hides contract).
     func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
         do {
             let backups = try await identityStore.loadSyncedBackups()
