@@ -83,6 +83,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
+    func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
     func profileMetadataWriter() -> any ProfileMetadataWriterProtocol
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol

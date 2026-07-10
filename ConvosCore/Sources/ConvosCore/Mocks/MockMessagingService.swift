@@ -20,6 +20,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let _conversationMetadataWriter: any ConversationMetadataWriterProtocol
     private let _conversationExplosionWriter: any ConversationExplosionWriterProtocol
+    private let _conversationLeaveWriter: any ConversationLeaveWriterProtocol
     private let _conversationPermissionsRepository: any ConversationPermissionsRepositoryProtocol
     private let _outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let _reactionWriter: any ReactionWriterProtocol
@@ -45,6 +46,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
         conversationExplosionWriter: (any ConversationExplosionWriterProtocol)? = nil,
+        conversationLeaveWriter: (any ConversationLeaveWriterProtocol)? = nil,
         conversationPermissionsRepository: (any ConversationPermissionsRepositoryProtocol)? = nil,
         outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil,
         reactionWriter: (any ReactionWriterProtocol)? = nil,
@@ -57,6 +59,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
         self._conversationMetadataWriter = conversationMetadataWriter ?? MockConversationMetadataWriter()
         self._conversationExplosionWriter = conversationExplosionWriter ?? MockConversationExplosionWriter()
+        self._conversationLeaveWriter = conversationLeaveWriter ?? MockConversationLeaveWriter()
         self._conversationPermissionsRepository = conversationPermissionsRepository ?? MockConversationPermissionsRepository()
         self._outgoingMessageWriter = outgoingMessageWriter ?? MockOutgoingMessageWriter()
         self._reactionWriter = reactionWriter ?? MockReactionWriter()
@@ -141,6 +144,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
         _conversationExplosionWriter
+    }
+
+    public func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol {
+        _conversationLeaveWriter
     }
 
     public func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {

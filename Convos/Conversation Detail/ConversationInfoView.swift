@@ -97,6 +97,7 @@ struct ConversationInfoView: View {
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
+    @State private var showingLeaveConfirmation: Bool = false
     /// "New Agent" builder, presented from here so it stacks on top of the
     /// Info sheet rather than racing the chat view's own builder sheet.
     @State private var presentingAgentBuilder: AgentBuilderViewModel?
@@ -490,7 +491,27 @@ struct ConversationInfoView: View {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
             }
 
+            if viewModel.canLeaveConversation {
+                leaveSection
+            }
+
             debugInfoSection
+        }
+    }
+
+    private var leaveSection: some View {
+        Section {
+            let action = { showingLeaveConfirmation = true }
+            Button(action: action) {
+                HStack {
+                    Text("Leave")
+                        .foregroundStyle(.colorCaution)
+                    Spacer()
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .foregroundStyle(.colorCaution)
+                }
+            }
+            .accessibilityIdentifier("leave-conversation-button")
         }
     }
 
@@ -561,6 +582,14 @@ struct ConversationInfoView: View {
                     }
                 } message: {
                     Text("Only use this if you know the expected invite tag for this convo.")
+                }
+                .alert("Leave conversation?", isPresented: $showingLeaveConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Leave", role: .destructive) {
+                        viewModel.leaveGroupConvo()
+                    }
+                } message: {
+                    Text("You'll be removed from this conversation and stop receiving its messages.")
                 }
                 .scrollContentBackground(.hidden)
                 .background(.colorBackgroundRaisedSecondary)

@@ -235,8 +235,14 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
 
         return self
             .including(all: DBConversation.invites)
+            // Optional join: a creator who left the group has no
+            // conversation_members row anymore, and a required join would
+            // silently drop the conversation from every list and detail
+            // query on the remaining members' devices. The nested profile
+            // joins must also be optional -- GRDB cannot chain a required
+            // association behind an optional one.
             .including(
-                required: DBConversation.creator
+                optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([
                         DBConversationMember.Columns.conversationId,

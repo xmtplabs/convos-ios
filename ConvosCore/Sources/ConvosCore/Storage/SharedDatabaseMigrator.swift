@@ -179,22 +179,7 @@ extension SharedDatabaseMigrator {
         // schema, so an upgrade migrates in place.
         Self.registerAgentTemplateContactMigrations(on: &migrator)
 
-        // Filter set of agent-builder bundle message ids hidden from every
-        // client's chat. Intentionally no foreign key to `conversation`: a
-        // manifest can be processed before its conversation row is stored (the
-        // stream routes supplementals ahead of `conversationWriter.store`, and
-        // catch-up can deliver a manifest before the initial conversation sync
-        // lands); a FK would make those inserts fail and silently drop the hidden
-        // ids, leaving the brief visible. A stray row for an absent conversation
-        // matches nothing and is harmless. Teardown clears the table explicitly
-        // in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
-            }
-        }
+        Self.registerBuilderBundleHiddenMessageMigrations(on: &migrator)
 
         migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
                                    migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
@@ -205,6 +190,7 @@ extension SharedDatabaseMigrator {
         Self.registerConnectionGrantMigrations(on: &migrator)
         Self.registerJoinAndGenerationMigrations(on: &migrator)
         Self.registerTailMigrations(on: &migrator)
+        Self.registerMemberDepartureMigrations(on: &migrator)
 
         return migrator
     }
@@ -249,6 +235,41 @@ extension SharedDatabaseMigrator {
                 WHERE inboxId NOT IN (SELECT inboxId FROM inbox)
             )
             """)
+    }
+
+    /// Filter set of agent-builder bundle message ids hidden from every
+    /// client's chat. Intentionally no foreign key to `conversation`: a
+    /// manifest can be processed before its conversation row is stored (the
+    /// stream routes supplementals ahead of `conversationWriter.store`, and
+    /// catch-up can deliver a manifest before the initial conversation sync
+    /// lands); a FK would make those inserts fail and silently drop the hidden
+    /// ids, leaving the brief visible. A stray row for an absent conversation
+    /// matches nothing and is harmless. Teardown clears the table explicitly
+    /// in `SessionManager.deleteAllInboxes` (no cascade).
+    private static func registerBuilderBundleHiddenMessageMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
+            try db.create(table: "builder_bundle_hidden_message") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.primaryKey(["conversationId", "messageId"])
+            }
+        }
+    }
+
+    /// Pending-leave markers for members who announced a self-removal that
+    /// hasn't been finalized yet. No foreign key to `conversation` for the
+    /// same reason as `builder_bundle_hidden_message`: a leave-request can
+    /// be ingested before the conversation row lands, and a stray row for
+    /// an absent conversation matches nothing and is harmless.
+    private static func registerMemberDepartureMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createMemberDeparture") { db in
+            try db.create(table: "member_departure") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("inboxId", .text).notNull()
+                t.column("dateNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+        }
     }
 
     private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {

@@ -459,13 +459,18 @@ public extension ConversationUpdate {
             return metaSummary
         } else if !removedMembers.isEmpty {
             if removedMembers.count == 1, let member = removedMembers.first {
+                // A self-leave stores the leaver as both initiator and removed
+                // member (see the leave-request ingest); anything else is an
+                // admin-initiated removal and credits the remover.
+                let isSelfLeave = member.profile.inboxId == creator.profile.inboxId
                 if member.isCurrentUser {
-                    return "You left the convo"
+                    return isSelfLeave ? "You left the convo" : "You were removed from the convo"
                 }
-                if member.isAgent {
-                    return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left · Removed by \(creatorDisplayName)"
+                let memberName = resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)
+                if isSelfLeave {
+                    return "\(memberName) left"
                 }
-                return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left"
+                return "\(memberName) left · Removed by \(creatorDisplayName)"
             }
             let removed = removedMembers.formattedNamesString(memberNameOverride: memberNameOverride)
             return "\(removed) left"

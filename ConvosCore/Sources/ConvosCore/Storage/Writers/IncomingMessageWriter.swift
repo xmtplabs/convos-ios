@@ -100,10 +100,11 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
         let messageExistsInDB = try DBMessage.exists(db, key: message.id)
         let localInboxId = try DBInbox.currentInboxId(db)
-        let wasRemovedFromConversation: Bool = {
-            guard let localInboxId, let removedInboxIds = message.update?.removedInboxIds else { return false }
-            return removedInboxIds.contains(localInboxId)
-        }()
+        let wasRemovedFromConversation = Self.isRemovedFromConversation(
+            update: message.update,
+            localInboxId: localInboxId,
+            conversationConsent: conversation.consent
+        )
 
         Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
         if !message.attachmentUrls.isEmpty {
@@ -180,6 +181,30 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                     .filter(DBConversationMember.Columns.invitedByInboxId == nil)
                     .updateAll(db, DBConversationMember.Columns.invitedByInboxId.set(to: update.initiatedByInboxId))
             }
+            // A membership add supersedes any pending-leave marker the same
+            // inbox announced before it (rejoin after an earlier departure
+            // finalized). Bounded by the add's timestamp because backlog
+            // catch-up processes newest-first: an older add ingested late
+            // must not clear the marker of a leave that happened after it.
+            try Self.clearMemberDepartures(
+                conversationId: conversation.id,
+                inboxIds: update.addedInboxIds,
+                beforeNs: message.dateNs,
+                in: db
+            )
+        }
+
+        // Gated on first ingest: the message row and the departure write
+        // commit in the same transaction, so a re-encounter (NSE and main
+        // app share the database) means the departure was already applied.
+        // Re-applying would wrongly re-mark a member who has since rejoined.
+        if encodedContentType == ContentTypeLeaveRequest, !messageExistsInDB {
+            try Self.applyMemberDeparture(
+                conversationId: conversation.id,
+                inboxId: source.senderInboxId,
+                dateNs: message.dateNs,
+                in: db
+            )
         }
 
         if wasRemovedFromConversation {
@@ -191,6 +216,31 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             wasRemovedFromConversation: wasRemovedFromConversation,
             messageAlreadyExists: messageExistsInDB
         )
+    }
+
+    /// True when the update removes the local user from the conversation, so
+    /// the removed marker and the live-hide notification must fire.
+    ///
+    /// A self-leave echo (leave-request the local user's inbox sent) names
+    /// the local inbox as both initiator and removed member. On the
+    /// installation that initiated the leave, the leave flow already hid the
+    /// conversation via the consent path, so the echo must not re-mark it.
+    /// A paired sibling installation of the same inbox receives the identical
+    /// echo but never ran the local leave flow, and the finalization commit
+    /// reports self-leaves via `leftInboxes`, which is deliberately not
+    /// mapped -- the echo is the only removal signal the sibling gets before
+    /// consent sync converges. The conversation's consent state is the
+    /// discriminator: the initiator is already denied when the echo lands,
+    /// while a sibling is still allowed and must process the removal.
+    static func isRemovedFromConversation(
+        update: DBMessage.Update?,
+        localInboxId: String?,
+        conversationConsent: Consent
+    ) -> Bool {
+        guard let localInboxId, let update else { return false }
+        guard update.removedInboxIds.contains(localInboxId) else { return false }
+        guard update.initiatedByInboxId == localInboxId else { return true }
+        return conversationConsent != .denied
     }
 
     /// Marks the conversation as removed-for-the-local-user. Idempotent and
@@ -225,6 +275,83 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             .with(isPinned: false)
             .with(pinnedOrder: nil)
             .save(db)
+    }
+
+    /// Records a member's announced departure and drops their member row so
+    /// every member-list surface loses the leaver promptly. The departure
+    /// marker keeps `ConversationWriter.persist` from re-adding the row while
+    /// the MLS roster still lists the leaver (the remove-commit is finalized
+    /// asynchronously by an authorized client). Idempotent: re-ingesting the
+    /// same leave-request (NSE + main app) upserts the same marker.
+    ///
+    /// Order-aware: backlog catch-up processes messages newest-first, so a
+    /// rejoin-add can already be stored when an older leave-request is first
+    /// ingested. Applying that stale leave would hide a current member behind
+    /// a marker no later event clears, so it is skipped when a newer
+    /// membership add for the same inbox exists.
+    static func applyMemberDeparture(
+        conversationId: String,
+        inboxId: String,
+        dateNs: Int64,
+        in db: Database
+    ) throws {
+        guard try !hasNewerMembershipAdd(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            afterNs: dateNs,
+            in: db
+        ) else {
+            Log.info("Skipping stale leave-request for \(inboxId) in \(conversationId): a newer membership add exists")
+            return
+        }
+        try DBMemberDeparture(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            dateNs: dateNs
+        ).save(db)
+        try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .filter(DBConversationMember.Columns.inboxId == inboxId)
+            .deleteAll(db)
+    }
+
+    /// Clears pending-leave markers for inboxes a membership change re-added.
+    /// Without this a member who left and later rejoined would stay filtered
+    /// out of the member list by their stale departure marker. Only markers
+    /// older than the add event (`beforeNs`) are cleared: with newest-first
+    /// backlog processing an older add can be ingested after a newer leave,
+    /// and it must not erase that leave's marker.
+    static func clearMemberDepartures(
+        conversationId: String,
+        inboxIds: [String],
+        beforeNs: Int64,
+        in db: Database
+    ) throws {
+        try DBMemberDeparture
+            .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+            .filter(inboxIds.contains(DBMemberDeparture.Columns.inboxId))
+            .filter(DBMemberDeparture.Columns.dateNs < beforeNs)
+            .deleteAll(db)
+    }
+
+    /// True when a stored membership update newer than `afterNs` added the
+    /// inbox to the conversation -- the signal that a leave-request being
+    /// ingested is stale (the member has since rejoined). Scans stored
+    /// update-type messages because the `update` payload lives in a JSON
+    /// column; updates newer than a given message are rare, and the cost is
+    /// only paid on leave-request ingest.
+    private static func hasNewerMembershipAdd(
+        conversationId: String,
+        inboxId: String,
+        afterNs: Int64,
+        in db: Database
+    ) throws -> Bool {
+        let newerUpdates = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .filter(DBMessage.Columns.contentType == MessageContentType.update.rawValue)
+            .filter(DBMessage.Columns.dateNs > afterNs)
+            .fetchAll(db)
+        return newerUpdates.contains { $0.update?.addedInboxIds.contains(inboxId) == true }
     }
 
     func store(message: DecodedMessage,
