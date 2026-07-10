@@ -113,6 +113,49 @@ struct AgentTemplateRepositoryTests {
         #expect(api.generationCalls == 0)
         #expect(api.joinCalls == 0)
     }
+
+    @Test("Generation 401/403 map to terminal badRequest, 5xx stays retryable server")
+    func generationAuthFailuresAreTerminal() throws {
+        // A surfaced 401/403 already exhausted the auth refresh inside
+        // performAuthenticatedRequest, so a plain retry can't heal it. Mapping
+        // it to the retryable `.server` case made the builder retry silently
+        // and then fail with a generic "Couldn't reach the builder".
+        let api = try #require(ConvosAPIClientFactory.client(
+            environment: .local(config: ConvosConfiguration(
+                apiBaseURL: "https://api.example.com",
+                appGroupIdentifier: "group.test",
+                relyingPartyIdentifier: "example.com",
+                siweConfiguration: SIWEConfiguration(domain: "example.com", uri: "https://example.com", chainId: 1)
+            ))
+        ) as? ConvosAPIClient)
+        func decode(status: Int, body: String = #"{"error":"Account required"}"#) throws -> ConvosAPI.AgentTemplateGenerationResponse {
+            let url = try #require(URL(string: "https://api.example.com/api/v2/agent-templates/generations"))
+            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            return try api.decodeGenerationResponse(data: Data(body.utf8), httpResponse: response)
+        }
+
+        for status in [401, 403] {
+            #expect(throws: AgentGenerationError.self) { try decode(status: status) }
+            do {
+                _ = try decode(status: status)
+            } catch let error as AgentGenerationError {
+                guard case .badRequest(let message) = error else {
+                    Issue.record("Expected .badRequest for \(status), got \(error)")
+                    return
+                }
+                #expect(message == "Account required")
+            }
+        }
+
+        do {
+            _ = try decode(status: 500)
+        } catch let error as AgentGenerationError {
+            guard case .server = error else {
+                Issue.record("Expected .server for 500, got \(error)")
+                return
+            }
+        }
+    }
 }
 
 /// Submit returns pending, the first poll returns done, and the join records

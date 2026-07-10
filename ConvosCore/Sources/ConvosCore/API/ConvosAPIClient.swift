@@ -903,10 +903,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
 
+        if !(200...299).contains(httpResponse.statusCode) {
+            Log.error("agents/join failed [\(httpResponse.statusCode)]: \(String(data: data, encoding: .utf8) ?? "nil data")")
+        }
         switch httpResponse.statusCode {
         case 200...299:
             let decoder = JSONDecoder()
-            return try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+            let response = try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil") joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
+            return response
         case 502:
             throw APIError.agentProvisionFailed
         case 503:
@@ -1266,11 +1271,20 @@ extension ConvosAPIClient {
         data: Data,
         httpResponse: HTTPURLResponse
     ) throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        if !(200...299).contains(httpResponse.statusCode) {
+            let path: String = httpResponse.url?.path(percentEncoded: false) ?? "agent-template generation"
+            Log.error("\(path) failed [\(httpResponse.statusCode)]: \(String(data: data, encoding: .utf8) ?? "nil data")")
+        }
         switch httpResponse.statusCode {
         case 200...299:
             return try JSONDecoder().decode(ConvosAPI.AgentTemplateGenerationResponse.self, from: data)
         case 400:
             throw AgentGenerationError.badRequest(parseErrorMessage(from: data))
+        case 401, 403:
+            // Auth refresh already ran inside performAuthenticatedRequest, so a
+            // surfaced 401/403 won't heal on a plain retry - treat as terminal
+            // rather than looping through the retryable `.server` path.
+            throw AgentGenerationError.badRequest(parseErrorMessage(from: data) ?? "Not authorized")
         case 404:
             throw AgentGenerationError.notFound
         case 409:
