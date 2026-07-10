@@ -2809,10 +2809,6 @@ extension ConversationViewModel {
         focusCoordinator.moveFocus(to: .displayName)
     }
 
-    func onProfileSettingsDismissed(focusCoordinator: FocusCoordinator) {
-        onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
-    }
-
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
         guard canStageMoreMedia else {
             try? FileManager.default.removeItem(at: url)

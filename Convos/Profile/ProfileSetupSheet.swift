@@ -49,6 +49,11 @@ struct ProfileSetupSheet: View {
     @State private var isCameraPresented: Bool = false
     @State private var hasAgreedToTerms: Bool = true
     @State private var isSaving: Bool = false
+    /// Whether the user has touched the draft. Gates the one-time reseed
+    /// below: a sheet opened before the global profile finished loading is
+    /// seeded from default values, and saving that stale draft would clear
+    /// the stored avatar.
+    @State private var hasEditedDraft: Bool = false
     /// Drives the sheet's height detent. Seeded with the mode's expected
     /// height and corrected by measurement, so the detent only ever gets
     /// same-kind `.height` updates: a sheet presented at `.medium` (the
@@ -81,7 +86,11 @@ struct ProfileSetupSheet: View {
     }
 
     private var canSave: Bool {
-        hasName && (!mode.showsTermsRow || hasAgreedToTerms) && !isSaving
+        // Edit mode allows photo-only saves (an empty name falls back to
+        // the stored one in saveAndAwait); first launch requires a name.
+        (hasName || (mode == .edit && profileImage != nil))
+            && (!mode.showsTermsRow || hasAgreedToTerms)
+            && !isSaving
     }
 
     var body: some View {
@@ -101,6 +110,21 @@ struct ProfileSetupSheet: View {
             .padding(.bottom, DesignConstants.Spacing.step10x)
         }
         .background(.colorBackgroundRaisedSecondary)
+        .onChange(of: displayName) { _, _ in
+            hasEditedDraft = true
+        }
+        // Reseed a pristine draft once the global profile load resolves:
+        // a sheet opened during a cold launch is seeded from the not yet
+        // loaded (default) view model state.
+        .onChange(of: profileSettingsViewModel.loadState) { _, newState in
+            guard newState == .loaded, !hasEditedDraft else { return }
+            displayName = profileSettingsViewModel.editingDisplayName
+            profileImage = profileSettingsViewModel.profileImage
+            profileImageAssetIdentifier = profileSettingsViewModel.profileImageAssetIdentifier
+            // The programmatic writes above flip hasEditedDraft via the
+            // displayName onChange; that's fine — one reseed is all that
+            // is ever needed.
+        }
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
@@ -117,6 +141,7 @@ struct ProfileSetupSheet: View {
                 onSelection: { image, assetIdentifier in
                     profileImage = image
                     profileImageAssetIdentifier = assetIdentifier
+                    hasEditedDraft = true
                     isImagePickerPresented = false
                 },
                 onCancel: { isImagePickerPresented = false }
@@ -128,6 +153,7 @@ struct ProfileSetupSheet: View {
                 onImageCaptured: { image in
                     profileImage = image
                     profileImageAssetIdentifier = nil
+                    hasEditedDraft = true
                 },
                 onVideoCaptured: nil
             )
@@ -252,6 +278,12 @@ struct ProfileSetupSheet: View {
         isSaving = true
         Task {
             defer { isSaving = false }
+            // Snapshot so a failed save doesn't leave the never-persisted
+            // draft in the shared view model (it would prefill the next
+            // editor session as if it had been stored).
+            let previousName = profileSettingsViewModel.editingDisplayName
+            let previousImage = profileSettingsViewModel.profileImage
+            let previousAssetIdentifier = profileSettingsViewModel.profileImageAssetIdentifier
             do {
                 profileSettingsViewModel.editingDisplayName = displayName
                 profileSettingsViewModel.profileImage = profileImage
@@ -261,6 +293,9 @@ struct ProfileSetupSheet: View {
                 onSaved?()
                 dismiss()
             } catch {
+                profileSettingsViewModel.editingDisplayName = previousName
+                profileSettingsViewModel.profileImage = previousImage
+                profileSettingsViewModel.profileImageAssetIdentifier = previousAssetIdentifier
                 Log.error("Failed saving profile from setup sheet: \(error)")
             }
         }

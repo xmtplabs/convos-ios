@@ -570,12 +570,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
             capabilityApprovalSheet
         }
-        .sheet(
-            isPresented: $viewModel.presentingProfileSettings,
-            onDismiss: {
-                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
-            }
-        ) {
+        .sheet(isPresented: $viewModel.presentingProfileSettings) {
+            // ProfileSetupSheet owns the full save; no dismiss handler —
+            // the old onProfileSettingsDismissed re-saved from the stale
+            // myProfileViewModel and clobbered the just-saved profile.
             ProfileSetupSheet(mode: .edit)
         }
         .toolbar { topBarTrailing }
