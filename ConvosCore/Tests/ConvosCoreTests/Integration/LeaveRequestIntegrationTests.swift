@@ -273,7 +273,9 @@ struct LeaveRequestIntegrationTests {
             hidesInviteCard: false,
             leftHostedInviteSession: false,
             wasRemoved: false,
-            hasHadOtherMembers: false,
+            // True to mirror what the real writer persists for a two-member
+            // conversation (the latch sets as soon as another inbox syncs).
+            hasHadOtherMembers: true,
             hasSharedInvite: false
         ).insert(db)
 

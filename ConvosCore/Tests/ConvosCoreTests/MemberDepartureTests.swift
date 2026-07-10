@@ -329,6 +329,62 @@ struct MemberDepartureTests {
         #expect(departed.isEmpty)
     }
 
+    // MARK: - persist engagement latch
+
+    @Test("Persist latches hasHadOtherMembers when the only other member is a pending leaver")
+    func testPersistLatchesEngagementForPendingLeaver() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ConversationWriter(
+            identityStore: MockKeychainIdentityStore(),
+            databaseWriter: dbManager.dbWriter,
+            messageWriter: MockIncomingMessageWriter()
+        )
+
+        let conversation = try dbManager.dbWriter.write { db -> DBConversation? in
+            try Self.seedConversation(db: db, id: "convo")
+            // The leave-request ingest already dropped the leaver's row and
+            // recorded the pending-leave marker.
+            try IncomingMessageWriter.applyMemberDeparture(
+                conversationId: "convo", inboxId: Self.leaverInboxId, dateNs: 1_000, in: db
+            )
+            return try DBConversation.fetchOne(db, id: "convo")
+        }
+        let dbConversation = try #require(conversation)
+
+        // Next roster sync: MLS still lists the leaver because their
+        // remove-commit has not finalized.
+        let prepared = ConversationWriter.PreparedConversation(
+            dbConversation: dbConversation,
+            dbMembers: [Self.currentInboxId, Self.leaverInboxId].map { inboxId in
+                DBConversationMember(
+                    conversationId: "convo",
+                    inboxId: inboxId,
+                    role: .member,
+                    consent: .allowed,
+                    createdAt: Date(),
+                    invitedByInboxId: nil
+                )
+            },
+            memberProfiles: []
+        )
+        try dbManager.dbWriter.write { db in
+            _ = try writer.persist(prepared, in: db)
+        }
+
+        try dbManager.dbReader.read { db in
+            // The leaver stays excluded from the persisted member rows...
+            let leaverRow = try Self.memberRow(db: db, conversationId: "convo", inboxId: Self.leaverInboxId)
+            #expect(leaverRow == nil)
+            // ...but the engagement latch reads the raw roster: the pending
+            // leaver was genuinely a member, so the joined-then-left
+            // conversation must not be judged an untouched draft.
+            let state = try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == "convo")
+                .fetchOne(db)
+            #expect(state?.hasHadOtherMembers == true)
+        }
+    }
+
     // MARK: - Creator departure
 
     @Test("Creator departure keeps the conversation visible in the detailed query")
@@ -383,7 +439,10 @@ struct MemberDepartureTests {
                 hidesInviteCard: false,
                 leftHostedInviteSession: false,
                 wasRemoved: false,
-                hasHadOtherMembers: false,
+                // True to mirror what the real writer persists for a
+                // two-member conversation (the latch sets as soon as another
+                // inbox syncs).
+                hasHadOtherMembers: true,
                 hasSharedInvite: false
             ).insert(db)
             for inboxId in [Self.currentInboxId, Self.leaverInboxId] {

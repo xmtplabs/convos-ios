@@ -381,9 +381,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             in: db
         )
 
+        // The engagement latch reads the raw MLS roster, not the
+        // departure-filtered one: a pending leaver was genuinely a member,
+        // so a joined-then-left conversation must still count as having had
+        // another member even though the leaver's row is excluded above.
         try Self.markHasHadOtherMembersIfNeeded(
             conversationId: prepared.dbConversation.id,
-            currentMemberInboxIds: currentMemberInboxIds,
+            currentMemberInboxIds: mlsMemberInboxIds,
             in: db
         )
 
