@@ -171,11 +171,14 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
                 onError: { [weak self] error in
                     // The observation is dead after an error; drop the cache
                     // so callers fall back to live point reads rather than
-                    // serving a stale snapshot forever.
+                    // serving a stale snapshot forever, and clear the started
+                    // flag so the next call can restart the observation.
                     Log.error("Contacts cache observation failed: \(error)")
                     guard let self else { return }
                     self.cacheLock.lock()
                     self.contactsById = nil
+                    self.cacheObservationStarted = false
+                    self.cacheObservation = nil
                     self.cacheLock.unlock()
                 },
                 onChange: { [weak self] contacts in

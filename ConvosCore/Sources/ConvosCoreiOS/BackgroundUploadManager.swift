@@ -58,7 +58,8 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     /// launch), so by the time an upload or cancel needs the session the
     /// rendezvous is normally a no-op.
     private func session() -> URLSession {
-        sessionQueue.sync { backgroundSession }
+        dispatchPrecondition(condition: .notOnQueue(sessionQueue))
+        return sessionQueue.sync { backgroundSession }
     }
 
     public func startUpload(

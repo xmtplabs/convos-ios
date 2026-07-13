@@ -72,6 +72,9 @@ final class ContactsViewModel {
     /// contact set changes; `rebuildSections()` reads only this cache so
     /// keystroke/filter changes never touch the database mid-render.
     private var sourceConversationsCache: [String: ContactSourceConversation] = [:]
+    /// Monotonic token for in-flight source-conversation refreshes, so a
+    /// slow older fetch can't overwrite the result of a newer one.
+    private var sourceConversationsGeneration: Int = 0
 
     /// Shared suggested-agents fetch/pagination state. A nil service yields no
     /// section (e.g. previews that don't wire one).
@@ -129,10 +132,14 @@ final class ContactsViewModel {
     /// so subtitles fill in as soon as the fetch lands.
     private func refreshSourceConversations() {
         let ids = Set(allContacts.compactMap { $0.addedViaConversationId })
+        sourceConversationsGeneration += 1
+        let generation = sourceConversationsGeneration
         Task.detached(priority: .userInitiated) { [weak self, contactsRepository = self.contactsRepository] in
             guard let sources = try? contactsRepository.sourceConversations(forIds: ids) else { return }
             await MainActor.run { [weak self] in
-                guard let self, self.sourceConversationsCache != sources else { return }
+                guard let self,
+                      generation == self.sourceConversationsGeneration,
+                      self.sourceConversationsCache != sources else { return }
                 self.sourceConversationsCache = sources
                 self.rebuildSections()
             }
