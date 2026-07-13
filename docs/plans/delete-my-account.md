@@ -389,3 +389,14 @@ open question.
 - Apple App Store Review Guideline 5.1.1(v) (account deletion requirement).
 - Reinstall continuity (in-flight work): installation marker and consent
   backup keychain slots, pinned as a dependency of the wipe manifest.
+
+## Backend counterpart: subscription tombstones and ownership reconciliation
+
+The backend deletion plan tombstones each deleted account's subscription by its
+provider key instead of leaving an account-linked row behind.
+This tombstone gates safe auto-transfer when the user later creates a new
+account and verifies fresh provider proof, without making receipt replay an
+ownership path. The July 12-13 incident, in which account recreation left
+renewing subscriptions orphaned, is the motivating failure mode. See
+convos-backend `docs/plans/delete-my-account.md` and
+`docs/plans/subscription-ownership-reconciliation.md`.
