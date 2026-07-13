@@ -116,13 +116,13 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
     /// the render-path `contact(for:)` resolver. `nil` until the lazily
     /// started observation delivers its first value; until then
     /// `contact(for:)` falls back to the same point read as before.
-    private let cacheLock = NSLock()
+    private let cacheLock: NSLock = NSLock()
     private var contactsById: [String: Contact]?
-    private var cacheObservationStarted = false
+    private var cacheObservationStarted: Bool = false
     private var cacheObservation: AnyDatabaseCancellable?
     /// Serial queue for cache observation delivery, keeping the initial
     /// fetch and refreshes off the main thread.
-    private static let cacheQueue = DispatchQueue(
+    private static let cacheQueue: DispatchQueue = DispatchQueue(
         label: "org.convos.contacts-repository.cache",
         qos: .userInitiated
     )

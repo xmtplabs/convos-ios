@@ -15,7 +15,7 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     /// in `ConvosApp.init` (app-hang CONVOS-IOS-2Q). `init` schedules
     /// creation onto this queue and `session()` rendezvouses via `sync`,
     /// so the handshake never runs on the main thread.
-    private let sessionQueue = DispatchQueue(
+    private let sessionQueue: DispatchQueue = DispatchQueue(
         label: "com.convos.backgroundUpload.session",
         qos: .userInitiated
     )
