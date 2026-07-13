@@ -57,9 +57,11 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     /// if it hasn't finished yet. Creation starts at singleton init (app
     /// launch), so by the time an upload or cancel needs the session the
     /// rendezvous is normally a no-op.
+    ///
+    /// - Warning: Never call from a closure running on `sessionQueue`;
+    ///   the `sync` rendezvous would deadlock.
     private func session() -> URLSession {
-        dispatchPrecondition(condition: .notOnQueue(sessionQueue))
-        return sessionQueue.sync { backgroundSession }
+        sessionQueue.sync { backgroundSession }
     }
 
     public func startUpload(
