@@ -64,6 +64,14 @@ final class ContactsViewModel {
     private let contactsRepository: any ContactsRepositoryProtocol
     private var cancellable: AnyCancellable?
     private var allContacts: [Contact] = []
+    /// True once the repository publisher has delivered a value; gates the
+    /// best-effort initial fetch so it can't overwrite fresher data.
+    private var hasReceivedContacts: Bool = false
+    /// Source-conversation metadata for the "you met them in X" subtitles,
+    /// keyed by conversation id. Refreshed off the main thread when the
+    /// contact set changes; `rebuildSections()` reads only this cache so
+    /// keystroke/filter changes never touch the database mid-render.
+    private var sourceConversationsCache: [String: ContactSourceConversation] = [:]
 
     /// Shared suggested-agents fetch/pagination state. A nil service yields no
     /// section (e.g. previews that don't wire one).
@@ -86,13 +94,21 @@ final class ContactsViewModel {
         cancellable = contactsRepository.contactsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] contacts in
+                self?.hasReceivedContacts = true
                 self?.applyContacts(contacts)
             }
 
         // Best-effort initial fetch for the first paint while the publisher
-        // wires up its observation.
-        if let initial = try? contactsRepository.fetchAll() {
-            applyContacts(initial)
+        // wires up its observation. Runs detached: this init happens during
+        // SwiftUI body evaluation, and a synchronous read can stall for
+        // seconds waiting on the database reader pool (app-hang
+        // CONVOS-IOS-3T).
+        Task.detached(priority: .userInitiated) { [weak self, contactsRepository] in
+            guard let initial = try? contactsRepository.fetchAll() else { return }
+            await MainActor.run { [weak self] in
+                guard let self, !self.hasReceivedContacts else { return }
+                self.applyContacts(initial)
+            }
         }
     }
 
@@ -105,6 +121,22 @@ final class ContactsViewModel {
         contactCount = visibleContacts().count
         rebuildSections()
         isLoading = false
+        refreshSourceConversations()
+    }
+
+    /// Refreshes `sourceConversationsCache` for the current contact set, off
+    /// the main thread. Rebuilds sections when the metadata actually changed
+    /// so subtitles fill in as soon as the fetch lands.
+    private func refreshSourceConversations() {
+        let ids = Set(allContacts.compactMap { $0.addedViaConversationId })
+        Task.detached(priority: .userInitiated) { [weak self, contactsRepository = self.contactsRepository] in
+            guard let sources = try? contactsRepository.sourceConversations(forIds: ids) else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.sourceConversationsCache != sources else { return }
+                self.sourceConversationsCache = sources
+                self.rebuildSections()
+            }
+        }
     }
 
     /// Contacts actually rendered in the browser list. Shared with other
@@ -143,8 +175,7 @@ final class ContactsViewModel {
             default: return lhs < rhs
             }
         }
-        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
-        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
+        let sources = sourceConversationsCache
         var rebuilt: [Section] = sortedKeys.map { key in
             let rows = (grouped[key] ?? []).map { contact in
                 Row(id: contact.inboxId, contact: contact, subtitle: contact.listSubtitle(sources: sources))

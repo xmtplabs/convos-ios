@@ -44,6 +44,21 @@ public protocol ContactsRepositoryProtocol: Sendable {
     /// `addedViaConversationId`. Missing ids are absent from the result
     /// (conversation was deleted, or the contact has no source convo).
     func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation]
+
+    /// Authoritative inbox-to-contact lookup for the UI's "contact data
+    /// overrides per-conversation profile data" rule. Returns the stored
+    /// contact when the inbox is a known contact, otherwise `nil` so the
+    /// caller's fallback (per-conversation profile) applies.
+    ///
+    /// This is the canonical entry point for the
+    /// `memberContactOverride: @Sendable (String) -> Contact?` resolver
+    /// passed through the SwiftUI environment and the chat-layer plumbing,
+    /// and it is called from render paths (list rows resolving member
+    /// names mid-body). Implementations must not block: the live
+    /// repository answers from an in-memory cache. Storage errors are
+    /// swallowed as `nil` since render-site callers cannot usefully handle
+    /// a thrown error mid-paint.
+    func contact(for inboxId: String) -> Contact?
 }
 
 /// Minimal snapshot of the conversation that promoted an inbox to a
@@ -59,19 +74,10 @@ public struct ContactSourceConversation: Sendable, Hashable {
 }
 
 extension ContactsRepositoryProtocol {
-    /// Authoritative inbox-to-contact lookup for the UI's "contact data
-    /// overrides per-conversation profile data" rule. Returns the
-    /// stored contact when the inbox is a known contact, otherwise
-    /// `nil` so the caller's fallback (per-conversation profile) applies.
-    ///
-    /// This is the canonical entry point for the
-    /// `memberContactOverride: @Sendable (String) -> Contact?` resolver
-    /// passed through the SwiftUI environment and the chat-layer
-    /// plumbing. UI sites adapt it as needed: text uses `?.displayName`
-    /// (with empty-string fallback), avatar rendering uses the full
-    /// contact for name + encrypted-image fields. Storage errors are
-    /// swallowed as `nil` since render-site callers cannot usefully
-    /// handle a thrown error mid-paint.
+    /// Default `contact(for:)` backed by a direct point read, so mock
+    /// conformers stay minimal. The live repository overrides this with an
+    /// in-memory cache — render-path callers must never block on the
+    /// database (app-hang CONVOS-IOS-3Q).
     public func contact(for inboxId: String) -> Contact? {
         try? fetchContact(inboxId: inboxId)
     }
@@ -106,6 +112,21 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
 
     let contactsPublisher: AnyPublisher<[Contact], Never>
 
+    /// In-memory mirror of the `contact` table keyed by inboxId, backing
+    /// the render-path `contact(for:)` resolver. `nil` until the lazily
+    /// started observation delivers its first value; until then
+    /// `contact(for:)` falls back to the same point read as before.
+    private let cacheLock = NSLock()
+    private var contactsById: [String: Contact]?
+    private var cacheObservationStarted = false
+    private var cacheObservation: AnyDatabaseCancellable?
+    /// Serial queue for cache observation delivery, keeping the initial
+    /// fetch and refreshes off the main thread.
+    private static let cacheQueue = DispatchQueue(
+        label: "org.convos.contacts-repository.cache",
+        qos: .userInitiated
+    )
+
     init(databaseReader: any DatabaseReader) {
         self.databaseReader = databaseReader
         self.contactsPublisher = ValueObservation
@@ -115,6 +136,62 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
             .publisher(in: databaseReader)
             .replaceError(with: [])
             .eraseToAnyPublisher()
+    }
+
+    /// Cache-backed override of the protocol's point-read default. Render
+    /// sites call this per member per row during SwiftUI body evaluation;
+    /// a database read there can stall on the reader pool for seconds
+    /// (app-hang CONVOS-IOS-3Q). The first call starts a table observation
+    /// and answers with a point read; once the observation delivers, every
+    /// call is a dictionary lookup.
+    func contact(for inboxId: String) -> Contact? {
+        cacheLock.lock()
+        let cached = contactsById
+        let shouldStart = !cacheObservationStarted
+        cacheObservationStarted = true
+        cacheLock.unlock()
+
+        if shouldStart {
+            startCacheObservation()
+        }
+        if let cached {
+            return cached[inboxId]
+        }
+        return try? fetchContact(inboxId: inboxId)
+    }
+
+    private func startCacheObservation() {
+        let cancellable = ValueObservation
+            .tracking { db in
+                try DBContact.fetchAll(db).map(Contact.init(dbContact:))
+            }
+            .start(
+                in: databaseReader,
+                scheduling: .async(onQueue: Self.cacheQueue),
+                onError: { [weak self] error in
+                    // The observation is dead after an error; drop the cache
+                    // so callers fall back to live point reads rather than
+                    // serving a stale snapshot forever.
+                    Log.error("Contacts cache observation failed: \(error)")
+                    guard let self else { return }
+                    self.cacheLock.lock()
+                    self.contactsById = nil
+                    self.cacheLock.unlock()
+                },
+                onChange: { [weak self] contacts in
+                    guard let self else { return }
+                    let byId = Dictionary(
+                        contacts.map { ($0.inboxId, $0) },
+                        uniquingKeysWith: { _, latest in latest }
+                    )
+                    self.cacheLock.lock()
+                    self.contactsById = byId
+                    self.cacheLock.unlock()
+                }
+            )
+        cacheLock.lock()
+        cacheObservation = cancellable
+        cacheLock.unlock()
     }
 
     func fetchAll() throws -> [Contact] {
