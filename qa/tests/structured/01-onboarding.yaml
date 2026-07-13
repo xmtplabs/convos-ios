@@ -51,11 +51,14 @@ steps:
     note: >
       The "Hello / My name is" sheet self-presents over the Chats tab once the
       inbox is ready (it waits for the global profile load, so allow up to
-      20s on a cold fresh install). It only shows when no other device's
-      identity exists in the iCloud-synced keychain backup — an erased
-      simulator satisfies that. If the found-device pairing sheet appears
-      instead, the simulator was not fully erased. The CTA reads "Come in"
-      and is disabled until a name is entered (the terms toggle defaults on).
+      20s on a cold fresh install). It presents on every launch while the
+      user has no name or photo set — the shown-once latch was removed — and
+      it only shows when no other device's identity exists in the
+      iCloud-synced keychain backup; an erased simulator satisfies that. If
+      the found-device pairing sheet appears instead, the simulator was not
+      fully erased. The CTA reads "Come in" and is disabled until a name is
+      entered (the terms toggle defaults on). While the CTA is disabled the
+      sheet cannot be swiped away (interactive dismissal is blocked).
 
   - id: first_launch_profile_setup
     name: "Set name via the first-launch sheet"
@@ -100,8 +103,9 @@ steps:
     note: >
       The profile was set on the first-launch sheet, so the legacy
       in-conversation "Add your name and pic" prompt must not appear. (That
-      flow still exists as a fallback for users who dismiss the first-launch
-      sheet without saving — see 01b in the markdown doc.)
+      flow still exists as a fallback for users who enable the CTA but swipe
+      the sheet away without saving; the sheet re-presents on the next
+      launch while the profile stays unset — see 01b in the markdown doc.)
 
   - id: notification_permission
     name: "Notification permission step shown"
