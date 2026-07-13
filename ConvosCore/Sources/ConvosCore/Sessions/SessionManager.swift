@@ -1210,6 +1210,29 @@ public extension SessionManager {
             Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
         }
         cachedMessagingService.withLock { $0 = nil }
+        requestHistorySyncAfterPairing()
+    }
+
+    /// Best-effort: ask the inbox's other installations to upload message
+    /// history via the device-sync group. Runs on the adopted identity's
+    /// fresh client once it's ready. Pairing is the one moment the
+    /// initiator device is guaranteed online (it just approved the pair),
+    /// and forward secrecy means a history archive is the only way this
+    /// new installation ever sees messages that predate it. Failure is
+    /// logged and dropped - the joiner still works, just without old
+    /// messages.
+    private func requestHistorySyncAfterPairing() {
+        Task { [weak self] in
+            guard let self else { return }
+            let service = self.loadOrCreateService()
+            do {
+                try await service.requestHistorySync()
+                Log.info("SessionManager: requested history sync after pairing adoption")
+                QAEvent.emit(.pairing, "history_sync_requested")
+            } catch {
+                Log.warning("SessionManager: history sync request after pairing failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Removes libxmtp's on-disk DB files for the *just-adopted* inboxId

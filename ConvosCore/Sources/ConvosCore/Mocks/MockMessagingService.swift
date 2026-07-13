@@ -232,6 +232,9 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func revokeInstallation(installationId: String) async throws {
     }
+
+    public func requestHistorySync() async throws {
+    }
 }
 
 public final class MockConnectionEventWriter: ConnectionEventWriterProtocol, @unchecked Sendable {

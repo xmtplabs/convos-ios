@@ -647,6 +647,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             installationIds: [installationId]
         )
     }
+
+    func requestHistorySync() async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        try await result.client.requestHistorySync()
+    }
 }
 
 enum MessagingServiceError: Error {

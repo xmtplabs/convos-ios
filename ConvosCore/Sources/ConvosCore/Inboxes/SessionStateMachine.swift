@@ -1251,10 +1251,14 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             appVersion: "convos/\(Bundle.appVersion)"
         )
 
-        // Device sync (XMTP history server) is enabled so the identity
-        // carries its group memberships and message history across devices signed
-        // in to the same Apple ID. `useDefaultHistorySyncUrl: true` (the default
-        // on `ClientOptions.init`) resolves the per-environment URL via
+        // Device sync starts libxmtp's sync worker, which keeps consent and
+        // preference records flowing between the inbox's installations
+        // automatically. Message history is not automatic: it only moves
+        // when an installation explicitly asks its peers for an archive
+        // (`SessionManager.requestHistorySyncAfterPairing` does this on the
+        // joiner right after pairing adoption). `useDefaultHistorySyncUrl:
+        // true` (the default on `ClientOptions.init`) resolves the
+        // per-environment archive server URL via
         // `XMTPEnvironment.getHistorySyncUrl()`:
         //   .production → message-history.production.ephemera.network
         //   .dev        → message-history.dev.ephemera.network

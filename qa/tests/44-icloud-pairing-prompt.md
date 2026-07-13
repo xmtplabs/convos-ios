@@ -29,6 +29,10 @@ Simulators don't sync iCloud Keychain, so the "new device on the same iCloud acc
 4. Terminate and relaunch the app (without the wipe env var). The prompt must not reappear - the decline persists in UserDefaults. This is a negative check: settle on `compose-button`, then poll for the sheet over ~8 seconds and require zero matches.
 5. Terminate the app and delete the flag from the app container's preferences - the domain must be the container plist path, not the bundle id (`PREFS="$(xcrun simctl get_app_container $B org.convos.ios-preview data)/Library/Preferences/org.convos.ios-preview"; xcrun simctl spawn $B defaults delete "$PREFS" hasDeclinedFoundDevicePairing`). Relaunch: the prompt reappears - the decline flag is the only suppressor while the backup is present.
 
+### Seed pre-pairing history
+
+5b. On Device A, compose a new conversation and send "History probe 44" (`compose-button`, `message-text-field`, `send-message-button`), then return to the chats list. This message must exist before the pair handshake: Device B's installation registers during pairing, and forward secrecy hides everything earlier from it - only the post-pair history sync can deliver it.
+
 ### Pair path
 
 6. Tap "Pair <name>" (`pair-found-device-button`). The prompt dismisses and the joiner sheet ("Request to pair") presents with instruction copy: 'Open Convos on "<name>" to continue pairing.' The `pairing.found_device_invite_minted` event fires. The joiner immediately sends a join request and re-sends every 5 seconds while connecting (5-minute window).
@@ -41,6 +45,7 @@ Simulators don't sync iCloud Keychain, so the "new device on the same iCloud acc
 ### Post-pair checks (optional)
 
 11. Device B's conversation list mirrors Device A's history with no "Add your name and pic" CTA - proof the found inbox id became this device's identity.
+11b. Device B fires `pairing.history_sync_requested` right after adoption and the "History probe 44" conversation (with its message body) appears within ~3 minutes - the joiner asked Device A for a history archive through the device-sync group and libxmtp imported it. Device A must stay foregrounded (it is the only peer that can answer). If nothing arrives by ~90s, background/foreground both apps once and keep polling.
 12. Relaunch Device B once more: the prompt must not return even though the decline flag was cleared in step 5 - B's identity now matches the backup, so it is excluded from the pairable list.
 13. (Manual, timing-sensitive) Background Device A's app, start a fresh pair attempt on a reset Device B within ~10s: Device A posts a local notification "<device>" is requesting to pair; foregrounding A presents the PIN sheet from the stashed request. For a killed app, the NSE detects the join request in the welcome/message push, shows the same banner, and stashes via `PendingPairRequestStore` - real devices only (simulators receive no remote APNS).
 
@@ -60,6 +65,8 @@ Shut down and delete the cloned `convos-qa-icloud-b` simulator. Do not delete De
 - [ ] Device A auto-presents the PIN sheet from the verified join request - no navigation, no QR
 - [ ] PIN entry, emoji match, and confirmation complete the handshake
 - [ ] Both devices reach Device added / Device paired
+- [ ] Device A commits the "History probe 44" conversation before the pair
+- [ ] `pairing.history_sync_requested` fires on Device B and the probe message arrives via the history archive
 - [ ] (Optional) Device B mirrors A's history with no onboarding CTA
 - [ ] (Optional) No re-prompt after pairing despite the cleared decline flag
 

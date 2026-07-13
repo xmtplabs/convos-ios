@@ -8,13 +8,15 @@ description: >
   the found inbox id becomes the main device: tapping Pair mints an invite
   signed by the backed-up key and runs the standard joiner handshake with
   join-request resend (PIN, emoji, identity adoption) - no QR scan on
-  either device. Requires TWO simulators; Device B is a clone of Device A
+  either device. After adoption the joiner requests message history from
+  the initiator via the device-sync group, so a message sent on Device A
+  before the pair must appear on Device B afterwards. Requires TWO simulators; Device B is a clone of Device A
   with the primary identity wiped via the CONVOS_QA_WIPE_PRIMARY_IDENTITY
   launch hook (sim clones copy the whole keychain, which stands in for
   iCloud Keychain sync that simulators don't have).
 tags: [pairing, multi-device, devices, icloud, keychain]
 depends_on: ["01"]
-estimated_duration_s: 720
+estimated_duration_s: 840
 
 prerequisites:
   two_simulators: true
@@ -162,6 +164,32 @@ steps:
       suppressor: the backup is still present, so the prompt returns.
 
   # ----------------------------------------------------------------------
+  # Seed pre-pairing history on Device A
+  # ----------------------------------------------------------------------
+  - id: seed_history_on_a
+    name: "Device A sends a message before the pair (history probe)"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - type_in_field: { id: "message-text-field", text: "History probe 44" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "History probe 44", timeout: 15 }
+      - navigate_back_to_conversations_list: {}
+    verify:
+      - element_exists: { label_contains: "History probe 44" }
+    criteria: history_seeded
+    note: >
+      Compose commits a new conversation on Device A holding this message.
+      It must exist before Device B's installation registers (i.e. before
+      the pair handshake), because forward secrecy hides pre-registration
+      messages from a new installation - only the post-pair history sync
+      can deliver them. Leave Device A on the chats list afterwards so the
+      auto-surfaced PIN sheet in device_a_autosurfaces_request presents
+      over a known screen. Keyboard auto-capitalization applies to the
+      first letter; match on "istory probe 44" if a case-sensitive lookup
+      misses.
+
+  # ----------------------------------------------------------------------
   # Pair path: joiner flow targets the found device, no QR scan
   # ----------------------------------------------------------------------
   - id: tap_pair
@@ -299,6 +327,32 @@ steps:
       device's identity. Optional: full history sync timing varies on
       simulators.
 
+  - id: history_sync_delivers
+    name: "Device B receives the pre-pairing message via history sync"
+    device: B
+    actions:
+      - sim_log_events: { event_filter: "pairing.history_sync_requested" }
+      - wait_for_element: { label_contains: "istory probe 44", timeout: 180 }
+      - screenshot: {}
+    verify:
+      - event_exists: { name: "pairing.history_sync_requested" }
+      - element_exists: { label_contains: "istory probe 44" }
+    expect_event: "pairing.history_sync_requested"
+    criteria: history_sync_delivers
+    note: >
+      The joiner fires pairing.history_sync_requested right after adoption
+      (SessionManager.requestHistorySyncAfterPairing): it asks Device A -
+      guaranteed online, it just confirmed the pair - to upload a history
+      archive through the device-sync group, and libxmtp imports it in the
+      background. Poll the chats list for the probe conversation; open it
+      and confirm the message body once the row appears. Both sync workers
+      run on their own cadence, so allow the full timeout; if nothing has
+      arrived by ~90s, background and re-foreground the app on BOTH
+      devices once (foregrounding nudges a device-sync pass) and keep
+      polling. Device A must stay unlocked and foregrounded - it is the
+      only peer that can answer the request. The label match drops the
+      leading letter to sidestep keyboard auto-capitalization.
+
   - id: background_notification_optional
     name: "Backgrounded Device A gets a local pairing notification"
     device: A
@@ -357,6 +411,8 @@ criteria:
     description: "After relaunch the prompt does not reappear (decline flag persisted)"
   reprompt_after_clear:
     description: "Deleting hasDeclinedFoundDevicePairing re-prompts on next launch"
+  history_seeded:
+    description: "Device A commits a new conversation with the history probe message before the pair"
   pair_launches_joiner_flow:
     description: "Pair mints an invite from the backup and opens the joiner sheet with the open-Convos instruction copy"
   erase_guard_handled:
@@ -375,5 +431,7 @@ criteria:
     description: "Both devices reach Device added / Device paired"
   b_adopts_main_identity:
     description: "Device B mirrors A's history with no onboarding CTA (optional)"
+  history_sync_delivers:
+    description: "history_sync_requested fires on Device B and the pre-pairing probe message arrives via the device-sync archive"
   no_reprompt_when_paired:
     description: "No prompt after pairing even with the decline flag cleared (optional)"
