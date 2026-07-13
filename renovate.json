@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "labels": ["dependencies"],
-  "enabledManagers": ["custom.regex"],
+  "enabledManagers": ["custom.regex", "nix"],
   "customManagers": [
     {
       "customType": "regex",
@@ -28,6 +28,21 @@
     }
   ],
   "packageRules": [
+    {
+      "matchManagers": ["nix"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["nix"],
+      "matchDepNames": ["convos-releases"],
+      "enabled": true,
+      "groupName": "convos-releases",
+      "branchTopic": "convos-releases",
+      "commitMessageTopic": "convos-releases flake input",
+      "prConcurrentLimit": 2,
+      "prCreation": "immediate",
+      "rebaseWhen": "behind-base-branch"
+    },
     {
       "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
       "groupName": "libxmtp",
