@@ -138,6 +138,9 @@ struct ProfileSetupSheet: View {
         }
         .presentationDetents([.height(contentHeight)])
         .presentationDragIndicator(.hidden)
+        // Until the save gate is satisfied (name entered, terms accepted on
+        // first launch) the sheet can only be completed, not swiped away.
+        .interactiveDismissDisabled(!canSave)
         .presentationBackground(.colorBackgroundRaisedSecondary)
         .accessibilityIdentifier("profile-setup-sheet")
         .sheet(isPresented: $isImagePickerPresented) {
