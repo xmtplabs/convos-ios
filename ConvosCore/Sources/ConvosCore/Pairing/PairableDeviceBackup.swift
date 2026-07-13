@@ -61,6 +61,23 @@ public struct ICloudDeviceBackupsSnapshot: Sendable, Equatable {
         return mainDeviceInboxId == currentDevice.inboxId
     }
 
+    /// `otherDevices` minus backups whose device name matches a device
+    /// already shown in the paired-devices section. A key stamped with
+    /// the same name as a listed device is almost always that device's
+    /// own abandoned identity (an account reset or wipe left the old
+    /// key's backup in iCloud), and listing it as an "other device"
+    /// shows the same device in both sections. Name matching is the only
+    /// available link between installations and backup identities, so
+    /// same-model devices with identical generic names can be
+    /// over-filtered - an accepted trade-off; an undated/unnamed backup
+    /// is never filtered.
+    public func otherDevices(excludingDeviceNames pairedNames: Set<String>) -> [PairableDeviceBackup] {
+        otherDevices.filter { backup in
+            guard let name = backup.deviceName else { return true }
+            return !pairedNames.contains(name)
+        }
+    }
+
     public init(currentDevice: PairableDeviceBackup?, otherDevices: [PairableDeviceBackup]) {
         self.currentDevice = currentDevice
         self.otherDevices = otherDevices

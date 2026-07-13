@@ -29,14 +29,22 @@ final class DevicesViewModel {
     /// Other identities' private keys found in the iCloud-synced keychain
     /// backup - devices on the same iCloud account that are not paired to
     /// the current account. Oldest first, so the account's original key
-    /// leads the section.
-    var iCloudDevices: [PairableDeviceBackup] = []
+    /// leads the section. Derived from the latest snapshot with any key
+    /// whose device name already appears in the paired section filtered
+    /// out (an abandoned old identity of a listed device must not show
+    /// the same device in both sections), and recomputed whenever either
+    /// the snapshot or the paired-devices list changes.
+    var iCloudDevices: [PairableDeviceBackup] {
+        let pairedNames = Set(devices.map(\.name))
+        return iCloudSnapshot.otherDevices(excludingDeviceNames: pairedNames)
+    }
     /// The inboxId of the oldest key on the iCloud account - the "main"
     /// device. Nil when ordering can't be established.
-    var mainDeviceInboxId: String?
+    var mainDeviceInboxId: String? { iCloudSnapshot.mainDeviceInboxId }
     /// Whether the current account holds the main (oldest) key, so the
     /// current-device row carries the Main badge.
-    var currentDeviceIsMain: Bool = false
+    var currentDeviceIsMain: Bool { iCloudSnapshot.currentDeviceIsMain }
+    private var iCloudSnapshot: ICloudDeviceBackupsSnapshot = .init(currentDevice: nil, otherDevices: [])
     var isLoading: Bool = false
     var showPairingSheet: Bool = false
     var pairingViewModel: PairingSheetViewModel?
@@ -131,10 +139,7 @@ final class DevicesViewModel {
     /// adopted identity's separate backup) updates the section.
     func refreshICloudDevices() async {
         guard let session else { return }
-        let snapshot = await session.iCloudDeviceBackupsSnapshot()
-        iCloudDevices = snapshot.otherDevices
-        mainDeviceInboxId = snapshot.mainDeviceInboxId
-        currentDeviceIsMain = snapshot.currentDeviceIsMain
+        iCloudSnapshot = await session.iCloudDeviceBackupsSnapshot()
     }
 
     /// Starts the initiator pairing flow targeted at a specific iCloud

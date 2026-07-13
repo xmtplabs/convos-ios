@@ -183,6 +183,24 @@ struct ICloudDeviceBackupsSnapshotTests {
         #expect(!allUndated.currentDeviceIsMain)
     }
 
+    @Test("Keys named like a paired device are hidden; unnamed keys never are")
+    func filtersKeysNamedLikePairedDevices() throws {
+        let own = try makeBackup(inboxId: "own", backedUpAt: Date(timeIntervalSince1970: 3_000))
+        // An abandoned old identity of this same device - stamped with
+        // the same device name - must not appear as an "other device".
+        let abandoned = try makeBackup(inboxId: "abandoned", deviceName: "Jarod's iPhone", backedUpAt: Date(timeIntervalSince1970: 1_000))
+        let genuine = try makeBackup(inboxId: "genuine", deviceName: "Old iPad", backedUpAt: Date(timeIntervalSince1970: 2_000))
+        let unnamed = try makeBackup(inboxId: "unnamed", backedUpAt: Date(timeIntervalSince1970: 2_500))
+
+        let snapshot = ICloudDeviceBackupsSnapshot.snapshot(
+            from: [own, abandoned, genuine, unnamed],
+            currentInboxId: "own"
+        )
+        let visible = snapshot.otherDevices(excludingDeviceNames: ["Jarod's iPhone", "Jarod's iPad"])
+
+        #expect(visible.map(\.inboxId) == ["genuine", "unnamed"])
+    }
+
     @Test("No identity yet leaves the current device nil and lists everything")
     func nilIdentityListsEverything() throws {
         let first = try makeBackup(inboxId: "a", backedUpAt: Date(timeIntervalSince1970: 1_000))
