@@ -61,10 +61,12 @@ steps:
       sentence. Cancel without holding the delete button. The identity's
       mirror is written on registration; give the app ~10s after first
       launch before opening the sheet so the backup slot is populated.
-      Validated gotchas: the fresh clone's first launch presents the
+      Validated gotchas: the fresh clone's first launch may present the
       first-launch profile sheet (profile-setup-sheet: name field +
-      agree toggle + "Come in") which must be completed before the
-      settings sheet can open; convos-logo-button is nested inside the
+      agree toggle + "Come in"), which must then be completed before
+      the settings sheet can open - but it can also skip straight to
+      home when the profile load times out
+      (onboarding.first_launch_profile_sheet_load_timeout); handle both; convos-logo-button is nested inside the
       pill idb reports as app-indicator-pill - tap that frame's center;
       delete-all-data-button is below the fold, scroll the settings
       sheet down first and re-read its frame right before tapping; the
