@@ -341,7 +341,7 @@ public enum ConvosAPI {
     }
 
     /// Response envelope for `GET /v2/agent-prompt-hints` -- a flat list of
-    /// curated prompt strings (each <= 240 chars) the agent builder's dice
+    /// curated prompt strings (each <= 350 chars) the agent builder's dice
     /// control drops into the "What needs done?" composer. Public and
     /// unauthenticated; decoding is tolerant of extra keys via default Codable
     /// behavior.

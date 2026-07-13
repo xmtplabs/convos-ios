@@ -4,6 +4,7 @@ import UIKit
 import Combine
 import ConvosConnections
 import Foundation
+import GRDB
 @preconcurrency import XMTPiOS
 
 /// Mock implementation of MessagingServiceProtocol for testing and previews
@@ -14,12 +15,12 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     // MARK: - Dependencies
 
     private let _sessionStateManager: any SessionStateManagerProtocol
-    private let _myProfileWriter: any MyProfileWriterProtocol
     private let _conversationStateManager: any ConversationStateManagerProtocol
     private let _conversationConsentWriter: any ConversationConsentWriterProtocol
     private let _conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let _conversationMetadataWriter: any ConversationMetadataWriterProtocol
     private let _conversationExplosionWriter: any ConversationExplosionWriterProtocol
+    private let _conversationLeaveWriter: any ConversationLeaveWriterProtocol
     private let _conversationPermissionsRepository: any ConversationPermissionsRepositoryProtocol
     private let _outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let _reactionWriter: any ReactionWriterProtocol
@@ -28,11 +29,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _myGlobalProfileWriter: any MyGlobalProfileWriterProtocol
     private let _myGlobalProfileRepository: any MyGlobalProfileRepositoryProtocol
 
+    /// Throwaway repository backed entirely by in-memory stores and an empty
+    /// database, matching how `MessagingService` constructs its shared
+    /// repository but with no persistence. `selfInboxIdProvider` returns nil,
+    /// so self-publish paths short-circuit instead of hitting the network.
+    private let _profilesRepository: ProfilesRepository
+
     // MARK: - Initialization
 
     public init(
         sessionStateManager: (any SessionStateManagerProtocol)? = nil,
-        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
         myGlobalProfileWriter: (any MyGlobalProfileWriterProtocol)? = nil,
         myGlobalProfileRepository: (any MyGlobalProfileRepositoryProtocol)? = nil,
         conversationStateManager: (any ConversationStateManagerProtocol)? = nil,
@@ -40,6 +46,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
         conversationExplosionWriter: (any ConversationExplosionWriterProtocol)? = nil,
+        conversationLeaveWriter: (any ConversationLeaveWriterProtocol)? = nil,
         conversationPermissionsRepository: (any ConversationPermissionsRepositoryProtocol)? = nil,
         outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil,
         reactionWriter: (any ReactionWriterProtocol)? = nil,
@@ -47,12 +54,12 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         replyWriter: (any ReplyMessageWriterProtocol)? = nil
     ) {
         self._sessionStateManager = sessionStateManager ?? MockSessionStateManager()
-        self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
         self._conversationStateManager = conversationStateManager ?? MockConversationStateManager()
         self._conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self._conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
         self._conversationMetadataWriter = conversationMetadataWriter ?? MockConversationMetadataWriter()
         self._conversationExplosionWriter = conversationExplosionWriter ?? MockConversationExplosionWriter()
+        self._conversationLeaveWriter = conversationLeaveWriter ?? MockConversationLeaveWriter()
         self._conversationPermissionsRepository = conversationPermissionsRepository ?? MockConversationPermissionsRepository()
         self._outgoingMessageWriter = outgoingMessageWriter ?? MockOutgoingMessageWriter()
         self._reactionWriter = reactionWriter ?? MockReactionWriter()
@@ -60,6 +67,14 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._replyWriter = replyWriter ?? MockReplyMessageWriter()
         self._myGlobalProfileWriter = myGlobalProfileWriter ?? MockMyGlobalProfileWriter()
         self._myGlobalProfileRepository = myGlobalProfileRepository ?? MockMyGlobalProfileRepository()
+        self._profilesRepository = ProfilesRepository(
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: InMemorySelfProfileStore(),
+            publishStore: InMemoryProfilePublishStore(),
+            databaseReader: MockDatabaseManager.previews.dbReader,
+            conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: MockDatabaseManager.previews.dbWriter),
+            selfInboxIdProvider: { nil }
+        )
     }
 
     // MARK: - MessagingServiceProtocol
@@ -76,16 +91,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _sessionStateManager
     }
 
-    public func myProfileWriter() -> any MyProfileWriterProtocol {
-        _myProfileWriter
-    }
-
     public func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
         _myGlobalProfileWriter
     }
 
     public func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
         _myGlobalProfileRepository
+    }
+
+    public func profilesRepository() -> ProfilesRepository {
+        _profilesRepository
     }
 
     public func conversationStateManager() -> any ConversationStateManagerProtocol {
@@ -129,6 +144,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
         _conversationExplosionWriter
+    }
+
+    public func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol {
+        _conversationLeaveWriter
     }
 
     public func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {

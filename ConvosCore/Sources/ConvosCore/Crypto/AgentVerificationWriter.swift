@@ -4,8 +4,8 @@ import GRDB
 public enum AgentVerificationWriter {
     public static func reverifyUnverifiedAgents(in dbWriter: any DatabaseWriter) async throws {
         let unverifiedAgents = try await dbWriter.read { db in
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.memberKind == DBMemberKind.agent.rawValue)
+            try DBProfile
+                .filter(DBProfile.Columns.memberKind == DBMemberKind.agent.rawValue)
                 .fetchAll(db)
         }
 
@@ -14,17 +14,26 @@ public enum AgentVerificationWriter {
 
         var updatedCount = 0
         for profile in unverifiedAgents {
-            let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+            let hydrated = Profile.from(profile: profile, avatar: nil, inboxId: profile.inboxId, conversationId: "")
+            let verification = hydrated.verifyCachedAgentAttestation()
             guard verification.isVerified else { continue }
 
             let updatedKind = DBMemberKind.from(agentVerification: verification)
             try await dbWriter.write { db in
-                let updated = profile.with(memberKind: updatedKind)
+                var updated = profile
+                updated.memberKind = updatedKind
                 try updated.save(db)
 
-                if updated.agentVerification.isConvosAgent,
-                   let conversation = try DBConversation.fetchOne(db, id: updated.conversationId),
-                   !conversation.hasHadVerifiedAgent {
+                guard verification.isConvosAgent else { return }
+                // `DBProfile` is per-inbox, so mark every conversation the agent
+                // is a member of (the legacy per-conversation row marked just one).
+                let conversationIds = try DBConversationMember
+                    .filter(DBConversationMember.Columns.inboxId == updated.inboxId)
+                    .fetchAll(db)
+                    .map(\.conversationId)
+                for conversationId in conversationIds {
+                    guard let conversation = try DBConversation.fetchOne(db, id: conversationId),
+                          !conversation.hasHadVerifiedAgent else { continue }
                     try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }

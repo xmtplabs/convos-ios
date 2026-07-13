@@ -75,9 +75,12 @@ public extension Conversation {
     /// Mock conversation backing the chats-tab empty-state CTA carousel.
     /// Built as a group with two other members so `avatarType` resolves to
     /// the supplied emoji rather than a single member's profile, and the
-    /// rendered title is the supplied name. `lastMessageText` is attached
-    /// whenever present; the pinned-item preview bubble only shows it once
-    /// `isUnread` flips true.
+    /// rendered title is the supplied name. The other members' profiles carry
+    /// no avatar because member avatars outrank the conversation emoji in
+    /// `avatarType`; a mock avatar would render the CTA as a cluster of
+    /// never-loading initials instead of the emoji. `lastMessageText` is
+    /// attached whenever present; the pinned-item preview bubble only shows it
+    /// once `isUnread` flips true.
     static func emptyStateMock(
         id: String,
         name: String,
@@ -85,10 +88,22 @@ public extension Conversation {
         isUnread: Bool = false,
         lastMessageText: String? = nil
     ) -> Conversation {
+        let avatarlessMember: (String) -> ConversationMember = { inboxId in
+            ConversationMember(
+                profile: Profile(
+                    inboxId: inboxId,
+                    conversationId: "client-\(id)",
+                    name: "John Doe",
+                    avatar: nil
+                ),
+                role: .member,
+                isCurrentUser: false
+            )
+        }
         let members: [ConversationMember] = [
             .mock(isCurrentUser: true),
-            .mock(isCurrentUser: false),
-            .mock(isCurrentUser: false),
+            avatarlessMember("empty-state-member-1"),
+            avatarlessMember("empty-state-member-2"),
         ]
         let creator: ConversationMember = members.first(where: { $0.isCurrentUser }) ?? .mock(isCurrentUser: true)
         var lastMessage: MessagePreview?
@@ -444,13 +459,18 @@ public extension ConversationUpdate {
             return metaSummary
         } else if !removedMembers.isEmpty {
             if removedMembers.count == 1, let member = removedMembers.first {
+                // A self-leave stores the leaver as both initiator and removed
+                // member (see the leave-request ingest); anything else is an
+                // admin-initiated removal and credits the remover.
+                let isSelfLeave = member.profile.inboxId == creator.profile.inboxId
                 if member.isCurrentUser {
-                    return "You left the convo"
+                    return isSelfLeave ? "You left the convo" : "You were removed from the convo"
                 }
-                if member.isAgent {
-                    return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left · Removed by \(creatorDisplayName)"
+                let memberName = resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)
+                if isSelfLeave {
+                    return "\(memberName) left"
                 }
-                return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left"
+                return "\(memberName) left · Removed by \(creatorDisplayName)"
             }
             let removed = removedMembers.formattedNamesString(memberNameOverride: memberNameOverride)
             return "\(removed) left"

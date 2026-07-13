@@ -158,13 +158,18 @@ class ProfileSettingsViewModel {
         // stored name rather than writing nil, and the field is restored so the
         // UI reflects that the empty value was rejected. First-time users with
         // no stored name are unaffected (there is nothing to preserve).
-        let resolvedName: String?
+        let rawName: String?
         if trimmedName.isEmpty, let loadedDisplayName {
-            resolvedName = loadedDisplayName
+            rawName = loadedDisplayName
             editingDisplayName = loadedDisplayName
         } else {
-            resolvedName = trimmedName.isEmpty ? nil : trimmedName
+            rawName = trimmedName.isEmpty ? nil : trimmedName
         }
+        // Truncate once so `writer.save` (which truncates internally) and the
+        // canonical publish send the same name; otherwise a name over the limit
+        // stores truncated locally but publishes the full string, so other
+        // conversations show a different name than the one saved.
+        let resolvedName: String? = rawName.map { String($0.prefix(NameLimits.maxDisplayNameLength)) }
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         try await writer.save(
@@ -172,6 +177,14 @@ class ProfileSettingsViewModel {
             imageData: imageData,
             imageAssetIdentifier: assetIdentifier,
             metadata: loadedMetadata
+        )
+        // Propagate the global profile through the canonical repository so it
+        // fans out to every conversation via the durable publisher. The
+        // `writer.save` above still owns the edit-side form model (DBMyProfile).
+        try await session?.messagingServiceSync().profilesRepository().publishMyProfile(
+            displayName: resolvedName,
+            avatarBytes: imageData,
+            priorityConversationId: nil
         )
         // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
         // only refreshed by the async profile observation, so a first-time user

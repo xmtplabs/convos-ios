@@ -35,12 +35,21 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
         )
     }
 
+    // `map` + `switchToLatest` (not `flatMap`, which merges) so that when a
+    // join flips the conversation id, the previous id's observation is
+    // cancelled. Merged, the stale observation kept re-emitting the old draft
+    // row on every overlapping database write during the join, interleaving
+    // with the joined conversation's emissions and flickering the chat header
+    // and embedded invite card between the two conversations.
+    // `removeDuplicates` on the output drops the redundant re-emissions a
+    // region-based observation produces for writes that don't change the
+    // composed value.
     lazy var conversationPublisher: AnyPublisher<Conversation?, Never> = {
         let dbReader = dbReader
         Log.debug("Creating conversationPublisher for conversationId: \(conversationId)")
         return conversationIdPublisher
             .removeDuplicates()
-            .flatMap { conversationId -> AnyPublisher<Conversation?, Never> in
+            .map { conversationId -> AnyPublisher<Conversation?, Never> in
                 Log.debug("Conversation ID changed to: \(conversationId)")
                 return ValueObservation
                     .tracking { db in
@@ -64,6 +73,8 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
                     .replaceError(with: nil)
                     .eraseToAnyPublisher()
             }
+            .switchToLatest()
+            .removeDuplicates()
             .eraseToAnyPublisher()
     }()
 

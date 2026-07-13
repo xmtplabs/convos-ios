@@ -8,6 +8,10 @@ struct FeatureInfoSheet: View {
     let paragraphs: [FeatureInfoParagraph]
     let primaryButtonTitle: String
     let primaryButtonAction: () -> Void
+    let primaryButtonAccessibilityIdentifier: String?
+    let secondaryButtonTitle: String?
+    let secondaryButtonAction: (() -> Void)?
+    let secondaryButtonAccessibilityIdentifier: String?
     let learnMoreTitle: String
     let learnMoreURL: URL?
     let showDragIndicator: Bool
@@ -21,6 +25,10 @@ struct FeatureInfoSheet: View {
         paragraphs: [FeatureInfoParagraph] = [],
         primaryButtonTitle: String = "Got it",
         primaryButtonAction: @escaping () -> Void,
+        primaryButtonAccessibilityIdentifier: String? = nil,
+        secondaryButtonTitle: String? = nil,
+        secondaryButtonAction: (() -> Void)? = nil,
+        secondaryButtonAccessibilityIdentifier: String? = nil,
         learnMoreTitle: String = "Learn more",
         learnMoreURL: URL? = nil,
         showDragIndicator: Bool = false
@@ -31,6 +39,10 @@ struct FeatureInfoSheet: View {
         self.paragraphs = paragraphs
         self.primaryButtonTitle = primaryButtonTitle
         self.primaryButtonAction = primaryButtonAction
+        self.primaryButtonAccessibilityIdentifier = primaryButtonAccessibilityIdentifier
+        self.secondaryButtonTitle = secondaryButtonTitle
+        self.secondaryButtonAction = secondaryButtonAction
+        self.secondaryButtonAccessibilityIdentifier = secondaryButtonAccessibilityIdentifier
         self.learnMoreTitle = learnMoreTitle
         self.learnMoreURL = learnMoreURL
         self.showDragIndicator = showDragIndicator
@@ -64,6 +76,17 @@ struct FeatureInfoSheet: View {
                     Text(primaryButtonTitle)
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier(primaryButtonAccessibilityIdentifier ?? "")
+
+                if let secondaryButtonTitle, let secondaryButtonAction {
+                    let secondaryAction = { secondaryButtonAction() }
+                    Button(action: secondaryAction) {
+                        Text(secondaryButtonTitle)
+                    }
+                    .convosButtonStyle(.text)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier(secondaryButtonAccessibilityIdentifier ?? "")
+                }
 
                 if let learnMoreURL {
                     let learnMoreAction = { openURL(learnMoreURL) }

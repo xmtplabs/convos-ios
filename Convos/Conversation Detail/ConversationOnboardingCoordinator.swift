@@ -151,9 +151,26 @@ final class ConversationOnboardingCoordinator {
     private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
     private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+    private static let hasShownFirstLaunchProfileSheetKey: String = "hasShownFirstLaunchProfileSheet"
 
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+    }
+
+    /// Whether the first-launch "Hello / My name is" profile sheet is still
+    /// owed: it hasn't been shown yet and the user has never been through a
+    /// profile editor (set up in Settings, completed the in-conversation
+    /// flow, or adopted a paired identity).
+    static var shouldOfferFirstLaunchProfileSheet: Bool {
+        !UserDefaults.standard.bool(forKey: hasShownFirstLaunchProfileSheetKey)
+            && !UserDefaults.standard.bool(forKey: hasShownProfileEditorKey)
+    }
+
+    /// Latches the first-launch profile sheet: set when the sheet is
+    /// presented (or found unnecessary because a profile already exists),
+    /// so it never shows twice.
+    static func markFirstLaunchProfileSheetShown() {
+        UserDefaults.standard.set(true, forKey: hasShownFirstLaunchProfileSheetKey)
     }
 
     /// Marks the global onboarding flags as completed so the in-conversation
@@ -175,6 +192,7 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
         UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
+        UserDefaults.standard.removeObject(forKey: hasShownFirstLaunchProfileSheetKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
         for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {

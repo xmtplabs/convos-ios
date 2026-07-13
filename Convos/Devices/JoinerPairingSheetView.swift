@@ -103,8 +103,10 @@ struct JoinerPairingSheetView: View {
     }
 
     private var connectingContent: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text("\"\(viewModel.initiatorDeviceName)\" is requesting to pair. Paired devices sync all conversations.")
+        let message: String = viewModel.connectingMessage
+            ?? "\"\(viewModel.initiatorDeviceName)\" is requesting to pair. Paired devices sync all conversations."
+        return VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)

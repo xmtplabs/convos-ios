@@ -109,14 +109,19 @@ test's `screen` prerequisite or a navigation step doesn't match the screen.
 
 ### Tabs
 
-- Two tabs in the system tab bar: **Chats** (`message.fill`) and **Things**
-  (`square.grid.2x2.fill`). Select a tab by tapping its label ("Chats" /
-  "Things").
+- Three tabs in the system tab bar: **Convos**, **Things**, and
+  **Contacts**. Select a tab by tapping its label. Steps that reference a
+  "Chats" tab are stale - the conversations list lives in the Convos tab.
 - The **Search** tab was removed. Any step that taps a search tab or
   `search-tab` is stale - there is no search entry point right now.
 - On iPhone the tab bar is at the bottom; on iPad it is at the top.
+- An empty Convos tab on a fresh account renders a full-screen
+  agent-marketing hero ("Make little agents"), not an empty list - don't
+  interpret it as a broken conversations list, but if conversations are
+  known to exist and the hero persists, suspect they're being filtered
+  out (e.g. consent=unknown rows never surface; see test 45).
 
-### Conversations list (Chats tab)
+### Conversations list (Convos tab)
 
 - Verified by `compose-button` being present.
 - `compose-button` opens the new-conversation flow (`NewConversationView`).
@@ -622,11 +627,11 @@ The invite flow is multi-step and requires coordination between the inviting sid
 3. Wait 2-3 seconds for the app to process the deep link and send the join request.
 4. **Then** run `process-join-requests` from the CLI.
 
-**Always use `--watch` with `--timeout`** when running `process-join-requests`. The join request may take a moment to arrive over the network. Example:
+**Always use `--watch`** when running `process-join-requests`, and bound it externally — the CLI has no `--timeout` flag. The join request may take a moment to arrive over the network. The correct command form (validated against convos CLI 0.10.x; the old `convos conversation ... <convo-id>` positional form is not a valid command):
 ```bash
-convos conversation process-join-requests <convo-id> --watch --timeout 30
+timeout 45 convos conversations process-join-requests --conversation <convo-id> --watch
 ```
-Never run `process-join-requests` without `--timeout` — it can hang indefinitely with `--watch`, or miss the request without `--watch`. A 30-second timeout is a safe default.
+Do not kill the watcher as soon as it prints its "Adding ..." line — that consumes the join request without completing the add-member commit and the joiner never lands. Wait for the "Sent ProfileSnapshot" line before stopping it. Running without `--watch` can miss a request that hasn't arrived yet and silently succeed.
 
 ### Test Results
 

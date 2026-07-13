@@ -233,7 +233,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
-        if handleDeviceRemovedFastPath(message: message, params: params) { return }
+        if handleFastPaths(message: message, params: params) { return }
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
@@ -299,7 +299,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
                     guard explodeSettings == nil else { return }
 
-                    if await processProfileMessage(message, conversationId: conversation.id) {
+                    if await processProfileMessage(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
 
@@ -340,6 +340,14 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
+
+    /// Pre-conversation-lookup handlers for system-signal content types
+    /// that need no conversation context. Returns true when the message
+    /// was consumed and normal processing should stop.
+    private func handleFastPaths(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        if handleDeviceRemovedFastPath(message: message, params: params) { return true }
+        return handlePairingJoinRequestFastPath(message: message, params: params)
+    }
 
     private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
         guard let encodedContentType = try? message.encodedContent.type,
@@ -467,7 +475,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         return true
     }
 
-    private func processProfileUpdate(_ message: DecodedMessage, conversationId: String) async {
+    private func processProfileUpdate(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else {
             Log.warning("Failed to decode ProfileUpdate from message \(message.id)")
             return
@@ -481,60 +489,25 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
         do {
             try await databaseWriter.write { db in
-                let member = DBMember(inboxId: senderInboxId)
-                try member.save(db)
-
-                var profile = try DBMemberProfile.fetchOne(
-                    db,
+                let metadata = update.profileMetadata
+                try ProfileInboundApplier.apply(
+                    db: db,
                     conversationId: conversationId,
-                    inboxId: senderInboxId
-                ) ?? DBMemberProfile(
-                    conversationId: conversationId,
-                    inboxId: senderInboxId,
-                    name: nil,
-                    avatar: nil
+                    event: ProfileInboundApplier.Incoming(
+                        inboxId: senderInboxId,
+                        source: .profileUpdate,
+                        name: update.hasName ? update.name : nil,
+                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        memberKind: update.memberKind.dbMemberKind,
+                        // A ProfileUpdate's map is authoritative; pass it through
+                        // even when empty so a cleared map (e.g. revoked grants)
+                        // propagates as a clear instead of reading as "no change".
+                        metadata: metadata,
+                        receivedAt: receivedAt
+                    ),
+                    selfInboxId: currentInboxId,
+                    fallbackEncryptionKey: try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 )
-
-                // Never clear an existing name with a name-less/blank update
-                // (see DBMemberProfile.withInboundName).
-                profile = profile.withInboundName(update.hasName ? update.name : nil)
-
-                if update.hasEncryptedImage, update.encryptedImage.isValid {
-                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
-                        existingKey
-                    } else {
-                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-                    }
-                    profile = profile.with(
-                        avatar: update.encryptedImage.url,
-                        salt: update.encryptedImage.salt,
-                        nonce: update.encryptedImage.nonce,
-                        key: encryptionKey
-                    )
-                } else {
-                    profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
-                }
-
-                let priorMemberKind = profile.memberKind
-                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
-
-                let profileMetadata = update.profileMetadata
-                profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
-
-                if profile.isAgent {
-                    let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                    if verification.isVerified {
-                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                    }
-                }
-
-                if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                   !profile.agentVerification.isVerified {
-                    profile = profile.with(memberKind: priorMemberKind)
-                }
-
-                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -542,7 +515,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
-    private func processProfileSnapshot(_ message: DecodedMessage, conversationId: String) async {
+    private func processProfileSnapshot(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else {
             Log.warning("Failed to decode ProfileSnapshot from message \(message.id)")
             return
@@ -553,80 +526,32 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         do {
             try await databaseWriter.write { db in
-                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-
+                let fallbackKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 for memberProfile in snapshot.profiles {
                     let inboxId = memberProfile.inboxIdString
                     guard !inboxId.isEmpty else { continue }
-
-                    let member = DBMember(inboxId: inboxId)
-                    try member.save(db)
-
-                    let existingProfile = try DBMemberProfile.fetchOne(
-                        db,
+                    let metadata = memberProfile.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
                         conversationId: conversationId,
-                        inboxId: inboxId
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileSnapshot,
+                            name: memberProfile.hasName ? memberProfile.name : nil,
+                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            memberKind: memberProfile.memberKind.dbMemberKind,
+                            metadata: metadata.isEmpty ? nil : metadata,
+                            receivedAt: receivedAt
+                        ),
+                        selfInboxId: currentInboxId,
+                        fallbackEncryptionKey: fallbackKey
                     )
-
-                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
-                        continue
-                    }
-
-                    var profile = existingProfile ?? DBMemberProfile(
-                        conversationId: conversationId,
-                        inboxId: inboxId,
-                        name: nil,
-                        avatar: nil
-                    )
-
-                    profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
-
-                    if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: memberProfile.encryptedImage.url,
-                            salt: memberProfile.encryptedImage.salt,
-                            nonce: memberProfile.encryptedImage.nonce,
-                            key: existingProfile?.avatarKey ?? encryptionKey
-                        )
-                    }
-
-                    let priorMemberKind = profile.memberKind
-                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
-
-                    let snapshotMetadata = memberProfile.profileMetadata
-                    profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
-
-                    if profile.isAgent {
-                        let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                        if verification.isVerified {
-                            profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                        }
-                    }
-
-                    if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                       !profile.agentVerification.isVerified {
-                        profile = profile.with(memberKind: priorMemberKind)
-                    }
-
-                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.error("Failed to process ProfileSnapshot: \(error.localizedDescription)")
         }
-    }
-
-    private static func markConversationHasVerifiedAgentIfNeeded(
-        profile: DBMemberProfile,
-        conversationId: String,
-        db: Database
-    ) throws {
-        guard profile.agentVerification.isConvosAgent,
-              let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAgent else { return }
-        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
@@ -675,13 +600,13 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func getSenderDisplayName(senderInboxId: String, conversationId: String) async -> String {
         do {
             // The contact's display name (the user's global profile snapshot
-            // for this inbox) wins over the per-conversation profile name,
+            // for this inbox) wins over the canonical profile name,
             // mirroring `Profile.formattedNamesString(memberNameOverride:)`.
             let name: String? = try await databaseReader.read { db in
                 if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: senderInboxId) {
                     return contactName
                 }
-                return try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)?.name
+                return try DBProfile.fetchOne(db, inboxId: senderInboxId)?.name
             }
             if let name, !name.isEmpty {
                 return name
@@ -919,15 +844,15 @@ extension StreamProcessor {
     /// Routes a profile message (update or snapshot) to its handler. Returns
     /// `true` when handled, so the caller stops further routing -- profiles are
     /// applied by the profile handlers, never stored as chat rows.
-    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
+    private func processProfileMessage(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async -> Bool {
         guard let contentType = try? message.encodedContent.type else {
             return false
         }
         if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdate(message, conversationId: conversationId)
+            await processProfileUpdate(message, conversationId: conversationId, currentInboxId: currentInboxId)
             return true
         } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshot(message, conversationId: conversationId)
+            await processProfileSnapshot(message, conversationId: conversationId, currentInboxId: currentInboxId)
             return true
         }
         return false
@@ -964,6 +889,56 @@ extension StreamProcessor {
             name: .installationWasRevokedByPeer,
             object: nil,
             userInfo: ["revokedInstallationId": removal.revokedInstallationId]
+        )
+        return true
+    }
+}
+
+// MARK: - Pairing Join Requests
+
+extension StreamProcessor {
+    /// Pre-conversation-lookup fast path for `PairingJoinRequestContent`,
+    /// so "another device wants to pair" surfaces even when the Devices
+    /// pairing screen isn't open (the iCloud-discovery joiner sends its
+    /// request unsolicited). Verification - the slug must be signed by
+    /// this inbox's own identity key - lives in
+    /// `PairingJoinRequestDetector`, shared with the NSE's push paths.
+    ///
+    /// Returns true whenever the message is a pairing join request (valid
+    /// or not) so normal message processing skips it either way.
+    func handlePairingJoinRequestFastPath(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        guard let typeId = try? message.encodedContent.type.typeID,
+              typeId == ContentTypePairingJoinRequest.typeID else {
+            return false
+        }
+        guard let identity = try? identityStore.loadSync() else { return true }
+        guard let request = PairingJoinRequestDetector.verifiedJoinRequest(in: message, identity: identity) else {
+            Log.warning("StreamProcessor: ignoring pairing join request that failed verification")
+            return true
+        }
+        // Bind the slug's nonce to the first joiner that used it: the
+        // legit joiner's resend loop reuses its slug freely, but a
+        // different inbox replaying a captured slug (e.g. a photographed
+        // QR still inside its expiry window) is dropped instead of
+        // popping an unsolicited PIN sheet. In-memory is enough - slugs
+        // expire in minutes and the processor outlives any handshake.
+        // The re-decode cannot fail: the detector just verified the slug.
+        guard let invite = try? PairingInvite.fromURLSafeSlug(request.slug) else { return true }
+        if let boundJoiner = PairingNonceLedger.shared.joiner(for: invite.nonce),
+           boundJoiner != request.joinerInboxId {
+            Log.warning("StreamProcessor: ignoring pairing join request replaying another joiner's slug")
+            return true
+        }
+        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: request.joinerInboxId)
+        Log.info("StreamProcessor: verified pairing join request from joiner \(request.joinerInboxId) - surfacing")
+        NotificationCenter.default.post(
+            name: .pairingDidReceiveVerifiedJoinRequest,
+            object: nil,
+            userInfo: [
+                "joinerInboxId": request.joinerInboxId,
+                "deviceName": request.deviceName,
+                "slug": request.slug
+            ]
         )
         return true
     }

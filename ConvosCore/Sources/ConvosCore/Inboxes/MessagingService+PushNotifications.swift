@@ -133,6 +133,14 @@ extension MessagingService {
         // Sync all conversations - this will fetch any groups we've been added to
         _ = try await client.conversationsProvider.syncAllConversations(consentStates: [.unknown])
 
+        // The pairing DM is a brand-new conversation, so a pairing join
+        // request's first delivery is this welcome push. Detect it before
+        // anything else can return - the joiner only waits a few minutes,
+        // and with no topic subscription for the new DM there may be no
+        // second push. Detection has no side effects; the invite
+        // processing below still runs either way.
+        let pairingRequest = await detectRecentPairingJoinRequest(client: client)
+
         // Case 1: Process join requests (others accepting our invites)
         let joinRequestOutcomes = await joinRequestsManager.processJoinRequestOutcomes(since: lastProcessed, client: client)
         await handleJoinRequestOutcomesForPush(
@@ -142,6 +150,57 @@ extension MessagingService {
             context: "welcome"
         )
 
+        if let pairingRequest {
+            // Only let a genuinely surfaced pairing request take the
+            // banner. The scan spans all recent DMs, not just this push's
+            // topic, so a deduped duplicate (.droppedMessage) might belong
+            // to an earlier push - returning it here would suppress a
+            // join-result or new-group notification this same push
+            // legitimately carries. On a duplicate, fall through instead.
+            let notification = pairingRequestNotification(pairingRequest, userInfo: userInfo)
+            if !notification.isDroppedMessage {
+                // The join-result / new-group handling still must run to
+                // completion: its state writes (setLastWelcomeProcessed,
+                // the GRDB bridge for a new group) can't be deferred to a
+                // later push, which would no longer see either event as
+                // new. Only the banner is superseded. A failure in that
+                // pass shouldn't cost the pairing banner, hence the catch.
+                do {
+                    _ = try await welcomeOutcomeNotification(
+                        joinRequestOutcomes: joinRequestOutcomes,
+                        existingGroupIds: existingGroupIds,
+                        processTime: processTime,
+                        client: client,
+                        userInfo: userInfo
+                    )
+                } catch {
+                    Log.error("Welcome outcome handling failed after pairing detection: \(error.localizedDescription)")
+                }
+                return notification
+            }
+        }
+
+        return try await welcomeOutcomeNotification(
+            joinRequestOutcomes: joinRequestOutcomes,
+            existingGroupIds: existingGroupIds,
+            processTime: processTime,
+            client: client,
+            userInfo: userInfo
+        )
+    }
+
+    /// The join-result ("accepted your invite") or new-group ("invite was
+    /// verified") notification for this welcome push, running the state
+    /// writes that go with each. Factored out of `handleWelcomeMessage` so
+    /// the pairing-request path can run it for its side effects while
+    /// keeping the pairing banner.
+    private func welcomeOutcomeNotification(
+        joinRequestOutcomes: [InviteJoinRequestOutcome],
+        existingGroupIds: Set<String>,
+        processTime: Date,
+        client: any XMTPClientProvider,
+        userInfo: [AnyHashable: Any]
+    ) async throws -> DecodedNotificationContent? {
         if let result = joinRequestOutcomes.compactMap(\.result).first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
 
@@ -335,6 +394,14 @@ extension MessagingService {
                 return .droppedMessage
             }
 
+            // A pairing join request (the joiner re-sends every few
+            // seconds while connecting) - surface "<device> is requesting
+            // to pair" instead of feeding it to the invite flow.
+            if let identity = try? identityStore.loadSync(),
+               let pairingRequest = PairingJoinRequestDetector.verifiedJoinRequest(in: decodedMessage, identity: identity) {
+                return pairingRequestNotification(pairingRequest, userInfo: userInfo)
+            }
+
             // DMs are only used for join requests (invite acceptance flow)
             // When someone accepts an invite, they send the signed invite back via DM
             // This allows us to add them to the group conversation they were invited to
@@ -410,7 +477,7 @@ extension MessagingService {
 
         if decodedMessage.isProfileMessage {
             let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
-            await processProfileMessageInNSE(decodedMessage, conversationId: dbConversation.id, group: group)
+            await processProfileMessageInNSE(decodedMessage, conversationId: dbConversation.id, group: group, currentInboxId: currentInboxId)
             return .droppedMessage
         }
 
@@ -655,8 +722,8 @@ extension MessagingService {
 
     private func isMemberAgent(inboxId: String, conversationId: String) async throws -> Bool {
         try await databaseReader.read { db in
-            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-            return profile?.isAgent ?? false
+            let profile = try DBProfile.fetchOne(db, inboxId: inboxId)
+            return profile?.memberKind?.isAgent ?? false
         }
     }
 
@@ -859,21 +926,23 @@ extension MessagingService {
     private func processProfileMessageInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let contentType = try? message.encodedContent.type else { return }
 
         if contentType == ContentTypeProfileUpdate {
-            await processProfileUpdateInNSE(message, conversationId: conversationId, group: group)
+            await processProfileUpdateInNSE(message, conversationId: conversationId, group: group, currentInboxId: currentInboxId)
         } else if contentType == ContentTypeProfileSnapshot {
-            await processProfileSnapshotInNSE(message, conversationId: conversationId, group: group)
+            await processProfileSnapshotInNSE(message, conversationId: conversationId, group: group, currentInboxId: currentInboxId)
         }
     }
 
     private func processProfileUpdateInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
         let receivedAt = message.sentAt
@@ -882,57 +951,24 @@ extension MessagingService {
 
         do {
             try await databaseWriter.write { db in
-                let member = DBMember(inboxId: senderInboxId)
-                try member.save(db)
-
-                var profile = try DBMemberProfile.fetchOne(
-                    db,
+                let metadata = update.profileMetadata
+                try ProfileInboundApplier.apply(
+                    db: db,
                     conversationId: conversationId,
-                    inboxId: senderInboxId
-                ) ?? DBMemberProfile(
-                    conversationId: conversationId,
-                    inboxId: senderInboxId,
-                    name: nil,
-                    avatar: nil
+                    event: ProfileInboundApplier.Incoming(
+                        inboxId: senderInboxId,
+                        source: .profileUpdate,
+                        name: update.hasName ? update.name : nil,
+                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        memberKind: update.memberKind.dbMemberKind,
+                        // Authoritative whole map; empty propagates as a clear
+                        // (matches the stream path).
+                        metadata: metadata,
+                        receivedAt: receivedAt
+                    ),
+                    selfInboxId: currentInboxId,
+                    fallbackEncryptionKey: try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 )
-
-                // Never clear an existing name with a name-less/blank update
-                // (see DBMemberProfile.withInboundName).
-                profile = profile.withInboundName(update.hasName ? update.name : nil)
-
-                if update.hasEncryptedImage, update.encryptedImage.isValid {
-                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
-                        existingKey
-                    } else {
-                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-                    }
-                    profile = profile.with(
-                        avatar: update.encryptedImage.url,
-                        salt: update.encryptedImage.salt,
-                        nonce: update.encryptedImage.nonce,
-                        key: encryptionKey
-                    )
-                } else {
-                    profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
-                }
-
-                let priorMemberKind = profile.memberKind
-                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
-
-                if profile.isAgent {
-                    let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                    if verification.isVerified {
-                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                    }
-                }
-
-                if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                   !profile.agentVerification.isVerified {
-                    profile = profile.with(memberKind: priorMemberKind)
-                }
-
-                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -943,7 +979,8 @@ extension MessagingService {
     private func processProfileSnapshotInNSE(
         _ message: DecodedMessage,
         conversationId: String,
-        group: XMTPiOS.Group
+        group: XMTPiOS.Group,
+        currentInboxId: String
     ) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
         // Use the message's authored timestamp, not wall-clock `Date()`.
@@ -952,77 +989,32 @@ extension MessagingService {
 
         do {
             try await databaseWriter.write { db in
-                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
-
+                let fallbackKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
                 for memberProfile in snapshot.profiles {
                     let inboxId = memberProfile.inboxIdString
                     guard !inboxId.isEmpty else { continue }
-
-                    let member = DBMember(inboxId: inboxId)
-                    try member.save(db)
-
-                    let existingProfile = try DBMemberProfile.fetchOne(
-                        db,
+                    let metadata = memberProfile.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
                         conversationId: conversationId,
-                        inboxId: inboxId
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileSnapshot,
+                            name: memberProfile.hasName ? memberProfile.name : nil,
+                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            memberKind: memberProfile.memberKind.dbMemberKind,
+                            metadata: metadata.isEmpty ? nil : metadata,
+                            receivedAt: receivedAt
+                        ),
+                        selfInboxId: currentInboxId,
+                        fallbackEncryptionKey: fallbackKey
                     )
-
-                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
-                        continue
-                    }
-
-                    var profile = existingProfile ?? DBMemberProfile(
-                        conversationId: conversationId,
-                        inboxId: inboxId,
-                        name: nil,
-                        avatar: nil
-                    )
-
-                    profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
-
-                    if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: memberProfile.encryptedImage.url,
-                            salt: memberProfile.encryptedImage.salt,
-                            nonce: memberProfile.encryptedImage.nonce,
-                            key: existingProfile?.avatarKey ?? encryptionKey
-                        )
-                    }
-
-                    let priorMemberKind = profile.memberKind
-                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
-
-                    if profile.isAgent {
-                        let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                        if verification.isVerified {
-                            profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                        }
-                    }
-
-                    if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-                       !profile.agentVerification.isVerified {
-                        profile = profile.with(memberKind: priorMemberKind)
-                    }
-
-                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.warning("NSE: Failed to process ProfileSnapshot: \(error.localizedDescription)")
         }
-    }
-
-    private static func markConversationHasVerifiedAgentIfNeeded(
-        profile: DBMemberProfile,
-        conversationId: String,
-        db: Database
-    ) throws {
-        guard profile.agentVerification.isConvosAgent,
-              let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAgent else { return }
-        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     // MARK: - Conversation Storage
@@ -1114,30 +1106,31 @@ extension MessagingService {
             return "New Convo"
         }
 
-        let memberProfiles = try DBMemberProfile.fetchAll(
-            db,
-            conversationId: conversationId,
-            inboxIds: currentMemberInboxIds
-        )
+        let profilesByInbox: [String: DBProfile] = try DBProfile
+            .filter(currentMemberInboxIds.contains(DBProfile.Columns.inboxId))
+            .fetchAll(db)
+            .reduce(into: [:]) { $0[$1.inboxId] = $1 }
 
-        if memberProfiles.isEmpty {
+        if profilesByInbox.isEmpty {
             return "New Convo"
         }
 
         // Resolve each member like `Profile.formattedNamesString(memberNameOverride:)`:
         // the contact's display name (the user's global profile snapshot
-        // for this inbox) wins over the per-conversation profile name.
+        // for this inbox) wins over the canonical profile name.
         // Unnamed members are bucketed by agent vs. human so the rendered
         // title matches: anonymous agents read as "Agent" / "Agents",
         // anonymous humans as "Somebody" / "Somebodies".
-        let resolved: [(name: String?, isAgent: Bool)] = try memberProfiles.map { (profile: DBMemberProfile) -> (name: String?, isAgent: Bool) in
-            if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: profile.inboxId) {
-                return (contactName, profile.isAgent)
+        let resolved: [(name: String?, isAgent: Bool)] = try currentMemberInboxIds.map { inboxId -> (name: String?, isAgent: Bool) in
+            let profile = profilesByInbox[inboxId]
+            let isAgent = profile?.memberKind?.isAgent ?? false
+            if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
+                return (contactName, isAgent)
             }
-            if let name = profile.name, !name.isEmpty {
-                return (name, profile.isAgent)
+            if let name = profile?.name, !name.isEmpty {
+                return (name, isAgent)
             }
-            return (nil, profile.isAgent)
+            return (nil, isAgent)
         }
         let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
         let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
@@ -1184,11 +1177,11 @@ extension MessagingService {
         if let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: inboxId) {
             return contactName
         }
-        let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        let profile = try DBProfile.fetchOne(db, inboxId: inboxId)
         if let name = profile?.name, !name.isEmpty { return name }
         // Mirror `Profile.displayName`: known agents read as "Agent",
         // unknown / human profiles read as "Somebody".
-        return profile?.isAgent == true ? "Agent" : "Somebody"
+        return profile?.memberKind?.isAgent == true ? "Agent" : "Somebody"
     }
 
     // MARK: - Welcome Message Tracking
@@ -1247,5 +1240,108 @@ extension MessagingService {
         } catch {
             Log.error("NSE: Failed to schedule explosion notification: \(error.localizedDescription)")
         }
+    }
+}
+
+// MARK: - Pairing Join Requests
+
+extension MessagingService {
+    /// Scans recently created unknown-consent DMs for a verified pairing
+    /// join request (see `PairingJoinRequestDetector` for the security
+    /// model). Used by the welcome-push path, where the request's content
+    /// isn't in the payload - the pairing DM was just synced from the
+    /// network. Bounded to a handful of fresh DMs and their latest
+    /// messages so it stays cheap inside the NSE's time budget.
+    func detectRecentPairingJoinRequest(client: any XMTPClientProvider) async -> VerifiedPairingJoinRequest? {
+        guard let identity = try? identityStore.loadSync() else { return nil }
+        let cutoff = Date().addingTimeInterval(-PairingPushConstant.requestWindow)
+        let cutoffNs = Int64(cutoff.timeIntervalSince1970 * 1_000_000_000)
+        let dms: [Dm]
+        do {
+            dms = try client.conversationsProvider.listDms(
+                createdAfterNs: cutoffNs,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: PairingPushConstant.maxScannedDms,
+                consentStates: [.unknown],
+                orderBy: .createdAt
+            )
+        } catch {
+            Log.warning("NSE: failed to list DMs for pairing scan: \(error)")
+            return nil
+        }
+        for dm in dms {
+            let messages = (try? await dm.messages(limit: PairingPushConstant.maxScannedMessagesPerDm)) ?? []
+            for message in messages {
+                if let request = PairingJoinRequestDetector.verifiedJoinRequest(in: message, identity: identity) {
+                    return request
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Builds the "<device> is requesting to pair" notification and
+    /// stashes the request for the main app to present on next activation
+    /// (`PendingPairRequestStore`). The stash doubles as the dedupe
+    /// record: the joiner re-sends its request every few seconds, and one
+    /// banner per burst is plenty.
+    func pairingRequestNotification(
+        _ request: VerifiedPairingJoinRequest,
+        userInfo: [AnyHashable: Any]
+    ) -> DecodedNotificationContent {
+        let appGroup = environment.appGroupIdentifier
+        // Same replay guard as the stream fast path
+        // (`StreamProcessor.handlePairingJoinRequestFastPath`): the ledger
+        // is app-group backed, so a nonce already bound to the legitimate
+        // joiner rejects a different inbox replaying a captured slug even
+        // though this extension is a fresh process per push. The re-decode
+        // cannot fail: the detector just verified the slug.
+        guard let invite = try? PairingInvite.fromURLSafeSlug(request.slug) else { return .droppedMessage }
+        if let boundJoiner = PairingNonceLedger.shared.joiner(for: invite.nonce),
+           boundJoiner != request.joinerInboxId {
+            Log.warning("NSE: ignoring pairing join request replaying another joiner's slug")
+            return .droppedMessage
+        }
+        PairingNonceLedger.shared.bind(nonce: invite.nonce, toJoiner: request.joinerInboxId)
+        if let existing = PendingPairRequestStore.pending(appGroup: appGroup),
+           existing.joinerInboxId == request.joinerInboxId,
+           Date().timeIntervalSince(existing.receivedAt) < PairingPushConstant.dedupeWindow {
+            Log.debug("NSE: suppressing duplicate pairing request notification")
+            return .droppedMessage
+        }
+        PendingPairRequestStore.setPending(
+            .init(
+                joinerInboxId: request.joinerInboxId,
+                deviceName: request.deviceName,
+                receivedAt: Date()
+            ),
+            appGroup: appGroup
+        )
+        Log.info("NSE: surfacing pairing join request from \(request.joinerInboxId)")
+        // The conversationId becomes the notification's threadIdentifier.
+        // Stamping the fixed pairing thread lets the system collapse a
+        // resend burst's banners and lets the app's activation cleanup
+        // find and remove NSE-posted ones (whose request identifiers are
+        // system-assigned and unknowable here).
+        return .init(
+            title: "Pair new device",
+            body: "\"\(request.deviceName)\" is requesting to pair",
+            conversationId: PairingNotificationThread.identifier,
+            userInfo: userInfo
+        )
+    }
+
+    private enum PairingPushConstant {
+        /// How far back a DM can have been created and still be scanned;
+        /// matches the joiner's resend window.
+        static let requestWindow: TimeInterval = 300
+        /// One banner per request burst: the joiner re-sends every ~5s,
+        /// and each NSE invocation is a fresh process, so dedupe lives in
+        /// the app-group stash rather than memory.
+        static let dedupeWindow: TimeInterval = 60
+        static let maxScannedDms: Int = 10
+        static let maxScannedMessagesPerDm: Int = 5
     }
 }

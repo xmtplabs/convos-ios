@@ -62,7 +62,12 @@ steps:
       quick-edit-display-name-field and quick-edit-done-button. Name changes
       are retroactive on all messages and the system "You joined as" message.
       Once a profile is set, re-editing moves to the conversation members
-      list: tap your own member row to open the My Info profile sheet.
+      list: tap your own member row to open the "Hello / My name is" profile
+      sheet (profile-setup-name-field, save with profile-setup-save-button).
+      NOTE: setup-profile-button is now a fallback — it only appears when
+      the user dismissed the first-launch profile sheet (test 01) without
+      saving. If this step finds no setup-profile-button, the profile is
+      already set; edit via the members-list path instead.
 
   - id: verify_name_in_app
     name: "Updated name appears on new messages"

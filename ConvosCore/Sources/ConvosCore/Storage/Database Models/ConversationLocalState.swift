@@ -18,6 +18,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let wasRemoved: Column = Column(CodingKeys.wasRemoved)
         static let hasHadOtherMembers: Column = Column(CodingKeys.hasHadOtherMembers)
         static let hasSharedInvite: Column = Column(CodingKeys.hasSharedInvite)
+        static let publishedProfileUpdatedAt: Column = Column(CodingKeys.publishedProfileUpdatedAt)
     }
 
     let conversationId: String
@@ -46,6 +47,41 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     /// Local-only, so network sync can never clobber it; deleted with the
     /// conversation. Read by `ConversationEngagement.isEngaged`.
     let hasSharedInvite: Bool
+    /// The `DBMyProfile.updatedAt` of the self profile last published to this
+    /// conversation. The lazy profile sync compares this against the current
+    /// `DBMyProfile.updatedAt` to decide whether an edit still needs to be sent
+    /// here, so a profile change only reaches conversations the user re-engages
+    /// rather than fanning out to every conversation. nil means never published
+    /// (treated as stale). Local-only; deleted with the conversation.
+    let publishedProfileUpdatedAt: Date?
+
+    init(
+        conversationId: String,
+        isPinned: Bool,
+        isUnread: Bool,
+        isUnreadUpdatedAt: Date,
+        isMuted: Bool,
+        pinnedOrder: Int?,
+        hidesInviteCard: Bool,
+        leftHostedInviteSession: Bool,
+        wasRemoved: Bool,
+        hasHadOtherMembers: Bool,
+        hasSharedInvite: Bool,
+        publishedProfileUpdatedAt: Date? = nil
+    ) {
+        self.conversationId = conversationId
+        self.isPinned = isPinned
+        self.isUnread = isUnread
+        self.isUnreadUpdatedAt = isUnreadUpdatedAt
+        self.isMuted = isMuted
+        self.pinnedOrder = pinnedOrder
+        self.hidesInviteCard = hidesInviteCard
+        self.leftHostedInviteSession = leftHostedInviteSession
+        self.wasRemoved = wasRemoved
+        self.hasHadOtherMembers = hasHadOtherMembers
+        self.hasSharedInvite = hasSharedInvite
+        self.publishedProfileUpdatedAt = publishedProfileUpdatedAt
+    }
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -68,7 +104,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -83,7 +120,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -98,7 +136,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -113,7 +152,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(hidesInviteCard: Bool) -> Self {
@@ -128,7 +168,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(leftHostedInviteSession: Bool) -> Self {
@@ -143,7 +184,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(wasRemoved: Bool) -> Self {
@@ -158,7 +200,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(hasHadOtherMembers: Bool) -> Self {
@@ -173,7 +216,8 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
     func with(hasSharedInvite: Bool) -> Self {
@@ -188,7 +232,24 @@ extension ConversationLocalState {
             leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
-            hasSharedInvite: hasSharedInvite
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+        )
+    }
+    func with(publishedProfileUpdatedAt: Date?) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt
         )
     }
 }

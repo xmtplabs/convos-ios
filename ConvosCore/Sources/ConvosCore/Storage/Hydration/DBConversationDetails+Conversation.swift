@@ -16,7 +16,7 @@ extension DBConversationDetails {
             contactNameResolver: contactNameResolver
         )
         let members = hydrateConversationMembers(currentInboxId: currentInboxId)
-        let creator = conversationCreator.hydrateConversationMember(currentInboxId: currentInboxId)
+        let creator = hydrateCreator(currentInboxId: currentInboxId)
 
         let otherMember: ConversationMember?
         if conversation.kind == .dm,
@@ -84,6 +84,23 @@ extension DBConversationDetails {
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
+        )
+    }
+
+    /// The creator's `conversation_members` row is deleted when they leave the
+    /// group, so `conversationCreator` can be nil. Consumers only rely on the
+    /// creator's identity (`isCurrentUser` checks), so fall back to a minimal
+    /// member built from the stored `creatorId` -- the same shape
+    /// `MessagesRepository.fetchLightweightConversation` synthesizes for a
+    /// missing creator, so both hydration paths agree.
+    private func hydrateCreator(currentInboxId: String) -> ConversationMember {
+        if let conversationCreator {
+            return conversationCreator.hydrateConversationMember(currentInboxId: currentInboxId)
+        }
+        return ConversationMember(
+            profile: .empty(inboxId: conversation.creatorId),
+            role: .superAdmin,
+            isCurrentUser: conversation.creatorId == currentInboxId
         )
     }
 }

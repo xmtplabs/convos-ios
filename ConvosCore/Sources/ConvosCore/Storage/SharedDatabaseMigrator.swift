@@ -179,22 +179,7 @@ extension SharedDatabaseMigrator {
         // schema, so an upgrade migrates in place.
         Self.registerAgentTemplateContactMigrations(on: &migrator)
 
-        // Filter set of agent-builder bundle message ids hidden from every
-        // client's chat. Intentionally no foreign key to `conversation`: a
-        // manifest can be processed before its conversation row is stored (the
-        // stream routes supplementals ahead of `conversationWriter.store`, and
-        // catch-up can deliver a manifest before the initial conversation sync
-        // lands); a FK would make those inserts fail and silently drop the hidden
-        // ids, leaving the brief visible. A stray row for an absent conversation
-        // matches nothing and is harmless. Teardown clears the table explicitly
-        // in `SessionManager.deleteAllInboxes` (no cascade).
-        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
-            try db.create(table: "builder_bundle_hidden_message") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("messageId", .text).notNull()
-                t.primaryKey(["conversationId", "messageId"])
-            }
-        }
+        Self.registerBuilderBundleHiddenMessageMigrations(on: &migrator)
 
         migrator.registerMigration("backfillContactAgentTemplateFieldsFromMemberProfiles",
                                    migrate: Self.backfillContactAgentTemplateFieldsFromMemberProfiles)
@@ -204,9 +189,24 @@ extension SharedDatabaseMigrator {
         Self.registerRemovedStateMigrations(on: &migrator)
         Self.registerConnectionGrantMigrations(on: &migrator)
         Self.registerJoinAndGenerationMigrations(on: &migrator)
-        Self.registerCleanupMigrations(on: &migrator)
+        Self.registerTailMigrations(on: &migrator)
+        Self.registerMemberDepartureMigrations(on: &migrator)
 
         return migrator
+    }
+
+    /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
+    /// Tracks how far the backlog has actually been fetched and applied,
+    /// independently of MAX(message.dateNs), so read receipts older than
+    /// the newest pushed message are no longer skipped by catch-up.
+    private static func registerCatchUpCursorMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createConversationCatchUpCursor") { db in
+            try db.create(table: "conversation_catchup_cursors") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("caughtUpToNs", .integer).notNull()
+            }
+        }
     }
 
     /// Set-once high-water mark: true once a conversation has ever had a
@@ -237,12 +237,51 @@ extension SharedDatabaseMigrator {
             """)
     }
 
+    /// Filter set of agent-builder bundle message ids hidden from every
+    /// client's chat. Intentionally no foreign key to `conversation`: a
+    /// manifest can be processed before its conversation row is stored (the
+    /// stream routes supplementals ahead of `conversationWriter.store`, and
+    /// catch-up can deliver a manifest before the initial conversation sync
+    /// lands); a FK would make those inserts fail and silently drop the hidden
+    /// ids, leaving the brief visible. A stray row for an absent conversation
+    /// matches nothing and is harmless. Teardown clears the table explicitly
+    /// in `SessionManager.deleteAllInboxes` (no cascade).
+    private static func registerBuilderBundleHiddenMessageMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createBuilderBundleHiddenMessage") { db in
+            try db.create(table: "builder_bundle_hidden_message") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.primaryKey(["conversationId", "messageId"])
+            }
+        }
+    }
+
+    /// Pending-leave markers for members who announced a self-removal that
+    /// hasn't been finalized yet. No foreign key to `conversation` for the
+    /// same reason as `builder_bundle_hidden_message`: a leave-request can
+    /// be ingested before the conversation row lands, and a stray row for
+    /// an absent conversation matches nothing and is harmless.
+    private static func registerMemberDepartureMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createMemberDeparture") { db in
+            try db.create(table: "member_departure") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("inboxId", .text).notNull()
+                t.column("dateNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+        }
+    }
+
     private static func registerConnectionGrantMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addConnectionGrantBackendGrantId", migrate: Self.addConnectionGrantBackendGrantId)
         migrator.registerMigration("addConnectionGrantBundleScope", migrate: Self.addConnectionGrantBundleScope)
     }
 
-    private static func registerCleanupMigrations(on migrator: inout DatabaseMigrator) {
+    /// Tail migrations registered last so they run after every migration above.
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget. Order within: `dropRevealColumns`, the Profile-table schema,
+    /// then the catch-up cursor table.
+    private static func registerTailMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("dropRevealColumns", migrate: Self.dropRevealColumns)
         migrator.registerMigration(
             "addConversationLocalStateLeftHostedInviteSession",
@@ -256,6 +295,149 @@ extension SharedDatabaseMigrator {
             "addConversationLocalStateHasSharedInvite",
             migrate: Self.addConversationLocalStateHasSharedInvite
         )
+        migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+        migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
+        migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
+        migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
+        migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
+        migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
+        Self.registerCatchUpCursorMigrations(on: &migrator)
+        migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
+    }
+
+    /// Additive, nullable column recording the `myProfile.updatedAt` of the self
+    /// profile last published to a conversation. The lazy profile sync compares
+    /// it against the current `myProfile.updatedAt` to decide whether a profile
+    /// edit still needs to be sent to this conversation, so edits reach only
+    /// conversations the user re-engages rather than fanning out to all of them.
+    /// `nil` means never published (treated as stale), so no backfill is needed.
+    /// Guarded on column existence for idempotency across dev installs.
+    static func addConversationLocalStatePublishedProfileUpdatedAt(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "conversationLocalState").contains { $0.name == "publishedProfileUpdatedAt" }
+        guard !hasColumn else { return }
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "publishedProfileUpdatedAt", .datetime)
+        }
+    }
+
+    /// Conversation-scoped self metadata (cloud connection grants, agent
+    /// timezone), keyed by `(inboxId, conversationId)`. These keys are
+    /// per-conversation on the wire, so they cannot live in the global
+    /// `myProfile.metadata` map: a global map makes one conversation's grants
+    /// overwrite another's and broadcasts them to every conversation. The FK
+    /// cascade purges a deleted conversation's rows, matching `profileAvatar`.
+    ///
+    /// Also strips the scoped keys out of any existing `myProfile.metadata`:
+    /// builds that ran the interim global routing wrote grants/timezone there,
+    /// and a value left behind would keep broadcasting to every conversation on
+    /// each publish. Decoded in Swift rather than `json_remove` so the stored
+    /// class (text vs blob) doesn't matter.
+    static func createSelfConversationMetadata(_ db: Database) throws {
+        try db.create(table: "selfConversationMetadata") { t in
+            t.column("inboxId", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("metadata", .jsonText).notNull()
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["inboxId", "conversationId"])
+        }
+
+        let scopedKeys = ["connections", "timezone"]
+        let rows = try Row.fetchAll(db, sql: "SELECT inboxId, metadata FROM myProfile WHERE metadata IS NOT NULL")
+        for row in rows {
+            let inboxId: String = row["inboxId"]
+            let raw: Data?
+            if let data = row["metadata"] as Data? {
+                raw = data
+            } else if let text = row["metadata"] as String? {
+                raw = text.data(using: .utf8)
+            } else {
+                raw = nil
+            }
+            guard let raw,
+                  var metadata = try? JSONDecoder().decode(ProfileMetadata.self, from: raw) else { continue }
+            guard scopedKeys.contains(where: { metadata[$0] != nil }) else { continue }
+            for key in scopedKeys {
+                metadata.removeValue(forKey: key)
+            }
+            let encoded: String?
+            if metadata.isEmpty {
+                encoded = nil
+            } else {
+                let data = try JSONEncoder().encode(metadata)
+                encoded = String(bytes: data, encoding: .utf8)
+            }
+            try db.execute(
+                sql: "UPDATE myProfile SET metadata = ? WHERE inboxId = ?",
+                arguments: [encoded, inboxId]
+            )
+        }
+    }
+
+    /// Recreates `profileAvatarLatest` with the deterministic `ROW_NUMBER()`
+    /// definition. Dev installs that ran the earlier `GROUP BY inboxId` revision
+    /// have the nondeterministic view; views carry no data, so a drop+recreate is
+    /// safe. Fresh installs already get the deterministic view from
+    /// `createProfileAvatarLatestView` and this just recreates it identically.
+    static func makeProfileAvatarLatestViewDeterministic(_ db: Database) throws {
+        try db.execute(sql: "DROP VIEW IF EXISTS profileAvatarLatest")
+        try createProfileAvatarLatestView(db)
+    }
+
+    /// Additive, nullable column tracking the last successful asset re-sign time
+    /// for a `profileAvatar` URL. Distinct from `updatedAt` (the merge/recency
+    /// signal) so the asset renewal sweep can stamp a renewal without making the
+    /// avatar look newly authored. `nil` means never renewed (eligible for
+    /// renewal), so no backfill is needed. Guarded because fresh installs already
+    /// get the column from `createProfileTables`, while dev installs that ran an
+    /// earlier revision of it need the `ALTER`.
+    static func addProfileAvatarLastRenewed(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "profileAvatar").contains { $0.name == "lastRenewed" }
+        guard !hasColumn else { return }
+        try db.alter(table: "profileAvatar") { t in
+            t.add(column: "lastRenewed", .datetime)
+        }
+    }
+
+    /// Drops the short-lived `selfProfile` table. Self identity was consolidated
+    /// onto the pre-existing `myProfile` table, so `selfProfile` is unused.
+    /// Guarded on existence because fresh installs never create it (an earlier
+    /// revision of `createProfileTables` did), while dev installs that ran that
+    /// revision still have it.
+    static func dropSelfProfileTable(_ db: Database) throws {
+        if try db.tableExists("selfProfile") {
+            try db.drop(table: "selfProfile")
+        }
+    }
+
+    /// Creates the `profileAvatarLatest` view: exactly one deterministic
+    /// `profileAvatar` row per inbox - the newest by `updatedAt`, with
+    /// `conversationId` as a tie-breaker. The rendering avatar association reads
+    /// through this view so every conversation shows a person's latest avatar
+    /// (one image per person) rather than the per-conversation slot. Each avatar
+    /// row is self-contained (url + salt + nonce + encryptionKey), so its image
+    /// decrypts correctly regardless of which conversation is being rendered.
+    ///
+    /// `ROW_NUMBER()` (not `GROUP BY inboxId`) is required for determinism: when
+    /// an inbox has multiple rows at the same `MAX(updatedAt)` - e.g.
+    /// `ProfileBackfill` writes every legacy avatar at the epoch floor - a
+    /// `GROUP BY` returns bare columns from an arbitrary row in the group, so the
+    /// rendered avatar could be from the wrong conversation. The window function
+    /// picks one deterministic row per inbox.
+    static func createProfileAvatarLatestView(_ db: Database) throws {
+        try db.execute(sql: """
+            CREATE VIEW IF NOT EXISTS profileAvatarLatest AS
+            SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt
+            FROM (
+                SELECT inboxId, conversationId, url, salt, nonce, encryptionKey, profileSource, contentDigest, updatedAt,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY inboxId
+                           ORDER BY updatedAt DESC, conversationId DESC
+                       ) AS rn
+                FROM profileAvatar
+            )
+            WHERE rn = 1
+            """)
     }
 
     /// Set-once high-water mark: true once the conversation's invite link
@@ -1231,6 +1413,83 @@ extension SharedDatabaseMigrator {
             index: "idx_agentTemplateContact_displayName",
             on: "agentTemplateContact",
             columns: ["displayName"]
+        )
+    }
+
+    /// Creates the canonical Profile-table schema that replaces per-conversation
+    /// `memberProfile` identity: `profile` (per-person name/kind/metadata),
+    /// `profileAvatar` (per-`(inboxId, conversationId)` encrypted avatar slot),
+    /// `selfProfile` (the local user's authored identity), `profileAvatarSource`
+    /// (the user's plaintext source image), and `profilePublishJob` (durable
+    /// publish queue). Additive: nothing reads these tables until the
+    /// `ProfilesRepository` lands. `avatarContentDigest` / `contentDigest` are
+    /// reserved for the cross-conversation digest optimization (ADR 014) and stay
+    /// nil until that work ships. Extracted as an internal static helper so the
+    /// migration test can drive the real create path without tripping the DEBUG
+    /// `eraseDatabaseOnSchemaChange`.
+    static func createProfileTables(_ db: Database) throws {
+        try db.create(table: "profile") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("name", .text)
+            t.column("memberKind", .text)
+            t.column("metadata", .jsonText)
+            t.column("profileSource", .text).notNull()
+            t.column("avatarContentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profileAvatar") { t in
+            t.column("inboxId", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("url", .text)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("encryptionKey", .blob)
+            t.column("profileSource", .text).notNull()
+            t.column("contentDigest", .text)
+            t.column("updatedAt", .datetime).notNull()
+            t.column("lastRenewed", .datetime)
+            t.primaryKey(["inboxId", "conversationId"])
+        }
+
+        try db.create(table: "profileAvatarSource") { t in
+            t.column("inboxId", .text).notNull().primaryKey()
+            t.column("plaintext", .blob).notNull()
+            t.column("version", .integer).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "profilePublishJob") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("seq", .integer).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("sourceVersion", .integer)
+            t.column("hasAvatar", .boolean).notNull().defaults(to: false)
+            t.column("state", .text).notNull().defaults(to: ProfilePublishJobState.pending.rawValue)
+            t.column("ciphertext", .blob)
+            t.column("salt", .blob)
+            t.column("nonce", .blob)
+            t.column("groupKey", .blob)
+            t.column("filename", .text)
+            t.column("uploadedURL", .text)
+            t.column("attemptCount", .integer).notNull().defaults(to: 0)
+            t.column("nextAttemptAt", .datetime).notNull()
+            t.column("lastError", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(
+            index: "profilePublishJob_ready",
+            on: "profilePublishJob",
+            columns: ["state", "nextAttemptAt", "seq"]
+        )
+        try db.create(
+            index: "profilePublishJob_conversationId",
+            on: "profilePublishJob",
+            columns: ["conversationId"]
         )
     }
 }

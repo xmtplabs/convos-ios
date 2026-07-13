@@ -145,6 +145,15 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func textBubble(text: String) -> some View {
+        if let extraction = EdgeLinkExtractionCache.extraction(for: text) {
+            edgeLinkTextBubble(extraction: extraction)
+        } else {
+            plainTextBubble(text: text)
+        }
+    }
+
+    @ViewBuilder
+    private func plainTextBubble(text: String) -> some View {
         let openDetail: ((String) -> Void)? = onOpenMessageDetail.map { handler in
             { _ in handler(message) }
         }
@@ -172,6 +181,76 @@ struct MessagesGroupItemView: View {
         .id("bubble-\(message.messageId)")
         .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
         .padding(.trailing, trailingPadding)
+    }
+
+    /// Renders a text message whose leading and/or trailing URL was split
+    /// out, stacking the link preview cell above or below the text bubble as
+    /// if the link had been sent as its own message. The bottom cell keeps
+    /// the group's bubble style so the tail and avatar land on it.
+    @ViewBuilder
+    private func edgeLinkTextBubble(extraction: EdgeLinkExtraction) -> some View {
+        let alignment: HorizontalAlignment = message.sender.isCurrentUser ? .trailing : .leading
+        let textStyle: MessageBubbleType = extraction.trailingPreview == nil ? bubbleType : .normal
+        let openDetail: ((String) -> Void)? = onOpenMessageDetail.map { handler in
+            { _ in handler(message) }
+        }
+        let messageId: String = message.messageId
+        let isExpanded: Bool = expandedMessageIds.contains(messageId)
+        let toggleExpand: (() -> Void)? = onToggleMessageExpanded.map { handler in
+            { handler(messageId) }
+        }
+        VStack(alignment: alignment, spacing: DesignConstants.Spacing.stepX) {
+            if let preview = extraction.leadingPreview {
+                extractedLinkPreviewBubble(preview: preview, style: .normal, edge: .leading)
+            }
+            MessageBubble(
+                style: textStyle,
+                message: extraction.text,
+                isOutgoing: message.sender.isCurrentUser,
+                profile: message.sender.profile,
+                onOpenDetail: openDetail,
+                isExpanded: isExpanded,
+                onToggleExpand: toggleExpand
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: textStyle,
+                segment: .splitText(extraction.text),
+                isExpanded: isExpanded,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .id("bubble-\(message.messageId)")
+            if let preview = extraction.trailingPreview {
+                extractedLinkPreviewBubble(preview: preview, style: bubbleType, edge: .trailing)
+            }
+        }
+        .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func extractedLinkPreviewBubble(preview: LinkPreview, style: MessageBubbleType, edge: MessageBubbleSegment.Edge) -> some View {
+        let openAction: () -> Void = {
+            if let url = preview.resolvedURL {
+                InAppBrowser.open(url)
+            }
+        }
+        LinkPreviewBubbleView(
+            preview: TransientLinkPreviewCache.enriched(preview),
+            style: style,
+            isOutgoing: message.source == .outgoing,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: style,
+            segment: .splitLink(preview, edge),
+            onSingleTap: openAction,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("link-preview-\(message.messageId)-\(edge.rawValue)")
     }
 
     @ViewBuilder
@@ -389,6 +468,33 @@ struct MessagesGroupItemView: View {
             )
             .id(message.messageId)
         }
+    }
+}
+
+/// Caches edge-link extraction per message text so scrolling does not rerun
+/// `NSDataDetector` on every render, mirroring `TextLinkPresence`. Negative
+/// results are cached too. Internal so the layout delegate's height
+/// estimation can consult the same cache.
+enum EdgeLinkExtractionCache {
+    private final class Entry: NSObject {
+        let extraction: EdgeLinkExtraction?
+
+        init(_ extraction: EdgeLinkExtraction?) {
+            self.extraction = extraction
+        }
+    }
+
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Entry> = .init()
+
+    static func extraction(for text: String) -> EdgeLinkExtraction? {
+        guard TextLinkPresence.containsLinks(text) else { return nil }
+        let key = text as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached.extraction
+        }
+        let result = LinkPreview.extractingEdgeLinks(from: text)
+        cache.setObject(Entry(result), forKey: key)
+        return result
     }
 }
 

@@ -14,6 +14,14 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// inboxId — one entry per backed-up identity, like the real store's
     /// per-identity accounts.
     private let backupState: OSAllocatedUnfairLock<[String: KeychainIdentityBackup]> = .init(initialState: [:])
+    /// In-memory stand-in for the device-local installation marker slot.
+    private let markerState: OSAllocatedUnfairLock<InstallationMarker?> = .init(initialState: nil)
+    /// In-memory stand-in for the device-local consent backup slot.
+    private let consentBackupState: OSAllocatedUnfairLock<ConsentBackup?> = .init(initialState: nil)
+    /// Mirrors the real store's swept flag: set by delete(), cleared by save.
+    private let deviceSlotsSwept: OSAllocatedUnfairLock<Bool> = .init(initialState: false)
+    /// Optional error injection for saveConsentBackup.
+    private let consentBackupSaveError: OSAllocatedUnfairLock<(any Error)?> = .init(initialState: nil)
     /// Optional error injection for the load path. Tests simulating a
     /// transient keychain daemon failure set this to a non-nil `Error`;
     /// `loadSync` and `load` both throw it until the test clears it.
@@ -26,6 +34,7 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
         let displacedInboxId = state.withLock { $0?.inboxId }
+        deviceSlotsSwept.withLock { $0 = false }
         state.withLock { $0 = identity }
         backupState.withLock { backups in
             if let displacedInboxId, displacedInboxId != inboxId {
@@ -74,6 +83,36 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         if let inboxId {
             backupState.withLock { $0.removeValue(forKey: inboxId) }
         }
+        deviceSlotsSwept.withLock { $0 = true }
+        markerState.withLock { $0 = nil }
+        consentBackupState.withLock { $0 = nil }
+    }
+
+    func loadInstallationMarker() throws -> InstallationMarker? {
+        markerState.withLock { $0 }
+    }
+
+    func saveInstallationMarker(_ marker: InstallationMarker) throws {
+        guard !deviceSlotsSwept.withLock({ $0 }) else { return }
+        markerState.withLock { $0 = marker }
+    }
+
+    func loadConsentBackup() throws -> ConsentBackup? {
+        consentBackupState.withLock { $0 }
+    }
+
+    func saveConsentBackup(_ backup: ConsentBackup) throws {
+        guard !deviceSlotsSwept.withLock({ $0 }) else { return }
+        if let error = consentBackupSaveError.withLock({ $0 }) {
+            throw error
+        }
+        consentBackupState.withLock { $0 = backup }
+    }
+
+    /// Test-only - inject an error for subsequent `saveConsentBackup`
+    /// calls. Pass `nil` to clear.
+    nonisolated func _setConsentBackupSaveError(_ error: (any Error)?) {
+        consentBackupSaveError.withLock { $0 = error }
     }
 
     /// Test-only — inject an error for the next `loadSync`/`load` calls.

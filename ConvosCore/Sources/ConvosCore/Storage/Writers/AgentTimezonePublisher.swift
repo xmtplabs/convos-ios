@@ -64,8 +64,12 @@ public final class AgentTimezonePublisher: AgentTimezonePublishing, @unchecked S
         let agentConversationIds: [String]
         do {
             agentConversationIds = try await databaseReader.read { db in
-                let myConversationIds: [String] = try DBMemberProfile
-                    .filter(DBMemberProfile.Columns.inboxId == inboxId)
+                // The roster (`conversation_members`) is the source of truth for
+                // which conversations the local user is in; the legacy per-
+                // conversation `DBMemberProfile` self rows are no longer reliably
+                // written.
+                let myConversationIds: [String] = try DBConversationMember
+                    .filter(DBConversationMember.Columns.inboxId == inboxId)
                     .fetchAll(db)
                     .map(\.conversationId)
                 return try myConversationIds.filter { conversationId in

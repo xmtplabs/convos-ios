@@ -175,6 +175,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
+    private let leaveWriter: any ConversationLeaveWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
@@ -803,6 +804,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
+    /// Self-removal is a group-only operation (the protocol forbids leaving
+    /// a DM); gates the Leave affordance in the info view.
+    var canLeaveConversation: Bool {
+        conversation.kind == .group
+    }
     var isUpdatingPublicPreview: Bool = false
     private var _editingIncludeInfoInPublicPreview: Bool?
     var includeInfoInPublicPreview: Bool {
@@ -1192,10 +1198,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
         // MyProfileViewModel fills its "empty" profile with the current user's
         // inboxId. In single-inbox mode that's always the singleton; read it
@@ -1203,7 +1209,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: currentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1290,15 +1296,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
         let draftCurrentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: draftCurrentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -2684,10 +2690,6 @@ extension ConversationViewModel {
 
     func onProfilePhotoTap(focusCoordinator: FocusCoordinator) {
         focusCoordinator.moveFocus(to: .displayName)
-    }
-
-    func onProfileSettingsDismissed(focusCoordinator: FocusCoordinator) {
-        onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
     }
 
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
@@ -4124,6 +4126,65 @@ extension ConversationViewModel {
         }
     }
 
+    /// Self-removes the current user from this group: `leaveGroup()` plus the
+    /// optimistic consent-hide (consent `.denied` + push-topic unsubscribe +
+    /// local hide) so the conversation vanishes immediately while the MLS
+    /// remove-commit finalizes async. When the current user is the sole super
+    /// admin, the leave writer transfers super admin to the longest-tenured
+    /// remaining human member first (agents only as a fallback).
+    func leaveGroupConvo() {
+        let leaveWriter = leaveWriter
+        let conversation = conversation
+        Task { [weak self] in
+            guard let self else { return }
+            // Derived at execution time rather than at tap time so the
+            // writer sees the freshest membership when picking a super-admin
+            // successor.
+            let successorCandidates = self.leaveSuccessorCandidates()
+            do {
+                try await leaveWriter.leave(
+                    conversation: conversation,
+                    successorCandidates: successorCandidates
+                )
+                self.finishLeave()
+            } catch ConversationLeaveError.hideFailedAfterLeave(_, let underlying) {
+                // The user's membership already ended (the MLS self-removal
+                // committed, or it was already over or pending); only the
+                // local consent-hide failed afterwards. Surface the leave and
+                // let a later consent sync converge the hide.
+                Log.error("Left convo but hiding it failed: \(underlying.localizedDescription)")
+                self.finishLeave()
+            } catch {
+                Log.error("Error leaving convo: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Dismisses settings and announces the departure once the leave is
+    /// effective on the MLS side.
+    private func finishLeave() {
+        presentingConversationSettings = false
+        conversation.postLeftConversationNotification()
+    }
+
+    /// Remaining members (excluding the current user) as super-admin successor
+    /// candidates. The leave writer applies the human-preferred, agent-fallback
+    /// tenure policy; here we only surface each member's agent flag and join
+    /// time. Optimistic agent members are presentation-only sentinels overlaid
+    /// while agent instances provision -- their inbox ids don't exist on the
+    /// network, so promoting one would fail and abort the leave.
+    private func leaveSuccessorCandidates() -> [LeaveSuccessorCandidate] {
+        conversation.members
+            .filter { !$0.isCurrentUser && !$0.isOptimisticAgentMember }
+            .map { (member: ConversationMember) -> LeaveSuccessorCandidate in
+                LeaveSuccessorCandidate(
+                    inboxId: member.profile.inboxId,
+                    isAgent: member.isAgent,
+                    joinedAt: member.joinedAt
+                )
+            }
+    }
+
     @MainActor
     func conversationMetadataDebugText() async -> String {
         do {
@@ -4136,6 +4197,38 @@ extension ConversationViewModel {
             ).debugText
         } catch {
             return metadataDebugFallbackText(reason: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    func membershipCapabilitiesDebugText() async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            let client = inboxResult.client
+            return try await client.groupMembershipCapabilitiesDebugInfo(
+                conversationId: conversation.id
+            ).debugText
+        } catch {
+            return "Failed to load membership capabilities: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func enableProposals(force: Bool, minVersion: String?) async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            try await inboxResult.client.enableProposals(
+                conversationId: conversation.id,
+                force: force,
+                minVersion: minVersion
+            )
+            let forced = force ? " (forced)" : ""
+            let versioned = minVersion.map { " with minVersion \($0)" } ?? ""
+            return "Enabled proposals\(forced)\(versioned)."
+        } catch {
+            return "Failed to enable proposals: \(error.localizedDescription)"
         }
     }
 

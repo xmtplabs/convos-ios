@@ -354,8 +354,20 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
         try localState.insert(db, onConflict: .ignore)
 
+        // A member with a pending-leave marker is still in the MLS roster
+        // until an authorized client finalizes their remove-commit, but the
+        // UI must treat them as gone; exclude them from the persisted rows
+        // so a re-sync can't resurrect a leaver the ingest path dropped.
+        let mlsMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        let departedInboxIds = try Self.reconcileMemberDepartures(
+            conversationId: prepared.dbConversation.id,
+            mlsMemberInboxIds: mlsMemberInboxIds,
+            in: db
+        )
+        let activeMembers = prepared.dbMembers.filter { !departedInboxIds.contains($0.inboxId) }
+
         // Remove conversation_members rows for members no longer in the group
-        let currentMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        let currentMemberInboxIds = Set(activeMembers.map(\.inboxId))
         if !currentMemberInboxIds.isEmpty {
             try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == prepared.dbConversation.id)
@@ -369,16 +381,30 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             in: db
         )
 
+        // The engagement latch reads the raw MLS roster, not the
+        // departure-filtered one: a pending leaver was genuinely a member,
+        // so a joined-then-left conversation must still count as having had
+        // another member even though the leaver's row is excluded above.
         try Self.markHasHadOtherMembersIfNeeded(
             conversationId: prepared.dbConversation.id,
-            currentMemberInboxIds: currentMemberInboxIds,
+            currentMemberInboxIds: mlsMemberInboxIds,
             in: db
         )
 
-        try saveMembers(prepared.dbMembers, in: db)
+        try saveMembers(activeMembers, in: db)
 
-        // Fill gaps: only write appData profiles for members without message-sourced data
+        // Fill gaps from the group's app-data profiles. The canonical write is
+        // what rendering reads; the legacy `DBMemberProfile` write is kept
+        // defensively for any residual reader until that table is retired.
+        let selfInboxId = try DBInbox.currentInboxId(db)
         try prepared.memberProfiles.forEach { profile in
+            try Self.applyAppDataProfile(
+                db: db,
+                conversationId: prepared.dbConversation.id,
+                profile: profile,
+                selfInboxId: selfInboxId
+            )
+
             let existing = try DBMemberProfile.fetchOne(
                 db,
                 conversationId: prepared.dbConversation.id,
@@ -393,6 +419,105 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         return saveResult
+    }
+
+    /// Timestamp for app-data-sourced canonical writes.
+    ///
+    /// App-data profiles (the member profiles carried in a group's custom
+    /// metadata) have no per-value timestamp of their own, so they are stamped at
+    /// the Unix epoch floor - the lowest possible time. This is deliberate:
+    ///
+    /// - Cross-source precedence already guarantees an `.appData` value never
+    ///   overrides a higher source (`profileSnapshot` / `profileUpdate`)
+    ///   regardless of timestamp, so the floor is purely about ordering *within*
+    ///   the `.appData` source.
+    /// - Seeding at the floor means any real, later-timestamped event supersedes
+    ///   the app-data value by recency, and two app-data observations of the same
+    ///   value do not churn `updatedAt` on every re-sync (the merge only writes
+    ///   when the value actually changes).
+    ///
+    /// Mirrors `ProfileBackfill`'s floor for its `.contact`-sourced seed.
+    private static let appDataProfileFloor: Date = .init(timeIntervalSince1970: 0)
+
+    /// Merges one app-data-sourced member profile into the canonical `profile` /
+    /// `profileAvatar` tables at the `.appData` source, so a member known only
+    /// from group app-data renders instead of showing as "Somebody".
+    ///
+    /// Fill-only by construction: `ProfileMerge` precedence
+    /// (`contact < appData < profileSnapshot < profileUpdate`) guarantees this
+    /// value never overrides a higher-source one and only fills a blank; a later
+    /// real `ProfileUpdate` / `ProfileSnapshot` automatically wins. The current
+    /// user is skipped - self identity lives in `myProfile` and is excluded from
+    /// `DBProfile`.
+    static func applyAppDataProfile(
+        db: Database,
+        conversationId: String,
+        profile: DBMemberProfile,
+        selfInboxId: String?
+    ) throws {
+        let inboxId = profile.inboxId
+        if let selfInboxId, inboxId == selfInboxId { return }
+
+        // Only merge an identity when there is a usable name; app-data carries no
+        // memberKind/metadata, so a nameless entry would only create an empty
+        // identity row. The avatar is handled independently below.
+        if let name = profile.name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let existingIdentity = try DBProfile.fetchOne(db, inboxId: inboxId)
+            let mergedIdentity = ProfileMerge.mergeIdentity(
+                existing: existingIdentity,
+                inboxId: inboxId,
+                incoming: IncomingIdentity(name: name, memberKind: nil, metadata: nil),
+                source: .appData,
+                sentAt: appDataProfileFloor
+            )
+            if mergedIdentity != existingIdentity {
+                try mergedIdentity.save(db)
+            }
+        }
+
+        // Only a valid encrypted image is worth merging; anything else leaves the
+        // slot untouched (silent), so app-data never clears an existing avatar.
+        guard profile.hasValidEncryptedAvatar, let url = profile.avatar else { return }
+        let existingAvatar = try DBProfileAvatar.fetchOne(db, inboxId: inboxId, conversationId: conversationId)
+        let mergedAvatar = ProfileMerge.mergeAvatar(
+            existing: existingAvatar,
+            inboxId: inboxId,
+            conversationId: conversationId,
+            incoming: .set(url: url, salt: profile.avatarSalt, nonce: profile.avatarNonce, key: profile.avatarKey),
+            source: .appData,
+            sentAt: appDataProfileFloor
+        )
+        if let mergedAvatar, mergedAvatar != existingAvatar {
+            try mergedAvatar.save(db)
+        }
+    }
+
+    /// Reconciles pending-leave markers against a freshly synced MLS member
+    /// list. Markers whose inbox is no longer in the roster have served their
+    /// purpose (the remove-commit finalized) and are deleted so a later
+    /// rejoin can't be masked by a stale marker. The remaining markers name
+    /// leavers whose removal is still pending; their inbox ids are returned
+    /// so the caller can exclude them from the persisted member rows. Static
+    /// so the marker lifecycle is unit-testable without constructing the full
+    /// writer.
+    static func reconcileMemberDepartures(
+        conversationId: String,
+        mlsMemberInboxIds: Set<String>,
+        in db: Database
+    ) throws -> Set<String> {
+        let departures = try DBMemberDeparture
+            .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+            .fetchAll(db)
+        guard !departures.isEmpty else { return [] }
+
+        let staleInboxIds = departures.map(\.inboxId).filter { !mlsMemberInboxIds.contains($0) }
+        if !staleInboxIds.isEmpty {
+            try DBMemberDeparture
+                .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+                .filter(staleInboxIds.contains(DBMemberDeparture.Columns.inboxId))
+                .deleteAll(db)
+        }
+        return Set(departures.map(\.inboxId)).intersection(mlsMemberInboxIds)
     }
 
     /// Clears a persisted removed marker once a synced member list proves the
@@ -983,11 +1108,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     ) async throws {
         Log.debug("Attempting to fetch latest messages...")
 
-        // Get the timestamp of the last stored message
-        let lastMessageNs = try await getLastMessageTimestamp(for: conversation.id)
+        // Fetch after the catch-up cursor, not after the newest stored
+        // message: rows written by the NSE or the live stream advance
+        // MAX(message.dateNs) without fetching the backlog behind them, so
+        // cutting there skipped read receipts older than the newest pushed
+        // message. The cursor only advances once a catch-up has applied the
+        // backlog up to that point. Conversations without a cursor row yet
+        // fall back to the newest stored message (pre-cursor behavior).
+        let conversationId = conversation.id
+        let cursorNs = try await databaseWriter.read { db in
+            try DBConversationCatchUpCursor.caughtUpToNs(for: conversationId, in: db)
+        }
+        let afterNs: Int64?
+        if let cursorNs {
+            afterNs = cursorNs
+        } else {
+            afterNs = try await getLastMessageTimestamp(for: conversationId)
+        }
 
         // Fetch new messages
-        let messages = try await conversation.messages(afterNs: lastMessageNs)
+        let messages = try await conversation.messages(afterNs: afterNs)
         guard !messages.isEmpty else { return }
 
         Log.debug("Found \(messages.count) new messages, catching up...")
@@ -1019,6 +1159,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
+        }
+
+        // Everything in this batch has been applied; advance the cursor to
+        // the newest fetched timestamp (server-stamped, never local clock).
+        if let maxFetchedNs = messages.map(\.sentAtNs).max() {
+            try await databaseWriter.write { db in
+                try DBConversationCatchUpCursor.advance(to: maxFetchedNs, for: conversationId, in: db)
+            }
         }
     }
 
@@ -1090,8 +1238,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let conversationId = conversation.id
             let encryptionKey = try? conversation.imageEncryptionKey
 
-            var latestUpdates: [String: ProfileUpdate] = [:]
-            var latestSnapshot: ProfileSnapshot?
+            var latestUpdates: [String: (update: ProfileUpdate, sentAt: Date)] = [:]
+            var latestSnapshot: (snapshot: ProfileSnapshot, sentAt: Date)?
 
             for message in messages {
                 guard let contentType = try? message.encodedContent.type else { continue }
@@ -1100,9 +1248,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                     guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
                     let inboxId = message.senderInboxId
                     guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
-                    latestUpdates[inboxId] = update
+                    latestUpdates[inboxId] = (update, message.sentAt)
                 } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
-                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                    guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { continue }
+                    latestSnapshot = (snapshot, message.sentAt)
                 }
             }
 
@@ -1110,104 +1259,59 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let resolvedSnapshot = latestSnapshot
 
             try await databaseWriter.write { db in
-                for (inboxId, update) in resolvedUpdates {
-                    let profileMetadata = update.profileMetadata
-                    try Self.applyProfileData(
-                        db: db, conversationId: conversationId, inboxId: inboxId,
-                        name: update.hasName ? update.name : nil,
-                        encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
-                        memberKind: update.memberKind.dbMemberKind,
-                        metadata: profileMetadata.isEmpty ? nil : profileMetadata,
+                let selfInboxId = try DBInbox.currentInboxId(db)
+                for (inboxId, entry) in resolvedUpdates {
+                    let metadata = entry.update.profileMetadata
+                    try ProfileInboundApplier.apply(
+                        db: db,
+                        conversationId: conversationId,
+                        event: ProfileInboundApplier.Incoming(
+                            inboxId: inboxId,
+                            source: .profileUpdate,
+                            name: entry.update.hasName ? entry.update.name : nil,
+                            avatar: .fillIfPresent(entry.update.hasEncryptedImage ? entry.update.encryptedImage : nil),
+                            memberKind: entry.update.memberKind.dbMemberKind,
+                            // Authoritative whole map from the newest replayed
+                            // update; empty propagates as a clear. The recency
+                            // guard keeps an older replay from beating live data.
+                            metadata: metadata,
+                            receivedAt: entry.sentAt
+                        ),
+                        selfInboxId: selfInboxId,
                         fallbackEncryptionKey: encryptionKey
                     )
                 }
 
-                if let snapshot = resolvedSnapshot {
-                    for memberProfile in snapshot.profiles {
+                if let resolvedSnapshot {
+                    for memberProfile in resolvedSnapshot.snapshot.profiles {
                         let inboxId = memberProfile.inboxIdString
                         guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
-
-                        let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
-                        guard existing?.name == nil, existing?.avatar == nil else { continue }
-
-                        let snapshotMetadata = memberProfile.profileMetadata
-                        try Self.applyProfileData(
-                            db: db, conversationId: conversationId, inboxId: inboxId,
-                            name: memberProfile.hasName ? memberProfile.name : nil,
-                            encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
-                            memberKind: memberProfile.memberKind.dbMemberKind,
-                            metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
+                        let metadata = memberProfile.profileMetadata
+                        try ProfileInboundApplier.apply(
+                            db: db,
+                            conversationId: conversationId,
+                            event: ProfileInboundApplier.Incoming(
+                                inboxId: inboxId,
+                                source: .profileSnapshot,
+                                name: memberProfile.hasName ? memberProfile.name : nil,
+                                avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                                memberKind: memberProfile.memberKind.dbMemberKind,
+                                metadata: metadata.isEmpty ? nil : metadata,
+                                receivedAt: resolvedSnapshot.sentAt
+                            ),
+                            selfInboxId: selfInboxId,
                             fallbackEncryptionKey: encryptionKey
                         )
                     }
                 }
             }
 
-            let profileCount = latestUpdates.count + (latestSnapshot?.profiles.count ?? 0)
+            let profileCount = latestUpdates.count + (latestSnapshot?.snapshot.profiles.count ?? 0)
             if profileCount > 0 {
                 Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
             }
         } catch {
             Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
-        }
-    }
-
-    private static func applyProfileData( // swiftlint:disable:this function_parameter_count
-        db: Database,
-        conversationId: String,
-        inboxId: String,
-        name: String?,
-        encryptedImage: EncryptedProfileImageRef?,
-        memberKind: DBMemberKind?,
-        metadata: ProfileMetadata? = nil,
-        fallbackEncryptionKey: Data?
-    ) throws {
-        let member = DBMember(inboxId: inboxId)
-        try member.save(db)
-
-        var profile = try DBMemberProfile.fetchOne(
-            db, conversationId: conversationId, inboxId: inboxId
-        ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
-
-        // Never clear an existing name with a name-less/blank update. This is
-        // the catch-up/history apply path (cold launch, reconnect, conversation
-        // open, backfill) (see DBMemberProfile.withInboundName).
-        profile = profile.withInboundName(name)
-
-        if let image = encryptedImage, image.isValid {
-            profile = profile.with(
-                avatar: image.url, salt: image.salt, nonce: image.nonce,
-                key: profile.avatarKey ?? fallbackEncryptionKey
-            )
-        }
-
-        if let metadata, !metadata.isEmpty {
-            profile = profile.with(metadata: metadata)
-        }
-
-        let priorMemberKind = profile.memberKind
-        if let memberKind {
-            profile = profile.with(memberKind: memberKind)
-
-            if memberKind == .agent {
-                let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                if verification.isVerified {
-                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
-                }
-            }
-        }
-
-        if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
-           !profile.agentVerification.isVerified {
-            profile = profile.with(memberKind: priorMemberKind)
-        }
-
-        try profile.save(db)
-
-        if profile.agentVerification.isConvosAgent,
-           let conversation = try DBConversation.fetchOne(db, id: conversationId),
-           !conversation.hasHadVerifiedAgent {
-            try conversation.with(hasHadVerifiedAgent: true).save(db)
         }
     }
 

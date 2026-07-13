@@ -48,6 +48,60 @@ struct PairingCoordinatorTests {
         #expect(url == "https://example/pair/abc")
     }
 
+    @Test func startPairingRespondingToJoinRequestSkipsToShowingPin() async throws {
+        let service = MockPairingService()
+        let coordinator = PairingCoordinator(pairingService: service)
+        let pin = try await coordinator.startPairing(
+            respondingToJoinerInboxId: "joiner-b",
+            deviceName: "Joiner Phone",
+            initiatorInboxId: "inbox-a"
+        )
+        #expect(pin.count == 6)
+        let state = await coordinator.currentState
+        guard case let .showingPin(shownPin, deviceName, joinerInboxId) = state else {
+            Issue.record("expected showingPin, got \(state)")
+            return
+        }
+        #expect(shownPin == pin)
+        #expect(deviceName == "Joiner Phone")
+        #expect(joinerInboxId == "joiner-b")
+    }
+
+    @Test func respondEntryRejectsWhenAlreadyPairing() async throws {
+        let service = MockPairingService()
+        let coordinator = PairingCoordinator(pairingService: service)
+        _ = try await coordinator.startPairing(
+            respondingToJoinerInboxId: "joiner-b",
+            deviceName: "Joiner Phone",
+            initiatorInboxId: "inbox-a"
+        )
+        await #expect(throws: PairingError.alreadyPairing) {
+            _ = try await coordinator.startPairing(
+                respondingToJoinerInboxId: "joiner-c",
+                deviceName: "Other Phone",
+                initiatorInboxId: "inbox-a"
+            )
+        }
+    }
+
+    @Test func respondEntryContinuesThroughPinEchoToEmoji() async throws {
+        let service = MockPairingService()
+        let coordinator = PairingCoordinator(pairingService: service)
+        let pin = try await coordinator.startPairing(
+            respondingToJoinerInboxId: "joiner-b",
+            deviceName: "Joiner Phone",
+            initiatorInboxId: "inbox-a"
+        )
+        try await coordinator.receivedPinEcho(pin, from: "joiner-b")
+        let state = await coordinator.currentState
+        guard case let .waitingForEmojiConfirmation(emojis, joinerInboxId) = state else {
+            Issue.record("expected waitingForEmojiConfirmation, got \(state)")
+            return
+        }
+        #expect(emojis.count == 3)
+        #expect(joinerInboxId == "joiner-b")
+    }
+
     @Test func wrongPinFails() async throws {
         let service = MockPairingService()
         let coordinator = PairingCoordinator(pairingService: service)

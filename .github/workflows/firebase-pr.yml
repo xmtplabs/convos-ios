@@ -1,31 +1,10 @@
-# Firebase PR Build
+# Firebase PR Build — thin caller. The job lives in convos-releases:
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-firebase-pr.yml
 #
-# Builds the Convos (PR Preview) scheme ad-hoc on every PR and uploads
-# the IPA to Firebase App Distribution so testers can install the change
-# directly from the Firebase tester app, with a separate bundle id
-# (org.convos.ios-preview.pr) so it doesn't collide with TestFlight Dev.
-#
-# Required repository secrets:
-#   CONVOS_CERTIFICATES_TOKEN     - GitHub PAT with read access to
-#                                   xmtplabs/convos-certificates
-#   MATCH_PASSWORD                - Passphrase for the match repo encryption
-#   FIREBASE_SERVICE_ACCOUNT_JSON - Full JSON contents of a service account
-#                                   with the App Distribution Admin role
-#   CACHIX_AUTH_TOKEN             - Auth token for the xmtp Cachix cache
-#                                   (required if the cache is private)
-#
-# Optional repository secret:
-#   SENTRY_DSN_DEV                - Sentry DSN baked into dev/PR builds;
-#                                   Sentry is disabled when unset
-#
-# Required repository variables:
-#   FIREBASE_APP_ID_PR            - Firebase iOS app id (1:NNN:ios:HEX) for
-#                                   org.convos.ios-preview.pr
-#
-# Optional repository variable:
-#   FIREBASE_TESTER_GROUPS        - Comma-separated tester group aliases.
-#                                   Defaults to "xmtp-internal".
-
+# Required repository secrets (passed via `secrets: inherit`):
+#   CONVOS_CERTIFICATES_TOKEN, MATCH_PASSWORD, FIREBASE_SERVICE_ACCOUNT_JSON,
+#   CACHIX_AUTH_TOKEN; optional POSTHOG_API_KEY_DEV, SENTRY_DSN_DEV.
+# Required repository variable: FIREBASE_APP_ID_PR.
 name: Firebase PR Build
 
 on:
@@ -34,7 +13,7 @@ on:
     branches: ["main", "dev"]
     # `labeled` lets contributors trigger a build by adding the
     # `adhoc-build` label without re-pushing. Filtered in the job's `if:`.
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
 
 concurrency:
   group: firebase-pr-${{ github.event.pull_request.number || github.ref }}
@@ -42,114 +21,23 @@ concurrency:
 
 jobs:
   firebase_pr:
-    name: Build & upload to Firebase App Distribution
     # On `labeled`, only run when the `adhoc-build` label is the one being
     # added — otherwise unrelated labels (bug, wip, etc.) would also fire.
     if: github.event.action != 'labeled' || github.event.label.name == 'adhoc-build'
-    runs-on: warp-macos-latest-arm64-12x
-    timeout-minutes: 25
+    # Callers must grant what the reusable workflow's job declares — a called
+    # workflow can't elevate beyond the caller's grant.
     permissions:
       id-token: write
       contents: read
-    env:
+    uses: xmtplabs/convos-releases/.github/workflows/ios-firebase-pr.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
       # Bump both together when Xcode upgrades; the hash is from
       # `nix store add /Applications/Xcode_NN.N.app`.
-      XCODE_APP_PATH: /Applications/Xcode_26.3.app
-      XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Checkout convos-certificates (match repo)
-        uses: actions/checkout@v6
-        with:
-          repository: xmtplabs/convos-certificates
-          token: ${{ secrets.CONVOS_CERTIFICATES_TOKEN }}
-          path: convos-certificates
-          persist-credentials: false
-
-      - name: Install Nix
-        uses: nixbuild/nix-quick-install-action@v33
-        with:
-          nix_conf: |
-            experimental-features = nix-command flakes
-
-      - name: Pin Xcode into /nix/store
-        uses: xmtplabs/xmtp-cache-apple@v1
-        with:
-          xcode-path: ${{ env.XCODE_APP_PATH }}
-          xcode-nix-path: ${{ env.XCODE_NIX_PATH }}
-
-      # Action installs cachix + substituter; push happens manually after
-      # the build so we can exclude Xcode's closure (EULA + 11 GiB).
-      - name: Set up xmtp Cachix cache
-        uses: cachix/cachix-action@v15
-        with:
-          name: xmtp
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Snapshot pre-build store paths
-        run: nix path-info --all | sort > /tmp/store-paths-before
-
-      - name: Enter dev shell
-        uses: nicknovitski/nix-develop@v1
-        with:
-          arguments: "--accept-flake-config --impure"
-
-      - name: Verify Xcode
-        run: xcodebuild -version
-
-      # PR builds reuse Dev backend (config.pr.json), so empty env is fine.
-      - name: Generate Secrets.swift
-        env:
-          BUILD_CONFIGURATION: Dev
-          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY_DEV }}
-          SENTRY_DSN_DEV: ${{ secrets.SENTRY_DSN_DEV }}
-        run: ./Scripts/generate-secrets-secure.sh
-
-      - name: Run fastlane firebase_pr
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          # CI uses local match checkout; local dev uses SSH (Matchfile default).
-          MATCH_GIT_URL: ${{ github.workspace }}/convos-certificates
-          FIREBASE_APP_ID_PR: ${{ vars.FIREBASE_APP_ID_PR }}
-          # JSON piped through env, never on disk.
-          FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS || 'xmtp-internal' }}
-          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_PR_TITLE: ${{ github.event.pull_request.title }}
-        run: fastlane firebase_pr
-
-      - name: Upload IPA artifact
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: Convos-PR-${{ github.event.pull_request.number || github.run_id }}.ipa
-          path: build/Convos-PR.ipa
-          if-no-files-found: warn
-          retention-days: 14
-
-      # Push paths produced this job, minus Xcode and anything whose
-      # closure references it. Skipped on failure to avoid caching
-      # half-built derivations that would poison subsequent runs.
-      - name: Push new paths to xmtp Cachix
-        if: success()
-        run: |
-          set -e
-          new_paths=$(comm -13 \
-            /tmp/store-paths-before \
-            <(nix path-info --all | sort))
-          if [ -z "$new_paths" ]; then
-            echo "No new paths to push."
-            exit 0
-          fi
-          # Single DB query for the tainted set (Xcode + every path whose
-          # closure includes it), then set-difference against new paths.
-          tainted=$(nix-store --query --referrers-closure "$XCODE_NIX_PATH" | sort -u)
-          to_push=$(comm -23 <(echo "$new_paths" | sort -u) <(echo "$tainted"))
-          if [ -z "$to_push" ]; then
-            echo "Nothing to push after filtering."
-            exit 0
-          fi
-          echo "Pushing $(echo "$to_push" | wc -l | tr -d ' ') paths to xmtp cache"
-          echo "$to_push" | xargs cachix push xmtp
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+      firebase-app-id: ${{ vars.FIREBASE_APP_ID_PR }}
+      tester-groups: ${{ vars.FIREBASE_TESTER_GROUPS || 'xmtp-internal' }}
+      pr-number: ${{ github.event.pull_request.number || '' }}
+      pr-title: ${{ github.event.pull_request.title || '' }}
+    secrets: inherit

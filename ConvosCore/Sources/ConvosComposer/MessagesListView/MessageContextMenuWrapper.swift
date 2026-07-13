@@ -21,6 +21,7 @@ extension EnvironmentValues {
 struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
+    var segment: MessageBubbleSegment = .whole
     /// Whether the source bubble's long-body inline expansion is currently on,
     /// captured into the context menu so its preview matches the on-screen
     /// bubble. Only the text-bubble path ever passes a non-default value.
@@ -40,7 +41,9 @@ struct MessageGestureModifier: ViewModifier {
     @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
     private var isSourceBubble: Bool {
-        !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
+        !contextMenuState.isReplyParent
+            && contextMenuState.presentedMessage?.messageId == message.messageId
+            && contextMenuState.presentedSegment == segment
     }
 
     private var doubleTapEmoji: String {
@@ -144,7 +147,8 @@ struct MessageGestureModifier: ViewModifier {
             message: message,
             bubbleFrame: frame,
             bubbleStyle: bubbleStyle,
-            isExpanded: isExpanded
+            isExpanded: isExpanded,
+            segment: segment
         )
     }
 
@@ -208,6 +212,7 @@ extension View {
     func messageGesture(
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
+        segment: MessageBubbleSegment = .whole,
         isExpanded: Bool = false,
         onSingleTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
@@ -218,6 +223,7 @@ extension View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
+            segment: segment,
             isExpanded: isExpanded,
             onSingleTap: onSingleTap,
             onDoubleTap: onDoubleTap,

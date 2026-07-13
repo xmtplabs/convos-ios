@@ -8,6 +8,7 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setHidesInviteCard(_ hidesInviteCard: Bool, for conversationId: String) async throws
     func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws
     func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws
+    func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -102,6 +103,12 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
     func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws {
         try await updateLocalState(for: conversationId) { state in
             state.with(hasSharedInvite: hasSharedInvite)
+        }
+    }
+
+    func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(publishedProfileUpdatedAt: publishedProfileUpdatedAt)
         }
     }
 

@@ -38,6 +38,19 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// without a destructive warning.
     func hasAnyUsedConversations() async -> Bool
 
+    /// Identities found in the iCloud-synced keychain backup slot that
+    /// don't match this install's identity - other devices on the same
+    /// iCloud account the user could pair with. Newest backup first.
+    /// Drives the first-install "Pair <device>?" prompt; returns an empty
+    /// array when there is nothing to offer.
+    func pairableDeviceBackups() async -> [PairableDeviceBackup]
+
+    /// Mints a signed pairing-invite slug on behalf of the backed-up
+    /// device (its synced private key signs the invite, exactly like the
+    /// QR flow does on the initiator), so the joiner flow can target that
+    /// device without scanning anything.
+    func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String
+
     // MARK: Inbox Management
 
     /// Returns the shared messaging service and an optional conversation id
@@ -244,6 +257,18 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 }
 
 extension SessionManagerProtocol {
+    /// Default for conformers without keychain access (test mocks): no
+    /// other devices to pair with. The real lookup lives on `SessionManager`.
+    public func pairableDeviceBackups() async -> [PairableDeviceBackup] {
+        []
+    }
+
+    /// Default for conformers without keychain access (test mocks). The
+    /// real signing path lives on `SessionManager`.
+    public func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
+        throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
+    }
+
     /// Default agent-share resolver. Returns the mock until the API-backed
     /// resolver is wired into `SessionManager`, so every conformer (including
     /// test mocks) gets a working resolver without bespoke wiring.

@@ -974,11 +974,17 @@ extension MessagesViewController {
         // The `.invite` cell is the top-of-convo invite surface: it renders the
         // full inline Invite/Scan card during an active hosted session
         // (`showsInviteScanCard`) and the regular inviter QR + menu once the
-        // session ends. There is no longer a pinned overlay to dedupe against.
-        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
-            if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
+        // session ends. While the card is active it is the single host for the
+        // whole embedded flow, including the pre-creation draft and the
+        // scan-join placeholder/claimed windows: the conversation swaps of a
+        // scan join reconfigure the one cell in place instead of deleting and
+        // re-inserting it, which would cross-fade two stacked cards and reset
+        // the camera mid-flow.
+        if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
+            let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
+            if showsInviteScanCard || hostsInviteHeader {
                 cells.insert(.invite(invite), at: 0)
-            } else if headerMode == .standard, !hasVerifiedConvosAgent {
+            } else if !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
         }

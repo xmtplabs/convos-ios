@@ -2,11 +2,26 @@
 import ConvosCore
 import SwiftUI
 
+/// Identifies which visual piece of a message a gesture targets. A text
+/// message with an edge link renders as multiple cells (link preview card
+/// plus stripped text bubble), and the context menu must present only the
+/// pressed cell, with its actual content.
+public enum MessageBubbleSegment: Equatable {
+    public enum Edge: String {
+        case leading, trailing
+    }
+
+    case whole
+    case splitText(String)
+    case splitLink(LinkPreview, Edge)
+}
+
 @Observable
 public class MessageContextMenuState: @unchecked Sendable {
     public init() {}
 
     public var presentedMessage: AnyMessage?
+    public var presentedSegment: MessageBubbleSegment = .whole
     public var bubbleFrame: CGRect = .zero
     public var isOutgoing: Bool = false
     public var bubbleStyle: MessageBubbleType = .normal
@@ -32,11 +47,12 @@ public class MessageContextMenuState: @unchecked Sendable {
         return dx > 2 || dy > 2
     }
 
-    public func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType, isExpanded: Bool) {
+    public func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType, isExpanded: Bool, segment: MessageBubbleSegment = .whole) {
         self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = bubbleStyle
         self.isReplyParent = false
+        self.presentedSegment = segment
         self.isExpanded = isExpanded
         self.presentedMessage = message
     }
@@ -48,11 +64,13 @@ public class MessageContextMenuState: @unchecked Sendable {
         self.isReplyParent = true
         self.isExpanded = false
         self.sourceID = sourceID
+        self.presentedSegment = .whole
         self.presentedMessage = message
     }
 
     public func dismiss() {
         presentedMessage = nil
+        presentedSegment = .whole
         isReplyParent = false
         isExpanded = false
         sourceID = nil

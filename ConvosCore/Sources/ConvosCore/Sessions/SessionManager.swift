@@ -29,6 +29,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    /// Launch-time task that builds the messaging service (which starts profile
+    /// services). Stored so teardown can cancel it before it can rebuild - and
+    /// re-register - an inbox after a `deleteAllInboxes` wipe.
+    private var serviceBootstrapTask: Task<Void, Never>?
+    /// Task that starts profile services for a freshly built messaging service.
+    /// Stored/cancelled for the same reason as `serviceBootstrapTask`: it
+    /// re-enters `loadOrCreateService`, which would re-register an inbox on an
+    /// empty keychain after teardown if left to fire.
+    private var profileServicesTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
@@ -171,6 +180,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 )
                 await renewalManager.performRenewalIfNeeded()
             }
+
+            // Ensure the messaging service is built at launch. Building it starts
+            // its profile services (backfill + warmUp + bind the publish session)
+            // via loadOrCreateService's freshly-built hook, so we don't call
+            // startProfileServices here as well - that would double-run backfill.
+            // Stored + cancellation-checked so a concurrent teardown cannot let
+            // this rebuild (and re-register) an inbox after a delete-all wipe.
+            self.serviceBootstrapTask = Task { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                _ = self.loadOrCreateService()
+            }
         }
     }
 
@@ -179,6 +199,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         foregroundObserverTask?.cancel()
         staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
+        serviceBootstrapTask?.cancel()
+        profileServicesTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
@@ -289,13 +311,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     ///   fresh allocation, no fresh state machine, no fresh task — this
     ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
-        cachedMessagingService.withLock { cached in
+        let result: (service: MessagingService, freshlyBuilt: Bool) = cachedMessagingService.withLock { cached in
             let previousWasErrored: Bool
             if let existing = cached {
                 if case .error = existing.sessionStateManager.currentState {
                     previousWasErrored = true
                 } else {
-                    return existing
+                    return (existing, false)
                 }
             } else {
                 previousWasErrored = false
@@ -315,7 +337,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                consecutiveKeychainReadFailures >= 2,
                let lastFailure = lastKeychainReadFailure,
                Date().timeIntervalSince(lastFailure) < Self.keychainRetryBackoff {
-                return existing
+                return (existing, false)
             }
 
             let identity: KeychainIdentity?
@@ -329,7 +351,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 if previousWasErrored, let existing = cached {
                     // Still unhappy; return the frozen errored service we
                     // cached on the previous call. No rebuild thrash.
-                    return existing
+                    return (existing, false)
                 }
                 Log.error("Keychain identity read failed (\(error)); caching dedicated error-state service until next successful read.")
                 let errored = MessagingService(
@@ -343,13 +365,36 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     coreActions: coreActions
                 )
                 cached = errored
-                return errored
+                return (errored, false)
             }
 
             let service = buildMessagingService(for: identity)
             cached = service
-            return service
+            return (service, true)
         }
+        if result.freshlyBuilt {
+            // A freshly built service has an unattached publish session. Start
+            // its profile services (backfill + warmUp + bind the publisher) so
+            // profile edits actually publish in this app session. Without this,
+            // only the one-time launch initialization attaches the session, so a
+            // service rebuilt after deleteAllInboxes / refreshAfterPairingCompleted
+            // would leave edits enqueued-but-undelivered until the next relaunch.
+            // The re-fetch returns the just-cached instance (not freshly built,
+            // so it does not re-trigger). startProfileServices self-gates on
+            // inbox-ready.
+            profileServicesTask?.cancel()
+            profileServicesTask = Task { [weak self] in
+                guard let self else { return }
+                // Cancellation is cooperative: a task cancelled while still
+                // queued (e.g. tearDownInbox during delete-all) still enters
+                // its closure. Bail before loadOrCreateService, which would
+                // otherwise rebuild a service from the just-wiped keychain and
+                // re-register a fresh inbox.
+                guard !Task.isCancelled else { return }
+                await self.loadOrCreateService().startProfileServices()
+            }
+        }
+        return result.service
     }
 
     /// Build a `MessagingService` for the keychain's current identity, or
@@ -523,6 +568,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Cancel the launch-time bootstrap and the freshly-built profile-services
+        // task first so neither can rebuild - and re-register - an inbox after the
+        // wipe below clears the keychain and the cached service.
+        serviceBootstrapTask?.cancel()
+        serviceBootstrapTask = nil
+        profileServicesTask?.cancel()
+        profileServicesTask = nil
+
         await unusedConversationCache.cancel()
 
         // Keep the cached service reference live through the entire teardown.
@@ -537,6 +590,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         if let existing {
             Log.info("Tearing down authorized inbox")
+            await existing.stopProfileServices()
             await existing.stopAndDelete()
             await existing.waitForDeletionComplete()
         }
@@ -550,35 +604,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // Reached only from "Delete All Data" / delete-all-inboxes, which
-            // is a full local account reset rather than a per-conversation
-            // cleanup. Some tables intentionally survive conversation deletion
-            // during normal app use (for example `contact` uses `setNull` on
-            // `addedViaConversationId` so a contact can outlive a single
-            // source conversation), so we must explicitly clear those account-
-            // scoped tables here as well.
-            try DBCloudConnectionGrant.deleteAll(db)
-            try DBCloudConnection.deleteAll(db)
-            try DBCapabilityResolution.deleteAll(db)
-            try DBCreditBalance.deleteAll(db)
-            try DBConversationReadReceipt.deleteAll(db)
-            try DBPendingPhotoUpload.deleteAll(db)
-            try DBBuilderBundleHiddenMessage.deleteAll(db)
-            try DBVoiceMemoTranscript.deleteAll(db)
-            try AttachmentLocalState.deleteAll(db)
-            try DBPhotoPreferences.deleteAll(db)
-            try ConversationLocalState.deleteAll(db)
-            try DBInvite.deleteAll(db)
-            try DBConversationContactsSync.deleteAll(db)
-            try DBAgentTemplate.deleteAll(db)
-            try DBMessage.deleteAll(db)
-            try DBMemberProfile.deleteAll(db)
-            try DBConversationMember.deleteAll(db)
-            try DBContact.deleteAll(db)
-            try DBMember.deleteAll(db)
-            try DBConversation.deleteAll(db)
-            try DBInbox.deleteAll(db)
-            try DBMyProfile.deleteAll(db)
+            try Self.wipeAccountScopedRows(db)
         }
     }
 
@@ -928,6 +954,57 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 }
 
+// MARK: - Account reset
+
+extension SessionManager {
+    /// Clears every account-scoped table in a full local reset ("Delete All
+    /// Data" / delete-all-inboxes). Some tables intentionally survive
+    /// conversation deletion during normal app use (for example `contact`
+    /// uses `setNull` on `addedViaConversationId` so a contact can outlive a
+    /// single source conversation), so a full reset must clear them here.
+    ///
+    /// Internal (not private) so the clean-slate guarantee can be unit-tested:
+    /// a residual row after this runs means a re-paired or different account
+    /// inherits stale data.
+    static func wipeAccountScopedRows(_ db: Database) throws {
+        try DBCloudConnectionGrant.deleteAll(db)
+        try DBCloudConnection.deleteAll(db)
+        try DBCapabilityResolution.deleteAll(db)
+        try DBCreditBalance.deleteAll(db)
+        try DBConversationReadReceipt.deleteAll(db)
+        // conversation_catchup_cursors rows cascade with the DBConversation
+        // deleteAll below (covered by
+        // ConversationCatchUpCursorTests.deletingConversationCascades).
+        try DBPendingPhotoUpload.deleteAll(db)
+        try DBBuilderBundleHiddenMessage.deleteAll(db)
+        try DBVoiceMemoTranscript.deleteAll(db)
+        try AttachmentLocalState.deleteAll(db)
+        try DBPhotoPreferences.deleteAll(db)
+        try ConversationLocalState.deleteAll(db)
+        try DBInvite.deleteAll(db)
+        try DBConversationContactsSync.deleteAll(db)
+        try DBAgentTemplate.deleteAll(db)
+        try DBMessage.deleteAll(db)
+        try DBMemberProfile.deleteAll(db)
+        try DBMemberDeparture.deleteAll(db)
+        try DBConversationMember.deleteAll(db)
+        try DBContact.deleteAll(db)
+        try DBMember.deleteAll(db)
+        try DBConversation.deleteAll(db)
+        try DBInbox.deleteAll(db)
+        try DBMyProfile.deleteAll(db)
+        // Canonical profile tables. Account-scoped and survive conversation
+        // deletion, so a full reset must clear them too; otherwise a re-paired
+        // or different account inherits stale identities, avatars, and queued
+        // publish jobs.
+        try DBProfile.deleteAll(db)
+        try DBProfileAvatar.deleteAll(db)
+        try DBProfileAvatarSource.deleteAll(db)
+        try DBProfilePublishJob.deleteAll(db)
+        try DBSelfConversationMetadata.deleteAll(db)
+    }
+}
+
 // MARK: - Engagement-gated discard
 
 extension SessionManager {
@@ -1040,6 +1117,53 @@ public extension SessionManager {
             Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
             return false
         }
+    }
+
+    /// Reads the iCloud-synced backup slot and returns every identity that
+    /// isn't this install's own (a fresh install's placeholder identity
+    /// mirrors itself into the slot, so it must be excluded), newest
+    /// backup first. Best-effort: keychain failures return an empty list
+    /// so the prompt simply doesn't show.
+    ///
+    /// The backups are read before the primary slot on purpose: a backup
+    /// mirror is only ever written after its primary, so any identity
+    /// present in the backups read here is guaranteed visible to the
+    /// `loadSync()` that follows. Reading in the other order races silent
+    /// identity registration and could report this install's own
+    /// just-created placeholder as pairable.
+    ///
+    /// A nil primary identity is expected on a true first launch (the
+    /// check runs from the chats list's onAppear, which can beat silent
+    /// registration) and means nothing needs excluding. Only a throwing
+    /// primary read hides the backups, since then an own mirror can't be
+    /// told apart from another device's.
+    func pairableDeviceBackups() async -> [PairableDeviceBackup] {
+        do {
+            let backups = try await identityStore.loadSyncedBackups()
+            let currentInboxId = try identityStore.loadSync()?.inboxId
+            return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
+        } catch {
+            Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")
+            return []
+        }
+    }
+
+    /// Signs a pairing invite with the synced backup's private key. The
+    /// key never leaves ConvosCore - the caller only receives the slug,
+    /// which carries the same authority as a slug minted by the backed-up
+    /// device itself, so the joiner's signature and identity-share address
+    /// checks hold unchanged.
+    func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
+        let backups = try await identityStore.loadSyncedBackups()
+        guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
+            throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
+        }
+        let invite = try await PairingInvite.signed(
+            initiatorInboxId: backup.inboxId,
+            privateKey: backup.privateKey,
+            expiresAt: expiresAt
+        )
+        return try invite.toURLSafeSlug()
     }
 
     /// Called after a successful pairing on the joiner side. The paired
@@ -1205,6 +1329,7 @@ extension SessionManager {
         )
         let instanceId = resolved.instanceId
         let agentInboxId = resolved.inboxId
+        Log.info("Direct-add: provisioned instance \(instanceId) with inbox \(agentInboxId); adding to conversation \(conversationId)")
 
         // 2. Add: a plain member add by this device — synchronous, no DM
         //    round-trip, no online-accepter dependency. The add durably

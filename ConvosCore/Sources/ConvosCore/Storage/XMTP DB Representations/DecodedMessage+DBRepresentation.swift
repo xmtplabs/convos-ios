@@ -65,6 +65,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleRemoteAttachmentContent()
         case ContentTypeGroupUpdated:
             components = try handleGroupUpdatedContent()
+        case ContentTypeLeaveRequest:
+            components = handleLeaveRequestContent()
         case ContentTypeExplodeSettings:
             components = try handleExplodeSettingsContent()
         case ContentTypeAgentJoinRequest:
@@ -88,7 +90,7 @@ extension XMTPiOS.DecodedMessage {
         default:
             // Read receipts are dropped silently above because of their volume;
             // anything else without a registered codec gets a trace so unknown
-            // inbound traffic (e.g. LeaveRequest) is visible in exported logs.
+            // inbound traffic is visible in exported logs.
             let version = "\(encodedContentType.versionMajor).\(encodedContentType.versionMinor)"
             Log.warning(
                 "Dropping message \(id) (dateNs=\(sentAtNs)) in conversation \(conversationId) from \(senderInboxId): "
@@ -477,11 +479,46 @@ extension XMTPiOS.DecodedMessage {
                     )
                 }
             }
+        // `groupUpdated.leftInboxes` (self-removals finalized by an authorized
+        // client) is deliberately not mapped: the leaver's earlier
+        // leave-request message already produced the visible "left" update
+        // (see `handleLeaveRequestContent`), so rendering the finalization
+        // commit too would duplicate the transcript row. `removedInboxes`
+        // only carries admin-initiated removals.
         let update = DBMessage.Update(
             initiatedByInboxId: groupUpdated.initiatedByInboxID,
             addedInboxIds: groupUpdated.addedInboxes.map { $0.inboxID },
             removedInboxIds: groupUpdated.removedInboxes.map { $0.inboxID },
             metadataChanges: metadataFieldChanges,
+            expiresAt: nil
+        )
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .update,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: nil,
+            update: update
+        )
+    }
+
+    /// A leave-request message is the sender announcing their own departure.
+    /// The MLS remove-commit that actually drops them from the roster is
+    /// finalized later by an authorized client, so this message is the prompt
+    /// signal remote devices key the "left" transcript row and member-list
+    /// drop off. Stored as a membership update where the sender both
+    /// initiated the change and is the removed member -- that identity is how
+    /// rendering distinguishes a self-leave from an admin removal. The later
+    /// finalization commit reports the leaver via `leftInboxes`, which is
+    /// deliberately not rendered (see `handleGroupUpdatedContent`), so the
+    /// transcript never shows the departure twice.
+    private func handleLeaveRequestContent() -> DBMessageComponents {
+        let update = DBMessage.Update(
+            initiatedByInboxId: senderInboxId,
+            addedInboxIds: [],
+            removedInboxIds: [senderInboxId],
+            metadataChanges: [],
             expiresAt: nil
         )
         return DBMessageComponents(

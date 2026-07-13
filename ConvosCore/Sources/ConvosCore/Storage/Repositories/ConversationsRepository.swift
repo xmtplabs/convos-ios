@@ -235,15 +235,26 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
 
         return self
             .including(all: DBConversation.invites)
+            // Optional join: a creator who left the group has no
+            // conversation_members row anymore, and a required join would
+            // silently drop the conversation from every list and detail
+            // query on the remaining members' devices. The nested profile
+            // joins must also be optional -- GRDB cannot chain a required
+            // association behind an optional one.
             .including(
-                required: DBConversation.creator
+                optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .including(required: DBConversation.localState)
             .including(optional: DBConversation.agentBuilderSummary)
@@ -255,11 +266,16 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                 all: DBConversation._members
                     .forKey("conversationMembers")
                     .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
                     ])
-                    .including(required: DBConversationMember.memberProfile)
-                    .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
+                    .including(optional: DBConversationMember.myProfileIdentity)
+                    .including(optional: DBConversationMember.inviterMyProfileIdentity)
             )
             .group(DBConversation.Columns.id)
             .order(sql: "COALESCE(conversationLastMessageWithSource.date, conversation.createdAt) DESC")
