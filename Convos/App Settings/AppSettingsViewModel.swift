@@ -10,6 +10,10 @@ final class AppSettingsViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var deletionProgress: InboxDeletionProgress?
     private(set) var deletionError: Error?
+    /// Whether this device holds the account's main (oldest) iCloud key.
+    /// Escalates the delete-all confirmation copy - wiping the main
+    /// device removes the key other devices pair through.
+    private(set) var currentDeviceIsMain: Bool = false
 
     // MARK: - Dependencies
 
@@ -34,6 +38,14 @@ final class AppSettingsViewModel {
     }
 
     // MARK: - Actions
+
+    /// Refreshes the main-device designation for the delete-all
+    /// confirmation. Best-effort - defaults to false on failure so the
+    /// escalated warning never blocks a legitimate delete.
+    func refreshMainDeviceStatus() async {
+        let snapshot = await session.iCloudDeviceBackupsSnapshot()
+        currentDeviceIsMain = snapshot.currentDeviceIsMain
+    }
 
     func deleteAllData(onComplete: @escaping () -> Void) {
         guard !isDeleting else { return }

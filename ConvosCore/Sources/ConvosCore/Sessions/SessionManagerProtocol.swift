@@ -45,6 +45,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// array when there is nothing to offer.
     func pairableDeviceBackups() async -> [PairableDeviceBackup]
 
+    /// The full iCloud backup inventory for the Devices screen: the
+    /// current identity's own mirror plus every other identity's backup,
+    /// unfiltered by the prompt's ordering rule (see
+    /// `ICloudDeviceBackupsSnapshot`).
+    func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot
+
     /// Mints a signed pairing-invite slug on behalf of the backed-up
     /// device (its synced private key signs the invite, exactly like the
     /// QR flow does on the initiator), so the joiner flow can target that
@@ -261,6 +267,12 @@ extension SessionManagerProtocol {
     /// other devices to pair with. The real lookup lives on `SessionManager`.
     public func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         []
+    }
+
+    /// Default for conformers without keychain access (test mocks): an
+    /// empty inventory. The real lookup lives on `SessionManager`.
+    public func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
+        ICloudDeviceBackupsSnapshot(currentDevice: nil, otherDevices: [])
     }
 
     /// Default for conformers without keychain access (test mocks). The
