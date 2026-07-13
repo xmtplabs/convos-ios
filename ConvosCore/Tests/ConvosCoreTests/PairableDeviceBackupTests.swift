@@ -183,6 +183,18 @@ struct ICloudDeviceBackupsSnapshotTests {
         #expect(!allUndated.currentDeviceIsMain)
     }
 
+    @Test("Identical timestamps tie-break deterministically on the smaller inboxId")
+    func identicalTimestampsTieBreak() throws {
+        let sameInstant = Date(timeIntervalSince1970: 1_000)
+        let alpha = try makeBackup(inboxId: "aaa", backedUpAt: sameInstant)
+        let beta = try makeBackup(inboxId: "bbb", backedUpAt: sameInstant)
+
+        let snapshot = ICloudDeviceBackupsSnapshot.snapshot(from: [beta, alpha], currentInboxId: "bbb")
+
+        #expect(snapshot.mainDeviceInboxId == "aaa")
+        #expect(!snapshot.currentDeviceIsMain)
+    }
+
     @Test("Keys named like a paired device are hidden; unnamed keys never are")
     func filtersKeysNamedLikePairedDevices() throws {
         let own = try makeBackup(inboxId: "own", backedUpAt: Date(timeIntervalSince1970: 3_000))

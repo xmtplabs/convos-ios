@@ -140,6 +140,13 @@ final class DevicesViewModel {
     func refreshICloudDevices() async {
         guard let session else { return }
         iCloudSnapshot = await session.iCloudDeviceBackupsSnapshot()
+        // Observability for the name-based filter's documented trade-off:
+        // when keys are hidden, record how many so over-filtering of
+        // same-named devices is visible in QA runs and logs.
+        let hiddenCount = iCloudSnapshot.otherDevices.count - iCloudDevices.count
+        if hiddenCount > 0 {
+            QAEvent.emit(.pairing, "devices_icloud_keys_filtered", ["count": "\(hiddenCount)"])
+        }
     }
 
     /// Starts the initiator pairing flow targeted at a specific iCloud
