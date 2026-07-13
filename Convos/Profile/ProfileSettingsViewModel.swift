@@ -1,4 +1,5 @@
 import Combine
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 

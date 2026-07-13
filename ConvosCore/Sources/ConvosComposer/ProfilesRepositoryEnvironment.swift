@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -10,15 +11,16 @@ private struct ProfilesRepositoryKey: EnvironmentKey {
     static let defaultValue: ProfilesRepository? = nil
 }
 
-extension EnvironmentValues {
+public extension EnvironmentValues {
     var profilesRepository: ProfilesRepository? {
         get { self[ProfilesRepositoryKey.self] }
         set { self[ProfilesRepositoryKey.self] = newValue }
     }
 }
 
-extension View {
+public extension View {
     func profilesRepository(_ repository: ProfilesRepository?) -> some View {
         environment(\.profilesRepository, repository)
     }
 }
+#endif

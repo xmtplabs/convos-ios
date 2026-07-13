@@ -55,3 +55,4 @@ typealias DeepLinkHandler = ConvosComposer.DeepLinkHandler
 typealias QRImageDecoder = ConvosComposer.QRImageDecoder
 typealias TextTitleContentView = ConvosComposer.TextTitleContentView
 typealias ConversationVariantBanner = ConvosComposer.ConversationVariantBanner
+typealias InboxProfileAvatarView = ConvosComposer.InboxProfileAvatarView
