@@ -823,6 +823,7 @@ extension ConversationsViewModel {
             connectingMessage: connectingMessage,
             resendJoinRequestInterval: resendJoinRequestInterval,
             pairingService: session.joinerPairingService(),
+            coreActions: coreActions,
             onPairingAdopted: { [weak self] in
                 await self?.session.refreshAfterPairingCompleted()
             },
@@ -1172,7 +1173,8 @@ extension ConversationsViewModel {
         incomingPairingRequest = PairingSheetViewModel(
             pairingService: DeferredInitiatorPairingService(session: session),
             mode: .respondToJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName),
-            appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+            appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier,
+            coreActions: coreActions
         )
     }
 

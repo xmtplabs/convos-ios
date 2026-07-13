@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import Observation
 import SwiftUI
 
@@ -57,7 +58,9 @@ final class PairingSheetViewModel: Identifiable {
         return false
     }
 
-    var flowState: PairingFlowState = .qrCode(url: "")
+    var flowState: PairingFlowState = .qrCode(url: "") {
+        didSet { trackFlowState() }
+    }
     var canDismiss: Bool = true
     var title: String = "Pair new device"
     var secondsRemaining: Int = 60
@@ -73,17 +76,21 @@ final class PairingSheetViewModel: Identifiable {
     private var countdownTask: Task<Void, Never>?
     @ObservationIgnored
     private let observers: PairingNotificationObservers
+    @ObservationIgnored
+    private let metrics: DevicePairingMetricsTracker
 
     init(
         pairingService: any PairingServiceProtocol,
         timeoutInterval: TimeInterval = 120,
         mode: PairingSheetMode = .createInvite,
-        appGroupIdentifier: String? = nil
+        appGroupIdentifier: String? = nil,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.pairingService = pairingService
         self.appGroupIdentifier = appGroupIdentifier
         self.timeoutInterval = timeoutInterval
         self.mode = mode
+        self.metrics = DevicePairingMetricsTracker(role: .initiator, coreActions: coreActions)
         self.secondsRemaining = Int(timeoutInterval)
         self.observers = PairingNotificationObservers()
         if case .respondToJoinRequest = mode {
@@ -127,8 +134,24 @@ final class PairingSheetViewModel: Identifiable {
         }
     }
 
+    /// Routes every `flowState` transition into the metrics tracker so all
+    /// paths to a terminal state (stream errors, coordinator failures,
+    /// countdown expiry) are counted without per-site tracking calls.
+    private func trackFlowState() {
+        switch flowState {
+        case .qrCode: metrics.reached(.qrDisplayed)
+        case .showingPin: metrics.reached(.pinShown)
+        case .emojiConfirmation: metrics.reached(.emojiConfirmation)
+        case .syncing: metrics.reached(.syncing)
+        case .completed: metrics.completed()
+        case .failed: metrics.failed(.error)
+        case .expired: metrics.failed(.expired)
+        }
+    }
+
     func startPairing() async {
         Self.active = self
+        metrics.started()
         switch mode {
         case .createInvite:
             await startInviteFlow()
@@ -336,6 +359,7 @@ final class PairingSheetViewModel: Identifiable {
     }
 
     func cancel() async {
+        metrics.cancelled()
         countdownTask?.cancel()
         if let coordinator, let joinerInboxId {
             let state = await coordinator.currentState
