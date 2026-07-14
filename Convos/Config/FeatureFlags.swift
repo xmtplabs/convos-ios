@@ -40,6 +40,21 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- opts libxmtp streams onto the shared bidi wire by
+    /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
+    /// flips take effect on the next launch). Hard-locked off in production
+    /// until the production backend serves the bidi surface.
+    var isXMTPBidiStreamsEnabled: Bool {
+        get {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.xmtpBidiStreamsEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -80,5 +95,6 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
     }
 }
