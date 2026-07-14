@@ -9,11 +9,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1783964180,
-        "narHash": "sha256-YSZOkFVYQzq5prx0hWFpB5Ch0MsF3OeQH6QFNF0ptqE=",
+        "lastModified": 1784059942,
+        "narHash": "sha256-CU6e5aoefzgDPd4mqslBz9lDiRYrQQqV2t9bRLvLADY=",
         "owner": "xmtplabs",
         "repo": "convos-releases",
-        "rev": "de23b401de869840f818de6ee2e73248e4510c9c",
+        "rev": "3eeda88e0faac8a6393f1ec30dd002fd1971b0a0",
         "type": "github"
       },
       "original": {
