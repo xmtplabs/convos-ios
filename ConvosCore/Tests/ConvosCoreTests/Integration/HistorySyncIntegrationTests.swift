@@ -13,23 +13,14 @@ import Testing
 /// promise: the request round-trips to the history server, and a live
 /// peer installation answers it with an archive the requester imports.
 ///
-/// Both tests are disabled until libxmtp fixes its rustls crypto-provider
-/// initialization on Apple platforms. The provider is installed via the
-/// `ctor` crate's static constructor (xmtp_cryptography/src/lib.rs), but
-/// ctor 0.12's dispatcher never registers as a Mach-O initializer when
-/// libxmtpv3.a is linked, so the provider is never set and the device-sync
-/// worker's first history-server HTTP call dies in reqwest's
-/// `panic!("No provider set")` - which aborts the process (the xcframework
-/// builds with `panic = 'abort'`). Validated here up to that point: the
-/// sync request lands in the sync group, the peer's worker answers and
-/// starts the archive upload, then the panic kills the test run. Remove
-/// the `.disabled` traits once a fixed libxmtp lands.
+/// These tests require a libxmtp build that installs its rustls crypto
+/// provider explicitly from the binding entry points (nightly 20260714 or
+/// later). Earlier builds relied on a ctor-crate static constructor that
+/// never runs when libxmtpv3.a is linked into a Swift binary, so the
+/// device-sync worker's first history-server HTTP call panicked
+/// ("No provider set") and aborted the process.
 @Suite("History Sync Integration Tests", .serialized)
 struct HistorySyncIntegrationTests {
-    private static let upstreamBlocker: Comment = """
-    blocked upstream: libxmtp's rustls provider ctor never runs on Apple \
-    platforms; the device-sync archive upload panics and aborts the process
-    """
     /// Creates a client in its own temp database directory. Passing the
     /// same `account` twice yields two installations of one inbox - the
     /// same shape pairing produces (initiator + joiner).
@@ -52,10 +43,7 @@ struct HistorySyncIntegrationTests {
         return try await Client.create(account: account, options: options)
     }
 
-    @Test(
-        "A second installation's history sync request reaches the history server",
-        .disabled(Self.upstreamBlocker)
-    )
+    @Test("A second installation's history sync request reaches the history server")
     func historySyncRequestSucceeds() async throws {
         let account = try PrivateKey.generate()
         let first = try await createClient(account: account)
@@ -79,7 +67,6 @@ struct HistorySyncIntegrationTests {
 
     @Test(
         "History sync delivers pre-pairing messages to a new installation",
-        .disabled(Self.upstreamBlocker),
         .timeLimit(.minutes(3))
     )
     func historySyncDeliversOldMessages() async throws {
