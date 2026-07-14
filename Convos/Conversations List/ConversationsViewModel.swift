@@ -980,6 +980,11 @@ extension ConversationsViewModel {
         // immediately so the sheet really is the first thing a new user
         // sees.
         if await session.registeredFreshIdentityThisLaunch() {
+            // Re-check the pairing guards: a deep-link pairing flow can
+            // start while the await above is suspended.
+            guard pendingJoinerPairing == nil,
+                  foundDevicePairingPrompt == nil,
+                  incomingPairingRequest == nil else { return }
             presentingFirstLaunchProfileSetup = true
             QAEvent.emit(.onboarding, "first_launch_profile_sheet_shown", ["path": "fresh_install"])
             return

@@ -54,6 +54,11 @@ struct ProfileSetupSheet: View {
     /// seeded from default values, and saving that stale draft would clear
     /// the stored avatar.
     @State private var hasEditedDraft: Bool = false
+    /// Whether the user explicitly removed the photo this session. Keeps
+    /// the save gate satisfiable for a photo-only profile (no name), where
+    /// removal would otherwise drop the draft below the edit-mode minimum
+    /// with no way to persist it.
+    @State private var didRemovePhoto: Bool = false
     /// Drives the sheet's height detent. Seeded with the mode's expected
     /// height and corrected by measurement, so the detent only ever gets
     /// same-kind `.height` updates: a sheet presented at `.medium` (the
@@ -92,8 +97,9 @@ struct ProfileSetupSheet: View {
 
     private var canSave: Bool {
         // Edit mode allows photo-only saves (an empty name falls back to
-        // the stored one in saveAndAwait); first launch requires a name.
-        (hasName || (mode == .edit && profileImage != nil))
+        // the stored one in saveAndAwait) and explicit photo removal;
+        // first launch requires a name.
+        (hasName || (mode == .edit && (profileImage != nil || didRemovePhoto)))
             && (!mode.showsTermsRow || hasAgreedToTerms)
             && !isSaving
     }
@@ -150,6 +156,7 @@ struct ProfileSetupSheet: View {
                     profileImage = image
                     profileImageAssetIdentifier = assetIdentifier
                     hasEditedDraft = true
+                    didRemovePhoto = false
                     isImagePickerPresented = false
                 },
                 onCancel: { isImagePickerPresented = false }
@@ -162,6 +169,7 @@ struct ProfileSetupSheet: View {
                     profileImage = image
                     profileImageAssetIdentifier = nil
                     hasEditedDraft = true
+                    didRemovePhoto = false
                 },
                 onVideoCaptured: nil,
                 allowsEditing: true
@@ -228,6 +236,7 @@ struct ProfileSetupSheet: View {
                             profileImage = nil
                             profileImageAssetIdentifier = nil
                             hasEditedDraft = true
+                            didRemovePhoto = true
                         }
                     } label: {
                         avatarPreview
