@@ -1328,6 +1328,28 @@ extension SessionManager {
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await addAgentToConversation(
+            conversationId: conversationId,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode,
+            idempotencyKey: nil
+        )
+    }
+
+    /// Full direct-add join. `idempotencyKey` is the builder flow's persisted
+    /// join key (stable across retries of one logical join) so the backend
+    /// dedups a retried provision whose response was lost; `nil` (all
+    /// non-builder callers today) keeps the non-deduped behavior. Internal
+    /// because only the agent-template repository's wired join handler
+    /// threads a key; the public protocol surface stays as-is.
+    func addAgentToConversation(
+        conversationId: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?,
+        idempotencyKey: ConvosAPI.JoinIdempotencyKey?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
         // it is distinct from the per-sender "timezone" ProfileUpdate metadata
@@ -1341,11 +1363,13 @@ extension SessionManager {
         let resolved = try await Self.awaitProvisionedAgentInbox(
             requestJoin: {
                 try await self.apiClient.requestAgentJoin(
-                    slug: nil,
-                    conversationId: conversationId.lowercased(),
-                    templateId: templateId,
-                    options: options,
-                    timezone: creatorTimezone,
+                    ConvosAPI.AgentJoinRequest(
+                        conversationId: conversationId.lowercased(),
+                        templateId: templateId,
+                        idempotencyKey: idempotencyKey,
+                        options: options,
+                        timezone: creatorTimezone
+                    ),
                     forceErrorCode: forceErrorCode
                 )
             },
@@ -1526,7 +1550,7 @@ extension SessionManager {
     /// provision/add runs, then resume any in-flight generations persisted
     /// across a relaunch.
     func wireAgentTemplateRepository() {
-        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId in
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId, joinIdempotencyKey in
             // Throw rather than letting optional chaining return a silent `nil`:
             // the invite step only detects failure via thrown errors, so a
             // no-op `nil` would be recorded as a false `.invited` with no agent
@@ -1536,7 +1560,13 @@ extension SessionManager {
             // byte-identical; when set, the same slug carries the join routing
             // and (via options.variantId) the load-bearing join-status poll.
             let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
-            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: options)
+            _ = try await self.addAgentToConversation(
+                conversationId: conversationId,
+                templateId: templateId,
+                options: options,
+                forceErrorCode: nil,
+                idempotencyKey: joinIdempotencyKey
+            )
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()
     }
