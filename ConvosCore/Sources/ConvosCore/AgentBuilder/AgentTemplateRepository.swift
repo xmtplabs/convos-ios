@@ -45,8 +45,10 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
 /// Performs the agent-join for a finished template. Routed through
 /// `SessionManager.addAgentToConversation` (not the raw API client) so the
 /// direct-add provision/add runs and the agent is added to the conversation
-/// the build targeted.
-public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String, _ variantId: String?) async throws -> Void
+/// the build targeted. `joinIdempotencyKey` is the persisted key the
+/// repository mints per logical join; the handler must send it on the join
+/// POST so a retried join dedups server-side.
+public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String, _ variantId: String?, _ joinIdempotencyKey: ConvosAPI.JoinIdempotencyKey?) async throws -> Void
 
 /// Errors an `AgentTemplateJoinHandler` can throw when it cannot perform the
 /// join. Surfacing these as thrown errors (rather than returning) keeps the
@@ -368,15 +370,36 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         return await markFailed(idempotencyKey: row.idempotencyKey, message: "Timed out")
     }
 
+    /// Returns the row's persisted join idempotency key, minting and
+    /// persisting one first when absent (or when the persisted value is not a
+    /// valid key). Persisting before the POST is the point: a retry after a
+    /// lost response - including a relaunch resume - resends the same key and
+    /// the server adopts the in-flight instance instead of provisioning a
+    /// duplicate.
+    private func ensureJoinIdempotencyKey(row: DBAgentTemplateGeneration) async -> ConvosAPI.JoinIdempotencyKey {
+        if let persisted = row.joinIdempotencyKey,
+           let key = ConvosAPI.JoinIdempotencyKey(rawValue: persisted) {
+            return key
+        }
+        let minted = ConvosAPI.JoinIdempotencyKey.mint()
+        _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = minted.rawValue }
+        return minted
+    }
+
     /// Invite the finished template into the conversation. Provision/pool
     /// errors are retried (the template exists, so a retry is cheap); archived
-    /// / not-found are terminal.
+    /// / not-found are terminal. Retries reuse the persisted join idempotency
+    /// key on ambiguous failures (timeout, lost connection) so the server
+    /// adopts the in-flight instance, and mint a fresh key after an explicit
+    /// provision failure because the server retains the failed instance under
+    /// the old key.
     private func invite(row: DBAgentTemplateGeneration) async {
         guard let templateId = row.templateId else {
             _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Missing template id")
             return
         }
         Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId)")
+        var joinKey: ConvosAPI.JoinIdempotencyKey = await ensureJoinIdempotencyKey(row: row)
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
@@ -387,18 +410,19 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 // to the raw client when unset (tests).
                 let handler = joinHandler.withLock { $0 }
                 if let handler {
-                    try await handler(row.conversationId, templateId, row.variantId)
+                    try await handler(row.conversationId, templateId, row.variantId, joinKey)
                 } else {
                     // Reaching this outside tests means the agent gets provisioned
                     // but never direct-added, so it silently never joins.
                     Log.warning("AgentTemplateRepository: join handler unset; raw join without direct-add for template \(templateId)")
                     let options = row.variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
                     _ = try await apiClient.requestAgentJoin(
-                        slug: nil,
-                        conversationId: row.conversationId,
-                        templateId: templateId,
-                        options: options,
-                        timezone: nil,
+                        ConvosAPI.AgentJoinRequest(
+                            conversationId: row.conversationId,
+                            templateId: templateId,
+                            idempotencyKey: joinKey,
+                            options: options
+                        ),
                         forceErrorCode: nil
                     )
                 }
@@ -408,7 +432,21 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 return
             } catch let error as APIError {
                 switch error {
-                case .noAgentsAvailable, .agentPoolTimeout, .agentProvisionFailed, .serverError:
+                case .agentProvisionFailed:
+                    // Explicit provision failure: the server retains the failed
+                    // instance under this key, so a same-key retry would adopt
+                    // the corpse. Mint a fresh key for the next attempt.
+                    Log.error("AgentTemplateRepository: invite provision failed for template \(templateId); re-minting join key: \(error.localizedDescription)")
+                    joinKey = ConvosAPI.JoinIdempotencyKey.mint()
+                    let reminted = joinKey.rawValue
+                    _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = reminted }
+                    attempt += 1
+                    await backoff(attempt: attempt)
+                    continue
+                case .noAgentsAvailable, .agentPoolTimeout, .serverError:
+                    // Ambiguous or no-instance failures: reuse the key so a
+                    // provision that did land server-side is adopted, not
+                    // duplicated.
                     Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId): \(error) - \(error.localizedDescription)")
                     attempt += 1
                     await backoff(attempt: attempt)
@@ -419,6 +457,9 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     return
                 }
             } catch {
+                // Transport-level failure (timeout, lost connection) - the
+                // ambiguous case the key exists for. Reuse it so the server
+                // adopts the possibly-provisioned instance.
                 Log.error("AgentTemplateRepository: invite threw for template \(templateId): \(error.localizedDescription)")
                 attempt += 1
                 await backoff(attempt: attempt)

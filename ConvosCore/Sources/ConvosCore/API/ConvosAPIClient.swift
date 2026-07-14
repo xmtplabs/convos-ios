@@ -88,14 +88,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// `inboxId`; the caller adds that inbox to the declared group with
     /// addMembers and the runtime attaches when it observes the resulting
     /// group welcome — no further calls.
-    /// `timezone` is the creator's device IANA timezone identifier, forwarded
-    /// to the agent runtime as the conversation's baseline/default zone.
+    /// `joinRequest` is the wire body (see `ConvosAPI.AgentJoinRequest` for
+    /// per-field semantics, including the retry-stable `idempotencyKey`).
+    /// `forceErrorCode` is a test/debug knob riding an HTTP header, which is
+    /// why it is a separate parameter and not part of the body type.
     func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
@@ -234,27 +232,21 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
 extension ConvosAPIClientProtocol {
     func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(
-            slug: slug, conversationId: nil, templateId: nil, options: nil, timezone: nil, forceErrorCode: nil
-        )
+        try await requestAgentJoin(ConvosAPI.AgentJoinRequest(slug: slug), forceErrorCode: nil)
     }
 
     func requestAgentJoin(
         slug: String,
         options: ConvosAPI.AgentJoinOptions?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(
-            slug: slug, conversationId: nil, templateId: nil, options: options, timezone: nil, forceErrorCode: nil
-        )
+        try await requestAgentJoin(ConvosAPI.AgentJoinRequest(slug: slug, options: options), forceErrorCode: nil)
     }
 
     func requestAgentJoin(
         slug: String,
         templateId: String?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(
-            slug: slug, conversationId: nil, templateId: templateId, options: nil, timezone: nil, forceErrorCode: nil
-        )
+        try await requestAgentJoin(ConvosAPI.AgentJoinRequest(slug: slug, templateId: templateId), forceErrorCode: nil)
     }
 
     /// Default so bespoke test doubles that don't exercise the builder don't
@@ -867,71 +859,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Agents
 
-    func requestAgentJoin(
-        slug: String? = nil,
-        conversationId: String? = nil,
-        templateId: String? = nil,
-        options: ConvosAPI.AgentJoinOptions? = nil,
-        timezone: String? = nil,
-        forceErrorCode: Int? = nil
-    ) async throws -> ConvosAPI.AgentJoinResponse {
-        var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
-        request.timeoutInterval = 35
-
-        if let forceErrorCode {
-            request.setValue("\(forceErrorCode)", forHTTPHeaderField: "X-Force-Error")
-        }
-
-        // `timezone` is the creator's device IANA timezone, captured on the main
-        // actor by the caller. It seeds the agent's baseline/default zone and is
-        // distinct from the per-sender ProfileUpdate "timezone" metadata key.
-        // Prod backstop: strip a leaked dev variant slug from the join options.
-        let safeOptions = options.map {
-            ConvosAPI.AgentJoinOptions(onboarding: $0.onboarding, variantId: prodSafeVariantId($0.variantId))
-        }
-        request.httpBody = try JSONEncoder().encode(
-            ConvosAPI.AgentJoinRequest(
-                slug: slug,
-                conversationId: conversationId,
-                templateId: templateId,
-                options: safeOptions,
-                timezone: timezone
-            )
-        )
-
-        let (data, httpResponse) = try await performAuthenticatedRequest(request)
-
-        if !(200...299).contains(httpResponse.statusCode) {
-            Log.error("agents/join failed [\(httpResponse.statusCode)]: \(String(data: data, encoding: .utf8) ?? "nil data")")
-        }
-        switch httpResponse.statusCode {
-        case 200...299:
-            let decoder = JSONDecoder()
-            let response = try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
-            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil") joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
-            return response
-        case 502:
-            throw APIError.agentProvisionFailed
-        case 503:
-            throw APIError.noAgentsAvailable
-        case 504:
-            throw APIError.agentPoolTimeout
-        case 400:
-            throw APIError.badRequest(parseErrorMessage(from: data))
-        case 403:
-            throw APIError.forbidden
-        case 404:
-            throw APIError.notFound
-        case 410:
-            // Template resolved but is archived - the backend won't
-            // provision an instance from it.
-            throw APIError.templateArchived
-        default:
-            throw APIError.serverError(parseErrorMessage(from: data))
-        }
-    }
+    // `requestAgentJoin` lives in the agent-template extension below to keep
+    // the class body under the type-length budget.
 
     func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse {
         let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
@@ -1206,7 +1135,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 }
 
-// MARK: - Agent template generation (split out to keep the class body length in check)
+// MARK: - Agent join + template generation (split out to keep the class body length in check)
 
 extension ConvosAPIClient {
     /// Defense-in-depth: drop any dev variant slug in production. The invariant
@@ -1222,6 +1151,67 @@ extension ConvosAPIClient {
     /// stays byte-identical to the pre-variant shape.
     static func agentJoinStatusQueryParameters(variantId: String?) -> [String: String]? {
         variantId.map { ["variantId": $0] }
+    }
+
+    func requestAgentJoin(
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
+        request.timeoutInterval = 35
+
+        if let forceErrorCode {
+            request.setValue("\(forceErrorCode)", forHTTPHeaderField: "X-Force-Error")
+        }
+
+        // Prod backstop: strip a leaked dev variant slug from the join options
+        // before the body is encoded.
+        let safeOptions = joinRequest.options.map {
+            ConvosAPI.AgentJoinOptions(onboarding: $0.onboarding, variantId: prodSafeVariantId($0.variantId))
+        }
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentJoinRequest(
+                slug: joinRequest.slug,
+                conversationId: joinRequest.conversationId,
+                templateId: joinRequest.templateId,
+                idempotencyKey: joinRequest.idempotencyKey,
+                options: safeOptions,
+                timezone: joinRequest.timezone
+            )
+        )
+
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            Log.error("agents/join failed [\(httpResponse.statusCode)]: \(String(data: data, encoding: .utf8) ?? "nil data")")
+        }
+        switch httpResponse.statusCode {
+        case 200...299:
+            let decoder = JSONDecoder()
+            let response = try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil") joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
+            return response
+        case 502:
+            throw APIError.agentProvisionFailed
+        case 503:
+            throw APIError.noAgentsAvailable
+        case 504:
+            throw APIError.agentPoolTimeout
+        case 400:
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        case 410:
+            // Template resolved but is archived - the backend won't
+            // provision an instance from it.
+            throw APIError.templateArchived
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
     }
 
     func getAgentTemplateAttachmentPresignedURL(

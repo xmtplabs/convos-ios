@@ -69,6 +69,83 @@ struct AgentTemplateRepositoryTests {
         #expect(api.joinedConversationId == "convo-1")
     }
 
+    /// Anchored (`^...$`) and case-sensitive on purpose: the key becomes the
+    /// assistant instance id, which is lowercase-only server-side, and
+    /// `UUID().uuidString` is uppercase - a factory regression would produce
+    /// mixed-case instance ids that break the server's lowercase assumption.
+    private static let lowercaseV4UUIDPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+
+    @Test("Minted join keys are lowercase v4 UUIDs")
+    func joinKeyFactoryIsLowercaseV4() throws {
+        for _ in 0..<256 {
+            let key = ConvosAPI.JoinIdempotencyKey.mint().rawValue
+            #expect(key.range(of: Self.lowercaseV4UUIDPattern, options: .regularExpression) != nil)
+        }
+    }
+
+    @Test("Join key type rejects non-UUIDs and normalizes case on rehydrate")
+    func joinKeyValidatesAndNormalizes() throws {
+        #expect(ConvosAPI.JoinIdempotencyKey(rawValue: "not-a-uuid") == nil)
+        #expect(ConvosAPI.JoinIdempotencyKey(rawValue: "") == nil)
+        // An uppercase persisted value (e.g. a legacy or hand-edited row)
+        // rehydrates to the lowercase wire form rather than passing through.
+        let uppercase = "6F0F7A8E-1B2C-4D3E-8F4A-5B6C7D8E9F0A"
+        let key = try #require(ConvosAPI.JoinIdempotencyKey(rawValue: uppercase))
+        #expect(key.rawValue == uppercase.lowercased())
+    }
+
+    @Test("Join key is persisted lowercase and sent on the join request")
+    func joinKeyPersistedAndSent() async throws {
+        let database = try makeDatabase()
+        let api = HappyStubAPIClient()
+        let repository = makeRepository(database: database, apiClient: api)
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-key", slug: "chef.abcd")
+
+        let row = try await waitForStatus(.invited, conversationId: "convo-key", in: database)
+        let persisted = try #require(row?.joinIdempotencyKey)
+        #expect(persisted.range(of: Self.lowercaseV4UUIDPattern, options: .regularExpression) != nil)
+        #expect(api.joinedIdempotencyKeys == [persisted])
+    }
+
+    @Test("Ambiguous join failure (timeout) reuses the persisted key on retry")
+    func joinKeyReusedOnAmbiguousFailure() async throws {
+        let database = try makeDatabase()
+        let api = RetryJoinStubAPIClient(firstJoinError: URLError(.timedOut))
+        let repository = makeRepository(database: database, apiClient: api)
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-reuse", slug: "chef.abcd")
+
+        let row = try await waitForStatus(.invited, conversationId: "convo-reuse", in: database)
+        #expect(row?.statusValue == .invited)
+        let keys = api.capturedJoinKeys
+        #expect(keys.count == 2)
+        let first = try #require(keys.first ?? nil)
+        #expect(keys.last == first)
+        #expect(row?.joinIdempotencyKey == first)
+    }
+
+    @Test("Explicit provision failure re-mints a fresh key for the retry")
+    func joinKeyRemintedOnExplicitFailure() async throws {
+        let database = try makeDatabase()
+        let api = RetryJoinStubAPIClient(firstJoinError: APIError.agentProvisionFailed)
+        let repository = makeRepository(database: database, apiClient: api)
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-remint", slug: "chef.abcd")
+
+        let row = try await waitForStatus(.invited, conversationId: "convo-remint", in: database)
+        #expect(row?.statusValue == .invited)
+        let keys = api.capturedJoinKeys
+        #expect(keys.count == 2)
+        let first = try #require(keys.first ?? nil)
+        let second = try #require(keys.last ?? nil)
+        #expect(first != second)
+        #expect(second.range(of: Self.lowercaseV4UUIDPattern, options: .regularExpression) != nil)
+        // The replacement key is persisted so a relaunch resume retries with
+        // it, not the corpse key.
+        #expect(row?.joinIdempotencyKey == second)
+    }
+
     @Test("Moderation rejection marks the row failed and never invites")
     func moderationFails() async throws {
         let database = try makeDatabase()
@@ -165,9 +242,11 @@ private final class HappyStubAPIClient: TestStubAPIClient {
     private let templateId: String = UUID().uuidString
     private var capturedTemplateId: String?
     private var capturedConversationId: String?
+    private var capturedIdempotencyKeys: [String?] = []
 
     var joinedTemplateId: String? { lock.withLock { capturedTemplateId } }
     var joinedConversationId: String? { lock.withLock { capturedConversationId } }
+    var joinedIdempotencyKeys: [String?] { lock.withLock { capturedIdempotencyKeys } }
 
     override func createAgentTemplateGeneration(
         inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
@@ -197,16 +276,13 @@ private final class HappyStubAPIClient: TestStubAPIClient {
     }
 
     override func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock {
-            capturedTemplateId = templateId
-            capturedConversationId = conversationId
+            capturedTemplateId = joinRequest.templateId
+            capturedConversationId = joinRequest.conversationId
+            capturedIdempotencyKeys.append(joinRequest.idempotencyKey?.rawValue)
         }
         return ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
@@ -231,11 +307,7 @@ private final class ModeratedStubAPIClient: TestStubAPIClient {
     }
 
     override func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock { joinCallCount += 1 }
@@ -278,14 +350,66 @@ private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
     }
 
     override func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock { joinCallCount += 1 }
+        return ConvosAPI.AgentJoinResponse(success: true, joined: true)
+    }
+}
+
+/// The first join attempt throws `firstJoinError`; the second succeeds.
+/// Parameterized by the error so both halves of the join-key policy are
+/// testable: ambiguous transport failures reuse the persisted key, explicit
+/// provision failures re-mint a fresh one.
+private final class RetryJoinStubAPIClient: TestStubAPIClient {
+    private let lock: NSLock = NSLock()
+    private let templateId: String = UUID().uuidString
+    private let firstJoinError: Error
+    private var joinKeys: [String?] = []
+
+    var capturedJoinKeys: [String?] { lock.withLock { joinKeys } }
+
+    init(firstJoinError: Error) {
+        self.firstJoinError = firstJoinError
+    }
+
+    override func createAgentTemplateGeneration(
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        connections: [String],
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: "gen-retry",
+            status: .pending,
+            templateId: nil,
+            error: nil
+        )
+    }
+
+    override func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: generationId,
+            status: .done,
+            templateId: templateId,
+            error: nil
+        )
+    }
+
+    override func requestAgentJoin(
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        let shouldThrow: Bool = lock.withLock {
+            joinKeys.append(joinRequest.idempotencyKey?.rawValue)
+            return joinKeys.count == 1
+        }
+        if shouldThrow { throw firstJoinError }
         return ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
 }

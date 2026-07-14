@@ -538,6 +538,18 @@ extension SharedDatabaseMigrator {
         }
     }
 
+    /// Additive, nullable column holding the join idempotency key sent on
+    /// `POST /v2/agents/join` (lowercase v4 UUID). Persisted before the first
+    /// join attempt so a retry after a lost response - including a relaunch
+    /// resume - resends the same key and the server adopts the in-flight
+    /// instance instead of provisioning a duplicate. `nil` until the invite
+    /// step runs, so existing rows are unaffected.
+    private static func addAgentTemplateGenerationJoinIdempotencyKey(_ db: Database) throws {
+        try db.alter(table: "agentTemplateGeneration") { t in
+            t.add(column: "joinIdempotencyKey", .text)
+        }
+    }
+
     /// Registers the join-request ledger and the direct-builder generation
     /// table, in this order. Grouped into a helper to keep `makeMigrator`
     /// under the function-length budget; the registration position (last,
@@ -549,6 +561,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
         migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
         migrator.registerMigration("addAgentTemplateGenerationVariant", migrate: Self.addAgentTemplateGenerationVariant)
+        migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey", migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
     }
 
     /// In-flight (or finished) agent-template generation kicked off by the
