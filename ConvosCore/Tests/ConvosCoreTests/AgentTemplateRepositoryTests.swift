@@ -20,7 +20,12 @@ struct AgentTemplateRepositoryTests {
             databaseWriter: database,
             databaseReader: database,
             source: "test",
-            clientDeviceIdProvider: { "test-device" }
+            clientDeviceIdProvider: { "test-device" },
+            // No real waits between retry attempts: the retry tests assert on
+            // attempt counts and keys, not timing, and real backoffs are what
+            // let cooperative-pool starvation in the integration job push the
+            // pipeline past waitForStatus budgets.
+            backoffSleep: { _ in }
         )
     }
 
@@ -159,7 +164,9 @@ struct AgentTemplateRepositoryTests {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         #expect(api.joinCalls == 1)
-        try await Task.sleep(nanoseconds: 1_600_000_000)
+        // Backoff is a no-op in tests, so a would-be retry fires immediately;
+        // a short grace period is enough to catch it.
+        try await Task.sleep(nanoseconds: 500_000_000)
         #expect(api.joinCalls == 1)
         let row = try await database.read { db in
             try DBAgentTemplateGeneration

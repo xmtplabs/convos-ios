@@ -136,18 +136,27 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     /// API client when unset (e.g. in tests).
     private let joinHandler: OSAllocatedUnfairLock<AgentTemplateJoinHandler?> = .init(initialState: nil)
 
+    /// Sleep between retry attempts. Injectable so tests drive the backoff
+    /// without real waits (mirrors `awaitProvisionedAgentInbox`'s injectable
+    /// sleep); the default sleeps for real.
+    private let backoffSleep: @Sendable (TimeInterval) async -> Void
+
     public init(
         apiClient: any ConvosAPIClientProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         source: String,
-        clientDeviceIdProvider: @escaping @Sendable () -> String?
+        clientDeviceIdProvider: @escaping @Sendable () -> String?,
+        backoffSleep: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        }
     ) {
         self.apiClient = apiClient
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.source = source
         self.clientDeviceIdProvider = clientDeviceIdProvider
+        self.backoffSleep = backoffSleep
     }
 
     // MARK: - Public
@@ -713,7 +722,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 
     private func backoff(attempt: Int) async {
         let seconds: Double = min(Constant.baseBackoffSeconds * Double(attempt), Constant.maxBackoffSeconds)
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        await backoffSleep(seconds)
     }
 
     private static let terminalStatuses: [String] = [
