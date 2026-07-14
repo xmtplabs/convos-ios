@@ -33,7 +33,7 @@ struct ConvosAppClipApp: App {
             // sink rather than threading a real CoreActions across processes.
             ClipIdentityBootstrap.bootstrap(
                 environment: environment,
-                platformProviders: .iOS,
+                platformProviders: .iOSAppClip,
                 coreActions: NoOpCoreActions()
             )
         }

@@ -8,14 +8,12 @@ import Foundation
 /// a non-breaking expansion — the reverse hides a previously-shown option, so
 /// keep the rollout intentional.
 public enum SupportedConnections {
-    // v1 ships cloud-only (Google Calendar via Composio). No device kinds
-    // surface in the picker or the conversation-info connections list.
-    // The host (Convos main target) also doesn't link any per-kind
-    // ConvosConnections product, so the corresponding Apple-framework
-    // symbols don't enter the binary. Re-introduce a kind here AND link
-    // the matching product in Convos's Package dependencies to bring it
-    // back.
-    public static let supportedDeviceKinds: Set<ConnectionKind> = []
+    // Health is re-enabled for testing: the host links ConvosConnectionsHealth
+    // (via ConvosCoreiOS) and injects the HealthKit runtime through
+    // `PlatformProviders.iOS`. Every other device kind stays off; adding one
+    // requires listing it here AND linking the matching per-kind product so
+    // its Apple-framework symbols enter the binary.
+    public static let supportedDeviceKinds: Set<ConnectionKind> = [.health]
 
     public static let supportedCloudServiceIds: Set<String> = [
         "googlecalendar",
