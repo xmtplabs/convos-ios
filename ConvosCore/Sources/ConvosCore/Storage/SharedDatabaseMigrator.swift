@@ -192,6 +192,9 @@ extension SharedDatabaseMigrator {
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
 
+        migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
+                                   migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
+
         return migrator
     }
 
@@ -551,9 +554,16 @@ extension SharedDatabaseMigrator {
     }
 
     /// Registers the join-request ledger and the direct-builder generation
-    /// table, in this order. Grouped into a helper to keep `makeMigrator`
-    /// under the function-length budget; the registration position (last,
-    /// before `return`) is unchanged so the migration order is preserved.
+    /// table, in this order. Grouped into a helper to keep `createMigrator`
+    /// under the function-length budget.
+    ///
+    /// Do not append new migrations here, even ones that touch these tables:
+    /// `createMigrator` registers other groups after this call, and a
+    /// migration added to this group therefore lands ahead of ones an
+    /// upgraded install has already applied. That is the divergence the
+    /// DEBUG `eraseDatabaseOnSchemaChange` replay treats as a schema change,
+    /// and it wipes the database. New migrations go at the end of
+    /// `createMigrator`.
     private static func registerJoinAndGenerationMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("createHandledJoinRequest", migrate: Self.createHandledJoinRequest)
         migrator.registerMigration("createAgentTemplateGeneration", migrate: Self.createAgentTemplateGeneration)
@@ -561,7 +571,6 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationAttachments", migrate: Self.addAgentTemplateGenerationAttachments)
         migrator.registerMigration("addAgentTemplateGenerationConnections", migrate: Self.addAgentTemplateGenerationConnections)
         migrator.registerMigration("addAgentTemplateGenerationVariant", migrate: Self.addAgentTemplateGenerationVariant)
-        migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey", migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
     }
 
     /// In-flight (or finished) agent-template generation kicked off by the
