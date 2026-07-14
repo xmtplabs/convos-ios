@@ -1155,7 +1155,7 @@ public extension SessionManager {
     /// told apart from another device's.
     func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         do {
-            let backups = try await identityStore.loadSyncedBackups()
+            let backups = try identityStore.loadSyncedBackups()
             let currentInboxId = try identityStore.loadSync()?.inboxId
             return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
         } catch {
@@ -1189,7 +1189,7 @@ public extension SessionManager {
     /// as `pairableBackups`' nil-hides contract).
     func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
         do {
-            let backups = try await identityStore.loadSyncedBackups()
+            let backups = try identityStore.loadSyncedBackups()
             let currentInboxId = try identityStore.loadSync()?.inboxId
             return ICloudDeviceBackupsSnapshot.snapshot(from: backups, currentInboxId: currentInboxId)
         } catch {
@@ -1204,7 +1204,7 @@ public extension SessionManager {
     /// device itself, so the joiner's signature and identity-share address
     /// checks hold unchanged.
     func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
-        let backups = try await identityStore.loadSyncedBackups()
+        let backups = try identityStore.loadSyncedBackups()
         guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
             throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
         }
