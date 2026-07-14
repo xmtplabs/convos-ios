@@ -37,6 +37,7 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         static let attemptCount: Column = Column(CodingKeys.attemptCount)
         static let nextAttemptAt: Column = Column(CodingKeys.nextAttemptAt)
         static let lastError: Column = Column(CodingKeys.lastError)
+        static let profileUpdatedAt: Column = Column(CodingKeys.profileUpdatedAt)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -56,6 +57,15 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
     var attemptCount: Int64
     var nextAttemptAt: Date
     var lastError: String?
+    /// The `DBMyProfile.updatedAt` current when this job was enqueued. Stamped
+    /// into `ConversationLocalState.publishedProfileUpdatedAt` after delivery
+    /// instead of the send-time value: the job's content decisions (`hasAvatar`,
+    /// `sourceVersion`) were pinned at enqueue, so stamping a newer edit's
+    /// timestamp would mark the conversation current without that edit's
+    /// content ever being sent (a name-only job enqueued before an avatar edit
+    /// would otherwise suppress the avatar's publish forever). Nil (legacy
+    /// rows) skips the stamp, costing at most one duplicate publish.
+    var profileUpdatedAt: Date?
     let createdAt: Date
     var updatedAt: Date
 
@@ -75,6 +85,7 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         attemptCount: Int64 = 0,
         nextAttemptAt: Date,
         lastError: String? = nil,
+        profileUpdatedAt: Date? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -93,6 +104,7 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         self.attemptCount = attemptCount
         self.nextAttemptAt = nextAttemptAt
         self.lastError = lastError
+        self.profileUpdatedAt = profileUpdatedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

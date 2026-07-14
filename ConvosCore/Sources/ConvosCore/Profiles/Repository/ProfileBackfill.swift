@@ -48,60 +48,72 @@ struct ProfileBackfill {
     /// Mirrors the given legacy rows into the canonical stores. Idempotent: a
     /// write only happens when the merged value differs from what's stored, so a
     /// re-run does not churn writes for unchanged rows.
+    ///
+    /// Batched: everything the merges need is fetched in two reads, the merges
+    /// run in memory, and the changed rows are written in one batch per table.
+    /// The previous per-row store round-trips made every launch pay hundreds of
+    /// sequential transactions on a large account (delaying `warmUp` and the
+    /// publisher bind behind them), and a single bad avatar row aborted the
+    /// identity backfill entirely; batch saves isolate per-row failures.
     func mirror(_ rows: [DBMemberProfile]) async throws {
         guard !rows.isEmpty else { return }
 
-        // Collapse a person's multiple conversation rows into one identity. Self
-        // identity lives in `myProfile`, so self rows are skipped here; their
-        // avatars are still backfilled below.
+        let storedIdentities = try await profileStore.allIdentities()
+        let storedAvatars = try await profileStore.allAvatars()
         var identityByInbox: [String: DBProfile] = [:]
+        for identity in storedIdentities {
+            identityByInbox[identity.inboxId] = identity
+        }
+        var avatarByKey: [String: DBProfileAvatar] = [:]
+        for avatar in storedAvatars {
+            avatarByKey[Self.avatarKey(avatar.inboxId, avatar.conversationId)] = avatar
+        }
+
+        // Collapse a person's multiple conversation rows into one identity,
+        // merging directly over whatever is stored so a value already set by a
+        // real event is preserved, not overwritten. Self identity lives in
+        // `myProfile`, so self rows are skipped here; their avatars are still
+        // backfilled below.
+        var changedIdentities: [String: DBProfile] = [:]
+        var changedAvatars: [String: DBProfileAvatar] = [:]
         for row in rows {
             if row.inboxId != selfInboxId {
-                identityByInbox[row.inboxId] = ProfileMerge.mergeIdentity(
-                    existing: identityByInbox[row.inboxId],
+                let existing = identityByInbox[row.inboxId]
+                let merged = ProfileMerge.mergeIdentity(
+                    existing: existing,
                     inboxId: row.inboxId,
                     incoming: IncomingIdentity(name: row.name, memberKind: row.memberKind, metadata: row.metadata),
                     source: .contact,
                     sentAt: floor
                 )
+                if merged != existing {
+                    identityByInbox[row.inboxId] = merged
+                    changedIdentities[row.inboxId] = merged
+                }
             }
-            try await backfillAvatar(row)
-        }
 
-        try await backfillIdentities(identityByInbox)
-    }
-
-    private func backfillAvatar(_ row: DBMemberProfile) async throws {
-        guard row.hasValidEncryptedAvatar, let url = row.avatar else { return }
-        let existing = try await profileStore.avatar(inboxId: row.inboxId, conversationId: row.conversationId)
-        let merged = ProfileMerge.mergeAvatar(
-            existing: existing,
-            inboxId: row.inboxId,
-            conversationId: row.conversationId,
-            incoming: .set(url: url, salt: row.avatarSalt, nonce: row.avatarNonce, key: row.avatarKey),
-            source: .contact,
-            sentAt: floor
-        )
-        if let merged, merged != existing {
-            try await profileStore.saveAvatar(merged)
-        }
-    }
-
-    private func backfillIdentities(_ identityByInbox: [String: DBProfile]) async throws {
-        for (inboxId, accumulated) in identityByInbox {
-            // Merge against whatever is already stored at `.contact`/floor, so a
-            // value already set by a real event is preserved, not overwritten.
-            let existing = try await profileStore.identity(inboxId: inboxId)
-            let merged = ProfileMerge.mergeIdentity(
-                existing: existing,
-                inboxId: inboxId,
-                incoming: IncomingIdentity(name: accumulated.name, memberKind: accumulated.memberKind, metadata: accumulated.metadata),
+            guard row.hasValidEncryptedAvatar, let url = row.avatar else { continue }
+            let key = Self.avatarKey(row.inboxId, row.conversationId)
+            let existingAvatar = avatarByKey[key]
+            let mergedAvatar = ProfileMerge.mergeAvatar(
+                existing: existingAvatar,
+                inboxId: row.inboxId,
+                conversationId: row.conversationId,
+                incoming: .set(url: url, salt: row.avatarSalt, nonce: row.avatarNonce, key: row.avatarKey),
                 source: .contact,
                 sentAt: floor
             )
-            if merged != existing {
-                try await profileStore.saveIdentity(merged)
+            if let mergedAvatar, mergedAvatar != existingAvatar {
+                avatarByKey[key] = mergedAvatar
+                changedAvatars[key] = mergedAvatar
             }
         }
+
+        try await profileStore.saveIdentities(Array(changedIdentities.values))
+        try await profileStore.saveAvatars(Array(changedAvatars.values))
+    }
+
+    private static func avatarKey(_ inboxId: String, _ conversationId: String) -> String {
+        "\(inboxId)|\(conversationId)"
     }
 }

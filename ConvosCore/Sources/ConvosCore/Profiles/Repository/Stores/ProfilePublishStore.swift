@@ -23,9 +23,21 @@ protocol ProfilePublishStoreProtocol: Sendable {
     func enqueue(_ job: DBProfilePublishJob) async throws
     /// Atomically assigns the next `seq`, inserts the job the closure builds with
     /// it, and supersedes that conversation's older non-done jobs - all in one
-    /// write so concurrent enqueues can't collide on `seq`.
-    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws
+    /// write so concurrent enqueues can't collide on `seq`. Returns the inserted
+    /// job so a caller can process it directly.
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob
+    /// Updates an existing job. Throws `ProfilePublishStoreError.jobNotFound`
+    /// when the row is gone (superseded and deleted mid-flight) - it must never
+    /// re-insert, or a superseded job would be resurrected by its own state
+    /// writes and retried after a newer publish intent.
     func update(_ job: DBProfilePublishJob) async throws
+    /// Atomically transitions a `pending` job to `uploading` and returns it, or
+    /// nil when the job is no longer pending (claimed by another drain, or
+    /// superseded and deleted). The atomic check-and-set is what lets the
+    /// inline per-conversation publish path and the background drain coexist
+    /// without double-processing a job.
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob?
     func job(id: String) async throws -> DBProfilePublishJob?
     /// The next `pending` job whose `nextAttemptAt` has passed, lowest `seq`
     /// first. Excludes `uploading` (in-flight) and `done` jobs so a claimed job
@@ -89,7 +101,8 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
         }
     }
 
-    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws {
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob {
         try await databaseWriter.write { db in
             let seq = try Int64.fetchOne(db, sql: "SELECT COALESCE(MAX(seq), 0) + 1 FROM profilePublishJob") ?? 1
             let job = makeJob(seq)
@@ -98,12 +111,29 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
                 .filter(DBProfilePublishJob.Columns.conversationId == job.conversationId)
                 .filter(DBProfilePublishJob.Columns.seq < seq)
                 .deleteAll(db)
+            return job
         }
     }
 
     func update(_ job: DBProfilePublishJob) async throws {
         try await databaseWriter.write { db in
+            guard try DBProfilePublishJob.exists(db, key: job.id) else {
+                throw ProfilePublishStoreError.jobNotFound
+            }
             try job.save(db)
+        }
+    }
+
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob? {
+        try await databaseWriter.write { db in
+            guard var job = try DBProfilePublishJob.fetchOne(db, id: id),
+                  job.state == .pending else {
+                return nil
+            }
+            job.state = .uploading
+            job.updatedAt = updatedAt
+            try job.save(db)
+            return job
         }
     }
 
@@ -222,17 +252,30 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
         jobsById[job.id] = job
     }
 
-    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) {
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) -> DBProfilePublishJob {
         let seq = (jobsById.values.map(\.seq).max() ?? 0) + 1
         let job = makeJob(seq)
         jobsById[job.id] = job
         for entry in jobsById where entry.value.conversationId == job.conversationId && entry.value.seq < seq {
             jobsById[entry.key] = nil
         }
+        return job
     }
 
-    func update(_ job: DBProfilePublishJob) {
+    func update(_ job: DBProfilePublishJob) throws {
+        guard jobsById[job.id] != nil else {
+            throw ProfilePublishStoreError.jobNotFound
+        }
         jobsById[job.id] = job
+    }
+
+    func claimJob(id: String, updatedAt: Date) -> DBProfilePublishJob? {
+        guard var job = jobsById[id], job.state == .pending else { return nil }
+        job.state = .uploading
+        job.updatedAt = updatedAt
+        jobsById[id] = job
+        return job
     }
 
     func job(id: String) -> DBProfilePublishJob? {
@@ -296,4 +339,8 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
         jobsById.removeAll()
         sourcesByInbox.removeAll()
     }
+}
+
+enum ProfilePublishStoreError: Error {
+    case jobNotFound
 }

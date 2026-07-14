@@ -303,6 +303,22 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
         Self.registerCatchUpCursorMigrations(on: &migrator)
         migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
+        migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
+    }
+
+    /// Additive, nullable column pinning the `myProfile.updatedAt` current when
+    /// a publish job was enqueued. The publisher stamps this value (not the
+    /// send-time one) into `conversationLocalState.publishedProfileUpdatedAt`
+    /// after delivery, so an edit made between enqueue and send leaves the
+    /// conversation stale and eligible for re-publish. Nil (pre-migration jobs)
+    /// skips the stamp, costing at most one duplicate publish. Guarded because
+    /// fresh installs already get the column from `createProfileTables`.
+    static func addProfilePublishJobProfileUpdatedAt(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "profilePublishJob").contains { $0.name == "profileUpdatedAt" }
+        guard !hasColumn else { return }
+        try db.alter(table: "profilePublishJob") { t in
+            t.add(column: "profileUpdatedAt", .datetime)
+        }
     }
 
     /// Additive, nullable column recording the `myProfile.updatedAt` of the self
@@ -1477,6 +1493,7 @@ extension SharedDatabaseMigrator {
             t.column("attemptCount", .integer).notNull().defaults(to: 0)
             t.column("nextAttemptAt", .datetime).notNull()
             t.column("lastError", .text)
+            t.column("profileUpdatedAt", .datetime)
             t.column("createdAt", .datetime).notNull()
             t.column("updatedAt", .datetime).notNull()
         }

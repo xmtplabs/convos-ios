@@ -137,6 +137,34 @@ struct ProfilePublishStoreTests {
         let readyAfterReclaim = try await store.nextReadyJob(now: now)
         #expect(readyAfterReclaim?.id == "F")
 
+        // enqueueNext returns the job it inserted.
+        let returned = try await store.enqueueNext { seq in
+            DBProfilePublishJob(id: "G", seq: seq, conversationId: "conv-2", nextAttemptAt: past1, createdAt: past1, updatedAt: past1)
+        }
+        #expect(returned.id == "G")
+        let storedG = try await store.job(id: "G")
+        #expect(storedG?.seq == returned.seq)
+
+        // claimJob atomically transitions pending -> uploading; a second claim
+        // (no longer pending) and a claim of a missing job both return nil.
+        let claimed = try await store.claimJob(id: "G", updatedAt: now)
+        #expect(claimed?.state == .uploading)
+        let claimedTwice = try await store.claimJob(id: "G", updatedAt: now)
+        #expect(claimedTwice == nil)
+        let claimedMissing = try await store.claimJob(id: "Z", updatedAt: now)
+        #expect(claimedMissing == nil)
+
+        // update refuses to resurrect a deleted job: a superseded in-flight
+        // job's state writes must throw, not re-insert the row.
+        try await store.deleteJob(id: "G")
+        var ghost = returned
+        ghost.state = .pending
+        await #expect(throws: (any Error).self) {
+            try await store.update(ghost)
+        }
+        let resurrected = try await store.job(id: "G")
+        #expect(resurrected == nil)
+
         // clearSource and deleteAll.
         try await store.clearSource(inboxId: "me")
         let clearedSource = try await store.source(inboxId: "me")

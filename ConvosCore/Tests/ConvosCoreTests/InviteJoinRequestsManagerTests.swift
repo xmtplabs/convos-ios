@@ -174,4 +174,71 @@ struct InviteJoinRequestsManagerPersistenceTests {
         }
         #expect(afterReal?.name == "New Name", "A populated profile must still persist")
     }
+
+    @Test("A joiner's profile is written to the canonical tables, so they never render as Somebody")
+    func persistsCanonicalProfile() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let manager = makeManager(dbManager)
+
+        let conversationId = "convo-canonical-1"
+        let joinerInboxId = "joiner-canonical-1"
+        try await dbManager.dbWriter.write { db in
+            try self.seedConversation(db, id: conversationId)
+        }
+
+        await manager.persistJoinerProfile(
+            joinerInboxId: joinerInboxId,
+            conversationId: conversationId,
+            profile: JoinRequestProfile(name: "Joiner Jane", imageURL: "https://img/plain.jpg", memberKind: nil),
+            metadata: ["team": "convos"]
+        )
+
+        // Rendering reads DBProfile; the legacy row alone leaves the joiner as
+        // "Somebody" until their first ProfileUpdate.
+        let canonical = try await dbManager.dbReader.read { db in
+            try DBProfile.fetchOne(db, inboxId: joinerInboxId)
+        }
+        #expect(canonical?.name == "Joiner Jane")
+        #expect(canonical?.profileSource == .profileSnapshot)
+        #expect(canonical?.metadata?["team"] == .string("convos"))
+        // The join request's plain image URL cannot become a canonical avatar
+        // slot (slots are group-encrypted).
+        let slot = try await dbManager.dbReader.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: joinerInboxId, conversationId: conversationId)
+        }
+        #expect(slot == nil)
+    }
+
+    @Test("A replayed join request cannot beat the joiner's own newer ProfileUpdate")
+    func joinRequestReplayDoesNotBeatProfileUpdate() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let manager = makeManager(dbManager)
+
+        let conversationId = "convo-canonical-2"
+        let joinerInboxId = "joiner-canonical-2"
+        try await dbManager.dbWriter.write { db in
+            try self.seedConversation(db, id: conversationId)
+            // The joiner's real ProfileUpdate already arrived (older wall
+            // clock than the replay's Date() stamp, higher source).
+            try DBProfile(
+                inboxId: joinerInboxId,
+                name: "Current Name",
+                profileSource: .profileUpdate,
+                updatedAt: Date(timeIntervalSince1970: 1_000)
+            ).save(db)
+        }
+
+        await manager.persistJoinerProfile(
+            joinerInboxId: joinerInboxId,
+            conversationId: conversationId,
+            profile: JoinRequestProfile(name: "Stale Join Name", imageURL: nil, memberKind: nil),
+            metadata: nil
+        )
+
+        let canonical = try await dbManager.dbReader.read { db in
+            try DBProfile.fetchOne(db, inboxId: joinerInboxId)
+        }
+        #expect(canonical?.name == "Current Name")
+        #expect(canonical?.profileSource == .profileUpdate)
+    }
 }
