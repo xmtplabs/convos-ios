@@ -1184,14 +1184,21 @@ extension ConvosAPIClient {
 
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
 
+        // "join key <k>" / key annotations appear only on keyed joins so
+        // keyless joins keep their original log shape.
+        let keySuffix = joinRequest.idempotencyKey.map { " idempotencyKey=\($0.rawValue)" } ?? ""
         if !(200...299).contains(httpResponse.statusCode) {
-            Log.error("agents/join failed [\(httpResponse.statusCode)]: \(String(data: data, encoding: .utf8) ?? "nil data")")
+            Log.error("agents/join failed [\(httpResponse.statusCode)]\(keySuffix): \(String(data: data, encoding: .utf8) ?? "nil data")")
         }
         switch httpResponse.statusCode {
         case 200...299:
             let decoder = JSONDecoder()
             let response = try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
-            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil") joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
+            // When a key was sent, the returned instanceId should equal it (the
+            // key is the workflow instance id); a match on a retry is the
+            // client-visible proof the server adopted rather than re-provisioned.
+            let matchSuffix = joinRequest.idempotencyKey.map { " idempotencyKey=\($0.rawValue) instanceIdMatchesKey=\(response.instanceId == $0.rawValue)" } ?? ""
+            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil")\(matchSuffix) joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
             return response
         case 502:
             throw APIError.agentProvisionFailed

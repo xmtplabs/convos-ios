@@ -376,13 +376,33 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     /// lost response - including a relaunch resume - resends the same key and
     /// the server adopts the in-flight instance instead of provisioning a
     /// duplicate.
-    private func ensureJoinIdempotencyKey(row: DBAgentTemplateGeneration) async -> ConvosAPI.JoinIdempotencyKey {
+    ///
+    /// Returns `nil` only when the generation row no longer exists (e.g.
+    /// `clearGeneration` ran while the pipeline was between steps); the invite
+    /// is moot then and the caller exits. A persist that fails while the row
+    /// still exists proceeds with the in-memory key instead of blocking the
+    /// join: in-process retries still reuse it, and the residual relaunch
+    /// window degrades to the pre-key behavior rather than failing a build
+    /// that can succeed now.
+    private func ensureJoinIdempotencyKey(row: DBAgentTemplateGeneration) async -> ConvosAPI.JoinIdempotencyKey? {
         if let persisted = row.joinIdempotencyKey,
            let key = ConvosAPI.JoinIdempotencyKey(rawValue: persisted) {
+            Log.info("AgentTemplateRepository: join key reused from persistence \(key.rawValue) for generation \(row.idempotencyKey)")
             return key
         }
         let minted = ConvosAPI.JoinIdempotencyKey.mint()
-        _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = minted.rawValue }
+        let persistedRow = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = minted.rawValue }
+        if persistedRow != nil {
+            Log.info("AgentTemplateRepository: join key minted and persisted \(minted.rawValue) for generation \(row.idempotencyKey)")
+            return minted
+        }
+        // updateRow returning nil conflates "row gone" with "write failed";
+        // distinguish them so a cleared build stops here instead of joining.
+        guard await fetchRow(idempotencyKey: row.idempotencyKey) != nil else {
+            Log.info("AgentTemplateRepository: generation \(row.idempotencyKey) row gone before invite; skipping join")
+            return nil
+        }
+        Log.warning("AgentTemplateRepository: join key \(minted.rawValue) minted but persist failed for generation \(row.idempotencyKey); proceeding unpersisted (a relaunch resume would re-mint)")
         return minted
     }
 
@@ -398,8 +418,12 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Missing template id")
             return
         }
-        Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId)")
-        var joinKey: ConvosAPI.JoinIdempotencyKey = await ensureJoinIdempotencyKey(row: row)
+        guard let ensuredKey = await ensureJoinIdempotencyKey(row: row) else {
+            // Row cleared while the pipeline was between steps; nothing to invite.
+            return
+        }
+        var joinKey: ConvosAPI.JoinIdempotencyKey = ensuredKey
+        Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId) with join key \(joinKey.rawValue)")
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
@@ -426,7 +450,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                         forceErrorCode: nil
                     )
                 }
-                Log.info("AgentTemplateRepository: invite succeeded for template \(templateId) in conversation \(row.conversationId)")
+                Log.info("AgentTemplateRepository: invite succeeded for template \(templateId) in conversation \(row.conversationId) with join key \(joinKey.rawValue)")
                 Self.cleanupAttachments(idempotencyKey: row.idempotencyKey)
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
                 return
@@ -436,10 +460,17 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     // Explicit provision failure: the server retains the failed
                     // instance under this key, so a same-key retry would adopt
                     // the corpse. Mint a fresh key for the next attempt.
-                    Log.error("AgentTemplateRepository: invite provision failed for template \(templateId); re-minting join key: \(error.localizedDescription)")
+                    let corpseKey = joinKey.rawValue
                     joinKey = ConvosAPI.JoinIdempotencyKey.mint()
                     let reminted = joinKey.rawValue
-                    _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = reminted }
+                    Log.error("AgentTemplateRepository: invite provision failed for template \(templateId); join key re-minted \(corpseKey) -> \(reminted): \(error.localizedDescription)")
+                    let remintPersisted = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = reminted }
+                    if remintPersisted == nil, await fetchRow(idempotencyKey: row.idempotencyKey) == nil {
+                        // Row cleared mid-invite; stop retrying a build that
+                        // no longer exists.
+                        Log.info("AgentTemplateRepository: generation \(row.idempotencyKey) row gone during invite; skipping retry")
+                        return
+                    }
                     attempt += 1
                     await backoff(attempt: attempt)
                     continue
@@ -447,7 +478,19 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     // Ambiguous or no-instance failures: reuse the key so a
                     // provision that did land server-side is adopted, not
                     // duplicated.
-                    Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId): \(error) - \(error.localizedDescription)")
+                    Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId); reusing join key \(joinKey.rawValue): \(error) - \(error.localizedDescription)")
+                    attempt += 1
+                    await backoff(attempt: attempt)
+                    continue
+                case .forbidden:
+                    // A cold-launch resume can reach the backend before the
+                    // SIWE-bound JWT is ready, surfacing 403 "Account required"
+                    // as a readiness race rather than a real authorization
+                    // verdict. Retry with backoff reusing the key: once auth is
+                    // ready, the same key adopts any instance an earlier attempt
+                    // already provisioned. A genuinely unauthorized caller still
+                    // fails terminally once attempts are exhausted.
+                    Log.error("AgentTemplateRepository: invite got 403 (auth may not be ready yet); retrying with join key \(joinKey.rawValue): \(error.localizedDescription)")
                     attempt += 1
                     await backoff(attempt: attempt)
                     continue
@@ -460,7 +503,8 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 // Transport-level failure (timeout, lost connection) - the
                 // ambiguous case the key exists for. Reuse it so the server
                 // adopts the possibly-provisioned instance.
-                Log.error("AgentTemplateRepository: invite threw for template \(templateId): \(error.localizedDescription)")
+                let urlErrorCode = (error as? URLError).map { " urlError=\($0.code.rawValue)" } ?? ""
+                Log.error("AgentTemplateRepository: invite threw (ambiguous) for template \(templateId); reusing join key \(joinKey.rawValue)\(urlErrorCode): \(error.localizedDescription)")
                 attempt += 1
                 await backoff(attempt: attempt)
                 continue

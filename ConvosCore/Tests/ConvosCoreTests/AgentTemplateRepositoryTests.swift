@@ -125,6 +125,50 @@ struct AgentTemplateRepositoryTests {
         #expect(row?.joinIdempotencyKey == first)
     }
 
+    @Test("403 during invite retries with the same key (cold-launch auth-readiness race)")
+    func joinKeyReusedOnForbidden() async throws {
+        let database = try makeDatabase()
+        let api = RetryJoinStubAPIClient(firstJoinError: APIError.forbidden)
+        let repository = makeRepository(database: database, apiClient: api)
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-403", slug: "chef.abcd")
+
+        let row = try await waitForStatus(.invited, conversationId: "convo-403", in: database)
+        #expect(row?.statusValue == .invited)
+        let keys = api.capturedJoinKeys
+        #expect(keys.count == 2)
+        let first = try #require(keys.first ?? nil)
+        #expect(keys.last == first)
+        #expect(row?.joinIdempotencyKey == first)
+    }
+
+    @Test("Row cleared mid-invite stops the retry loop instead of re-joining")
+    func rowClearedMidInviteStopsRetries() async throws {
+        let database = try makeDatabase()
+        let api = RowDeletingProvisionFailStubAPIClient(database: database)
+        let repository = makeRepository(database: database, apiClient: api)
+
+        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-cleared", slug: "chef.abcd")
+
+        // The stub deletes the row inside the first join call and then throws
+        // an explicit provision failure. The re-mint branch must notice the
+        // missing row and stop; wait past the first backoff (1s) to catch a
+        // would-be second attempt.
+        let deadline = Date().addingTimeInterval(20)
+        while api.joinCalls == 0, Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(api.joinCalls == 1)
+        try await Task.sleep(nanoseconds: 1_600_000_000)
+        #expect(api.joinCalls == 1)
+        let row = try await database.read { db in
+            try DBAgentTemplateGeneration
+                .filter(DBAgentTemplateGeneration.Columns.conversationId == "convo-cleared")
+                .fetchOne(db)
+        }
+        #expect(row == nil)
+    }
+
     @Test("Explicit provision failure re-mints a fresh key for the retry")
     func joinKeyRemintedOnExplicitFailure() async throws {
         let database = try makeDatabase()
@@ -355,6 +399,61 @@ private final class AttachmentUploadFailingStubAPIClient: TestStubAPIClient {
     ) async throws -> ConvosAPI.AgentJoinResponse {
         lock.withLock { joinCallCount += 1 }
         return ConvosAPI.AgentJoinResponse(success: true, joined: true)
+    }
+}
+
+/// Deletes the generation row (simulating `clearGeneration` racing the
+/// pipeline) inside the join call, then throws an explicit provision failure.
+/// The invite's re-mint branch must detect the missing row and stop instead
+/// of retrying a build that no longer exists.
+private final class RowDeletingProvisionFailStubAPIClient: TestStubAPIClient {
+    private let lock: NSLock = NSLock()
+    private let templateId: String = UUID().uuidString
+    private let database: DatabaseQueue
+    private var joinCallCount: Int = 0
+
+    var joinCalls: Int { lock.withLock { joinCallCount } }
+
+    init(database: DatabaseQueue) {
+        self.database = database
+    }
+
+    override func createAgentTemplateGeneration(
+        inputs: ConvosAPI.AgentTemplateGenerationRequest.Inputs,
+        source: String,
+        clientDeviceId: String?,
+        idempotencyKey: String,
+        connections: [String],
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: "gen-cleared",
+            status: .pending,
+            templateId: nil,
+            error: nil
+        )
+    }
+
+    override func getAgentTemplateGeneration(
+        generationId: String
+    ) async throws -> ConvosAPI.AgentTemplateGenerationResponse {
+        ConvosAPI.AgentTemplateGenerationResponse(
+            generationId: generationId,
+            status: .done,
+            templateId: templateId,
+            error: nil
+        )
+    }
+
+    override func requestAgentJoin(
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        lock.withLock { joinCallCount += 1 }
+        _ = try? await database.write { db in
+            try DBAgentTemplateGeneration.deleteAll(db)
+        }
+        throw APIError.agentProvisionFailed
     }
 }
 
