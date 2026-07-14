@@ -173,7 +173,11 @@ struct BatchCatchUpIntegrationTests {
         for i in 1...messageCount {
             _ = try await group.send(content: "Backfill msg \(i)")
         }
-        let cursorNs = Int64(Date().nanosecondsSince1970)
+        // Cursor comes from the actual max message timestamp, not the host
+        // wall clock - libxmtp stamps sentNs server-side, and clock skew on
+        // CI put wall-clock cursors behind freshly sent messages.
+        let sentMessages = try await group.messages(afterNs: 0)
+        let cursorNs = try #require(sentMessages.map(\.sentAtNs).max())
         try await fixtures.databaseManager.dbWriter.write { db in
             try DBConversationCatchUpCursor.advance(to: cursorNs, for: group.id, in: db)
         }

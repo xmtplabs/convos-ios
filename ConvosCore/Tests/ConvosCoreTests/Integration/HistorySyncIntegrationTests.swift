@@ -21,6 +21,28 @@ import Testing
 /// ("No provider set") and aborted the process.
 @Suite("History Sync Integration Tests", .serialized)
 struct HistorySyncIntegrationTests {
+    /// Whether the local message-history server (`./dev/up`, port 5558) is
+    /// reachable. CI deploys only an ephemeral XMTP node - no history
+    /// server - so archive-delivery coverage runs locally and skips there.
+    /// The request-only test needs just the node (the request travels
+    /// through the sync group) and runs everywhere.
+    private static let historyServerReachable: Bool = {
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return false }
+        defer { close(sock) }
+        var timeout = timeval(tv_sec: 0, tv_usec: 500_000)
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(5558).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let result = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                connect(sock, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
+    }()
     /// Creates a client in its own temp database directory. Passing the
     /// same `account` twice yields two installations of one inbox - the
     /// same shape pairing produces (initiator + joiner).
@@ -67,6 +89,7 @@ struct HistorySyncIntegrationTests {
 
     @Test(
         "History sync delivers pre-pairing messages to a new installation",
+        .enabled(if: Self.historyServerReachable, "requires the local message-history server on port 5558 (./dev/up)"),
         .timeLimit(.minutes(3))
     )
     func historySyncDeliversOldMessages() async throws {
