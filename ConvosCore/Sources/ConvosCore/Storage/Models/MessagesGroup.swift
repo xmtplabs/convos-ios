@@ -221,6 +221,10 @@ public struct ThinkingSessionDescriptor: Equatable, Hashable, Sendable, Identifi
     /// stopped without a reply (interrupt, error) reads as static history
     /// rather than perpetually thinking.
     public let isActive: Bool
+    /// Action of the latest `convos.org/thinking-control:1.0` event sent for
+    /// this session, or nil when none was ever sent. `.stop` flips the
+    /// detail sheet's stop button into a resume button.
+    public let lastControlAction: ThinkingControlAction?
 
     /// Latest moment's content, surfaced to the inline indicator as "what's
     /// the agent doing right now".
@@ -232,7 +236,8 @@ public struct ThinkingSessionDescriptor: Equatable, Hashable, Sendable, Identifi
         targetMessageId: String,
         moments: [ThinkingMoment],
         resultMessageId: String? = nil,
-        isActive: Bool
+        isActive: Bool,
+        lastControlAction: ThinkingControlAction? = nil
     ) {
         self.id = id
         self.sender = sender
@@ -240,6 +245,7 @@ public struct ThinkingSessionDescriptor: Equatable, Hashable, Sendable, Identifi
         self.moments = moments
         self.resultMessageId = resultMessageId
         self.isActive = isActive
+        self.lastControlAction = lastControlAction
     }
 }
 

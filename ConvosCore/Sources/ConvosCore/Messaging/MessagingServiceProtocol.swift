@@ -110,6 +110,18 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
 
+    /// Sends a `convos.org/thinking-control:1.0` message asking `agentInboxId`
+    /// to stop or resume the thinking session anchored to `targetMessageId`
+    /// (a UI-level message id; resolved to the wire id before sending), and
+    /// persists the action locally so the detail sheet's button flips
+    /// immediately.
+    func sendThinkingControl(
+        action: ThinkingControlAction,
+        targetMessageId: String,
+        agentInboxId: String,
+        for conversationId: String
+    ) async throws
+
     /// Injection point used by the in-app debug attachment tool to dispatch a synthesized
     /// `ConnectionPayload` (e.g. a fake HealthKit background update) to a conversation.
     /// Mirrors what `HealthBackgroundObserverRoutine` would send when a real observer

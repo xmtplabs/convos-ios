@@ -16,6 +16,11 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     public func sendTypingIndicator(isTyping: Bool) async throws {
     }
 
+    @discardableResult
+    public func sendThinkingControl(_ content: ThinkingControlContent) async throws -> String {
+        UUID().uuidString
+    }
+
     public func sendReadReceipt() async throws {
     }
 

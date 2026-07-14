@@ -32,6 +32,11 @@ public struct ThinkingSessionRecord: Equatable, Sendable, Identifiable {
     public let targetMessageId: String
     /// Moments in chronological (ascending) order.
     public let moments: [ThinkingMoment]
+    /// Action of the latest `convos.org/thinking-control:1.0` event sent
+    /// for this session (by any member, from any device), or nil when no
+    /// control was ever sent. `.stop` flips the detail sheet's stop button
+    /// into a resume button.
+    public let lastControlAction: ThinkingControlAction?
 
     public var latestMoment: ThinkingMoment? { moments.last }
     public var content: String { latestMoment?.content ?? "" }
@@ -88,6 +93,21 @@ public final class ThinkingSessionRepository: ThinkingSessionRepositoryProtocol,
             .order(DBThinkingMoment.Columns.sentAtNs.asc)
             .fetchAll(db)
 
+        // Latest control action per session key. Control rows share the
+        // moments' session key shape (agent inbox id + resolved target
+        // message id), so the same "senderInboxId:targetMessageId" string
+        // joins them to the aggregated session below.
+        let controlRows = try DBThinkingControl
+            .filter(DBThinkingControl.Columns.conversationId == conversationId)
+            .order(DBThinkingControl.Columns.sentAtNs.asc)
+            .fetchAll(db)
+        var lastControlByKey: [String: ThinkingControlAction] = [:]
+        for controlRow in controlRows {
+            guard let action = ThinkingControlAction(rawValue: controlRow.action) else { continue }
+            let key = "\(controlRow.agentInboxId):\(controlRow.targetMessageId)"
+            lastControlByKey[key] = action
+        }
+
         // Group by (senderInboxId, targetMessageId), preserving chronological
         // moment order within each group. A dictionary loses iteration order
         // so we accumulate keys in a separate array to keep the outer
@@ -118,7 +138,8 @@ public final class ThinkingSessionRepository: ThinkingSessionRepositoryProtocol,
                 conversationId: conversationId,
                 senderInboxId: first.senderInboxId,
                 targetMessageId: first.targetMessageId,
-                moments: moments
+                moments: moments,
+                lastControlAction: lastControlByKey[key]
             )
         }
     }

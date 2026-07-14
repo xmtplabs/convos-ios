@@ -29,12 +29,12 @@ struct ThinkingDetailView: View {
     let descriptor: ThinkingSessionDescriptor
     let conversation: Conversation
     let viewModel: ConversationViewModel
-    /// Invoked when the user taps the bottom-bar Stop button. The button
-    /// is gated on `liveDescriptor.isActive`, so by the time this fires
-    /// the session is still in progress. Hosts decide what to do (e.g.
-    /// signal the agent, post a system message). Defaults to a no-op so
+    /// Invoked when the user taps the bottom-bar stop/resume button, with
+    /// the control action the tap requested (`.stop` while the session is
+    /// running, `.resume` after a stop was sent). Hosts wire this to send a
+    /// `convos.org/thinking-control:1.0` message. Defaults to a no-op so
     /// the view stays usable in previews or contexts that don't wire it.
-    var onStop: () -> Void = {}
+    var onThinkingControl: (ThinkingControlAction) -> Void = { _ in }
     /// Factory for the agent's profile sheet — same shape used by
     /// `MessagesView` so callers can reuse their existing builder.
     /// Tapping the top indicator capsule presents the result.
@@ -77,7 +77,8 @@ struct ThinkingDetailView: View {
             targetMessageId: match.targetMessageId,
             moments: match.moments,
             resultMessageId: match.resultMessageId,
-            isActive: match.isActive
+            isActive: match.isActive,
+            lastControlAction: match.lastControlAction
         )
     }
 
@@ -162,25 +163,36 @@ struct ThinkingDetailView: View {
     private var bottomBar: some View {
         HStack {
             Spacer()
-            stopButton
+            controlButton
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
     }
 
-    private var stopButton: some View {
-        let isEnabled: Bool = liveDescriptor.isActive
-        let iconColor: Color = isEnabled ? .colorCaution : .colorTextTertiary
-        return Button(action: onStop) {
-            Image(systemName: "octagon.fill")
+    /// Music-player-style transport button: a square stop while the session
+    /// can be interrupted, flipping to a play/resume triangle once the last
+    /// control sent was a stop. The resume face stays enabled even after the
+    /// agent acknowledges with its own thinking `stop` (the session reads
+    /// inactive then), since resuming is exactly the action that applies.
+    private var controlButton: some View {
+        let showsResume: Bool = liveDescriptor.lastControlAction == .stop
+        let isEnabled: Bool = showsResume || liveDescriptor.isActive
+        let iconName: String = showsResume ? "play.fill" : "stop.fill"
+        let enabledColor: Color = showsResume ? .colorTextPrimary : .colorCaution
+        let iconColor: Color = isEnabled ? enabledColor : .colorTextTertiary
+        let accessibilityLabel: String = showsResume ? "Resume thinking" : "Stop thinking"
+        let controlAction: ThinkingControlAction = showsResume ? .resume : .stop
+        let action: () -> Void = { onThinkingControl(controlAction) }
+        return Button(action: action) {
+            Image(systemName: iconName)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(iconColor)
-                .frame(width: Constant.stopButtonSize, height: Constant.stopButtonSize)
+                .frame(width: Constant.controlButtonSize, height: Constant.controlButtonSize)
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .accessibilityLabel("Stop thinking")
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var messagesBody: some View {
@@ -227,7 +239,7 @@ struct ThinkingDetailView: View {
 
     private enum Constant {
         static let dismissButtonSize: CGFloat = 44.0
-        static let stopButtonSize: CGFloat = 44.0
+        static let controlButtonSize: CGFloat = 44.0
     }
 }
 

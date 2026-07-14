@@ -28,6 +28,12 @@ extension DecodedMessage {
             && contentType.typeID == ContentTypeThinking.typeID
     }
 
+    var isThinkingControl: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeThinkingControl.authorityID
+            && contentType.typeID == ContentTypeThinkingControl.typeID
+    }
+
     var isBuilderBundleManifest: Bool {
         guard let contentType = try? encodedContent.type else { return false }
         return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
@@ -90,6 +96,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let messageWriter: any IncomingMessageWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
+    private let thinkingControlWriter: any ThinkingControlWriterProtocol
     private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
     init(identityStore: any KeychainIdentityStoreProtocol,
@@ -106,6 +113,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
         self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
+        self.thinkingControlWriter = ThinkingControlWriter(databaseWriter: databaseWriter)
         self.contactSyncCoordinator = contactSyncCoordinator
     }
 
@@ -659,6 +667,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         case .thinking:
             await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
             return nil
+        case .thinkingControl:
+            await storeThinkingControl(message, conversationId: conversation.id)
+            return nil
         case .builderBundleManifest:
             await storeBuilderBundleManifest(message, conversationId: conversation.id)
             return nil
@@ -745,7 +756,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Store last message (skip profile messages and read receipts which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt, !lastMessage.isThinking {
+        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt, !lastMessage.isThinking, !lastMessage.isThinkingControl {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: prepared.dbConversation
@@ -1179,6 +1190,24 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         await thinkingSessionWriter.apply(
             event: content,
             momentId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
+    }
+
+    /// Unlike thinking moments, control events from the local inbox are
+    /// applied too: the sender's own stop/resume drives the detail sheet's
+    /// button state, and the writer is idempotent on the message id so the
+    /// optimistic row written at send time absorbs the replay.
+    private func storeThinkingControl(_ message: DecodedMessage, conversationId: String) async {
+        guard let content = try? ThinkingControlCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode ThinkingControl from caught-up message \(message.id)")
+            return
+        }
+        await thinkingControlWriter.apply(
+            event: content,
+            messageId: message.id,
             conversationId: conversationId,
             senderInboxId: message.senderInboxId,
             sentAtNs: message.sentAtNs

@@ -21,6 +21,10 @@ enum CaughtUpMessageKind {
     case ignore
     case readReceipt
     case thinking
+    /// Silent stop/resume request for an agent's thinking session. Stored
+    /// via `storeThinkingControl` so the detail sheet's button state stays
+    /// consistent across devices; never rendered as a chat row.
+    case thinkingControl
     /// Silent agent-builder bundle manifest. Lists the prepared XMTP ids of a
     /// builder bundle so every client hides them; stored via
     /// `storeBuilderBundleManifest`, never rendered as a chat row.
@@ -39,6 +43,9 @@ enum CaughtUpMessageKind {
         }
         if message.isThinking {
             return .thinking
+        }
+        if message.isThinkingControl {
+            return .thinkingControl
         }
         if message.isBuilderBundleManifest {
             return .builderBundleManifest

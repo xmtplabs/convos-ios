@@ -319,6 +319,11 @@ class TestableMockMessageSender: MessageSender {
     func sendTypingIndicator(isTyping: Bool) async throws {
     }
 
+    @discardableResult
+    func sendThinkingControl(_ content: ThinkingControlContent) async throws -> String {
+        ""
+    }
+
     func sendReadReceipt() async throws {
     }
 
