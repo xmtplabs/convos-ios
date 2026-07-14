@@ -975,16 +975,30 @@ extension ConversationsViewModel {
         guard pendingJoinerPairing == nil,
               foundDevicePairingPrompt == nil,
               incomingPairingRequest == nil else { return }
-        // Don't decide on an unloaded snapshot: at cold launch the shared
-        // profile view model holds default values even for a fully
-        // onboarded user. On timeout skip so the next launch retries
-        // (mirrors ConversationOnboardingCoordinator).
-        let profileLoaded = await ProfileSettingsViewModel.shared.waitForProfileLoad(
+        // Fast path: this launch registered a brand-new identity (empty
+        // keychain), so there is provably no profile to wait for - present
+        // immediately so the sheet really is the first thing a new user
+        // sees.
+        if await session.registeredFreshIdentityThisLaunch() {
+            presentingFirstLaunchProfileSetup = true
+            QAEvent.emit(.onboarding, "first_launch_profile_sheet_shown", ["path": "fresh_install"])
+            return
+        }
+        // An identity was restored (e.g. delete + reinstall keeps the
+        // keychain): don't decide on an unloaded snapshot - the profile
+        // only arrives once the rebuilt inbox is ready, which can far
+        // exceed a fixed timeout. Wait for however long the load takes;
+        // the QA event marks launches where it ran long.
+        var profileLoaded = await ProfileSettingsViewModel.shared.waitForProfileLoad(
             timeout: Constant.firstLaunchProfileLoadTimeout
         )
-        guard profileLoaded else {
+        if !profileLoaded {
             QAEvent.emit(.onboarding, "first_launch_profile_sheet_load_timeout")
-            return
+            while !profileLoaded {
+                profileLoaded = await ProfileSettingsViewModel.shared.waitForProfileLoad(
+                    timeout: Constant.firstLaunchProfileLoadTimeout
+                )
+            }
         }
         // A profile already exists (name or photo): never show.
         guard ProfileSettingsViewModel.shared.profileSettings.isDefault else { return }

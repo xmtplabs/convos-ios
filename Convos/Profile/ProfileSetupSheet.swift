@@ -163,7 +163,8 @@ struct ProfileSetupSheet: View {
                     profileImageAssetIdentifier = nil
                     hasEditedDraft = true
                 },
-                onVideoCaptured: nil
+                onVideoCaptured: nil,
+                allowsEditing: true
             )
             .ignoresSafeArea()
         }
@@ -192,33 +193,54 @@ struct ProfileSetupSheet: View {
         }
     }
 
+    /// Empty state is person.crop.circle.fill on an inverted circle; a
+    /// typed name switches to its monogram, a chosen photo to the photo.
+    private var avatarPreview: some View {
+        Group {
+            if hasName || profileImage != nil {
+                ProfileAvatarView(
+                    profile: previewProfile,
+                    profileImage: profileImage,
+                    useSystemPlaceholder: false
+                )
+            } else {
+                ZStack {
+                    Circle().fill(.colorBackgroundInverted)
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 20.0))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                }
+            }
+        }
+        .frame(width: 36.0, height: 36.0)
+    }
+
     private var nameRow: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Button {
-                isImagePickerPresented = true
-            } label: {
-                // Empty state is person.crop.circle.fill on an inverted
-                // circle; a typed name switches to its monogram, a chosen
-                // photo to the photo.
-                Group {
-                    if hasName || profileImage != nil {
-                        ProfileAvatarView(
-                            profile: previewProfile,
-                            profileImage: profileImage,
-                            useSystemPlaceholder: false
-                        )
-                    } else {
-                        ZStack {
-                            Circle().fill(.colorBackgroundInverted)
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 20.0))
-                                .foregroundStyle(.colorTextPrimaryInverted)
+            Group {
+                if profileImage != nil {
+                    // A photo is set: tapping offers Change / Remove.
+                    Menu {
+                        Button("Change photo") {
+                            isImagePickerPresented = true
                         }
+                        Button("Remove photo", role: .destructive) {
+                            profileImage = nil
+                            profileImageAssetIdentifier = nil
+                            hasEditedDraft = true
+                        }
+                    } label: {
+                        avatarPreview
+                    }
+                } else {
+                    Button {
+                        isImagePickerPresented = true
+                    } label: {
+                        avatarPreview
                     }
                 }
-                .frame(width: 36.0, height: 36.0)
             }
-            .accessibilityLabel(profileImage != nil ? "Change photo" : "Choose photo")
+            .accessibilityLabel(profileImage != nil ? "Change or remove photo" : "Choose photo")
             .accessibilityIdentifier("profile-setup-avatar")
 
             TextField("Name", text: $displayName)
