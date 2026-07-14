@@ -97,6 +97,15 @@ struct ConversationsView: View {
         Binding(
             get: { viewModel.selectedConversationViewModel },
             set: { newValue in
+                // A nil transition here is the unambiguous "popped back to
+                // home" event: it fires only on an actual pop of the pushed
+                // ConversationView, never on a tab switch, modal-sheet
+                // dismiss, or app backgrounding. That is exactly when a host's
+                // active invite session should end so the inline card collapses
+                // to the regular top cell on re-entry.
+                if newValue == nil {
+                    viewModel.endHostedInviteSessionOnPop()
+                }
                 viewModel.selectedConversationId = newValue?.conversation.id
             }
         )
@@ -301,6 +310,26 @@ private struct ConversationsSheetModifier: ViewModifier {
         )
     }
 
+    /// Routes every dismissal of the joiner pairing sheet through
+    /// `dismissJoinerPairing()` so the ephemeral pairing client is torn
+    /// down before the reference drops. Interactive (swipe) dismissal
+    /// nils a plain item binding before `onDismiss` runs, which would
+    /// orphan the joiner's streaming task and temp database - the same
+    /// gap `MainTabSheetsModifier.incomingPairingBinding` closes for the
+    /// initiator sheet.
+    private var joinerPairingBinding: Binding<JoinerPairingSheetViewModel?> {
+        Binding(
+            get: { viewModel.pendingJoinerPairing },
+            set: { newValue in
+                if newValue == nil {
+                    viewModel.dismissJoinerPairing()
+                } else {
+                    viewModel.pendingJoinerPairing = newValue
+                }
+            }
+        )
+    }
+
     func body(content: Content) -> some View {
         content
             // The `NewConversationView` and `AgentBuilderView` sheets
@@ -316,16 +345,31 @@ private struct ConversationsSheetModifier: ViewModifier {
                 .presentationDetents([.medium])
             }
             .selfSizingSheet(
-                item: $viewModel.pendingJoinerPairing,
-                onDismiss: {
-                    viewModel.pendingPairDevice = nil
-                    viewModel.pendingJoinerPairing = nil
-                },
+                item: joinerPairingBinding,
                 content: { pairingVM in
                     JoinerPairingSheetView(viewModel: pairingVM)
                         .padding(.top, DesignConstants.Spacing.step5x)
                 }
             )
+            .selfSizingSheet(
+                item: $viewModel.foundDevicePairingPrompt,
+                onDismiss: {
+                    viewModel.onFoundDevicePromptDismissed()
+                },
+                content: { prompt in
+                    PairFoundDeviceInfoSheet(
+                        deviceName: prompt.deviceName,
+                        onPair: { viewModel.pairWithFoundDevice() },
+                        onSkip: { viewModel.skipFoundDevicePairing() }
+                    )
+                    .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
+            // Plain .sheet: ProfileSetupSheet supplies its own detent,
+            // indicator, and background (see its body).
+            .sheet(isPresented: $viewModel.presentingFirstLaunchProfileSetup) {
+                ProfileSetupSheet(mode: .firstLaunch)
+            }
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()
             }

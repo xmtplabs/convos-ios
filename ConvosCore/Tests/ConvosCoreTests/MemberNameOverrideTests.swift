@@ -157,7 +157,7 @@ struct MemberNameOverrideTests {
         let result = update.summary { inboxId in
             inboxId == "removed" ? "Bob" : nil
         }
-        #expect(result == "Bob left")
+        #expect(result == "Bob left · Removed by Admin")
     }
 
     @Test("Self-joiner shows You regardless of override")
@@ -241,5 +241,41 @@ struct MemberNameOverrideTests {
         }
         #expect(result.contains("AliceContact"))
         #expect(!result.contains("Somebody"))
+    }
+
+    // MARK: - ConversationMember.displayName(contactNameFallback:)
+    // Fallback-only variant used by message-derived surfaces (in-chat bubble,
+    // conversation-list preview). The per-conversation name wins; the contact
+    // name only fills an empty name. Unlike the override variant, it can never
+    // replace a name that already renders correctly.
+
+    @Test("Fallback: the per-conversation name wins over the contact name")
+    func testFallbackProfileNameWins() {
+        let member = Self.member(inboxId: "alice", name: "AliceProfile")
+        let result = member.displayName(contactNameFallback: { _ in "AliceContact" })
+        #expect(result == "AliceProfile")
+    }
+
+    @Test("Fallback: the contact name fills an empty per-conversation name")
+    func testFallbackFillsEmptyName() {
+        let member = Self.member(inboxId: "alice", name: nil)
+        let result = member.displayName(contactNameFallback: { inboxId in
+            inboxId == "alice" ? "AliceContact" : nil
+        })
+        #expect(result == "AliceContact")
+    }
+
+    @Test("Fallback: empty name and no contact still renders Somebody")
+    func testFallbackNoNameNoContactSomebody() {
+        let member = Self.member(inboxId: "alice", name: nil)
+        let result = member.displayName(contactNameFallback: { _ in nil })
+        #expect(result == "Somebody")
+    }
+
+    @Test("Fallback: an empty contact name is ignored")
+    func testFallbackEmptyContactIgnored() {
+        let member = Self.member(inboxId: "alice", name: nil)
+        let result = member.displayName(contactNameFallback: { _ in "" })
+        #expect(result == "Somebody")
     }
 }

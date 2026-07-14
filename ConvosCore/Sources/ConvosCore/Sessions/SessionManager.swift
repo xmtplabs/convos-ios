@@ -29,6 +29,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    /// Launch-time task that builds the messaging service (which starts profile
+    /// services). Stored so teardown can cancel it before it can rebuild - and
+    /// re-register - an inbox after a `deleteAllInboxes` wipe.
+    private var serviceBootstrapTask: Task<Void, Never>?
+    /// Task that starts profile services for a freshly built messaging service.
+    /// Stored/cancelled for the same reason as `serviceBootstrapTask`: it
+    /// re-enters `loadOrCreateService`, which would re-register an inbox on an
+    /// empty keychain after teardown if left to fire.
+    private var profileServicesTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
@@ -58,6 +67,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
     private let unusedConversationCache: any UnusedConversationCacheProtocol
+    private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
     /// serializes every construction path — any sync or async caller that
@@ -117,8 +127,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             identityStore: identityStore
         )
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
+        self.agentTemplateRepositoryInstance = Self.makeAgentTemplateRepository(apiClient: apiClient, databaseWriter: databaseWriter, databaseReader: databaseReader)
 
         observe()
+        wireAgentTemplateRepository()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -168,6 +180,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 )
                 await renewalManager.performRenewalIfNeeded()
             }
+
+            // Ensure the messaging service is built at launch. Building it starts
+            // its profile services (backfill + warmUp + bind the publish session)
+            // via loadOrCreateService's freshly-built hook, so we don't call
+            // startProfileServices here as well - that would double-run backfill.
+            // Stored + cancellation-checked so a concurrent teardown cannot let
+            // this rebuild (and re-register) an inbox after a delete-all wipe.
+            self.serviceBootstrapTask = Task { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                _ = self.loadOrCreateService()
+            }
         }
     }
 
@@ -176,6 +199,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         foregroundObserverTask?.cancel()
         staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
+        serviceBootstrapTask?.cancel()
+        profileServicesTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
@@ -286,13 +311,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     ///   fresh allocation, no fresh state machine, no fresh task — this
     ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
-        cachedMessagingService.withLock { cached in
+        let result: (service: MessagingService, freshlyBuilt: Bool) = cachedMessagingService.withLock { cached in
             let previousWasErrored: Bool
             if let existing = cached {
                 if case .error = existing.sessionStateManager.currentState {
                     previousWasErrored = true
                 } else {
-                    return existing
+                    return (existing, false)
                 }
             } else {
                 previousWasErrored = false
@@ -312,7 +337,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                consecutiveKeychainReadFailures >= 2,
                let lastFailure = lastKeychainReadFailure,
                Date().timeIntervalSince(lastFailure) < Self.keychainRetryBackoff {
-                return existing
+                return (existing, false)
             }
 
             let identity: KeychainIdentity?
@@ -326,7 +351,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 if previousWasErrored, let existing = cached {
                     // Still unhappy; return the frozen errored service we
                     // cached on the previous call. No rebuild thrash.
-                    return existing
+                    return (existing, false)
                 }
                 Log.error("Keychain identity read failed (\(error)); caching dedicated error-state service until next successful read.")
                 let errored = MessagingService(
@@ -340,13 +365,36 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     coreActions: coreActions
                 )
                 cached = errored
-                return errored
+                return (errored, false)
             }
 
             let service = buildMessagingService(for: identity)
             cached = service
-            return service
+            return (service, true)
         }
+        if result.freshlyBuilt {
+            // A freshly built service has an unattached publish session. Start
+            // its profile services (backfill + warmUp + bind the publisher) so
+            // profile edits actually publish in this app session. Without this,
+            // only the one-time launch initialization attaches the session, so a
+            // service rebuilt after deleteAllInboxes / refreshAfterPairingCompleted
+            // would leave edits enqueued-but-undelivered until the next relaunch.
+            // The re-fetch returns the just-cached instance (not freshly built,
+            // so it does not re-trigger). startProfileServices self-gates on
+            // inbox-ready.
+            profileServicesTask?.cancel()
+            profileServicesTask = Task { [weak self] in
+                guard let self else { return }
+                // Cancellation is cooperative: a task cancelled while still
+                // queued (e.g. tearDownInbox during delete-all) still enters
+                // its closure. Bail before loadOrCreateService, which would
+                // otherwise rebuild a service from the just-wiped keychain and
+                // re-register a fresh inbox.
+                guard !Task.isCancelled else { return }
+                await self.loadOrCreateService().startProfileServices()
+            }
+        }
+        return result.service
     }
 
     /// Build a `MessagingService` for the keychain's current identity, or
@@ -428,23 +476,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         await unusedConversationCache.releaseClaimedConversationId(conversationId)
         guard !DBConversation.isDraft(id: conversationId) else { return }
 
-        // Leave the XMTP group BEFORE the local row goes away so we don't
-        // orphan it on the network. Cache-claimed conversations are
-        // published in `UnusedConversationCache.runPreparation`, so by
-        // the time the user discards, the group is live with us as the
-        // sole member. Without `leaveGroup`, every cache cycle the user
-        // discards leaves a stranded MLS group on the server — over
-        // time, syncs re-deliver those groups and the chats list can
-        // briefly flash empty rows before the consent filter catches
-        // up.
+        // Deny consent and leave the XMTP group before the local row goes away
+        // so a discarded conversation can't resurface. Cache-claimed
+        // conversations are published in `UnusedConversationCache.runPreparation`,
+        // so by the time the user discards, the group is live with us as the
+        // sole member. `leaveGroup` fails on a solo MLS group ("cannot leave a
+        // group that has only one member"), so on its own it leaves the group on
+        // the network as allowed; syncs then re-deliver it and the discarded
+        // conversation reappears in the chats list on relaunch. Denying consent
+        // is the durable, XMTP-synced suppression the chats list filters on (it
+        // shows only allowed rows), and it is safe whether or not the group can
+        // be left, so it is applied first and unconditionally -- it still lands
+        // even when the best-effort `leaveGroup` throws.
         do {
             let inboxReady = try await loadOrCreateService().sessionStateManager.waitForInboxReadyResult()
-            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId),
-               case .group(let group) = xmtpConversation {
-                try await group.leaveGroup()
+            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId) {
+                try await xmtpConversation.updateConsentState(state: .denied)
+                if case .group(let group) = xmtpConversation {
+                    do {
+                        try await group.leaveGroup()
+                    } catch {
+                        Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). Consent was denied, so it stays filtered out of the chats list.")
+                    }
+                }
             }
         } catch {
-            Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). The group may remain on the network.")
+            Log.error("Failed to deny consent for discarded conversation \(conversationId): \(error). The group may remain on the network as allowed.")
         }
 
         do {
@@ -511,6 +568,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Cancel the launch-time bootstrap and the freshly-built profile-services
+        // task first so neither can rebuild - and re-register - an inbox after the
+        // wipe below clears the keychain and the cached service.
+        serviceBootstrapTask?.cancel()
+        serviceBootstrapTask = nil
+        profileServicesTask?.cancel()
+        profileServicesTask = nil
+
         await unusedConversationCache.cancel()
 
         // Keep the cached service reference live through the entire teardown.
@@ -525,6 +590,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         if let existing {
             Log.info("Tearing down authorized inbox")
+            await existing.stopProfileServices()
             await existing.stopAndDelete()
             await existing.waitForDeletionComplete()
         }
@@ -538,35 +604,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // Reached only from "Delete All Data" / delete-all-inboxes, which
-            // is a full local account reset rather than a per-conversation
-            // cleanup. Some tables intentionally survive conversation deletion
-            // during normal app use (for example `contact` uses `setNull` on
-            // `addedViaConversationId` so a contact can outlive a single
-            // source conversation), so we must explicitly clear those account-
-            // scoped tables here as well.
-            try DBCloudConnectionGrant.deleteAll(db)
-            try DBCloudConnection.deleteAll(db)
-            try DBCapabilityResolution.deleteAll(db)
-            try DBCreditBalance.deleteAll(db)
-            try DBConversationReadReceipt.deleteAll(db)
-            try DBPendingPhotoUpload.deleteAll(db)
-            try DBBuilderBundleHiddenMessage.deleteAll(db)
-            try DBVoiceMemoTranscript.deleteAll(db)
-            try AttachmentLocalState.deleteAll(db)
-            try DBPhotoPreferences.deleteAll(db)
-            try ConversationLocalState.deleteAll(db)
-            try DBInvite.deleteAll(db)
-            try DBConversationContactsSync.deleteAll(db)
-            try DBAgentTemplate.deleteAll(db)
-            try DBMessage.deleteAll(db)
-            try DBMemberProfile.deleteAll(db)
-            try DBConversationMember.deleteAll(db)
-            try DBContact.deleteAll(db)
-            try DBMember.deleteAll(db)
-            try DBConversation.deleteAll(db)
-            try DBInbox.deleteAll(db)
-            try DBMyProfile.deleteAll(db)
+            try Self.wipeAccountScopedRows(db)
         }
     }
 
@@ -594,28 +632,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             conversationId: conversationId,
             conversationIdPublisher: Just(conversationId).eraseToAnyPublisher()
         )
-    }
-
-    public func requestAgentJoin(
-        slug: String,
-        templateId: String? = nil,
-        options: ConvosAPI.AgentJoinOptions? = nil,
-        forceErrorCode: Int? = nil
-    ) async throws -> ConvosAPI.AgentJoinResponse {
-        let response = try await apiClient.requestAgentJoin(
-            slug: slug,
-            templateId: templateId,
-            options: options,
-            forceErrorCode: forceErrorCode
-        )
-        // Temporary diagnostic: the agent now sends a join-request DM that
-        // the message stream is expected to deliver. Poll for it for a
-        // bounded window in case the stream has died, so the agent doesn't
-        // time out and stream death shows up in the logs. Covers every
-        // agents/join entry point (add agent, contacts picker, compose,
-        // agent builder) since they all route through here.
-        await messagingService().sessionStateManager.startAgentJoinRequestPolling()
-        return response
     }
 
     public func agentShareResolver() -> any AgentShareResolving {
@@ -938,6 +954,95 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 }
 
+// MARK: - Account reset
+
+extension SessionManager {
+    /// Clears every account-scoped table in a full local reset ("Delete All
+    /// Data" / delete-all-inboxes). Some tables intentionally survive
+    /// conversation deletion during normal app use (for example `contact`
+    /// uses `setNull` on `addedViaConversationId` so a contact can outlive a
+    /// single source conversation), so a full reset must clear them here.
+    ///
+    /// Internal (not private) so the clean-slate guarantee can be unit-tested:
+    /// a residual row after this runs means a re-paired or different account
+    /// inherits stale data.
+    static func wipeAccountScopedRows(_ db: Database) throws {
+        try DBCloudConnectionGrant.deleteAll(db)
+        try DBCloudConnection.deleteAll(db)
+        try DBCapabilityResolution.deleteAll(db)
+        try DBCreditBalance.deleteAll(db)
+        try DBConversationReadReceipt.deleteAll(db)
+        // conversation_catchup_cursors rows cascade with the DBConversation
+        // deleteAll below (covered by
+        // ConversationCatchUpCursorTests.deletingConversationCascades).
+        try DBPendingPhotoUpload.deleteAll(db)
+        try DBBuilderBundleHiddenMessage.deleteAll(db)
+        try DBVoiceMemoTranscript.deleteAll(db)
+        try AttachmentLocalState.deleteAll(db)
+        try DBPhotoPreferences.deleteAll(db)
+        try ConversationLocalState.deleteAll(db)
+        try DBInvite.deleteAll(db)
+        try DBConversationContactsSync.deleteAll(db)
+        try DBAgentTemplate.deleteAll(db)
+        try DBMessage.deleteAll(db)
+        try DBMemberProfile.deleteAll(db)
+        try DBMemberDeparture.deleteAll(db)
+        try DBConversationMember.deleteAll(db)
+        try DBContact.deleteAll(db)
+        try DBMember.deleteAll(db)
+        try DBConversation.deleteAll(db)
+        try DBInbox.deleteAll(db)
+        try DBMyProfile.deleteAll(db)
+        // Canonical profile tables. Account-scoped and survive conversation
+        // deletion, so a full reset must clear them too; otherwise a re-paired
+        // or different account inherits stale identities, avatars, and queued
+        // publish jobs.
+        try DBProfile.deleteAll(db)
+        try DBProfileAvatar.deleteAll(db)
+        try DBProfileAvatarSource.deleteAll(db)
+        try DBProfilePublishJob.deleteAll(db)
+        try DBSelfConversationMetadata.deleteAll(db)
+    }
+}
+
+// MARK: - Engagement-gated discard
+
+extension SessionManager {
+    public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        guard !DBConversation.isDraft(id: conversationId) else {
+            await discardClaimedConversation(id: conversationId)
+            return
+        }
+        let isEngaged: Bool
+        do {
+            isEngaged = try await databaseReader.read { db in
+                try ConversationEngagement.isEngaged(
+                    db,
+                    conversationId: conversationId,
+                    currentInboxId: DBInbox.currentInboxId(db)
+                )
+            }
+        } catch {
+            // Destroying user data on a failed read is worse than leaving a
+            // row behind, so an engagement check that errors keeps the
+            // conversation.
+            Log.error("Engagement check failed for \(conversationId), keeping the conversation: \(error)")
+            isEngaged = true
+        }
+        guard isEngaged else {
+            await discardClaimedConversation(id: conversationId)
+            return
+        }
+        // The engaged path must never reach the consent-deny in
+        // `discardClaimedConversation`: the chats list filters on allowed
+        // consent, so deny-then-keep would hide the kept conversation anyway.
+        // Committing ensures visibility (idempotent if already committed) and
+        // releases the cache claim.
+        await commitClaimedConversation(id: conversationId)
+        Log.info("Kept engaged claimed conversation \(conversationId) instead of discarding it")
+    }
+}
+
 // MARK: - Stale-stranger GC
 
 extension SessionManager {
@@ -1012,6 +1117,77 @@ public extension SessionManager {
             Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
             return false
         }
+    }
+
+    /// Reads the iCloud-synced backup slot and returns every identity that
+    /// isn't this install's own (a fresh install's placeholder identity
+    /// mirrors itself into the slot, so it must be excluded), newest
+    /// backup first. Best-effort: keychain failures return an empty list
+    /// so the prompt simply doesn't show.
+    ///
+    /// The backups are read before the primary slot on purpose: a backup
+    /// mirror is only ever written after its primary, so any identity
+    /// present in the backups read here is guaranteed visible to the
+    /// `loadSync()` that follows. Reading in the other order races silent
+    /// identity registration and could report this install's own
+    /// just-created placeholder as pairable.
+    ///
+    /// A nil primary identity is expected on a true first launch (the
+    /// check runs from the chats list's onAppear, which can beat silent
+    /// registration) and means nothing needs excluding. Only a throwing
+    /// primary read hides the backups, since then an own mirror can't be
+    /// told apart from another device's.
+    func pairableDeviceBackups() async -> [PairableDeviceBackup] {
+        do {
+            let backups = try await identityStore.loadSyncedBackups()
+            let currentInboxId = try identityStore.loadSync()?.inboxId
+            return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
+        } catch {
+            Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")
+            return []
+        }
+    }
+
+    /// Same slot read as `pairableDeviceBackups`, but shaped for the
+    /// Devices screen: includes the current identity's own mirror and
+    /// applies no ordering filter (see `ICloudDeviceBackupsSnapshot`).
+    ///
+    /// Best-effort: keychain failures return an empty snapshot, and a
+    /// primary-slot read failure deliberately empties it even when the
+    /// backups loaded. Building the snapshot without the current inboxId
+    /// would classify the install's own mirror as another device -
+    /// listing the user's own key as pairable-to-self, badging it Main
+    /// in the wrong section, and un-escalating the delete-all guard on
+    /// the actual main device. A briefly empty section that recovers on
+    /// the next screen visit is the safer degradation (same reasoning
+    /// as `pairableBackups`' nil-hides contract).
+    func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
+        do {
+            let backups = try await identityStore.loadSyncedBackups()
+            let currentInboxId = try identityStore.loadSync()?.inboxId
+            return ICloudDeviceBackupsSnapshot.snapshot(from: backups, currentInboxId: currentInboxId)
+        } catch {
+            Log.warning("SessionManager.iCloudDeviceBackupsSnapshot failed: \(error)")
+            return ICloudDeviceBackupsSnapshot(currentDevice: nil, otherDevices: [])
+        }
+    }
+
+    /// Signs a pairing invite with the synced backup's private key. The
+    /// key never leaves ConvosCore - the caller only receives the slug,
+    /// which carries the same authority as a slug minted by the backed-up
+    /// device itself, so the joiner's signature and identity-share address
+    /// checks hold unchanged.
+    func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
+        let backups = try await identityStore.loadSyncedBackups()
+        guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
+            throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
+        }
+        let invite = try await PairingInvite.signed(
+            initiatorInboxId: backup.inboxId,
+            privateKey: backup.privateKey,
+            expiresAt: expiresAt
+        )
+        return try invite.toURLSafeSlug()
     }
 
     /// Called after a successful pairing on the joiner side. The paired
@@ -1129,5 +1305,239 @@ public extension SessionManager {
 extension SessionManager {
     public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
         BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
+    }
+}
+
+// MARK: - Direct-add agent join
+
+extension SessionManager {
+    /// How long to keep polling for the agent's inboxId when registration
+    /// outlasts the backend's synchronous wait budget.
+    private static var agentRegistrationDeadline: TimeInterval { 30 }
+    private static var agentRegistrationPollInterval: TimeInterval { 1 }
+    /// Bounded retries of the local member add for an already-provisioned
+    /// agent. The add can fail transiently (MLS commit race, key package not
+    /// yet propagated to this device, network blip); we retry the *same*
+    /// inboxId rather than re-provisioning.
+    private static var agentAddMaxAttempts: Int { 3 }
+    private static var agentAddRetryDelay: TimeInterval { 1 }
+
+    public func addAgentToConversation(
+        conversationId: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        // Capture the creator's device timezone on the main actor before any
+        // async hop. This seeds the agent's baseline/default zone (Channel A);
+        // it is distinct from the per-sender "timezone" ProfileUpdate metadata
+        // key published below, which tracks each member's own current device tz.
+        let creatorTimezone: String = await MainActor.run { TimeZone.current.identifier }
+
+        // 1. Provision the agent and wait until its XMTP inbox is registered.
+        //    Extracted to a helper that touches only the API client (no
+        //    messaging service) so the poll loop and its terminal/timeout/
+        //    unknown branches are unit-testable — see DirectAddProvisionPollTests.
+        let resolved = try await Self.awaitProvisionedAgentInbox(
+            requestJoin: {
+                try await self.apiClient.requestAgentJoin(
+                    slug: nil,
+                    conversationId: conversationId.lowercased(),
+                    templateId: templateId,
+                    options: options,
+                    timezone: creatorTimezone,
+                    forceErrorCode: forceErrorCode
+                )
+            },
+            fetchStatus: { try await self.apiClient.getAgentJoinStatus(instanceId: $0, variantId: options?.variantId) }
+        )
+        let instanceId = resolved.instanceId
+        let agentInboxId = resolved.inboxId
+        Log.info("Direct-add: provisioned instance \(instanceId) with inbox \(agentInboxId); adding to conversation \(conversationId)")
+
+        // 2. Add: a plain member add by this device — synchronous, no DM
+        //    round-trip, no online-accepter dependency. The add durably
+        //    publishes a group welcome for the agent's inbox; the runtime
+        //    observes it and attaches, so the agent boots even if this app is
+        //    killed on the next line.
+        //
+        //    On failure we retry the add for the *same* inboxId; we never
+        //    re-provision here. Re-provisioning would spawn a second instance
+        //    (the backend does not dedupe by conversationId) and orphan the
+        //    first, risking two agents in one conversation. An add that
+        //    exhausts its retries leaves a provisioned-but-unadded instance,
+        //    which the runtime reaps on its own attach timeout; we log the
+        //    instanceId/inboxId on every failure so it can be correlated.
+        var lastError: Error?
+        for attempt in 1...Self.agentAddMaxAttempts {
+            do {
+                try await messagingService().conversationMetadataWriter()
+                    .addMembers([agentInboxId], to: conversationId)
+                // The conversation now has an agent member. Publish this user's
+                // own device timezone into the per-sender ProfileUpdate metadata
+                // (Channel B). Best-effort: a failure must not fail the join.
+                await publishTimezoneForAgentConversation(conversationId: conversationId)
+                return resolved.response
+            } catch {
+                lastError = error
+                Log.error(
+                    "Direct-add: addMembers failed (attempt \(attempt)/\(Self.agentAddMaxAttempts)) "
+                        + "for agent inbox \(agentInboxId), instance \(instanceId), "
+                        + "conversation \(conversationId): \(error.localizedDescription)"
+                )
+                if attempt < Self.agentAddMaxAttempts {
+                    try await Task.sleep(nanoseconds: UInt64(Self.agentAddRetryDelay * 1_000_000_000))
+                }
+            }
+        }
+        throw lastError ?? APIError.invalidResponse
+    }
+
+    /// Best-effort per-sender timezone publish (agent-timezone Channel B) for a
+    /// single conversation. The publisher gates on the conversation actually
+    /// containing an agent member, so this is safe to call on any add path.
+    private func publishTimezoneForAgentConversation(conversationId: String) async {
+        do {
+            let publisher = try await messagingService().agentTimezonePublisher()
+            await publisher.publishTimezoneIfAgentConversation(conversationId: conversationId)
+        } catch {
+            Log.warning("Skipped timezone publish for \(conversationId); inbox not ready: \(error.localizedDescription)")
+        }
+    }
+
+    /// Opportunistic foreground republish of the user's timezone across every
+    /// agent conversation (agent-timezone Channel B refresh). Throttled inside
+    /// the publisher so a conversation is only republished when the device
+    /// timezone changed since the last published value. Best-effort.
+    ///
+    /// Call only from the foregrounded main app -- never from the Notification
+    /// Service Extension or a background task.
+    public func republishAgentTimezones() async {
+        do {
+            let publisher = try await messagingService().agentTimezonePublisher()
+            await publisher.republishTimezoneForAgentConversations()
+        } catch {
+            Log.warning("Skipped agent timezone republish; inbox not ready: \(error.localizedDescription)")
+        }
+    }
+
+    /// A provisioned agent whose XMTP inbox has registered and is ready to add.
+    struct ProvisionedAgent {
+        let response: ConvosAPI.AgentJoinResponse
+        let instanceId: String
+        let inboxId: String
+    }
+
+    /// Provisions an agent (`POST /v2/agents/join`) and polls
+    /// `GET /v2/agents/join/:instanceId` until its XMTP inbox is registered,
+    /// the backend reports a terminal status, or the deadline elapses.
+    ///
+    /// Touches only the two injected API operations — no messaging service —
+    /// so the loop is unit-testable with plain closures, and `now`/`sleep` are
+    /// injectable so deadline and poll timing can be driven without real waits.
+    ///
+    /// `inboxId` presence is the readiness signal: the backend (`pollUntilRegistered`)
+    /// populates it only once the agent's identity is registered and key
+    /// packages are published, so the caller's subsequent `addMembers` has key
+    /// packages to consume. In direct-add the status legitimately stays
+    /// `.starting` while the inbox is already present (the agent has not
+    /// *joined* yet — that happens after the add), so the inbox check, not the
+    /// status, is what ends the wait.
+    static func awaitProvisionedAgentInbox(
+        deadline: TimeInterval = agentRegistrationDeadline,
+        pollInterval: TimeInterval = agentRegistrationPollInterval,
+        now: @Sendable () -> Date = { Date() },
+        sleep: @Sendable (TimeInterval) async throws -> Void = {
+            try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+        },
+        requestJoin: @Sendable () async throws -> ConvosAPI.AgentJoinResponse,
+        fetchStatus: @Sendable (_ instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
+    ) async throws -> ProvisionedAgent {
+        let response = try await requestJoin()
+        guard let instanceId = response.instanceId else {
+            throw APIError.agentProvisionFailed
+        }
+
+        // Fast path: registration completed within the provision call itself.
+        if let inboxId = response.inboxId {
+            return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
+        }
+
+        let deadlineDate = now().addingTimeInterval(deadline)
+        while now() < deadlineDate {
+            try await sleep(pollInterval)
+            let status = try await fetchStatus(instanceId)
+
+            switch status.provisionStatus {
+            case .failed:
+                Log.error(
+                    "Direct-add: provision failed for instance \(instanceId): "
+                        + "\(status.joinFailureReason ?? "no reason given")"
+                )
+                throw APIError.agentProvisionFailed
+            case .noAgentsAvailable:
+                Log.error("Direct-add: no agents available for instance \(instanceId)")
+                throw APIError.noAgentsAvailable
+            case .starting, .joined, .ready, .pendingAcceptance:
+                break  // still registering; readiness is signaled by inboxId
+            case .unknown(let raw):
+                // A status this build doesn't model — not treated as ready or
+                // as failure. Logged (so it isn't silently missed) while the
+                // deadline bounds the wait.
+                Log.warning("Direct-add: unexpected join status \"\(raw)\" for instance \(instanceId)")
+            }
+
+            if let inboxId = status.inboxId {
+                return ProvisionedAgent(response: response, instanceId: instanceId, inboxId: inboxId)
+            }
+        }
+        Log.error("Direct-add: timed out awaiting agent inbox for instance \(instanceId)")
+        throw APIError.agentPoolTimeout
+    }
+}
+
+// MARK: - Agent-template repository factory
+
+extension SessionManager {
+    public func agentTemplateRepository() -> any AgentTemplateRepositoryProtocol {
+        agentTemplateRepositoryInstance
+    }
+
+    static func makeAgentTemplateRepository(
+        apiClient: any ConvosAPIClientProtocol,
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader
+    ) -> any AgentTemplateRepositoryProtocol {
+        AgentTemplateRepository(
+            apiClient: apiClient,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            source: "ios-app",
+            // Resolved lazily, at generation-submit time, not here at
+            // SessionManager init -- so building a session never forces a
+            // `DeviceInfo` read. By the time a generation is submitted the
+            // platform layer has configured `DeviceInfo`; if not, the existing
+            // fatalError still fires (loudly) at the real point of use.
+            clientDeviceIdProvider: { DeviceInfo.deviceIdentifier }
+        )
+    }
+
+    /// Route the repository's agent-join through the session so the direct-add
+    /// provision/add runs, then resume any in-flight generations persisted
+    /// across a relaunch.
+    func wireAgentTemplateRepository() {
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId in
+            // Throw rather than letting optional chaining return a silent `nil`:
+            // the invite step only detects failure via thrown errors, so a
+            // no-op `nil` would be recorded as a false `.invited` with no agent
+            // actually added.
+            guard let self else { throw AgentTemplateJoinError.sessionUnavailable }
+            // A nil variantId leaves options nil so default builds stay
+            // byte-identical; when set, the same slug carries the join routing
+            // and (via options.variantId) the load-bearing join-status poll.
+            let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
+            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: options)
+        }
+        agentTemplateRepositoryInstance.resumePendingGenerations()
     }
 }

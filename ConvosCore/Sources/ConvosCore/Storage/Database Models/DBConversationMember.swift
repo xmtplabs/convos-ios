@@ -47,26 +47,45 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         using: memberForeignKey
     )
 
-    static let memberProfileForeignKey: ForeignKey = ForeignKey(
-        [Columns.conversationId, Columns.inboxId],
-        to: [DBMemberProfile.Columns.conversationId, DBMemberProfile.Columns.inboxId]
+    static let profile: HasOneAssociation<DBConversationMember, DBProfile> = hasOne(
+        DBProfile.self,
+        key: "profile",
+        using: ForeignKey([Columns.inboxId], to: [DBProfile.Columns.inboxId])
     )
 
-    static let memberProfile: HasOneAssociation<DBConversationMember, DBMemberProfile> = hasOne(
-        DBMemberProfile.self,
-        using: memberProfileForeignKey
+    // Joins the newest avatar per inbox (the `profileAvatarLatest` view), keyed by
+    // inboxId only, so a person's latest avatar renders consistently across every
+    // conversation rather than each conversation's own per-conversation slot.
+    static let avatarSlot: HasOneAssociation<DBConversationMember, DBProfileAvatarLatest> = hasOne(
+        DBProfileAvatarLatest.self,
+        key: "avatarSlot",
+        using: ForeignKey([Columns.inboxId], to: [DBProfileAvatarLatest.Columns.inboxId])
     )
 
-    static let inviterProfileForeignKey: ForeignKey = ForeignKey(
-        [Columns.invitedByInboxId, Columns.conversationId],
-        to: [DBMemberProfile.Columns.inboxId, DBMemberProfile.Columns.conversationId]
-    )
-
-    static let inviterProfile: BelongsToAssociation<DBConversationMember, DBMemberProfile> = belongsTo(
-        DBMemberProfile.self,
+    static let inviterProfileIdentity: BelongsToAssociation<DBConversationMember, DBProfile> = belongsTo(
+        DBProfile.self,
         key: "inviterProfile",
-        using: inviterProfileForeignKey
+        using: ForeignKey([Columns.invitedByInboxId], to: [DBProfile.Columns.inboxId])
     )
+
+    // The current user is excluded from the canonical `profile` table (self
+    // identity is authored locally in `myProfile`), so the joins above are nil
+    // for the current user. These parallel joins resolve only for a local inbox
+    // (`myProfile` holds only local rows), letting hydration fall back to the
+    // self identity so the current user does not render as "Somebody" as a
+    // member or an inviter. Only the identity columns are selected so the
+    // `myProfile.imageData` blob is not dragged into every roster query.
+    static let myProfileIdentity: HasOneAssociation<DBConversationMember, DBMyProfile> = hasOne(
+        DBMyProfile.self,
+        key: "myProfile",
+        using: ForeignKey([Columns.inboxId], to: [DBMyProfile.Columns.inboxId])
+    ).select(DBMyProfile.Columns.inboxId, DBMyProfile.Columns.name, DBMyProfile.Columns.metadata, DBMyProfile.Columns.updatedAt)
+
+    static let inviterMyProfileIdentity: BelongsToAssociation<DBConversationMember, DBMyProfile> = belongsTo(
+        DBMyProfile.self,
+        key: "inviterMyProfile",
+        using: ForeignKey([Columns.invitedByInboxId], to: [DBMyProfile.Columns.inboxId])
+    ).select(DBMyProfile.Columns.inboxId, DBMyProfile.Columns.name, DBMyProfile.Columns.metadata, DBMyProfile.Columns.updatedAt)
 }
 
 // MARK: - DBConversationMember Extensions

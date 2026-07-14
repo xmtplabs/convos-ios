@@ -3,10 +3,13 @@ name: "Global Profile + Activate-Sync"
 description: >
   Verify the global profile model end-to-end: it auto-applies to NEW
   conversations, edits to it propagate to EXISTING conversations the next
-  time each becomes active (activate-sync), and per-conversation
-  overrides are preserved. The "Tap to chat" pill, the standalone
-  Quickname preset, the post-save "new you in every convo" sheet, and the
-  per-conversation "Use" override button no longer exist.
+  time each becomes active (activate-sync), and editing your own profile
+  from inside a conversation edits the same global profile. All profile
+  editing now goes through the "Hello / My name is" sheet
+  (profile-setup-name-field / profile-setup-save-button). The "Tap to
+  chat" pill, the standalone Quickname preset, the post-save "new you in
+  every convo" sheet, the per-conversation "Use" override button, and the
+  per-conversation override editor no longer exist.
 tags: [profile, core]
 depends_on: ["01"]
 estimated_duration_s: 360
@@ -107,15 +110,20 @@ steps:
   - id: edit_global
     name: "Change global display name"
     actions:
-      - tap: { label: "My info" }
-      - wait_for_element: { id: "profile-display-name-field", timeout: 10 }
-      - type_in_field: { id: "profile-display-name-field", text: "$updated_profile", clear_first: true }
-      - press_return: { id: "profile-display-name-field" }
-      - tap: { id: "BackButton" }
+      - tap: { id: "my-info-row" }
+      - wait_for_element: { id: "profile-setup-name-field", timeout: 10 }
+      - type_in_field: { id: "profile-setup-name-field", text: "$updated_profile", clear_first: true }
+      - tap: { id: "profile-setup-save-button" }
       - wait_for_element: { label_contains: "$updated_profile", timeout: 10 }
     verify:
       - element_exists: { label_contains: "$updated_profile" }
     criteria: global_edited
+    note: >
+      My info opens the "Hello / My name is" profile sheet
+      (profile-setup-name-field) over settings. Saving requires tapping
+      profile-setup-save-button ("Save") — pressing return only ends
+      editing. The sheet dismisses back to settings on save; there is no
+      BackButton to tap.
 
   # ───────────────────────────────────────────────────────────────────────
   # Part 3: Updated global propagates to a NEW conversation
@@ -189,41 +197,54 @@ steps:
     criteria: cli_sees_updated_a
 
   # ───────────────────────────────────────────────────────────────────────
-  # Part 5: Per-conversation override is preserved
+  # Part 5: Editing your own profile from a conversation edits the GLOBAL
   # ───────────────────────────────────────────────────────────────────────
-  - id: per_conv_override
-    name: "Edit per-conversation name in A only"
+  - id: own_profile_edit_from_convo
+    name: "Edit own profile from conversation A"
     actions:
-      - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "A-only Name", clear_first: true }
-      - tap: { id: "quick-edit-done-button" }
-      - wait_for_element: { label_contains: "Chat as A-only Name", timeout: 10 }
+      - tap: { id: "conversation-toolbar-button" }
+      - tap: { label_contains: "members" }
+      - tap: { label_contains: "$updated_profile", note: "tap your own member row (the local user) to open the profile sheet" }
+      - wait_for_element: { id: "profile-setup-name-field", timeout: 10 }
+      - type_in_field: { id: "profile-setup-name-field", text: "Edited In Convo", clear_first: true }
+      - tap: { id: "profile-setup-save-button" }
+      - tap: { id: "close-info-button", optional: true }
+      - wait_for_element: { label_contains: "Chat as Edited In Convo", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "Chat as A-only Name" }
-    criteria: per_conv_override_applied
+      - element_exists: { label_contains: "Chat as Edited In Convo" }
+    criteria: own_profile_editable_from_convo
+    note: >
+      Viewing your own profile from a conversation (own member row, or your
+      avatar in the messages view) presents the "Hello / My name is" sheet
+      (profile-setup-name-field / profile-setup-save-button with a "Save"
+      CTA and no terms toggle). This edits the GLOBAL profile — the
+      per-conversation override editor this flow used to open no longer
+      exists.
 
-  - id: global_unchanged
-    name: "Global in App Settings is still the updated name"
+  - id: global_updated_from_convo
+    name: "Global in App Settings reflects the in-conversation edit"
     actions:
       - tap: { id: "BackButton" }
       - tap: { id: "app-indicator-pill" }
       - wait_for_element: { label_contains: "My info", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "$updated_profile" }
-      - element_absent: { label_contains: "A-only Name" }
-    criteria: global_not_overwritten
+      - element_exists: { label_contains: "Edited In Convo" }
+    criteria: convo_edit_updates_global
+    note: >
+      The My info row renders the display name as its row text and exposes
+      it as the accessibility VALUE (accessibility label "My info", id
+      my-info-row, trailing pencil glyph, "Your name and pic" footer).
+      Match the name against the row's value/text.
 
-  - id: convo_b_unaffected
-    name: "Conversation B still shows the global name"
+  - id: convo_b_gets_edit
+    name: "Conversation B picks up the edit via activate-sync"
     actions:
       - swipe: { x_start: 200, y_start: 180, x_end: 200, y_end: 780, gesture: "swipe the settings sheet down to dismiss it (replaces the removed close-app-settings button)" }
       - tap: { label: "Profile Test B" }
-      - wait_for_element: { label_contains: "Chat as $updated_profile", timeout: 10 }
+      - wait_for_element: { label_contains: "Chat as Edited In Convo", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "Chat as $updated_profile" }
-      - element_absent: { label_contains: "A-only Name" }
-    criteria: per_conv_override_isolated
+      - element_exists: { label_contains: "Chat as Edited In Convo" }
+    criteria: convo_edit_propagates
 
 teardown:
   - action: explode_conversation
@@ -256,9 +277,9 @@ criteria:
     description: "Messages sent in A after activate-sync use the new global name"
   cli_sees_updated_a:
     description: "CLI confirms the updated global in conversation A after activate-sync"
-  per_conv_override_applied:
-    description: "Per-conversation display name change applies in A"
-  global_not_overwritten:
-    description: "Editing the per-conversation name in A does not change the global"
-  per_conv_override_isolated:
-    description: "Per-conversation name change in A does not leak to other conversations"
+  own_profile_editable_from_convo:
+    description: "Own profile can be edited from a conversation via the profile sheet"
+  convo_edit_updates_global:
+    description: "Editing from a conversation updates the global profile in App Settings"
+  convo_edit_propagates:
+    description: "The in-conversation edit propagates to other conversations (activate-sync)"

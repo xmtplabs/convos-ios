@@ -9,6 +9,15 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+/// Moves a staged invite image into the URL-keyed byte cache under the finalized
+/// invite's real image URL, so the invite card renders it without dropping to a
+/// placeholder or re-downloading. No-op when the text has no parseable image URL.
+private func cacheFinalizedInviteImage(_ image: UIImage, inviteText: String) {
+    guard let invite = MessageInvite.from(text: inviteText),
+          let imageURLString = invite.imageURL?.absoluteString else { return }
+    ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+}
+
 struct PendingInvite {
     let code: String
     var fullURL: String
@@ -189,6 +198,42 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// Latest direct-builder generation for this conversation, observed from
+    /// `AgentTemplateRepository`. Drives the pending-agent placeholder while a
+    /// build is in flight. `nil` for conversations that weren't created by the
+    /// direct builder flow.
+    var directBuildGeneration: AgentTemplateGeneration?
+
+    /// `true` while a direct build is active and hasn't failed and the agent
+    /// hasn't joined the conversation yet — covering submit through invite up
+    /// to the moment the agent actually appears as a member. Used to keep the
+    /// pending placeholder up without flashing empty, and to clear it the
+    /// instant the agent lands.
+    private var directBuildAwaitingAgent: Bool {
+        guard let generation = directBuildGeneration else { return false }
+        guard generation.status != .failed else { return false }
+        return !directBuildAgentJoined
+    }
+
+    /// Releases the pending-agent header takeover ("New Agent" title +
+    /// add-agent glyph + "Making agent..." subtitle). That takeover is a
+    /// new-conversation concept -- it stands in for the agent's identity before
+    /// it has one -- so the signal is "the conversation already has another
+    /// member besides me," not specifically "the agent joined":
+    ///   - New agent conversation: the only other member that ever appears is
+    ///     the agent, so this releases exactly when the agent lands.
+    ///   - Existing group (in-chat "New Agent"): other members are already
+    ///     present, so this is true from the start and the header is never
+    ///     hijacked -- the group keeps its own name/avatar/subtitle while the
+    ///     build runs (the in-chat activating card shows progress instead).
+    /// Gating on membership (not `isVerifiedConvosAgent`) also avoids the
+    /// "Joining..." stuck state when an agent joins before publishing its
+    /// verified attestation; the direct path has no time-box backstop like the
+    /// legacy summary flow.
+    private var directBuildAgentJoined: Bool {
+        conversation.members.contains { !$0.isCurrentUser }
+    }
+
     /// Flips true once the post-commit agent-builder placeholder window
     /// (`AgentBuilderPlaceholder.displayDuration` past the summary's
     /// `cutoffDate`) elapses without a verified agent joining. Stops the
@@ -255,6 +300,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
+    private let leaveWriter: any ConversationLeaveWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
@@ -311,10 +357,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
-    private var convosButtonCancellable: AnyCancellable?
-    @ObservationIgnored
-    private var convosButtonTask: Task<Void, Never>?
-    @ObservationIgnored
     private var explodeDurationTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
@@ -332,6 +374,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
+    @ObservationIgnored
+    private var directBuildGenerationCancellable: AnyCancellable?
+    /// One-shot backstop: cleared/re-armed as the direct build reaches the
+    /// "agent should be joining" state. Fires if the agent never appears so the
+    /// activating card can't linger forever (e.g. provisioning/attestation
+    /// stalls), which is especially important in an existing group.
+    @ObservationIgnored
+    private var directBuildJoinTimeoutTask: Task<Void, Never>?
+    /// How long to keep the activating card up after the build is done + the
+    /// join issued before giving up on the agent appearing. Matches the legacy
+    /// placeholder window.
+    private static let directBuildJoinTimeout: TimeInterval = 180
+    @ObservationIgnored
+    private var observedDirectBuildConversationId: String?
     @ObservationIgnored
     private var agentBuilderPlaceholderExpiryTask: Task<Void, Never>?
     @ObservationIgnored
@@ -357,6 +413,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private(set) var conversation: Conversation {
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+            latchEverHadOtherMembersIfNeeded()
             syncVerifiedAgentToRepo()
             trackAssistantJoinedIfNeeded(oldValue: oldValue)
             presentingConversationForked = shouldPresentConversationForked
@@ -373,6 +430,42 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
         }
+    }
+
+    /// Invoked synchronously the moment a metadata edit (name, description,
+    /// image, or the "Include info with invites" toggle) is about to be
+    /// written -- before the async writer task spawns, and only when a
+    /// change will actually be written. Wired by
+    /// `NewConversationViewModel` in its inner-VM forwarding block so the
+    /// engagement latch survives the inbox-acquisition VM swap; the latch
+    /// keeps a customized minted conversation from being discarded on
+    /// dismiss even when the write has not landed in the database yet.
+    @ObservationIgnored
+    var onMetadataEdited: (() -> Void)?
+    /// Invoked the first time the conversation gains a member besides the
+    /// local user. Wired like `onMetadataEdited`; feeds the engagement
+    /// latch so a joined-then-left member still keeps the conversation.
+    /// Replayed on assignment when the latch already fired: the initial
+    /// member list is evaluated during init, before any caller has had a
+    /// chance to wire this callback.
+    @ObservationIgnored
+    var onMemberJoined: (() -> Void)? {
+        didSet {
+            if everHadOtherMembers { onMemberJoined?() }
+        }
+    }
+    /// Latched true the first time `membersWithoutCurrent` is non-empty --
+    /// evaluated for the initial member list at init and on every
+    /// conversation update after; never reset for this VM's lifetime. The
+    /// members table only mirrors current membership, so this is the
+    /// in-session record that someone was here even if they left again.
+    @ObservationIgnored
+    private(set) var everHadOtherMembers: Bool = false
+
+    private func latchEverHadOtherMembersIfNeeded() {
+        guard !everHadOtherMembers, !conversation.membersWithoutCurrent.isEmpty else { return }
+        everHadOtherMembers = true
+        onMemberJoined?()
     }
 
     /// Set to `false` by the Agent Builder right before `Make` is tapped
@@ -417,6 +510,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             agent = nil
         }
         messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+        // The built agent has joined and verified: clear the persisted
+        // generation so the activating card can't resurrect if the agent is
+        // later removed (membership going back to no-agent would otherwise
+        // re-open the card's "no verified agent" gate on a still-`.invited`
+        // row). Durable across removal + relaunch; no-op once cleared.
+        if realAgent != nil, directBuildGeneration != nil {
+            session.agentTemplateRepository().clearGeneration(conversationId: conversation.id)
+        }
     }
 
     /// Activate the optimistic agent overlay for an agent-template flow.
@@ -460,10 +561,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let name = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let desc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let toggle = _editingIncludeInfoInPublicPreview
+        let willWriteName = !name.isEmpty && name != (conversation.name ?? "")
+        let willWriteDesc = !desc.isEmpty && desc != (conversation.description ?? "")
+        if willWriteName || willWriteDesc {
+            onMetadataEdited?()
+        }
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
-            if !name.isEmpty, name != (conversation.name ?? "") { try? await metadataWriter.updateName(name, for: conversation.id) }
-            if !desc.isEmpty, desc != (conversation.description ?? "") { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
+            if willWriteName { try? await metadataWriter.updateName(name, for: conversation.id) }
+            if willWriteDesc { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
             if let toggle, toggle != conversation.includeInfoInPublicPreview { self.updateIncludeInfoInPublicPreview(toggle) }
         }
     }
@@ -483,7 +589,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
     var untitledConversationPlaceholder: String {
         if let presentation = pendingAgentPresentation {
-            return presentation.name ?? "Agent"
+            return presentation.name ?? "New Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
@@ -512,6 +618,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
+        // Direct builder: the header intentionally stays generic ("Agent" title
+        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
+        // The draft preview identity is revealed progressively by the dedicated
+        // `.agentActivating` card, not the header; the header only adopts the
+        // real name/emoji once the verified agent actually joins. So fall
+        // through to the generic no-identity pending case below.
         if shouldRenderAsPendingAgentBuilder {
             return PendingAgentPresentation(
                 name: nil,
@@ -542,6 +654,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// appears in `conversation.members`, at which point the regular
     /// member-driven avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgentBuilder: Bool {
+        // Direct builder owns its own pending lifecycle. No AgentBuilderSummary
+        // is ever written on this path, so once a generation row exists the
+        // live generation state is authoritative -- return it and bypass the
+        // legacy summary-based gating below, which would otherwise pin the
+        // placeholder forever (here `isInAgentBuilderFlow` is true but
+        // `agentBuilderSummary` is always nil, so the pre-commit branch never
+        // releases). `directBuildAwaitingAgent` already clears on membership
+        // and on failure.
+        if directBuildGeneration != nil {
+            return directBuildAwaitingAgent
+        }
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
         // Pre-commit: while drafting in the builder (no summary yet), always
         // show the generic agent placeholder -- even if a verified agent has
@@ -609,12 +732,20 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         if shouldRenderAsPendingAgent {
-            return "Joining..."
+            // Static copy for the whole build; the header subtitle intentionally
+            // does not cycle the build-narration phrases. It flips to the member
+            // count once the agent joins (shouldRenderAsPendingAgent == false).
+            return "Activating"
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+    }
+    /// The "Activating" pending-agent subtitle uses the lava accent to match the
+    /// rest of the build UI; every other subtitle keeps the secondary text color.
+    var conversationInfoSubtitleColor: Color {
+        shouldRenderAsPendingAgent ? .colorLava : .colorTextSecondary
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -798,6 +929,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
+    /// Self-removal is a group-only operation (the protocol forbids leaving
+    /// a DM); gates the Leave affordance in the info view.
+    var canLeaveConversation: Bool {
+        conversation.kind == .group
+    }
     var isUpdatingPublicPreview: Bool = false
     private var _editingIncludeInfoInPublicPreview: Bool?
     var includeInfoInPublicPreview: Bool {
@@ -922,9 +1058,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var presentingThinkingDetail: ThinkingSessionDescriptor?
+    /// Drives the `MessageDetailView` sheet for a pathological (very long)
+    /// message body, presented when its bubble "Read More" is tapped.
+    var presentingMessageDetail: AnyMessage?
+    /// Message ids whose long-body inline expansion is on. Held on the view
+    /// model (not as cell-local `@State`) so an expanded message stays expanded
+    /// across `UICollectionView` cell reuse and never bleeds onto a recycled
+    /// cell showing a different message.
+    var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
-    var presentingRevealMediaInfoSheet: Bool = false
+    /// Segment the share overlay opens on when `presentingShareView` flips true.
+    /// The Invite sheet's "Show an invite code" row leaves this `.invite`; its
+    /// `viewfinder` button sets `.scan` so the overlay opens straight to the
+    /// scanner. Reset to `.invite` once the overlay closes.
+    var shareViewInitialSegment: ScanInviteSegment = .invite
     var presentingPhotosInfoSheet: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the
@@ -946,7 +1094,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// via the balance publisher. Drives the in-stream out-of-credits cell
     /// insertion in `MessagesViewController` and the inline status surfaces.
     var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
-    var activeToast: IndicatorToastStyle?
 
     var agentJoinForceErrorCode: Int?
 
@@ -988,7 +1135,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
-    var autoRevealPhotos: Bool = GlobalConvoDefaults.shared.autoRevealPhotos
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -998,27 +1144,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
-    private var hasShownRevealInfoSheet: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownRevealInfoSheetKey) }
-    }
-
-    private static let revealToastKeyPrefix: String = "hasShownRevealToast_"
-    private var hasShownRevealToastKey: String {
-        "\(Self.revealToastKeyPrefix)\(conversation.id)"
-    }
-    private var hasShownRevealToast: Bool {
-        get { UserDefaults.standard.bool(forKey: hasShownRevealToastKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasShownRevealToastKey) }
-    }
+    // Orphaned reveal-mode keys cleared opportunistically on launch.
+    private static let legacyRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
+    private static let legacyRevealToastKeyPrefix: String = "hasShownRevealToast_"
 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: legacyRevealInfoSheetKey)
         defaults.removeObject(forKey: hasShownAgentsIntroKey)
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyRevealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
     }
@@ -1075,10 +1210,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
-    var shouldBlurPhotos: Bool {
-        !autoRevealPhotos
-    }
-
     // MARK: - Onboarding
 
     var onboardingCoordinator: ConversationOnboardingCoordinator = ConversationOnboardingCoordinator()
@@ -1112,7 +1243,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // in-flight request holds `session` strongly and finishes on its own;
         // tying it to the view lifecycle was cancelling joins mid-request, so
         // the backend never provisioned the agent.
-        convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
         pendingSyntheticAgentExpiryTask?.cancel()
@@ -1193,10 +1323,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
         // MyProfileViewModel fills its "empty" profile with the current user's
         // inboxId. In single-inbox mode that's always the singleton; read it
@@ -1204,7 +1334,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: currentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1246,6 +1376,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         startOnboarding()
         registerInlineAttachmentRecovery()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     init(
@@ -1286,15 +1421,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.leaveWriter = messagingService.conversationLeaveWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.readReceiptWriter = messagingService.readReceiptWriter()
 
-        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
         let draftCurrentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
             inboxId: draftCurrentUserInboxId,
-            myProfileWriter: myProfileWriter,
+            messagingService: messagingService,
             myProfileRepository: myProfileRepository
         )
 
@@ -1323,6 +1458,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
+
+        // The initial assignment of `conversation` does not run its
+        // `didSet`, so a conversation that already has other members must
+        // latch here or a later departure would read as never-engaged.
+        latchEverHadOtherMembersIfNeeded()
     }
 
     // MARK: - Private
@@ -1332,7 +1472,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1369,6 +1508,82 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         scheduleAgentBuilderPlaceholderExpiry()
     }
 
+    /// Subscribe to the direct-builder generation row for this conversation so
+    /// the pending-agent placeholder and failure banner react to submit ->
+    /// poll -> invite transitions. No-op for conversations not created by the
+    /// direct builder (the publisher just emits `nil`).
+    private func observeDirectBuildGeneration() {
+        observeDirectBuildGeneration(for: conversation.id)
+    }
+
+    private func observeDirectBuildGeneration(for conversationId: String) {
+        guard conversationId != observedDirectBuildConversationId else { return }
+        observedDirectBuildConversationId = conversationId
+        directBuildGenerationCancellable?.cancel()
+        directBuildGenerationCancellable = session.agentTemplateRepository()
+            .generationPublisher(conversationId: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] generation in
+                self?.directBuildGeneration = generation
+                self?.syncDirectActivatingCard()
+            }
+    }
+
+    /// Mirror the live generation into the message list's "activating agent"
+    /// card. The processor only inserts it while no verified agent has joined,
+    /// so it's cleared automatically on join; here we just keep the content
+    /// (preview identity + progress phrases) current and drop it on failure.
+    private func syncDirectActivatingCard() {
+        guard let generation = directBuildGeneration, generation.status != .failed else {
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        let phase: AgentActivatingCardContent.Phase
+        switch generation.status {
+        case .submitting, .pending:
+            phase = .preparing
+        case .running:
+            phase = .generating
+        case .done, .invited:
+            phase = .finishing
+        case .failed:
+            messagesListRepository.agentActivating = nil
+            directBuildJoinTimeoutTask?.cancel()
+            directBuildJoinTimeoutTask = nil
+            return
+        }
+        messagesListRepository.agentActivating = AgentActivatingCardContent(
+            id: conversation.id,
+            phase: phase,
+            agentName: generation.preview?.agentName,
+            emoji: generation.preview?.emoji,
+            agentDescription: generation.preview?.description,
+            progressPhrases: generation.progressPhrases
+        )
+        // The repo bounds submit/poll (those fail -> the card clears above), but
+        // once the join is issued (`done`/`invited`) nothing else verifies the
+        // agent actually appeared. Arm a one-shot timeout so the card can't
+        // linger forever if the agent never joins/verifies.
+        if generation.status == .done || generation.status == .invited {
+            armDirectBuildJoinTimeoutIfNeeded()
+        }
+    }
+
+    private func armDirectBuildJoinTimeoutIfNeeded() {
+        guard directBuildJoinTimeoutTask == nil else { return }
+        directBuildJoinTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.directBuildJoinTimeout))
+            guard let self, !Task.isCancelled else { return }
+            let hasVerifiedAgent: Bool = self.conversation.members.contains(where: \.isVerifiedConvosAgent)
+            guard self.directBuildGeneration != nil, !hasVerifiedAgent else { return }
+            Log.warning("AgentBuilder(direct): agent did not join within timeout; clearing activating card for \(self.conversation.id)")
+            self.messagesListRepository.agentActivating = nil
+            self.session.agentTemplateRepository().clearGeneration(conversationId: self.conversation.id)
+        }
+    }
+
     /// Subscribe to the GRDB-backed thinking session feed for this
     /// conversation. The publisher fires whenever the writer inserts or
     /// closes a row, which propagates into `messagesWithThinkingIndicators`
@@ -1394,6 +1609,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         observeThinkingSessions()
+        observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
         CreditsServices.shared.balancePublisher
@@ -1469,6 +1685,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeDirectBuildGeneration(for: conversation.id)
                     self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
@@ -1485,7 +1702,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 guard let self, !self.isConversationImageDirty else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.conversationImage = await ImageCache.shared.loadImage(for: self.conversation)
+                    self.conversationImage = await ImageCache.shared.loadImageOrContinuity(for: self.conversation)
                     self.isConversationImageDirty = false
                 }
             }
@@ -1561,7 +1778,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                setAutoRevealPhotosLocally(prefs?.autoReveal ?? GlobalConvoDefaults.shared.autoRevealPhotos)
                 let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
                 sendReadReceipts = readReceiptsPref
                 messagesListRepository.sendReadReceipts = readReceiptsPref
@@ -1572,10 +1788,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
-    }
-
-    private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
-        autoRevealPhotos = autoReveal
     }
 
     func setSendReadReceipts(_ value: Bool) {
@@ -1591,19 +1803,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
-    private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
-        guard autoRevealPhotos != autoReveal else { return }
-        autoRevealPhotos = autoReveal
-        persistAutoReveal(autoReveal)
-    }
-
     private func loadConversationImage(for conversation: Conversation) {
         guard !isConversationImageDirty else { return }
 
         loadConversationImageTask?.cancel()
         loadConversationImageTask = Task { [weak self] in
             guard let self else { return }
-            let image = await ImageCache.shared.loadImage(for: conversation)
+            let image = await ImageCache.shared.loadImageOrContinuity(for: conversation)
             guard !Task.isCancelled, !self.isConversationImageDirty else { return }
             self.conversationImage = image
             self.isConversationImageDirty = false
@@ -2507,6 +2713,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingConversationName = trimmedConversationName
 
         if trimmedConversationName != (conversation.name ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -2521,6 +2728,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
 
         if isConversationImageDirty, let conversationImage = conversationImage {
+            onMetadataEdited?()
             // Key by the conversation id, not `imageCacheIdentifier`: before
             // the image upload persists, that identifier resolves to the other
             // member's inbox id and would cache this image as their avatar.
@@ -2544,6 +2752,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         editingDescription = trimmedConversationDescription
 
         if trimmedConversationDescription != (conversation.description ?? "") {
+            onMetadataEdited?()
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -2606,10 +2815,6 @@ extension ConversationViewModel {
 
     func onProfilePhotoTap(focusCoordinator: FocusCoordinator) {
         focusCoordinator.moveFocus(to: .displayName)
-    }
-
-    func onProfileSettingsDismissed(focusCoordinator: FocusCoordinator) {
-        onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
     }
 
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
@@ -3101,7 +3306,13 @@ extension ConversationViewModel {
         }
 
         if let invite = MessageInvite.from(text: inviteURL) {
-            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.imageURL?.absoluteString ?? invite.inviteSlug)
+            if let imageURLString = invite.imageURL?.absoluteString {
+                ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURLString)
+            } else {
+                // No upload URL yet: stage the selected image under the invite's
+                // identity so image(for:) shows it until the real URL arrives.
+                _ = ImageCache.shared.prepareForUpload(image, for: invite)
+            }
         }
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
@@ -3118,6 +3329,7 @@ extension ConversationViewModel {
                 if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
                    let pendingMessageId {
                     try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
+                    cacheFinalizedInviteImage(image, inviteText: updatedInvite.inviteURLString)
                 }
             }
         } catch {
@@ -3322,6 +3534,14 @@ extension ConversationViewModel {
         replyingToMessage = message
     }
 
+    func toggleMessageExpanded(_ messageId: String) {
+        if expandedMessageIds.contains(messageId) {
+            expandedMessageIds.remove(messageId)
+        } else {
+            expandedMessageIds.insert(messageId)
+        }
+    }
+
     func cancelReply() {
         replyingToMessage = nil
     }
@@ -3404,6 +3624,64 @@ extension ConversationViewModel {
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: invite.inviteSlug),
+            coreActions: coreActions
+        )
+    }
+
+    /// Routes a code decoded on the in-conversation Scan tab. An agent
+    /// template QR pulls that agent into the current conversation (the same
+    /// `requestAgentJoin` path the chat "+" menu uses); anything else is a
+    /// conversation invite and joins that convo via the existing
+    /// `presentingNewConversationForInvite` join sheet. Both arrivals become
+    /// contacts through the same member-derived contacts mechanism the rest
+    /// of the add-member / add-agent flows rely on. The share overlay is
+    /// dismissed so the resulting action (the chat's agent-join status, or
+    /// the join sheet) is visible.
+    /// Ends the host's active invite session when the host navigates back to
+    /// home from a hosted conversation, so the inline Invite/Scan card
+    /// collapses to the regular top cell on return. Persisted so the collapse
+    /// survives relaunches. Guarded to host-only, non-draft, and idempotent
+    /// (skips when already ended). SwiftUI does not fire the driving
+    /// `onDisappear` on app backgrounding, so backgrounding never ends the
+    /// session. Mirrors `NewConversationViewModel.persistHidesInviteCardIfNeeded`.
+    func markInviteSessionEndedIfHosting() {
+        let convo = conversation
+        guard convo.creator.isCurrentUser, !convo.isDraft, !convo.leftHostedInviteSession else { return }
+        let conversationId = convo.id
+        // Flip the in-memory conversation synchronously before the async
+        // persist: an instant back-out and re-entry otherwise builds the next
+        // detail view model from the stale in-memory row and flashes the big
+        // inline card until the GRDB write round-trips. The caller mirrors
+        // this copy into the conversations list (see
+        // `ConversationsViewModel.endHostedInviteSessionOnPop`).
+        conversation = convo.withLeftHostedInviteSession(true)
+        // Capture the writer and id locally so the durability-critical persist
+        // still lands even if this view model is deallocated during the pop
+        // (ConversationsViewModel releases it synchronously when the selection
+        // clears, which can happen before this task ticks).
+        let writer = localStateWriter
+        Task {
+            do {
+                try await writer.setLeftHostedInviteSession(true, for: conversationId)
+            } catch {
+                Log.error("Failed to persist leftHostedInviteSession for \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func handleScannedCodeInCurrentConversation(_ code: String) {
+        presentingShareView = false
+        // Dismissing directly bypasses the Presenter binding setter's segment
+        // reset, so reset it here too -- otherwise the next plain share-overlay
+        // open lands on the scanner instead of the invite tab.
+        shareViewInitialSegment = .invite
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            requestAgentJoin(templateId: templateId)
+            return
+        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: code),
             coreActions: coreActions
         )
     }
@@ -3536,16 +3814,22 @@ extension ConversationViewModel {
         guard conversation.includeInfoInPublicPreview != enabled else { return }
         guard !isUpdatingPublicPreview else { return }
         isUpdatingPublicPreview = true
+        // The toggle itself is a metadata customization: latch before the
+        // async write so a toggle-then-dismiss cannot race it, mirroring
+        // the name/description branches.
+        onMetadataEdited?()
         let pendingName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let willWriteName = !pendingName.isEmpty && pendingName != (conversation.name ?? "")
+        let willWriteDesc = !pendingDesc.isEmpty && pendingDesc != (conversation.description ?? "")
         Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
             defer { self.isUpdatingPublicPreview = false }
             do {
-                if !pendingName.isEmpty, pendingName != (conversation.name ?? "") {
+                if willWriteName {
                     try await metadataWriter.updateName(pendingName, for: conversation.id)
                 }
-                if !pendingDesc.isEmpty, pendingDesc != (conversation.description ?? "") {
+                if willWriteDesc {
                     try await metadataWriter.updateDescription(pendingDesc, for: conversation.id)
                 }
                 try await metadataWriter.updateIncludeInfoInPublicPreview(enabled, for: conversation.id)
@@ -3582,9 +3866,6 @@ extension ConversationViewModel {
     /// `requestAgentJoins(templateIds:)` instead -- it runs the calls
     /// sequentially without cancelling each other.
     func requestAgentJoin(templateId: String?, requestId: String = UUID().uuidString) {
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
-
         agentJoinTask?.cancel()
 
         // Anchor the wait measurement at request time (the pending UI starts
@@ -3599,12 +3880,13 @@ extension ConversationViewModel {
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
+        let variantId = Self.selectedAgentVariantSlug()
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
-                slug: slug,
                 conversationId: conversationId,
                 requestId: requestId,
+                variantId: variantId,
                 forceErrorCode: forceErrorCode,
                 session: session
             )
@@ -3680,8 +3962,6 @@ extension ConversationViewModel {
 
     private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
         guard !joins.isEmpty else { return }
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
 
         // Batch adds return to the chat, so the join progress shows as
         // in-stream pending status bubbles. Anchored at request time for the
@@ -3692,6 +3972,7 @@ extension ConversationViewModel {
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
+        let variantId = Self.selectedAgentVariantSlug()
         Task { [weak self] in
             var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
@@ -3704,9 +3985,9 @@ extension ConversationViewModel {
                 }
                 let outcome = await Self.performAgentJoinCall(
                     templateId: join.templateId,
-                    slug: slug,
                     conversationId: conversationId,
                     requestId: join.requestId,
+                    variantId: variantId,
                     forceErrorCode: forceErrorCode,
                     session: session
                 )
@@ -3824,11 +4105,20 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
+    /// The dev-selected agent variant slug to route an agent join, or `nil`.
+    /// Gated on the selector flag so a stale persisted selection can't route
+    /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    private static func selectedAgentVariantSlug() -> String? {
+        FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
+    }
+
     private static func performAgentJoinCall(
         templateId: String?,
-        slug: String,
         conversationId: String,
         requestId: String,
+        variantId: String?,
         forceErrorCode: Int?,
         session: any SessionManagerProtocol
     ) async -> AgentJoinOutcome {
@@ -3839,10 +4129,13 @@ extension ConversationViewModel {
         )
         Log.info("performAgentJoinCall about to POST agents/join templateId=\(templateId ?? "nil") requestId=\(requestId)")
         do {
-            _ = try await session.requestAgentJoin(
-                slug: slug,
+            let options: ConvosAPI.AgentJoinOptions? = variantId.map {
+                ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0)
+            }
+            _ = try await session.addAgentToConversation(
+                conversationId: conversationId,
                 templateId: templateId,
-                options: nil,
+                options: options,
                 forceErrorCode: forceErrorCode
             )
             Log.info("performAgentJoinCall succeeded templateId=\(templateId ?? "nil") requestId=\(requestId)")
@@ -3958,6 +4251,65 @@ extension ConversationViewModel {
         }
     }
 
+    /// Self-removes the current user from this group: `leaveGroup()` plus the
+    /// optimistic consent-hide (consent `.denied` + push-topic unsubscribe +
+    /// local hide) so the conversation vanishes immediately while the MLS
+    /// remove-commit finalizes async. When the current user is the sole super
+    /// admin, the leave writer transfers super admin to the longest-tenured
+    /// remaining human member first (agents only as a fallback).
+    func leaveGroupConvo() {
+        let leaveWriter = leaveWriter
+        let conversation = conversation
+        Task { [weak self] in
+            guard let self else { return }
+            // Derived at execution time rather than at tap time so the
+            // writer sees the freshest membership when picking a super-admin
+            // successor.
+            let successorCandidates = self.leaveSuccessorCandidates()
+            do {
+                try await leaveWriter.leave(
+                    conversation: conversation,
+                    successorCandidates: successorCandidates
+                )
+                self.finishLeave()
+            } catch ConversationLeaveError.hideFailedAfterLeave(_, let underlying) {
+                // The user's membership already ended (the MLS self-removal
+                // committed, or it was already over or pending); only the
+                // local consent-hide failed afterwards. Surface the leave and
+                // let a later consent sync converge the hide.
+                Log.error("Left convo but hiding it failed: \(underlying.localizedDescription)")
+                self.finishLeave()
+            } catch {
+                Log.error("Error leaving convo: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Dismisses settings and announces the departure once the leave is
+    /// effective on the MLS side.
+    private func finishLeave() {
+        presentingConversationSettings = false
+        conversation.postLeftConversationNotification()
+    }
+
+    /// Remaining members (excluding the current user) as super-admin successor
+    /// candidates. The leave writer applies the human-preferred, agent-fallback
+    /// tenure policy; here we only surface each member's agent flag and join
+    /// time. Optimistic agent members are presentation-only sentinels overlaid
+    /// while agent instances provision -- their inbox ids don't exist on the
+    /// network, so promoting one would fail and abort the leave.
+    private func leaveSuccessorCandidates() -> [LeaveSuccessorCandidate] {
+        conversation.members
+            .filter { !$0.isCurrentUser && !$0.isOptimisticAgentMember }
+            .map { (member: ConversationMember) -> LeaveSuccessorCandidate in
+                LeaveSuccessorCandidate(
+                    inboxId: member.profile.inboxId,
+                    isAgent: member.isAgent,
+                    joinedAt: member.joinedAt
+                )
+            }
+    }
+
     @MainActor
     func conversationMetadataDebugText() async -> String {
         do {
@@ -3970,6 +4322,38 @@ extension ConversationViewModel {
             ).debugText
         } catch {
             return metadataDebugFallbackText(reason: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    func membershipCapabilitiesDebugText() async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            let client = inboxResult.client
+            return try await client.groupMembershipCapabilitiesDebugInfo(
+                conversationId: conversation.id
+            ).debugText
+        } catch {
+            return "Failed to load membership capabilities: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func enableProposals(force: Bool, minVersion: String?) async -> String {
+        do {
+            let messagingService = session.messagingService()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+            try await inboxResult.client.enableProposals(
+                conversationId: conversation.id,
+                force: force,
+                minVersion: minVersion
+            )
+            let forced = force ? " (forced)" : ""
+            let versioned = minVersion.map { " with minVersion \($0)" } ?? ""
+            return "Enabled proposals\(forced)\(versioned)."
+        } catch {
+            return "Failed to enable proposals: \(error.localizedDescription)"
         }
     }
 
@@ -4207,49 +4591,6 @@ extension ConversationViewModel {
 // MARK: - Photo Preferences
 
 extension ConversationViewModel {
-    func onPhotoRevealed(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoRevealed called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markRevealed(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markRevealed completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo revealed: \(error)")
-            }
-        }
-
-        guard !autoRevealPhotos else { return }
-
-        if !hasShownRevealInfoSheet {
-            hasShownRevealInfoSheet = true
-            hasShownRevealToast = true
-            presentingRevealMediaInfoSheet = true
-        } else if !hasShownRevealToast {
-            hasShownRevealToast = true
-            showRevealSettingsToast()
-        }
-    }
-
-    func onPhotoHidden(_ attachmentKey: String) {
-        Log.info("[ConversationVM] onPhotoHidden called with key: \(attachmentKey)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await attachmentLocalStateWriter.markHidden(
-                    attachmentKey: attachmentKey,
-                    conversationId: conversation.id
-                )
-                Log.info("[ConversationVM] markHidden completed for key: \(attachmentKey)")
-            } catch {
-                Log.error("Error marking photo hidden: \(error)")
-            }
-        }
-    }
-
     func onPhotoDimensionsLoaded(_ attachmentKey: String, width: Int, height: Int) {
         Task { [weak self] in
             guard let self else { return }
@@ -4264,25 +4605,6 @@ extension ConversationViewModel {
                 Log.error("Error saving photo dimensions: \(error)")
             }
         }
-    }
-
-    func setAutoReveal(_ autoReveal: Bool) {
-        setAutoRevealPhotosPersisted(autoReveal)
-    }
-
-    private func persistAutoReveal(_ autoReveal: Bool) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
-            } catch {
-                Log.error("Error setting autoReveal: \(error)")
-            }
-        }
-    }
-
-    func showRevealSettingsToast() {
-        activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
     }
 }
 
@@ -4441,8 +4763,6 @@ extension ConversationViewModel {
         guard pendingInvite == nil else { return }
 
         if let result = InviteURLDetector.detectInviteURL(in: messageText) {
-            convosButtonTask?.cancel()
-            convosButtonCancellable?.cancel()
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
@@ -4457,8 +4777,6 @@ extension ConversationViewModel {
               let share = MessageAgentShare.from(text: messageText) else {
             return
         }
-        convosButtonTask?.cancel()
-        convosButtonCancellable?.cancel()
         pendingAgentShare = PendingAgentShare(share: share, resolved: nil)
         messageText = ""
         let resolver = agentShareResolver
@@ -4485,52 +4803,5 @@ extension ConversationViewModel {
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
-    }
-
-    func onConvosButtonTapped() {
-        guard pendingInvite == nil, convosButtonTask == nil else { return }
-        convosButtonTask = Task { [session] in
-            defer { convosButtonTask = nil }
-            let (messagingService, existingConversationId) = await session.prepareNewConversation()
-
-            guard !Task.isCancelled else { return }
-
-            let stateManager: any ConversationStateManagerProtocol
-            if let existingConversationId {
-                // The Convos-button conversation goes straight into invite
-                // generation — there's no compose-then-commit cycle, so the
-                // claimed row should be visible immediately.
-                await session.commitClaimedConversation(id: existingConversationId)
-                stateManager = messagingService.conversationStateManager(for: existingConversationId)
-            } else {
-                stateManager = messagingService.conversationStateManager()
-                do {
-                    try await stateManager.createConversation()
-                } catch {
-                    Log.error("Failed to create conversation for Convos button: \(error)")
-                    return
-                }
-            }
-
-            guard !Task.isCancelled else { return }
-
-            convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
-                .compactMap { $0 }
-                .first { $0.invite?.urlSlug.isEmpty == false }
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] convo in
-                    guard let self, self.pendingInvite == nil, let convoInvite = convo.invite else { return }
-                    let urlString = convoInvite.inviteURLString
-                    let emptyRange = urlString.startIndex ..< urlString.startIndex
-                    self.pendingInvite = PendingInvite(
-                        code: convoInvite.urlSlug,
-                        fullURL: urlString,
-                        range: emptyRange,
-                        linkedConversationId: convo.id
-                    )
-                    self.convosButtonCancellable = nil
-                    self.setInviteExplodeDuration(.twentyFourHours)
-                }
-        }
     }
 }

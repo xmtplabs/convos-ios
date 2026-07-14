@@ -14,7 +14,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     }
 
     var conversationId: String = ""
-    var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
@@ -26,9 +25,10 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    var expandedMessageIds: Set<String> = []
+    var onToggleMessageExpanded: ((String) -> Void)?
     var contextMenuState: MessageContextMenuState?
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var creditsDepleted: Bool = false
@@ -48,6 +48,12 @@ final class MessagesCollectionViewDataSource: NSObject {
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
+    var showsInviteScanCard: Bool = false
+    var inviteScanConversation: Conversation?
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -88,7 +94,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
         let item = sections[indexPath.section].cells[indexPath.item]
         let config = CellConfig(
             conversationId: conversationId,
-            shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
@@ -122,15 +127,14 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onReply: { [weak self] message in
                 self?.onReply?(message)
             },
+            onOpenMessageDetail: onOpenMessageDetail.map { _ in
+                { [weak self] message in self?.onOpenMessageDetail?(message) }
+            },
+            expandedMessageIds: expandedMessageIds,
+            onToggleMessageExpanded: { [weak self] messageId in
+                self?.onToggleMessageExpanded?(messageId)
+            },
             contextMenuState: contextMenuState ?? .init(),
-            onPhotoRevealed: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoRevealed?(attachmentData)
-            },
-            onPhotoHidden: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoHidden?(attachmentData)
-            },
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },
@@ -176,6 +180,16 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
                 self?.memberContactOverride?(inboxId)
+            },
+            showsInviteScanCard: showsInviteScanCard,
+            inviteScanConversation: inviteScanConversation,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: inviteScanInitialSegment,
+            onScannedInviteCode: { [weak self] code in
+                self?.onScannedInviteCode?(code)
+            },
+            onInviteShareCompleted: { [weak self] activityType, completed, error in
+                self?.onInviteShareCompleted?(activityType, completed, error)
             }
         )
         return CellFactory.createCell(

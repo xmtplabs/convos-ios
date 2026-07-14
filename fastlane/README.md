@@ -11,6 +11,10 @@ xcode-select --install
 
 For _fastlane_ installation instructions, see [Installing _fastlane_](https://docs.fastlane.tools/#installing-fastlane)
 
+# Lane definitions
+
+Lane definitions live in [xmtplabs/convos-releases](https://github.com/xmtplabs/convos-releases/tree/main/fastlane/lanes) and are pulled in via the nix dev shell. Run `fastlane` from `nix develop` (or let direnv activate it automatically).
+
 # Available Actions
 
 ## iOS
@@ -18,7 +22,7 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 ### ios sync_match
 
 ```sh
-[bundle exec] fastlane ios sync_match
+fastlane ios sync_match
 ```
 
 Sync match profiles for all bundle IDs (run after Matchfile changes)
@@ -26,7 +30,7 @@ Sync match profiles for all bundle IDs (run after Matchfile changes)
 ### ios sync_devices
 
 ```sh
-[bundle exec] fastlane ios sync_devices
+fastlane ios sync_devices
 ```
 
 Regenerate every profile type (adhoc + development) for new devices. Used by the daily sync-devices workflow.
@@ -34,7 +38,7 @@ Regenerate every profile type (adhoc + development) for new devices. Used by the
 ### ios firebase_pr
 
 ```sh
-[bundle exec] fastlane ios firebase_pr
+fastlane ios firebase_pr
 ```
 
 Build Convos (PR Preview) ad-hoc and upload to Firebase App Distribution
@@ -42,30 +46,22 @@ Build Convos (PR Preview) ad-hoc and upload to Firebase App Distribution
 ### ios verify_api_key
 
 ```sh
-[bundle exec] fastlane ios verify_api_key
+fastlane ios verify_api_key
 ```
 
 Sanity check API Key
 
-### ios latest_build
-
-```sh
-[bundle exec] fastlane ios latest_build
-```
-
-
-
 ### ios bootstrap
 
 ```sh
-[bundle exec] fastlane ios bootstrap
+fastlane ios bootstrap
 ```
 
 One-time local dev setup: install team certs and profiles into the keychain
 
 ----
 
-This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.
+This README.md documents the available lanes. Lane source lives at [xmtplabs/convos-releases](https://github.com/xmtplabs/convos-releases/tree/main/fastlane/lanes).
 
 More information about _fastlane_ can be found on [fastlane.tools](https://fastlane.tools).
 

@@ -51,6 +51,9 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .agentBuilderSummary:
                 // Composer-card height plus "You created an agent" footer.
                 return .estimated(CGSize(width: width, height: 320.0))
+            case .agentActivating:
+                // Avatar + name + description + progress bar + caption.
+                return .estimated(CGSize(width: width, height: 280.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }
@@ -188,8 +191,22 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             // collapse to a single-line estimate (long agent replies were
             // off by hundreds of points, far outside what the layout's
             // offset compensation can hide).
-            let estimatedLines = max(1.0, (CGFloat(text.count) / 35.0).rounded(.up))
+            // A message with an edge link renders the link as its own
+            // preview cell next to the stripped text, so estimate the text
+            // from what actually shows and add a card per extracted edge.
+            let extraction = EdgeLinkExtractionCache.extraction(for: text)
+            let visibleText = extraction?.text ?? text
+            let estimatedLines = max(1.0, (CGFloat(visibleText.count) / 35.0).rounded(.up))
             height = 22.0 + estimatedLines * 21.0
+            if let extraction {
+                let cardHeight = 210.0 + DesignConstants.Spacing.stepX
+                if extraction.leadingPreview != nil {
+                    height += cardHeight
+                }
+                if extraction.trailingPreview != nil {
+                    height += cardHeight
+                }
+            }
         case .invite:
             height = 240.0
         case .agentShare:

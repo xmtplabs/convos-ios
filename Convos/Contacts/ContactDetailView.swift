@@ -45,6 +45,10 @@ import SwiftUI
 /// entry-point mapping and section visibility rules.
 struct ContactDetailView: View {
     let contact: Contact
+    /// Dev-only variant marker, passed from the live member profile at the
+    /// chat-side entry point (`nil` elsewhere). Drives the 🧪 variant card on
+    /// the agent profile, mirroring the in-chat ribbon.
+    let variantStamp: AgentVariantStamp?
     let mode: ContactDetailMode
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
@@ -106,6 +110,7 @@ struct ContactDetailView: View {
 
     init(
         contact: Contact,
+        variantStamp: AgentVariantStamp? = nil,
         mode: ContactDetailMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
@@ -117,6 +122,7 @@ struct ContactDetailView: View {
         onRemove: (() -> Void)? = nil
     ) {
         self.contact = contact
+        self.variantStamp = variantStamp
         self.mode = mode
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
@@ -325,6 +331,11 @@ struct ContactDetailView: View {
                     .padding(.top, DesignConstants.Spacing.step2x)
                 }
                 headerBadge
+                if !ConfigManager.shared.currentEnvironment.isProduction, let variant = variantStamp {
+                    ConversationVariantBanner(variant: variant)
+                        .padding(.top, DesignConstants.Spacing.step6x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,

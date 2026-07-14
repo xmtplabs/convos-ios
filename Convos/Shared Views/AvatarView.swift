@@ -124,6 +124,19 @@ struct ConversationAvatarView: View {
                 Image(uiImage: conversationImage)
                     .resizable()
                     .scaledToFill()
+            } else if case let .profile(profile, verification) = conversation.avatarType {
+                // DM / single-member conversation: observe the member's canonical
+                // profile by inboxId so the list avatar updates reactively when
+                // their photo changes anywhere, instead of loading the stale
+                // snapshot URL captured on the conversation. Shares the per-inbox
+                // image cache with the chat surfaces.
+                InboxProfileAvatarView(
+                    inboxId: profile.inboxId,
+                    fallbackName: profile.displayName,
+                    placeholderEmoji: dmPlaceholderEmoji(profile: profile, verification: verification),
+                    agentVerification: verification,
+                    fallbackCacheable: conversation
+                )
             } else if let image = cachedImage {
                 Image(uiImage: image)
                     .resizable()
@@ -135,6 +148,20 @@ struct ConversationAvatarView: View {
         .aspectRatio(1.0, contentMode: .fit)
         .clipShape(Circle())
         .cachedImage(for: conversation, into: $cachedImage)
+    }
+
+    /// Placeholder for a DM member with no avatar, mirroring the `.profile`
+    /// branch of `fallbackContent`: their own emoji, else the conversation's
+    /// default emoji for an unverified member, else nil so a verified agent
+    /// falls to a monogram.
+    private func dmPlaceholderEmoji(profile: Profile, verification: AgentVerification) -> String? {
+        if let emoji = profile.profileEmoji, !emoji.isEmpty {
+            return emoji
+        }
+        if verification == .unverified {
+            return conversation.defaultEmoji
+        }
+        return nil
     }
 
     @ViewBuilder

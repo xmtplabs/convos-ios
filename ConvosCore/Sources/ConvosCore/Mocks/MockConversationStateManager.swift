@@ -47,7 +47,6 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let draftConversationRepository: any DraftConversationRepositoryProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
@@ -57,14 +56,12 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     public init(
         conversationId: String? = nil,
-        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
         draftConversationRepository: (any DraftConversationRepositoryProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
     ) {
         self.conversationIdSubject = .init(conversationId ?? "mock-conversation-\(UUID().uuidString)")
-        self.myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
         self.draftConversationRepository = draftConversationRepository ?? MockDraftConversationRepository()
         self.conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self.conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
@@ -79,16 +76,36 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     // MARK: - DraftConversationWriterProtocol Methods
 
+    /// When false, `createConversation` / `joinConversation` emit only their
+    /// initial state and then suspend until cancelled, so tests can drive
+    /// every subsequent state deterministically through `setState` instead
+    /// of racing the automatic `.ready` transition.
+    public var autoCompletesActions: Bool = true
+
     public func createConversation() async throws {
         setState(.creating)
+        guard autoCompletesActions else {
+            try await suspendUntilCancelled()
+            return
+        }
         try await Task.sleep(nanoseconds: 100_000_000)
         setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .created)))
     }
 
     public func joinConversation(inviteCode: String) async throws {
         setState(.validating(inviteCode: inviteCode))
+        guard autoCompletesActions else {
+            try await suspendUntilCancelled()
+            return
+        }
         try await Task.sleep(nanoseconds: 100_000_000)
         setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .joined)))
+    }
+
+    private func suspendUntilCancelled() async throws {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 
     public func send(text: String) async throws {}

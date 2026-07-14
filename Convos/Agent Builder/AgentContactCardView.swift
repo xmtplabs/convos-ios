@@ -54,7 +54,7 @@ struct AgentContactCardView: View {
 
     private var displayNameFont: Font {
         switch style {
-        case .standard: return .title2
+        case .standard: return .callout
         case .hero: return Constant.heroDisplayNameFont
         }
     }
@@ -68,7 +68,7 @@ struct AgentContactCardView: View {
 
     private var subtitleFont: Font {
         switch style {
-        case .standard: return .body
+        case .standard: return .caption2
         case .hero: return .footnote
         }
     }
@@ -158,7 +158,7 @@ struct AgentContactCardView: View {
     }
 
     private enum Constant {
-        static let standardAvatarSize: CGFloat = 40
+        static let standardAvatarSize: CGFloat = 56
         /// 74pt "hero" avatar -- reads as a browse-target rather than a
         /// chat-row thumbnail.
         static let heroAvatarSize: CGFloat = 74

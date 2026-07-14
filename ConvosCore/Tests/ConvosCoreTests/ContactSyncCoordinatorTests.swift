@@ -53,12 +53,21 @@ struct ContactSyncCoordinatorTests {
             ).save(db)
 
             if let profile = memberProfiles[inboxId] {
-                try DBMemberProfile(
-                    conversationId: conversationId,
+                try DBProfile(
                     inboxId: inboxId,
                     name: profile.name,
-                    avatar: profile.avatar
+                    profileSource: .profileUpdate,
+                    updatedAt: Date()
                 ).save(db)
+                if let avatarURL = profile.avatar {
+                    try DBProfileAvatar(
+                        inboxId: inboxId,
+                        conversationId: conversationId,
+                        url: avatarURL,
+                        profileSource: .profileUpdate,
+                        updatedAt: Date()
+                    ).save(db)
+                }
             }
         }
     }
@@ -260,19 +269,19 @@ struct ContactSyncCoordinatorTests {
                 creatorInboxId: selfInboxId,
                 memberInboxIds: [selfInboxId, agentInboxId]
             )
-            // Overwrite the agent's per-conversation profile with one that
-            // carries template metadata and a verified-Convos member kind.
-            try DBMemberProfile(
-                conversationId: conversationId,
+            // Give the agent a canonical identity carrying template metadata and
+            // a verified-Convos member kind.
+            try DBProfile(
                 inboxId: agentInboxId,
                 name: "Americano",
-                avatar: nil,
                 memberKind: .verifiedConvos,
                 metadata: [
                     "templateId": .string("tmpl-coffee"),
                     "publishedUrl": .string("https://convos.org/t/coffee"),
                     "emoji": .string("☕️")
-                ]
+                ],
+                profileSource: .profileUpdate,
+                updatedAt: Date()
             ).save(db)
         }
 

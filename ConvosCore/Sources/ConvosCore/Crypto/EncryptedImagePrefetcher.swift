@@ -71,10 +71,10 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
             }
             seen.insert(identifier)
 
+            // URL-keyed byte cache: a different avatar URL is just a cache miss,
+            // so "is the current URL cached?" subsumes the old hasURLChanged check.
             let notCached = await ImageCacheContainer.shared.imageAsync(for: hydratedProfile) == nil
-            let urlChanged = await ImageCacheContainer.shared.hasURLChanged(profile.avatar, for: identifier)
-
-            if notCached || urlChanged {
+            if notCached {
                 uncached.append(profile)
             }
         }

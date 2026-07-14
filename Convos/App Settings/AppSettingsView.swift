@@ -64,6 +64,10 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var navState: AppSettingsNavigatorImpl = .init()
     @State private var navigator: AppSettingsCollector?
+    @State private var versionTapCount: Int = 0
+    @State private var lastVersionTapAt: Date?
+    @State private var showingEnableDebugConfirmation: Bool = false
+    @State private var presentingMyInfoSheet: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -141,22 +145,25 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var myInfoSection: some View {
         Section {
-            NavigationLink {
-                MyInfoView(
-                    profile: .constant(.empty()),
-                    profileImage: .constant(nil),
-                    editingDisplayName: .constant(""),
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    showsCancelButton: false,
-                    showsProfile: false,
-                    showsUseProfileButton: false,
-                    canEditProfile: true
-                ) { _ in }
-                .onAppear { navigator?.navigateTo(myInfo: MyInfoNavigatorArgs()) }
+            Button {
+                presentingMyInfoSheet = true
+                navigator?.navigateTo(myInfo: MyInfoNavigatorArgs())
             } label: {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+            .accessibilityLabel("My info")
+            .accessibilityValue(
+                profileSettingsViewModel.editingDisplayName.isEmpty
+                    ? "Not set"
+                    : profileSettingsViewModel.editingDisplayName
+            )
+            .listRowInsets(.all, DesignConstants.Spacing.step2x)
+            .sheet(isPresented: $presentingMyInfoSheet) {
+                ProfileSetupSheet(mode: .edit)
+            }
+        } footer: {
+            Text("Your name and pic")
         }
     }
 
@@ -189,29 +196,40 @@ struct AppSettingsView: View {
         }
     }
 
+    /// Mirrors the profile sheet's name row: avatar, name, and a trailing
+    /// pencil affordance. Tapping anywhere opens the profile sheet.
     @ViewBuilder
     private var myInfoRowLabel: some View {
-        HStack {
-            Image(systemName: "lanyardcard.fill")
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+        let displayName = profileSettingsViewModel.editingDisplayName
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Group {
+                if !displayName.isEmpty || profileSettingsViewModel.profileImage != nil {
+                    ProfileAvatarView(
+                        profile: profileSettingsViewModel.profile,
+                        profileImage: profileSettingsViewModel.profileImage,
+                        useSystemPlaceholder: false
+                    )
+                } else {
+                    ZStack {
+                        Circle().fill(.colorBackgroundInverted)
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 20.0))
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                    }
+                }
+            }
+            .frame(width: 36.0, height: 36.0)
 
-            Text("My info")
-                .foregroundStyle(.colorTextPrimary)
+            Text(displayName.isEmpty ? "Name" : displayName)
+                .font(.body)
+                .foregroundStyle(displayName.isEmpty ? .colorTextTertiary : .colorTextPrimary)
 
             Spacer()
 
-            if !profileSettingsViewModel.profileSettings.isDefault {
-                Text(profileSettingsViewModel.editingDisplayName)
-                    .foregroundStyle(.colorTextSecondary)
-
-                ProfileAvatarView(
-                    profile: profileSettingsViewModel.profile,
-                    profileImage: profileSettingsViewModel.profileImage,
-                    useSystemPlaceholder: false
-                )
-                .frame(width: 16.0, height: 16.0)
-            }
+            Image(systemName: "pencil")
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.trailing, DesignConstants.Spacing.step2x)
         }
     }
 
@@ -320,16 +338,34 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var linksSection: some View {
+        let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
+        let showsFullMenu: Bool = DebugMenuGate.showsFullDebugMenu(for: environment)
         Section {
             privacyTermsRow
             sendFeedbackRow
-            if !ConfigManager.shared.currentEnvironment.isProduction {
+            if showsFullMenu {
                 debugRow
+            } else if DebugMenuGate.showsProdDebugMenu(for: environment) {
+                prodDebugRow
             }
         } footer: {
             linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
+        .confirmationDialog(
+            "Enable debug menu?",
+            isPresented: $showingEnableDebugConfirmation,
+            titleVisibility: .visible
+        ) {
+            // Persist the opt-in. Dismissing the dialog flips
+            // `showingEnableDebugConfirmation` back to false, which re-renders
+            // the body so `linksSection` re-reads the gate and reveals the row.
+            let enableAction = { DebugMenuFlagStore.enable() }
+            Button("Enable", action: enableAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Reveals on-device diagnostics for this account. You can turn it off any time from the debug menu.")
+        }
     }
 
     @ViewBuilder
@@ -363,14 +399,49 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
+    private var prodDebugRow: some View {
+        NavigationLink {
+            ProdDebugMenuView(environment: ConfigManager.shared.currentEnvironment, session: session)
+        } label: {
+            Text("Debug menu")
+        }
+        .foregroundStyle(.colorTextPrimary)
+        .accessibilityIdentifier("prod-debug-menu-row")
+    }
+
+    @ViewBuilder
     private var linksFooter: some View {
         HStack {
             Text("Made in the open by XMTP Labs")
             Spacer()
-            Text("V\(Bundle.appVersion)")
-                .foregroundStyle(.colorTextTertiary)
+            let versionTapAction = { handleVersionTapped() }
+            Button(action: versionTapAction) {
+                Text("v\(Bundle.appVersion)")
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-version-label")
         }
         .foregroundStyle(.colorTextSecondary)
+    }
+
+    private func handleVersionTapped() {
+        let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
+        // Non-production already shows the full debug menu, so the easter-egg
+        // gesture only matters in production where the curated menu is opt-in.
+        // Read the persisted flag directly (not a cached copy) so a menu that
+        // was disabled elsewhere can be re-enabled without relaunching.
+        guard environment.isProduction, !DebugMenuFlagStore.isEnabled() else { return }
+        let now = Date()
+        if let lastTap = lastVersionTapAt, now.timeIntervalSince(lastTap) > Constant.versionTapWindow {
+            versionTapCount = 0
+        }
+        lastVersionTapAt = now
+        versionTapCount += 1
+        if versionTapCount >= Constant.versionTapThreshold {
+            versionTapCount = 0
+            showingEnableDebugConfirmation = true
+        }
     }
 
     @ViewBuilder
@@ -419,6 +490,11 @@ struct AppSettingsView: View {
     private func openExternalURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         openURL(url)
+    }
+
+    private enum Constant {
+        static let versionTapThreshold: Int = 7
+        static let versionTapWindow: TimeInterval = 3
     }
 }
 

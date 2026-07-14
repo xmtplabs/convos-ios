@@ -1,8 +1,48 @@
 {
   "nodes": {
+    "convos-releases": {
+      "inputs": {
+        "flake-parts": "flake-parts",
+        "import-tree": "import-tree",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783964180,
+        "narHash": "sha256-YSZOkFVYQzq5prx0hWFpB5Ch0MsF3OeQH6QFNF0ptqE=",
+        "owner": "xmtplabs",
+        "repo": "convos-releases",
+        "rev": "de23b401de869840f818de6ee2e73248e4510c9c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "xmtplabs",
+        "repo": "convos-releases",
+        "type": "github"
+      }
+    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": "nixpkgs-lib"
+      },
+      "locked": {
+        "lastModified": 1782949081,
+        "narHash": "sha256-vp6Y/Grm98ESt6ceOkWiHWyZRDV3J1RID4w+6NWK9yA=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "17c9d6cdfc60c64f4ee8d306f9bc0b4ccb51481e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "flake-parts_2": {
+      "inputs": {
+        "nixpkgs-lib": "nixpkgs-lib_2"
       },
       "locked": {
         "lastModified": 1775087534,
@@ -19,6 +59,21 @@
       }
     },
     "import-tree": {
+      "locked": {
+        "lastModified": 1778781969,
+        "narHash": "sha256-Jjuz5CmSkur8KvLDoGa+vylEp+RkQtv4mt/qcMznpH0=",
+        "owner": "vic",
+        "repo": "import-tree",
+        "rev": "d321337efd0f23a9eb14a42adb7b2c29313ab274",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vic",
+        "repo": "import-tree",
+        "type": "github"
+      }
+    },
+    "import-tree_2": {
       "locked": {
         "lastModified": 1773693634,
         "narHash": "sha256-BtZ2dtkBdSUnFPPFc+n0kcMbgaTxzFNPv2iaO326Ffg=",
@@ -51,6 +106,21 @@
     },
     "nixpkgs-lib": {
       "locked": {
+        "lastModified": 1782614948,
+        "narHash": "sha256-ePjCwr1sNm9NYUqywL7QfK3JnlS015msC+eBu2zKlp8=",
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "rev": "db3f255737b94216eb71cce308e2912cf6bc2d7c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "type": "github"
+      }
+    },
+    "nixpkgs-lib_2": {
+      "locked": {
         "lastModified": 1774748309,
         "narHash": "sha256-+U7gF3qxzwD5TZuANzZPeJTZRHS29OFQgkQ2kiTJBIQ=",
         "owner": "nix-community",
@@ -66,8 +136,9 @@
     },
     "root": {
       "inputs": {
-        "flake-parts": "flake-parts",
-        "import-tree": "import-tree",
+        "convos-releases": "convos-releases",
+        "flake-parts": "flake-parts_2",
+        "import-tree": "import-tree_2",
         "nixpkgs": "nixpkgs"
       }
     }

@@ -110,22 +110,30 @@ extension DBContact {
     /// `addedViaConversationId`) and `blockedAt` are preserved. Used by
     /// `ContactsWriter.replacingProfile(of:with:)`.
     ///
+    /// `displayName` is sticky against blank incoming values: an empty or
+    /// whitespace-only name (e.g. the name-less `ProfileUpdate` an agent
+    /// publishes at startup) coalesces to the stored name rather than clearing
+    /// it. Clearing a contact's name is never the intent of a profile sync, so
+    /// a blank update can only update other fields. A non-blank name still wins.
+    ///
     /// The agent-template *identity* columns (templateId / publishedURL /
-    /// emoji) are sticky-coalesced: a metadata-less `ProfileUpdate` (e.g. the
-    /// name-only update `convos agent serve` publishes at startup) carries
-    /// `nil` for these, and must not clear a templateId the contact was
-    /// already mirrored with - otherwise the agent silently drops out of the
-    /// canonical dedup + cache pipeline. `agentVerification` is intentionally
-    /// not sticky (it is wholesale-replaced like the other profile fields).
+    /// emoji) are sticky-coalesced for the same reason: a metadata-less
+    /// `ProfileUpdate` carries `nil` for these, and must not clear a templateId
+    /// the contact was already mirrored with - otherwise the agent silently
+    /// drops out of the canonical dedup + cache pipeline. `agentVerification`
+    /// and the avatar fields are intentionally not sticky (they are
+    /// wholesale-replaced).
     func replacingProfileFields(
         with snapshot: ContactProfileSnapshot,
         at timestamp: Date
     ) -> DBContact {
-        DBContact(
+        let trimmedIncomingName: String? = snapshot.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDisplayName: String? = (trimmedIncomingName?.isEmpty == false) ? trimmedIncomingName : displayName
+        return DBContact(
             inboxId: inboxId,
             addedAt: addedAt,
             addedViaConversationId: addedViaConversationId,
-            displayName: snapshot.displayName,
+            displayName: resolvedDisplayName,
             avatarURL: snapshot.avatarURL,
             avatarSalt: snapshot.avatarSalt,
             avatarNonce: snapshot.avatarNonce,

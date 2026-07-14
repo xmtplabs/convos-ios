@@ -10,6 +10,10 @@ final class AppSettingsViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var deletionProgress: InboxDeletionProgress?
     private(set) var deletionError: Error?
+    /// Whether this device holds the account's main (oldest) iCloud key.
+    /// Escalates the delete-all confirmation copy - wiping the main
+    /// device removes the key other devices pair through.
+    private(set) var currentDeviceIsMain: Bool = false
 
     // MARK: - Dependencies
 
@@ -35,6 +39,14 @@ final class AppSettingsViewModel {
 
     // MARK: - Actions
 
+    /// Refreshes the main-device designation for the delete-all
+    /// confirmation. Best-effort - defaults to false on failure so the
+    /// escalated warning never blocks a legitimate delete.
+    func refreshMainDeviceStatus() async {
+        let snapshot = await session.iCloudDeviceBackupsSnapshot()
+        currentDeviceIsMain = snapshot.currentDeviceIsMain
+    }
+
     func deleteAllData(onComplete: @escaping () -> Void) {
         guard !isDeleting else { return }
         prepareForDeletion()
@@ -48,15 +60,19 @@ final class AppSettingsViewModel {
     }
 
     private func resetLocalState() {
-        Self.resetProfile()
+        Self.resetProfile(session: session)
         Self.resetGlobalDefaults()
         Self.resetConversationDefaults()
         Self.resetConversationsDefaults()
         Self.resetOnboardingDefaults()
     }
 
-    private static func resetProfile() {
-        ProfileSettingsViewModel.shared.delete()
+    // The profile singleton holds a writer bound to the old inbox. Delete-all
+    // registers a fresh inbox, so we rebind to point it at the new one;
+    // otherwise a later "My Info" save targets the dead inbox and never reaches
+    // new conversations. rebind also clears the editing fields
+    private static func resetProfile(session: any SessionManagerProtocol) {
+        ProfileSettingsViewModel.shared.rebind(session: session)
     }
 
     private static func resetGlobalDefaults() {

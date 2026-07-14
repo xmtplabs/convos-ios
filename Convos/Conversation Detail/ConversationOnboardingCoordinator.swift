@@ -151,6 +151,11 @@ final class ConversationOnboardingCoordinator {
     private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
     private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+    /// Legacy shown-once latch for the launch profile sheet. The sheet now
+    /// gates purely on the global profile being unset (see
+    /// `ConversationsViewModel.presentFirstLaunchProfileSetupIfNeeded`);
+    /// the key is only kept so resets clear installs that wrote it.
+    private static let hasShownFirstLaunchProfileSheetKey: String = "hasShownFirstLaunchProfileSheet"
 
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
@@ -175,6 +180,7 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
         UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
+        UserDefaults.standard.removeObject(forKey: hasShownFirstLaunchProfileSheetKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
         for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {

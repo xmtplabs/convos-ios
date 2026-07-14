@@ -110,6 +110,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private let xmtpClientFactory: XMTPClientFactory
 
     private var currentTask: Task<Void, Never>?
+    /// The stale-installation reconcile in flight, if any. Cancelled on
+    /// stop and delete so a teardown racing the reconcile can't issue
+    /// revocations or rewrite keychain state for a session being removed.
+    private var staleReconcileTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
@@ -565,6 +569,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try await inboxWriter.save(inboxId: client.inboxId, clientId: identity.clientId)
         Log.info("Saved inbox to database: \(client.inboxId)")
 
+        await seedInstallationMarker(client: client)
+
         enqueueAction(.clientAuthorized(client))
     }
 
@@ -621,7 +627,38 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw error
         }
 
+        await seedInstallationMarker(client: client)
+
         enqueueAction(.clientRegistered(client))
+    }
+
+    /// Records the just-minted installation in the marker as soon as the
+    /// client exists, before backend auth can fail - a launch killed
+    /// between minting the installation and reaching `.ready` must still
+    /// leave the marker behind, or a later reinstall can't prove the
+    /// orphaned installation was this device's own. Cheap (one keychain
+    /// read, at most one write) and non-throwing, so it can sit inline
+    /// on the authorize and register paths. Deliberately not gated on
+    /// `syncingManager` (unlike the reconcile): the notification service
+    /// extension can also mint an installation when it authorizes against
+    /// a wiped database after a reinstall, and one the marker never
+    /// records becomes a permanently unrevokable ghost. Seeding makes no
+    /// network calls, so it is safe in every session mode; only the
+    /// revocation half stays app-only.
+    private func seedInstallationMarker(client: any XMTPClientProvider) async {
+        do {
+            let marker = try await identityStore.loadInstallationMarker()
+            let plan = StaleInstallationReconciler.plan(
+                marker: marker,
+                inboxId: client.inboxId,
+                installationId: client.installationId
+            )
+            if plan.marker != marker {
+                try await identityStore.saveInstallationMarker(plan.marker)
+            }
+        } catch {
+            Log.warning("Failed to seed installation marker: \(error)")
+        }
     }
 
     private func handleClientAuthorized(client: any XMTPClientProvider) async throws {
@@ -636,7 +673,120 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await assertInstallationActive(client: client)
 
+        reconcileStaleOwnInstallations()
+
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
+    }
+
+    /// Reinstalls resume the identity from the device keychain but mint a
+    /// new XMTP installation (the previous one's keys died with the
+    /// deleted app container), leaving a permanently-dead installation
+    /// registered on the inbox - a ghost "Device <hex>" row in the
+    /// devices list that reappears after every reinstall cycle. The
+    /// device-local installation marker records which installation this
+    /// device ran last, which proves the orphan was this device's own
+    /// dead installation (and not a legitimately paired device), making
+    /// it safe to revoke automatically.
+    ///
+    /// Best-effort and detached from the authorize flow: a failed revoke
+    /// leaves the stale id in the marker and retries on the next launch.
+    /// Skipped when streaming services are off (the notification service
+    /// extension) - the NSE has no business making revocation calls.
+    private func reconcileStaleOwnInstallations() {
+        guard syncingManager != nil else { return }
+        staleReconcileTask?.cancel()
+        staleReconcileTask = Task { [weak self] in
+            await self?.performStaleOwnInstallationReconcile()
+        }
+    }
+
+    private func performStaleOwnInstallationReconcile() async {
+        do {
+            // Awaits the ready state rather than capturing the client at
+            // the call site - the client is not Sendable, so it must be
+            // obtained inside this actor-isolated task.
+            let client = try await waitForInboxReadyResult().client
+            let marker = try await identityStore.loadInstallationMarker()
+            let plan = StaleInstallationReconciler.plan(
+                marker: marker,
+                inboxId: client.inboxId,
+                installationId: client.installationId
+            )
+            if plan.marker != marker {
+                try await identityStore.saveInstallationMarker(plan.marker)
+            }
+            guard !plan.candidateStaleIds.isEmpty else { return }
+            // A stale own installation means this launch is a reinstall
+            // resume: the app container (and with it every consent record)
+            // was wiped, so re-welcomed conversations would land as
+            // consent=unknown and never surface. The live installation
+            // list decides how consent comes back before anything else
+            // runs. Inlined (not a helper taking the client) so the
+            // non-Sendable client stays a disconnected value used only in
+            // sequential awaits. A restore failure aborts the reconcile
+            // before the revoke: the marker keeps its stale ids, so both
+            // retry on the next launch (letting the revoke clear the
+            // marker after a failed restore would end the retries and
+            // leave the conversations hidden).
+            let liveIds = try await client.listInstallations(refreshFromNetwork: true).map(\.id)
+            let idsToRevoke = plan.candidateStaleIds.filter(Set(liveIds).contains)
+            let livePeerIds = Set(liveIds)
+                .subtracting(idsToRevoke)
+                .subtracting([client.installationId])
+            if livePeerIds.isEmpty {
+                // Sole surviving installation: the device-local backup is
+                // the only consent source, and "denied from elsewhere" is
+                // impossible with no other installation, so restoring the
+                // backed-up allowed set is safe. Records written now also
+                // cover welcomes that haven't arrived yet; the backup is
+                // never consumed.
+                let consentIds = try await ConsentBackupRestorer.idsToRestore(
+                    identityStore: identityStore,
+                    inboxId: client.inboxId
+                )
+                if !consentIds.isEmpty {
+                    try await client.setConsentStates(conversationIds: consentIds, consent: .allowed)
+                    try await ConsentBackupRestorer.flipStoredUnknownRows(
+                        ids: consentIds,
+                        databaseWriter: databaseWriter
+                    )
+                    Log.info("Restored consent for \(consentIds.count) conversation(s) from keychain backup after reinstall")
+                    QAEvent.emit(.conversation, "consent_backup_restored", ["count": "\(consentIds.count)"])
+                }
+            } else {
+                // Live paired installations exist: they hold the inbox's
+                // current consent, including denies made while this device
+                // was uninstalled. Writing fresh-timestamp allowed records
+                // from the backup would override those denies via
+                // last-writer-wins, so request preference sync instead -
+                // peers replay consent records with their original
+                // timestamps. Best-effort: the peers also push updates on
+                // their own sync cadence.
+                try? await client.syncPreferences()
+                Log.info("Deferred reinstall consent restore to \(livePeerIds.count) live installation(s)")
+                QAEvent.emit(.conversation, "consent_restore_deferred_to_peers", ["peers": "\(livePeerIds.count)"])
+            }
+            try Task.checkCancellation()
+            if !idsToRevoke.isEmpty {
+                guard let identity = try await identityStore.load() else { return }
+                try await client.revokeInstallations(
+                    signingKey: identity.keys.signingKey,
+                    installationIds: idsToRevoke
+                )
+            }
+            try Task.checkCancellation()
+            try await identityStore.saveInstallationMarker(
+                InstallationMarker(
+                    inboxId: client.inboxId,
+                    installationId: client.installationId,
+                    staleInstallationIds: []
+                )
+            )
+            Log.info("Reconciled stale own installations after reinstall (revoked \(idsToRevoke.count))")
+            QAEvent.emit(.pairing, "stale_own_installations_revoked", ["count": "\(idsToRevoke.count)"])
+        } catch {
+            Log.warning("Stale own-installation reconcile failed (marker retries next launch): \(error)")
+        }
     }
 
     private func handleClientRegistered(client: any XMTPClientProvider) async throws {
@@ -645,6 +795,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         emitStateChange(.authenticatingBackend(inboxId: client.inboxId))
         Log.info("Authenticating with backend...")
         try await authenticateBackend()
+
+        // The marker was already seeded in handleRegister; a fresh
+        // registration has no stale installations of its own, so this
+        // only matters as the retry path for stales an earlier launch
+        // failed to revoke.
+        reconcileStaleOwnInstallations()
 
         try Task.checkCancellation()
 
@@ -687,6 +843,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId: \(initialClientId)...")
+        staleReconcileTask?.cancel()
+        staleReconcileTask = nil
         defer { enqueueAction(.stop) }
 
         let liveContext: (client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol)?
@@ -753,6 +911,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleStop() async throws {
         Log.info("Stopping inbox with clientId \(initialClientId)...")
+        staleReconcileTask?.cancel()
+        staleReconcileTask = nil
         stopRevocationObserver()
 
         let clientToClose: (any XMTPClientProvider)?
@@ -1112,6 +1272,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 RemoteAttachmentCodec(),
                 MultiRemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
+                LeaveRequestCodec(),
                 ExplodeSettingsCodec(),
                 InviteJoinErrorCodec(),
                 InviteJoinHandledCodec(),

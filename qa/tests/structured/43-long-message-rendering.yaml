@@ -1,0 +1,187 @@
+id: "43"
+name: "Long-Message Rendering and Detail View"
+description: >
+  Verify the two-tier long-message UX that fixes the dominant CoreText
+  app-hang. Short messages render unchanged with no Read More. Long messages
+  (over ~500 chars) show a bounded preview with a Read More that expands
+  inline. Pathological messages (over ~1500 chars) show a bounded preview whose
+  Read More opens a pushed MessageDetailView with working Back, Copy, and
+  Reply. Includes a no-hang guard that opening a very long message keeps the UI
+  responsive.
+tags: [messaging, rendering, performance, core]
+depends_on: ["02"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+
+steps:
+  - id: short_message_renders_normally
+    name: "Short message renders inline with no Read More"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Short hello 43A"
+      - wait_for_element: { label_contains: "Short hello 43A", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Short hello 43A" }
+      - element_not_exists: { id: "message-read-more-button" }
+    criteria: short_renders_normally
+    note: >
+      Short bodies (under ~500 chars and under 20 newlines) keep the original
+      full Text render with no Read More affordance.
+
+  - id: long_message_shows_read_more
+    name: "Long message shows bounded preview + Read More"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "LONG43B <~800-char body>"
+      - wait_for_element: { label_contains: "LONG43B", timeout: 15 }
+    verify:
+      - element_exists: { id: "message-read-more-button" }
+    criteria: long_shows_read_more
+    note: >
+      Send a body of roughly 800 characters that crosses the long threshold
+      (500) but stays under pathological (1500). The body MUST start with the
+      marker "LONG43B " so `label_contains` targets a short stable substring,
+      not the whole giant body. The sample prose names the 500-char threshold so
+      what shows in the sim matches the current tuning. Generator (bash):
+      `python3 -c "print('LONG43B This message is over the five-hundred character preview threshold, so it shows a bounded preview with a Read more button that expands it inline. ' + 'It keeps going past five hundred characters but stays under the fifteen-hundred pathological threshold so it expands in place. '*5)"`
+      yields ~790 chars. Send that string verbatim via cli_send_text.
+
+  - id: long_message_expands_inline
+    name: "Read More expands the long message inline"
+    actions:
+      - tap: { id: "message-read-more-button" }
+      - wait_for_element: { label_contains: "LONG43B", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "message-read-more-button" }
+      - element_not_exists: { id: "message-detail-view" }
+    criteria: long_expands_inline
+    note: >
+      A long-but-not-pathological body expands in place; it does NOT open the
+      detail view. The Read More button disappears once expanded. Only one
+      long bubble (LONG43B) is on screen, so there is exactly one
+      message-read-more-button to tap at this point.
+
+  - id: pathological_pushes_detail
+    name: "Pathological message opens MessageDetailView"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "HUGE43C <~3000-char body>"
+      - wait_for_element: { label_contains: "HUGE43C", timeout: 20 }
+      - tap: { id: "message-read-more-button" }
+      - wait_for_element: { id: "message-detail-view", timeout: 5 }
+    verify:
+      - element_exists: { id: "message-detail-view" }
+      - element_exists: { id: "message-detail-copy-button" }
+      - element_exists: { id: "message-detail-reply-button" }
+      - element_exists: { id: "message-detail-back-button" }
+    criteria: pathological_pushes_detail
+    note: >
+      Send a body of roughly 3000 characters that crosses the pathological
+      threshold (1500), starting with the marker "HUGE43C ". Generator (bash):
+      `python3 -c "print('HUGE43C ' + 'lorem ipsum dolor sit amet '*110)"`
+      yields ~3000 chars. After the long bubble was expanded in the prior
+      step, the only collapsed Read More on screen belongs to the HUGE43C
+      bubble, so tapping message-read-more-button targets it. Read More here
+      opens the detail view instead of expanding inline.
+
+  - id: detail_copy_works
+    name: "Detail view Copy puts full text on pasteboard"
+    actions:
+      - clear_clipboard: {}
+      - tap: { id: "message-detail-copy-button" }
+      - read_clipboard: {}
+    verify:
+      - clipboard_contains: "HUGE43C"
+    criteria: detail_copy_works
+    note: >
+      Copy reuses UIPasteboard.general.string = text. Read the pasteboard via
+      `xcrun simctl pbpaste $UDID`; assert it contains the body marker HUGE43C.
+
+  - id: detail_reply_works
+    name: "Detail view Reply dismisses and arms the reply composer"
+    actions:
+      - tap: { id: "message-detail-reply-button" }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "message-detail-view" }
+      - element_exists: { id: "reply-composer-bar" }
+    criteria: detail_reply_works
+    note: >
+      Reply dismisses the detail view, then calls viewModel.onReply (the same
+      action as the long-press menu Reply) which sets replyingToMessage, so the
+      reply-composer-bar appears above the composer. Cancel the reply (tap the
+      X on reply-composer-bar) before the next step so it does not interfere.
+
+  - id: detail_back_works
+    name: "Detail view Back returns to the conversation"
+    actions:
+      - tap: { id: "message-read-more-button" }
+      - wait_for_element: { id: "message-detail-view", timeout: 5 }
+      - tap: { id: "message-detail-back-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "message-detail-view" }
+      - element_exists: { id: "message-text-field" }
+    criteria: detail_back_works
+    note: >
+      The prior Reply step dismissed the detail view, so re-open it first by
+      tapping the HUGE43C bubble's Read More, then tap Back. Back uses the
+      sheet dismiss and returns to the conversation with the composer visible.
+
+  - id: no_hang_on_huge_message
+    name: "Opening a huge message does not freeze the UI"
+    actions:
+      - tap: { id: "message-read-more-button" }
+      - wait_for_element: { id: "message-detail-view", timeout: 3 }
+    verify:
+      - element_exists: { id: "message-detail-view" }
+    criteria: no_hang_on_huge_message
+    note: >
+      Soft hang guard: a >= 2s main-thread stall makes the 3s wait_for_element
+      time out and fail the step. The fix bounds every inline render path with
+      a finite lineLimit and lays the full pathological body out only inside
+      the detail view's scroll-enabled UITextView (incremental TextKit), so
+      presenting the detail view for a 3000-char body must not block. There is
+      no [PERF] marker emitted for this transition; the timeout is the guard.
+      Dismiss the detail view (Back) after this step.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  short_renders_normally:
+    description: "Short message body is fully visible and no message-read-more-button exists"
+  long_shows_read_more:
+    description: "Long (~800 char) message shows a message-read-more-button"
+  long_expands_inline:
+    description: "Tapping Read More on a long message removes the button and shows more text without opening message-detail-view"
+  pathological_pushes_detail:
+    description: "Tapping Read More on a pathological (~3000 char) message opens message-detail-view with Back, Copy, and Reply buttons"
+  detail_copy_works:
+    description: "Detail Copy places the full message text (containing marker HUGE43C) on the pasteboard"
+  detail_reply_works:
+    description: "Detail Reply dismisses message-detail-view and reveals reply-composer-bar"
+  detail_back_works:
+    description: "Detail Back dismisses message-detail-view and returns to the conversation with message-text-field visible"
+  no_hang_on_huge_message:
+    description: "Opening a ~3000 char message presents message-detail-view within 3s (no >= 2s main-thread hang)"

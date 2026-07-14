@@ -104,6 +104,16 @@ enum AgentBuilderEntryMode {
     case voiceMemo
 }
 
+/// Whether the composer's current text was dropped by the dice (`.dice`) or
+/// typed / edited by the user (`.manual`). Drives dice *visibility* only: the
+/// dice stays visible while re-rolling (text stays `.dice`) and hides as soon
+/// as the user edits (flips to `.manual`). Deliberately separate from the
+/// metrics-facing `fromPromptHint` flag, which survives edits.
+enum ComposerTextSource {
+    case manual
+    case dice
+}
+
 @MainActor
 @Observable
 final class AgentBuilderViewModel: Identifiable {
@@ -138,6 +148,50 @@ final class AgentBuilderViewModel: Identifiable {
     let newConversationViewModel: NewConversationViewModel
 
     var composerText: String = ""
+
+    /// Source of the current `composerText`, used purely to decide whether the
+    /// dice control stays visible (see `allowsDiceRoll`). Flips to `.manual` on
+    /// any user keystroke via `composerTextBinding`'s setter; a programmatic
+    /// dice roll keeps it `.dice`.
+    private(set) var composerTextSource: ComposerTextSource = .manual
+
+    /// Metrics-only: `true` once a dice hint seeded the prompt, and stays true
+    /// through subsequent edits. Reset to `false` only when the composer is
+    /// emptied. Reported on the `built_agent` event as `from_prompt_hint`.
+    private(set) var fromPromptHint: Bool = false
+
+    /// Metrics-only: running count of dice taps in this builder session.
+    /// Reported on every `prompt_hint_tapped` event and on `built_agent`.
+    private(set) var promptHintTapCount: Int = 0
+
+    /// Last hint dropped by the dice, so a re-roll can avoid an immediate
+    /// repeat. Not observed -- it only influences the next roll.
+    @ObservationIgnored
+    private var lastRolledHint: String?
+
+    /// Binding the composer's text field uses instead of `$viewModel.composerText`.
+    /// A genuine keystroke changes the text and flips the source to `.manual`
+    /// (hiding the dice once non-empty), while a dice roll assigns `composerText`
+    /// directly and keeps the source `.dice` (dice stays visible for re-rolls).
+    /// A re-presented sheet reconstructs the field, which can echo the current
+    /// value back through this setter with no real edit, so writes that don't
+    /// change the text are ignored -- otherwise the first dice tap after a reopen
+    /// would register a phantom edit, flip the source to `.manual`, and hide the
+    /// dice. Clearing the box resets the metrics `fromPromptHint` flag.
+    var composerTextBinding: Binding<String> {
+        Binding(
+            get: { [weak self] in self?.composerText ?? "" },
+            set: { [weak self] newValue in
+                guard let self else { return }
+                guard newValue != self.composerText else { return }
+                self.composerText = newValue
+                self.composerTextSource = .manual
+                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.fromPromptHint = false
+                }
+            }
+        )
+    }
 
     /// Routes attachment state through the underlying conversation view
     /// model so eager upload + thumbnail generation are reused. The view
@@ -202,10 +256,20 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var capturedCloudConnectionIds: [AgentBuilderConnection: String] = [:]
 
+    /// Direct-builder only: prompt captured at Make, held until the inner
+    /// conversation is ready enough to expose an invite slug, then handed to
+    /// the repository. Cleared once the generation has been kicked off.
     @ObservationIgnored
-    private var agentJoinTask: Task<Void, Never>?
+    private var pendingDirectPrompt: String?
+    /// Direct-builder only: the dev variant slug captured at Make (`nil` when no
+    /// variant is selected), held alongside the prompt and handed to the
+    /// repository with it. Capturing once at Make -- not re-reading the device
+    /// selection when the deferred generation finally starts -- is what keeps a
+    /// mid-build variant switch from splitting generation and routing.
     @ObservationIgnored
-    private var didRequestAgentJoin: Bool = false
+    private var pendingDirectVariantId: String?
+    @ObservationIgnored
+    private var didStartDirectGeneration: Bool = false
     @ObservationIgnored
     private(set) var didDiscard: Bool = false
     /// Whether the composer text field was focused at the moment the user
@@ -245,35 +309,33 @@ final class AgentBuilderViewModel: Identifiable {
             mode: mode,
             coreActions: coreActions
         )
-        // Suppress the contact card for the entire builder lifetime. The
-        // agent may join while the user is still drafting (state machine
-        // hits `.ready` → `requestAgentJoinIfNeeded` → XMTP add), in which
-        // case the inner conversation view *already* has the card prepared
-        // — hidden under the composer overlay. If we waited until `commit()`
-        // to flip the gate, that prepared card would flash visible during
-        // the morph reveal. The `suppressesContactCard` flag on
-        // `NewConversationViewModel` propagates the gate across the
-        // inbox-acquisition VM swap (`configureWithMessagingService`), so
-        // both the placeholder VM and its real replacement stay suppressed.
+        // Suppress the contact card for the entire builder lifetime. The agent
+        // joins once the generation finishes, which can happen while the user
+        // is still drafting, in which case the inner conversation view already
+        // has the card prepared -- hidden under the composer overlay. If we
+        // waited until `commit()` to flip the gate, that prepared card would
+        // flash visible during the morph reveal. The `suppressesContactCard`
+        // flag on `NewConversationViewModel` propagates the gate across the
+        // inbox-acquisition VM swap (`configureWithMessagingService`), so both
+        // the placeholder VM and its real replacement stay suppressed.
         self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
-            self?.drainInitialAttachmentsIfNeeded()
-            // The home flow joins the agent the instant the draft is ready so
-            // it's present by the time the user taps Make. The existing-
-            // conversation flow defers the join to `commit()` so we only add
-            // the agent once the user confirms by tapping Make.
-            guard self?.targetsExistingConversation == false else { return }
-            self?.requestAgentJoinIfNeeded()
+            guard let self else { return }
+            self.drainInitialAttachmentsIfNeeded()
+            // The existing-conversation flow defers the generation to `commit()`
+            // so we only build once the user confirms by tapping Make.
+            guard self.targetsExistingConversation == false else { return }
+            // No agent is eagerly provisioned: the repository invites the
+            // resulting template once the generation finishes. We only need to
+            // start the generation once the conversation has an invite slug, in
+            // case Make was tapped before the conversation was ready.
+            self.startDirectGenerationIfReady()
         }
         cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
                 self?.cloudConnections = connections.filter { $0.provider == .composio }
             }
-    }
-
-    deinit {
-        agentJoinTask?.cancel()
     }
 
     // MARK: - Composer mutations
@@ -495,6 +557,51 @@ final class AgentBuilderViewModel: Identifiable {
             || !enabledConnections.isEmpty
     }
 
+    // MARK: - Dice / prompt hints
+
+    /// Whether the dice control's draft preconditions hold: no staged
+    /// attachments (media, voice memo, recording, or connections) and the
+    /// composer is either empty or still showing an unedited dice result. The
+    /// hints-non-empty check is layered on by the view (`isDiceVisible`).
+    var allowsDiceRoll: Bool {
+        guard pendingMediaAttachments.isEmpty else { return false }
+        guard recordedVoiceMemo == nil, !isRecordingVoiceMemo else { return false }
+        guard enabledConnections.isEmpty else { return false }
+        let trimmed: String = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || composerTextSource == .dice
+    }
+
+    /// Drops a random hint into the composer, avoiding an immediate repeat of
+    /// the current one. Marks the source `.dice` so the dice stays visible for
+    /// repeated re-rolls, sets the metrics `fromPromptHint` flag (which survives
+    /// later edits), and fires a `prompt_hint_tapped` metric carrying the
+    /// running tap count.
+    func rollDice(hints: [String]) {
+        let available: [String] = hints.filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !available.isEmpty else { return }
+        let chosen: String = Self.randomHint(from: available, avoiding: lastRolledHint)
+        lastRolledHint = chosen
+        composerText = chosen
+        composerTextSource = .dice
+        fromPromptHint = true
+        promptHintTapCount += 1
+        emitPromptHintTappedMetric()
+    }
+
+    /// Picks a random hint, excluding `current` when there is more than one
+    /// option so a tap never lands on the same hint twice in a row.
+    private static func randomHint(from hints: [String], avoiding current: String?) -> String {
+        let pool: [String]
+        if let current, hints.count > 1 {
+            pool = hints.filter { $0 != current }
+        } else {
+            pool = hints
+        }
+        return pool.randomElement() ?? hints.first ?? ""
+    }
+
     /// Set to true when the user taps Make. Until then the builder is in
     /// "draft" mode: the conversation indicator is non-interactive
     /// (renaming/re-imaging the draft happens *after* commit, in the
@@ -526,10 +633,9 @@ final class AgentBuilderViewModel: Identifiable {
     func commit(focusCoordinator: FocusCoordinator) {
         guard !hasCommitted, !isCommitting else { return }
 
-        // For the in-chat builder, `commitToExistingConversation` bails when
-        // the inner conversation VM hasn't resolved yet. Mirror that check
-        // upfront so we don't clear the composer or emit a success metric
-        // for a commit that's about to roll back.
+        // The in-chat builder needs the inner conversation VM resolved (the
+        // generation reads its id + invite slug). Bail before clearing the
+        // composer or emitting a metric so a too-early Make can be retried.
         if targetsExistingConversation, newConversationViewModel.conversationViewModel == nil {
             Log.warning("AgentBuilder(existing): commit attempted before inner conversation ready; leaving composer intact")
             return
@@ -539,126 +645,31 @@ final class AgentBuilderViewModel: Identifiable {
 
         let textToSend = composerText
         composerText = ""
+        // Reset the dice visibility state now that the draft text is cleared.
+        // The metrics flags (`fromPromptHint`, `promptHintTapCount`) are read by
+        // `emitBuiltAgentMetric` just below, so they are left intact here.
+        composerTextSource = .manual
+        lastRolledHint = nil
         emitBuiltAgentMetric(text: textToSend, isSuccess: true)
 
-        if targetsExistingConversation {
-            commitToExistingConversation(text: textToSend)
-            return
-        }
-
-        if let innerVM = newConversationViewModel.conversationViewModel {
-            let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
-            if let recorded = recordedVoiceMemo {
-                voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
-                    url: recorded.url,
-                    duration: recorded.duration,
-                    levels: voiceMemoAudioLevels
-                )
-            } else {
-                voiceMemoSnapshot = nil
-            }
-
-            var cloudConnectionIdsByRawValue: [String: String] = [:]
-            for (connection, cloudConnectionId) in capturedCloudConnectionIds {
-                cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
-            }
-            // `AgentBuilderCommitPlanner` allocates the bundle's
-            // `clientMessageId`s and assembles the summary so they land in
-            // `AgentBuilderSummary.bundledMessageIds` before the writer ever
-            // touches the DB. `MessagesListProcessor` then filters by id, not
-            // by timestamp — a slow multi-remote upload can no longer leak a
-            // bare bundle bubble past the summary card.
-            let attachments: [AgentBuilderSummaryAttachment] = buildSummaryAttachments(
-                voiceMemo: voiceMemoSnapshot,
-                mediaAttachments: innerVM.pendingMediaAttachments,
-                connections: enabledConnections
-            )
-            let plan: AgentBuilderCommitPlan = AgentBuilderCommitPlanner.makePlan(
-                prompt: textToSend,
-                attachments: attachments,
-                cloudConnectionIds: cloudConnectionIdsByRawValue
-            )
-            let textMessageId: String? = plan.textMessageId
-            let bundleMessageId: String? = plan.bundleMessageId
-            innerVM.agentBuilderSummary = plan.summary
-            // Hide the staged-chip strip on the chat composer for the
-            // duration of the post-commit upload + publish window. Without
-            // this the chat view emerges (under the fading-out builder)
-            // still showing the pre-Make staging chips until
-            // `sendBuilderBundle` clears `pendingMediaAttachments`. The
-            // flag is reset inside `sendBuilderBundle`'s defer.
-            innerVM.isAwaitingBuilderBundleSend = true
-            // Note: `innerVM.allowsContactCard` was already set to `false`
-            // when this builder VM was constructed. The scheduled task below
-            // flips it back to `true` once the chat has had time to settle
-            // after the morph, so the card animates in fresh.
-            //
-            // Defer the sends until every pending eager photo/video upload
-            // has finished, then ship the whole builder payload to the
-            // agent as a synchronized burst: every media item — voice
-            // memo + photos + videos + files — bundled into a single
-            // `MultiRemoteAttachment` message, followed by the prompt text
-            // as one XMTP message. `sendBuilderBundle` `await`s the bundle
-            // send before the text send, so the agent resolves
-            // attachment references before processing the prompt. The UI
-            // commit (composer fade, contact-card reveal timer) runs
-            // synchronously below regardless — the contact card's pulsing
-            // subtitle is the user-facing loading indicator. The normal
-            // conversation send path stays per-attachment so per-item
-            // reactions / replies keep working there; the bundle path is
-            // builder-only.
-            let summaryToPersist: AgentBuilderSummary = plan.summary
-            let conversationIdForPersist: String = innerVM.conversation.id
-            let sessionForPersist = session
-            // The `.ready`-time join can have been skipped (conversation not
-            // ready yet, slug not hydrated) -- re-fire it now that the user
-            // committed; the `didRequestAgentJoin` latch makes this a no-op
-            // when the early join already ran.
-            requestAgentJoinIfNeeded()
-            // Detach the agent-join task from this VM: the builder sheet tears
-            // down after Make and `deinit` cancels `agentJoinTask`, which
-            // could abort the join request mid-flight -- the bundle send below
-            // then waits for an agent that never joins. Dropping the
-            // reference (without cancelling) lets the join finish on its own.
-            agentJoinTask = nil
-            // Gate the send on the agent joining only when a join request was
-            // actually launched; if it never was (no slug even at Make), the
-            // hold would wait for an agent that was never asked to come.
-            let joinAttempted: Bool = didRequestAgentJoin
-            Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
-                guard let innerVM else { return }
-                // Persist the summary (with its `bundledMessageIds`) before
-                // any writer call. If the app dies between Make and the
-                // bundle landing, the filter set is already on disk — the
-                // next launch's `summaryPublisher` rehydrates the summary
-                // and the bundle messages are caught the moment GRDB
-                // emits them. Without this ordering, a force-quit in the
-                // window would leave bundle bubbles rendering bare under
-                // no summary card.
-                do {
-                    try await sessionForPersist.agentBuilderSummaryWriter()
-                        .save(summaryToPersist, for: conversationIdForPersist)
-                } catch {
-                    Log.error("AgentBuilder: failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
-                }
-                do {
-                    try await innerVM.awaitPendingMediaUploads()
-                } catch {
-                    Log.error("AgentBuilder: pending media upload await failed: \(error.localizedDescription)")
-                    // Fall through and attempt the bundle anyway — partial
-                    // failures surface inside `sendBuilderBundle` and we'd
-                    // rather try to deliver than leave the user with a
-                    // stuck pulsing card.
-                }
-                await innerVM.sendBuilderBundle(
-                    text: summaryToPersist.prompt,
-                    voiceMemo: voiceMemoSnapshot,
-                    textMessageId: textMessageId,
-                    bundleMessageId: bundleMessageId,
-                    awaitsAgentJoin: joinAttempted
-                )
-            }
-        }
+        // Hand the prompt to the session-scoped repository, which submits the
+        // generation, polls it, and invites the resulting template into the
+        // conversation. No XMTP bundle send and no eager agent. The in-chat
+        // variant's conversation is already visible, so it dismisses back to the
+        // chat without the reveal tail; the home flow runs the reveal/visibility
+        // tail below so the chat animates in and the agent's contact card
+        // appears once it joins.
+        // Capture the active variant once, here at Make. Reading the device
+        // selection now (rather than when the deferred generation starts) is the
+        // split-brain guard: a mid-build switch can't generate under one variant
+        // and route/stamp under another. Gated on the selector flag so a stale
+        // persisted selection can't silently route builds once the dev toggle is
+        // turned back off (disabling it only hides the UI, not the cached value).
+        let variantId = FeatureFlags.shared.isAgentVariantSelectorEnabled
+            ? FeatureFlags.shared.selectedAgentVariant?.slug
+            : nil
+        startDirectGeneration(prompt: textToSend, variantId: variantId)
+        if targetsExistingConversation { return }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Constant.contentFadeMs))
@@ -698,173 +709,6 @@ final class AgentBuilderViewModel: Identifiable {
         // path it replaced did not.
     }
 
-    /// Commit path for the in-chat "New Agent" entry. The builder targets the
-    /// conversation the user is already in, so there's no draft to promote.
-    /// We persist an `AgentBuilderSummary` so the chat the user returns to
-    /// renders the builder card immediately, but with `cutoffDate = .distantPast`
-    /// so it hides none of the conversation's existing history: the brief is
-    /// hidden purely by id (the `BuilderBundleManifest` for other members, the
-    /// writer's local hidden rows for this client), which is robust enough that
-    /// the date cutoff isn't needed here. The agent join is deferred to here
-    /// (not `.ready`) so we only add the agent once the user taps Make.
-    private func commitToExistingConversation(text: String) {
-        guard let innerVM = newConversationViewModel.conversationViewModel else {
-            // The inner conversation hasn't resolved yet. Roll back the commit
-            // so the brief the user typed isn't silently lost -- restore the
-            // composer text and let them tap Make again once it's ready.
-            Log.warning("AgentBuilder(existing): commit before inner conversation ready; restoring composer")
-            composerText = text
-            isCommitting = false
-            return
-        }
-        let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
-        if let recorded = recordedVoiceMemo {
-            voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
-                url: recorded.url,
-                duration: recorded.duration,
-                levels: voiceMemoAudioLevels
-            )
-        } else {
-            voiceMemoSnapshot = nil
-        }
-
-        var cloudConnectionIdsByRawValue: [String: String] = [:]
-        for (connection, cloudConnectionId) in capturedCloudConnectionIds {
-            cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
-        }
-        let attachments: [AgentBuilderSummaryAttachment] = buildSummaryAttachments(
-            voiceMemo: voiceMemoSnapshot,
-            mediaAttachments: innerVM.pendingMediaAttachments,
-            connections: enabledConnections
-        )
-        // `existingConversation: true` keeps the chat's invite affordances
-        // (QR / "Invite members") visible while the card shows. There's no
-        // time-based message filtering anymore (the bundle is hidden by id via
-        // the manifest + local hidden rows), so the default `now` cutoffDate is
-        // fine -- it just anchors the placeholder display window.
-        let plan: AgentBuilderCommitPlan = AgentBuilderCommitPlanner.makePlan(
-            prompt: text,
-            attachments: attachments,
-            cloudConnectionIds: cloudConnectionIdsByRawValue,
-            existingConversation: true
-        )
-        let textMessageId: String? = plan.textMessageId
-        let bundleMessageId: String? = plan.bundleMessageId
-        let summaryToPersist: AgentBuilderSummary = plan.summary
-        let conversationIdForPersist: String = innerVM.conversation.id
-
-        innerVM.isAwaitingBuilderBundleSend = true
-
-        // Capture `innerVM` and `session` strongly (not `self`/weak): the
-        // builder sheet dismisses on Make, tearing down this view-model tree,
-        // but the persist + send + join must still complete. The strong hold
-        // keeps the inner conversation VM alive until the bundle is sent; it
-        // owns its own message writer, so it sends independently of the
-        // dismissed builder.
-        Task { @MainActor [innerVM, voiceMemoSnapshot, summaryToPersist, conversationIdForPersist, textMessageId, bundleMessageId, session] in
-            // Kick the agent join off first but don't block on it: the request
-            // can take seconds (the backend provisions the agent), and the
-            // summary persist below is what renders the card in the chat the
-            // user lands in -- serializing persist behind the join visibly
-            // delays Make feedback. The bundle publish holds until the agent
-            // is a member anyway (XMTP members can't read messages published
-            // before they joined), so the join only has to be IN FLIGHT
-            // before the send, not finished. The join must finish even after
-            // the builder sheet dismisses. Unlike the draft flow, there is no
-            // draft to discard -- the user's group stays -- so the join
-            // survives the view closing (like `ConversationViewModel`'s
-            // committed-conversation join, the opposite of the draft path).
-            let slug = innerVM.conversation.invite?.urlSlug ?? ""
-            let joinTask: Task<Bool, Never> = Task { [session] in
-                guard !slug.isEmpty else {
-                    Log.warning("AgentBuilder(existing): no invite slug; skipping agent join")
-                    return false
-                }
-                do {
-                    _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
-                } catch {
-                    // Still gate the send: a thrown request is ambiguous --
-                    // the server may have received it and provisioned the
-                    // agent (client-side timeout, connection dropped after
-                    // the request went out). Publishing immediately would
-                    // ship the brief into the pre-join epoch; the gate's
-                    // timeout already covers the agent truly never arriving.
-                    Log.error("AgentBuilder(existing): requestAgentJoin failed: \(error.localizedDescription)")
-                }
-                return true
-            }
-            // Persist the summary before the send so the chat the user returns
-            // to renders the card immediately (its `summaryPublisher` picks
-            // this up) and the filter set is on disk before the bundle lands.
-            do {
-                try await session.agentBuilderSummaryWriter().save(summaryToPersist, for: conversationIdForPersist)
-            } catch {
-                Log.error("AgentBuilder(existing): failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
-            }
-            do {
-                try await innerVM.awaitPendingMediaUploads()
-            } catch {
-                Log.error("AgentBuilder(existing): pending media upload await failed: \(error.localizedDescription)")
-            }
-            // `awaitsAgentJoin: false` only when the join was never requested
-            // at all (no slug) -- an agent that was never asked to come will
-            // never arrive, so holding the bundle just delays the inevitable
-            // publish. A request that was sent but threw still gates (see the
-            // join task above).
-            let joinRequested: Bool = await joinTask.value
-            await innerVM.sendBuilderBundle(
-                text: summaryToPersist.prompt,
-                voiceMemo: voiceMemoSnapshot,
-                textMessageId: textMessageId,
-                bundleMessageId: bundleMessageId,
-                awaitsAgentJoin: joinRequested
-            )
-        }
-        // No in-sheet morph: the builder targets a conversation the user is
-        // already in, so `AgentBuilderView` dismisses the sheet on Make and the
-        // user lands back on the original chat (where the card, the agent's
-        // join, and the hidden brief surface via that view's own observation).
-        // `isCommitting` stays true so the dismiss doesn't trip `discard()`;
-        // the Tasks above hold their own references and finish independently.
-    }
-
-    /// Map the composer's staged inputs into the `AgentBuilderSummaryAttachment`
-    /// list the summary card renders — thumbnails encoded as JPEG `Data`, file
-    /// metadata, voice memo levels, connection identifiers — so the summary view
-    /// can show the same chips the composer just had, minus the X buttons. The
-    /// id allocation, bundle detection, and summary assembly happen in
-    /// `AgentBuilderCommitPlanner`; this method owns only the iOS-side
-    /// (`UIImage`) encoding that can't live in ConvosCore.
-    private func buildSummaryAttachments(
-        voiceMemo: BuilderVoiceMemoSnapshot?,
-        mediaAttachments: [PendingMediaAttachment],
-        connections: Set<AgentBuilderConnection>
-    ) -> [AgentBuilderSummaryAttachment] {
-        var attachments: [AgentBuilderSummaryAttachment] = []
-        if let voiceMemo {
-            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemo.levels))
-        }
-        for attachment in mediaAttachments {
-            switch attachment {
-            case .photo(let photo):
-                attachments.append(.photo(id: photo.id, thumbnailData: Self.encodedChipThumbnail(photo.image)))
-            case .video(let video):
-                attachments.append(.video(id: video.id, thumbnailData: video.thumbnail.flatMap(Self.encodedChipThumbnail)))
-            case .file(let file):
-                attachments.append(.file(
-                    id: file.id,
-                    filename: file.filename,
-                    mimeType: file.mimeType,
-                    fileSize: file.fileSize
-                ))
-            }
-        }
-        for connection in connections.sorted(by: { $0.id < $1.id }) {
-            attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
-        }
-        return attachments
-    }
-
     private enum Constant {
         static let contentFadeMs: Int = 180
         /// Wall-clock delay from Make tap until the contact card is allowed
@@ -873,41 +717,14 @@ final class AgentBuilderViewModel: Identifiable {
         /// cleanly before the card slides in. Existing conversations opened
         /// from the list bypass this entirely.
         static let contactCardRevealDelayMs: Int = 1500
-        /// Pixel size used to bake summary chip thumbnails into the persisted
-        /// `DBAgentBuilderSummary` row. The summary card renders chips at
-        /// 80pt; 240px (3x Retina) keeps them crisp without persisting a
-        /// multi-megabyte full-resolution PNG inside the JSON column — that
-        /// was the main-thread bottleneck on later `summarySync` reads.
-        static let chipThumbnailPixelSize: CGFloat = 240
-        /// Slight quality drop traded for a much smaller payload — chips render
-        /// inside an 80pt square so artifacts are imperceptible at that size.
-        static let chipThumbnailJpegQuality: CGFloat = 0.7
-    }
-
-    /// Downscale a captured photo / extracted video frame to the chip size
-    /// the summary card actually displays and re-encode as JPEG before
-    /// storage. `UIImage.preparingThumbnail(of:)` is the system fast path —
-    /// it asks ImageIO to decode straight at the target size instead of
-    /// inflating the full image first. Combined with JPEG (vs the previous
-    /// PNG round-trip), this drops a ~1MB-per-photo summary row down to
-    /// a few KB so the `summarySync` `JSONDecoder` pass on later opens stays
-    /// sub-millisecond regardless of how many photos the user attached.
-    private static func encodedChipThumbnail(_ image: UIImage) -> Data? {
-        let target: CGSize = CGSize(
-            width: Constant.chipThumbnailPixelSize,
-            height: Constant.chipThumbnailPixelSize
-        )
-        let resized: UIImage = image.preparingThumbnail(of: target) ?? image
-        return resized.jpegData(compressionQuality: Constant.chipThumbnailJpegQuality)
     }
 
     // MARK: - Dismiss cleanup
 
-    /// Tear down the in-flight draft. Cancels conversation-creation tasks
-    /// and the agent-join request, and — if the conversation became real
-    /// and the agent has already joined — sets consent to denied so
-    /// the agent sees us depart. Local conversation row cleanup is
-    /// handled by the draft repository when this VM deallocates.
+    /// Tear down the in-flight draft. Cancels conversation-creation work and —
+    /// if the conversation became real — sets consent to denied so the agent
+    /// sees us depart. Local conversation row cleanup is handled by the draft
+    /// repository when this VM deallocates.
     func discard() {
         guard !didDiscard else { return }
         didDiscard = true
@@ -915,9 +732,9 @@ final class AgentBuilderViewModel: Identifiable {
             // The builder targeted an existing conversation: there is no draft
             // to tear down, and we must never leave / delete the user's group.
             // A pre-Make cancel just releases the staged-but-unsent inputs.
-            // (Post-Make, `isCommitting`/`hasCommitted` are set, so the inner
-            // bundle send + agent join — fired in `commitToExistingConversation`
-            // capturing only `session` — keep running independently.)
+            // (Post-Make, `isCommitting`/`hasCommitted` are set, so the
+            // generation submitted from `startDirectGeneration` keeps running
+            // independently of this view-model teardown.)
             if !isCommitting {
                 voiceMemoRecorder.cancelRecording()
                 newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
@@ -925,8 +742,6 @@ final class AgentBuilderViewModel: Identifiable {
             }
             return
         }
-        agentJoinTask?.cancel()
-        didRequestAgentJoin = true // suppress any late retries
         // Skip recording/attachment cleanup while a commit is mid-flight —
         // `sendBuilderBundle` still holds references to those temp files
         // until `hasCommitted` flips. Cleaning them here would race the
@@ -967,39 +782,219 @@ final class AgentBuilderViewModel: Identifiable {
             }
         }
     }
+}
 
-    // MARK: - Agent join
+// MARK: - Direct builder
 
-    private func requestAgentJoinIfNeeded() {
-        guard !didRequestAgentJoin else { return }
+extension AgentBuilderViewModel {
+    /// Capture the prompt and start the generation as soon as the conversation
+    /// has an invite slug. If Make was tapped before the conversation was
+    /// ready, `onReachedReady` re-invokes `startDirectGenerationIfReady()`.
+    private func startDirectGeneration(prompt: String, variantId: String?) {
+        pendingDirectPrompt = prompt
+        pendingDirectVariantId = variantId
+        startDirectGenerationIfReady()
+    }
+
+    /// Hand the captured prompt to the session-scoped repository once a slug is
+    /// available. Idempotent via `didStartDirectGeneration` so the
+    /// `onReachedReady` re-entry can't double-submit.
+    private func startDirectGenerationIfReady() {
+        guard !didStartDirectGeneration else { return }
+        guard let prompt = pendingDirectPrompt else { return }
         guard let conversation = newConversationViewModel.conversationViewModel?.conversation else {
-            Log.warning("AgentBuilderViewModel: reached .ready but no conversation available")
+            Log.warning("AgentBuilder(direct): no conversation available yet; deferring generation start")
             return
         }
         let slug = conversation.invite?.urlSlug ?? ""
         guard !slug.isEmpty else {
-            Log.warning("AgentBuilderViewModel: reached .ready but invite slug is empty")
+            Log.warning("AgentBuilder(direct): invite slug empty; deferring generation start")
             return
         }
-        didRequestAgentJoin = true
+        didStartDirectGeneration = true
+        pendingDirectPrompt = nil
+        let variantId = pendingDirectVariantId
+        pendingDirectVariantId = nil
+        let conversationId = conversation.id
+        let photos: [PendingPhotoAttachment] = directBuildPhotos()
+        var attachmentInputs: [AgentBuildAttachmentInput] = []
+        var summaryAttachments: [AgentBuilderSummaryAttachment] = []
+        // Build the upload inputs and the summary chips together so a photo that
+        // fails compression is dropped from both -- otherwise its thumbnail would
+        // render on the card for an attachment that was never sent to the backend.
+        for photo in photos {
+            guard let data = ImageCompression.compressForPhotoAttachment(photo.image) else {
+                Log.error("AgentBuilder(direct): failed to compress photo \(photo.id); excluding from upload and summary")
+                continue
+            }
+            attachmentInputs.append(AgentBuildAttachmentInput(data: data, mimeType: "image/jpeg", filename: nil))
+            summaryAttachments.append(.photo(id: photo.id, thumbnailData: Self.thumbnailData(for: photo.image)))
+        }
+        if let memo = recordedVoiceMemo, let voiceInput = Self.voiceAttachmentInput(url: memo.url) {
+            attachmentInputs.append(voiceInput)
+            summaryAttachments.append(.voiceMemo(id: UUID(), duration: memo.duration, levels: voiceMemoAudioLevels))
+        }
+        // Generation awareness gets only the cloud service ids (device kinds
+        // like Apple Health aren't catalog services and would 400). The summary
+        // carries every enabled connection + captured cloud-connection ids so
+        // `AgentBuilderConnectionGrantReplayer` fires the real grants post-join.
+        let connectionServiceIds: [String] = enabledConnections.compactMap { $0.cloudServiceId }
+        for connection in enabledConnections {
+            summaryAttachments.append(.connection(id: UUID(), identifier: connection.rawValue))
+        }
+        var cloudConnectionIds: [String: String] = [:]
+        for (connection, cloudConnectionId) in capturedCloudConnectionIds {
+            cloudConnectionIds[connection.rawValue] = cloudConnectionId
+        }
+        // Pre-allocate the prompt's client message id so the creation-prompt
+        // card represents it (bundled by id) instead of a bare bubble, matching
+        // the legacy flow. nil for an attachment-only build (empty prompt).
+        let promptMessageId: String? = prompt.isEmpty ? nil : UUID().uuidString
+        // Only an existing group has an audience for the attachments: a new
+        // conversation has no other members during the build (and the joining
+        // agent is excluded by publishing pre-join), and later-invited members
+        // can't decrypt pre-join messages. So we network the attachments as the
+        // legacy encrypted bundle only for the in-chat variant -- elsewhere they
+        // ride the generation API only. (The agent always built from the API
+        // copy, so it never needs them as messages.)
+        let hasComposerAttachments: Bool = !photos.isEmpty || recordedVoiceMemo != nil
+        let networksAttachmentBundle: Bool = targetsExistingConversation && hasComposerAttachments
+        let bundleMessageId: String? = networksAttachmentBundle ? UUID().uuidString : nil
+        let voiceMemoSnapshot: BuilderVoiceMemoSnapshot? = recordedVoiceMemo.map {
+            BuilderVoiceMemoSnapshot(url: $0.url, duration: $0.duration, levels: voiceMemoAudioLevels)
+        }
+        session.agentTemplateRepository().startGeneration(
+            prompt: prompt,
+            conversationId: conversationId,
+            slug: slug,
+            attachments: attachmentInputs,
+            connections: connectionServiceIds,
+            variantId: variantId
+        )
+        var bundledIds: Set<String> = []
+        if let promptMessageId { bundledIds.insert(promptMessageId) }
+        if let bundleMessageId { bundledIds.insert(bundleMessageId) }
+        persistCreationPromptCard(
+            prompt: prompt,
+            conversationId: conversationId,
+            attachments: summaryAttachments,
+            cloudConnectionIds: cloudConnectionIds,
+            bundledMessageIds: bundledIds
+        )
+        // We always publish pre-join (`awaitsAgentJoin: false`): the agent built
+        // from the prompt + attachments via the generation API, so it must not
+        // also receive them as chat messages (that lands them in an epoch the
+        // joining agent can't read, so the user/other members see them but the
+        // agent doesn't double-reply). The prompt is sent so it shows in chat and
+        // persists (the card anchors to it).
+        if networksAttachmentBundle, let innerVM = newConversationViewModel.conversationViewModel {
+            // Existing group: send the prompt + the encrypted attachment bundle
+            // so other members see the photos/voice. `sendBuilderBundle` reads
+            // and clears the composer's pending attachments and resets the voice
+            // recorder itself (and hides the staging chips via the flag below
+            // during the upload window), so don't clear them separately here.
+            innerVM.isAwaitingBuilderBundleSend = true
+            Task {
+                try? await innerVM.awaitPendingMediaUploads()
+                await innerVM.sendBuilderBundle(
+                    text: prompt,
+                    voiceMemo: voiceMemoSnapshot,
+                    textMessageId: promptMessageId,
+                    bundleMessageId: bundleMessageId,
+                    awaitsAgentJoin: false
+                )
+            }
+        } else {
+            // Home flow (or no attachments): the attachment bytes already went to
+            // the generation API, so clear the composer's staged attachments
+            // (otherwise they linger in the input bar after Make) and send the
+            // prompt text-only.
+            newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+            if recordedVoiceMemo != nil {
+                cancelRecordedVoiceMemo()
+            }
+            if let promptMessageId, let innerVM = newConversationViewModel.conversationViewModel {
+                Task {
+                    await innerVM.sendBuilderBundle(
+                        text: prompt,
+                        voiceMemo: nil,
+                        textMessageId: promptMessageId,
+                        bundleMessageId: nil,
+                        awaitsAgentJoin: false
+                    )
+                }
+            }
+        }
+    }
 
-        agentJoinTask?.cancel()
-        // Capture `session` only, not `self`: the join needs nothing back from
-        // the VM, and not capturing `self` avoids a cycle through the stored
-        // `agentJoinTask`. `deinit` and `discard()` cancel the task on teardown,
-        // which is intentional here (and the opposite of the committed-
-        // conversation join in `ConversationViewModel`, which must survive the
-        // view closing): closing the builder discards the draft conversation --
-        // leaving / deleting the group -- so there's nothing left to join.
-        agentJoinTask = Task { [session] in
+    /// Photos currently staged in the composer (camera + library), the only
+    /// attachment kind wired into the direct build for now. Video is excluded
+    /// (the generation API has no video MIME); files/voice come later.
+    private func directBuildPhotos() -> [PendingPhotoAttachment] {
+        let pending: [PendingMediaAttachment] = newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
+        return pending.compactMap { (attachment: PendingMediaAttachment) -> PendingPhotoAttachment? in
+            guard case .photo(let photo) = attachment else { return nil }
+            return photo
+        }
+    }
+
+    /// Reads the recorded voice memo's m4a bytes for upload. The backend
+    /// transcribes audio to text before generation; `audio/m4a` is in the
+    /// allowlist.
+    private static func voiceAttachmentInput(url: URL) -> AgentBuildAttachmentInput? {
+        guard let data = try? Data(contentsOf: url) else {
+            Log.error("AgentBuilder(direct): failed to read voice memo at \(url.lastPathComponent)")
+            return nil
+        }
+        return AgentBuildAttachmentInput(data: data, mimeType: "audio/m4a", filename: "voice.m4a")
+    }
+
+    /// Small JPEG thumbnail for the creation-prompt card chip, kept well under
+    /// the full upload size so the persisted summary row stays light.
+    private static func thumbnailData(for image: UIImage) -> Data? {
+        let maxDimension: CGFloat = 240
+        let longestSide: CGFloat = max(image.size.width, image.size.height)
+        let scale: CGFloat = longestSide > maxDimension ? maxDimension / longestSide : 1
+        let target: CGSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer: UIGraphicsImageRenderer = UIGraphicsImageRenderer(size: target)
+        let scaled: UIImage = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+        return scaled.jpegData(compressionQuality: 0.7)
+    }
+
+    /// Persist an `AgentBuilderSummary` so the existing summary-card rendering
+    /// shows the creator's prompt at the top of the chat while the agent
+    /// builds (reuses `MessagesListProcessor`'s pending-card path), and so the
+    /// `AgentBuilderConnectionGrantReplayer` can fire post-join grants from its
+    /// `.connection` attachments + `cloudConnectionIds`. `bundledMessageIds`
+    /// carries the prompt's client message id (when the prompt is non-empty) so
+    /// the card represents that sent message instead of a bare bubble, matching
+    /// the legacy flow; the attachments still ride the generation API, not XMTP.
+    /// Once the prompt message lands, `reconstructBuilderCards` anchors the card
+    /// to it, so it persists past the 180s pending window and across relaunch.
+    /// Set on the inner VM synchronously for the home-flow morph / no first-frame
+    /// flash, and persisted so it survives relaunch and reaches the
+    /// existing-conversation on-screen VM via its summary publisher.
+    private func persistCreationPromptCard(
+        prompt: String,
+        conversationId: String,
+        attachments: [AgentBuilderSummaryAttachment],
+        cloudConnectionIds: [String: String],
+        bundledMessageIds: Set<String>
+    ) {
+        let summary = AgentBuilderSummary(
+            prompt: prompt,
+            attachments: attachments,
+            cutoffDate: Date(),
+            bundledMessageIds: bundledMessageIds,
+            cloudConnectionIds: cloudConnectionIds,
+            existingConversation: targetsExistingConversation
+        )
+        newConversationViewModel.conversationViewModel?.agentBuilderSummary = summary
+        Task { [session] in
             do {
-                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
-            } catch is CancellationError {
-                return
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                return
+                try await session.agentBuilderSummaryWriter().save(summary, for: conversationId)
             } catch {
-                Log.error("AgentBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")
+                Log.error("AgentBuilder(direct): failed to persist creation prompt summary: \(error.localizedDescription)")
             }
         }
     }
@@ -1020,6 +1015,8 @@ final class AgentBuilderViewModel: Identifiable {
         let voiceMemoDuration: Float = recordedVoiceMemo.map { Float($0.duration) } ?? 0
         let connectionTypes: [String] = enabledConnections.map { $0.rawValue }
         let metricsEntryMode: ConvosMetrics.AgentBuilderEntryMode = (entryMode == .voiceMemo) ? .voiceMemo : .composer
+        let fromHint: Bool = fromPromptHint
+        let tapCount: Int = promptHintTapCount
         let actions: any CoreActions = coreActions
         Task {
             await actions.builtAgent(
@@ -1031,8 +1028,20 @@ final class AgentBuilderViewModel: Identifiable {
                 voiceMemoDuration: voiceMemoDuration,
                 connectionTypes: connectionTypes,
                 entryMode: metricsEntryMode,
-                isSuccess: isSuccess
+                isSuccess: isSuccess,
+                fromPromptHint: fromHint,
+                tapCount: tapCount
             )
+        }
+    }
+
+    /// Fires the `prompt_hint_tapped` event on each dice tap, carrying the
+    /// running per-session tap count, through the shared metrics `CoreActions`.
+    private func emitPromptHintTappedMetric() {
+        let tapCount: Int = promptHintTapCount
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.promptHintTapped(tapCount: tapCount)
         }
     }
 }

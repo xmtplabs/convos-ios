@@ -18,18 +18,22 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
             try await databaseWriter.write { db in
                 switch asset {
                 case let .profileAvatar(url, _, _, _):
-                    // Clear ALL profiles with this avatar URL (same person may appear in multiple conversations)
-                    let profiles = try DBMemberProfile
-                        .filter(DBMemberProfile.Columns.avatar == url)
+                    // Clear the URL + encryption material on all canonical avatar
+                    // slots with this URL (same person may appear in multiple
+                    // conversations). The row is kept so merge state is preserved.
+                    var avatars = try DBProfileAvatar
+                        .filter(DBProfileAvatar.Columns.url == url)
                         .fetchAll(db)
-                    for var profile in profiles {
-                        profile = profile
-                            .with(avatar: nil, salt: nil, nonce: nil, key: nil)
-                            .with(avatarLastRenewed: nil)
-                        try profile.save(db)
+                    for i in avatars.indices {
+                        avatars[i].url = nil
+                        avatars[i].salt = nil
+                        avatars[i].nonce = nil
+                        avatars[i].encryptionKey = nil
+                        avatars[i].lastRenewed = nil
+                        try avatars[i].save(db)
                     }
-                    if !profiles.isEmpty {
-                        Log.info("Cleared expired profile avatar URL from \(profiles.count) record(s)")
+                    if !avatars.isEmpty {
+                        Log.info("Cleared expired profile avatar URL from \(avatars.count) record(s)")
                     }
 
                 case let .groupImage(url, _, _):

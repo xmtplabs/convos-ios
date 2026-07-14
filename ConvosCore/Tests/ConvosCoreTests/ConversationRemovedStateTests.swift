@@ -68,7 +68,10 @@ struct ConversationRemovedStateTests {
             isMuted: false,
             pinnedOrder: isPinned ? 1 : nil,
             hidesInviteCard: false,
-            wasRemoved: wasRemoved
+            leftHostedInviteSession: false,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for inboxId in [currentInboxId, otherInboxId] {
@@ -93,6 +96,79 @@ struct ConversationRemovedStateTests {
         try ConversationLocalState
             .filter(ConversationLocalState.Columns.conversationId == id)
             .fetchOne(db)
+    }
+
+    // MARK: - isRemovedFromConversation
+
+    private static func membershipUpdate(
+        initiatedBy: String,
+        removed: [String]
+    ) -> DBMessage.Update {
+        DBMessage.Update(
+            initiatedByInboxId: initiatedBy,
+            addedInboxIds: [],
+            removedInboxIds: removed,
+            metadataChanges: [],
+            expiresAt: nil
+        )
+    }
+
+    @Test("Admin removal naming the local inbox is processed as a removal")
+    func testAdminRemovalIsProcessed() throws {
+        let removed = IncomingMessageWriter.isRemovedFromConversation(
+            update: Self.membershipUpdate(initiatedBy: Self.otherInboxId, removed: [Self.currentInboxId]),
+            localInboxId: Self.currentInboxId,
+            conversationConsent: .allowed
+        )
+        #expect(removed)
+    }
+
+    @Test("Self-leave echo on a sibling installation (consent still allowed) is processed as a removal")
+    func testSelfLeaveEchoOnSiblingInstallationIsProcessed() throws {
+        // Device pairing puts the same inbox on multiple installations. The
+        // sibling never ran the local leave flow, and the finalization commit
+        // is not mapped for self-leaves, so the echo must set the marker or
+        // the conversation stays visible until consent sync converges.
+        let removed = IncomingMessageWriter.isRemovedFromConversation(
+            update: Self.membershipUpdate(initiatedBy: Self.currentInboxId, removed: [Self.currentInboxId]),
+            localInboxId: Self.currentInboxId,
+            conversationConsent: .allowed
+        )
+        #expect(removed)
+    }
+
+    @Test("Self-leave echo on the initiating installation (consent already denied) stays skipped")
+    func testSelfLeaveEchoOnInitiatorIsSkipped() throws {
+        // The leave flow already hid the conversation via the consent path;
+        // the echo must not re-mark it.
+        let removed = IncomingMessageWriter.isRemovedFromConversation(
+            update: Self.membershipUpdate(initiatedBy: Self.currentInboxId, removed: [Self.currentInboxId]),
+            localInboxId: Self.currentInboxId,
+            conversationConsent: .denied
+        )
+        #expect(!removed)
+    }
+
+    @Test("Updates that do not remove the local inbox never mark a removal")
+    func testUnrelatedUpdateIsIgnored() throws {
+        let removed = IncomingMessageWriter.isRemovedFromConversation(
+            update: Self.membershipUpdate(initiatedBy: Self.otherInboxId, removed: [Self.otherInboxId]),
+            localInboxId: Self.currentInboxId,
+            conversationConsent: .allowed
+        )
+        #expect(!removed)
+        let noUpdate = IncomingMessageWriter.isRemovedFromConversation(
+            update: nil,
+            localInboxId: Self.currentInboxId,
+            conversationConsent: .allowed
+        )
+        #expect(!noUpdate)
+        let noInbox = IncomingMessageWriter.isRemovedFromConversation(
+            update: Self.membershipUpdate(initiatedBy: Self.otherInboxId, removed: [Self.currentInboxId]),
+            localInboxId: nil,
+            conversationConsent: .allowed
+        )
+        #expect(!noInbox)
     }
 
     // MARK: - persistRemovedMarker

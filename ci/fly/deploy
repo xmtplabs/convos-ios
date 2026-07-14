@@ -18,6 +18,7 @@
 #   FLY_REGION    - Region to deploy to (default: iad)
 
 set -e
+export FLYCTL_NO_PROMPT=1
 
 # Validate required environment variables
 if [ -z "$FLY_API_TOKEN" ]; then
@@ -42,13 +43,21 @@ fi
 
 echo "Creating app: $APP_NAME" >&2
 
-# Create the app (fail if creation fails for reasons other than "already exists")
-flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || {
-    flyctl apps show "$APP_NAME" >/dev/null 2>&1 || {
+# Create the app; if it already exists continue, otherwise surface the real
+# error. Existence is checked via `apps list` (there is no `apps show` command
+# in flyctl, and an unknown subcommand prints help and exits 0 - which would
+# mask real create failures like overdue billing or missing permissions as a
+# false "already exists"). Match the app name against the first column exactly
+# so a substring like "foo" doesn't match an unrelated "foo-prod".
+if ! CREATE_OUT="$(flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>&1)"; then
+    if flyctl apps list 2>/dev/null | awk -v name="$APP_NAME" '$1 == name { found = 1 } END { exit !found }'; then
+        echo "App already exists, continuing: $APP_NAME" >&2
+    else
         echo "Failed to create app: $APP_NAME" >&2
+        echo "$CREATE_OUT" >&2
         exit 1
-    }
-}
+    fi
+fi
 
 # Allocate IP addresses for the app (ignore if already allocated)
 echo "Allocating IP addresses..." >&2

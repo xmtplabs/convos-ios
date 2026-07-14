@@ -82,7 +82,13 @@ struct ConversationsListItem: View {
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
     // Extract computed values to prevent unnecessary recalculations
-    private var title: String { conversation.title(memberNameOverride: memberNameOverride) }
+    private var title: String {
+        let base: String = conversation.title(memberNameOverride: memberNameOverride)
+        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
+            return base
+        }
+        return "🧪 \(base)"
+    }
     private var isMuted: Bool { conversation.isMuted }
     private var isUnread: Bool { conversation.isUnread }
     private var lastMessage: MessagePreview? { conversation.lastMessage }

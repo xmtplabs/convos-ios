@@ -356,33 +356,10 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         guard let identity = try identityStore.loadSync() else {
             throw LivePairingServiceError.identityUnavailable
         }
-        var nonce = Data(count: 16)
-        let nonceStatus: OSStatus = nonce.withUnsafeMutableBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return errSecUnknownFormat }
-            return SecRandomCopyBytes(kSecRandomDefault, 16, baseAddress)
-        }
-        guard nonceStatus == errSecSuccess else {
-            Log.warning("Pairing: nonce generation failed status=\(nonceStatus); refusing to sign invite")
-            throw LivePairingServiceError.xmtpUnavailable
-        }
-        let issuedAt = Int64(Date().timeIntervalSince1970)
-        let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
-        let address = identity.keys.privateKey.walletAddress
-        let payload = PairingInvite.signingPayload(
+        let invite = try await PairingInvite.signed(
             initiatorInboxId: identity.inboxId,
-            initiatorAddress: address,
-            nonce: nonce,
-            issuedAt: issuedAt,
-            expiresAt: expiresAtUnix
-        )
-        let signed = try await identity.keys.privateKey.sign(payload.toHexString())
-        let invite = PairingInvite(
-            initiatorInboxId: identity.inboxId,
-            initiatorAddress: address,
-            nonce: nonce,
-            issuedAt: issuedAt,
-            expiresAt: expiresAtUnix,
-            signature: signed.rawData
+            privateKey: identity.keys.privateKey,
+            expiresAt: expiresAt
         )
         return try invite.toURLSafeSlug()
     }

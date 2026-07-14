@@ -122,7 +122,7 @@ The canonical order (from `qa/SKILL.md` "Run all tests") is:
    → 16 → 17 → 20 → 27 → 28 → 19 → 15 → 34 → 18
 ```
 
-plus secondary tests `14, 22, 23, 23b, 24, 25, 26, 28b, 29, 30, 31, 32, 33` slotted where they don't conflict with destructive steps (09, 18).
+plus secondary tests `14, 22, 23, 23b, 24, 25, 26, 28b, 29, 30, 31, 32, 33, 43, 44b, 45, 46` slotted where they don't conflict with destructive steps (09, 18). Test 43 (long-message rendering) explodes the shared conversation in teardown, so slot it late in the sequence, after other tests that reuse `shared_conversation_id`. Tests 44b, 45, and 46 briefly shut down the primary simulator to clone it (like 03/04), so don't overlap them with tests running on the primary; they otherwise run entirely on their own disposable clones.
 
 **What can actually run in parallel:**
 

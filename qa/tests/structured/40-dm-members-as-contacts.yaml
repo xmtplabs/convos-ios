@@ -40,31 +40,42 @@ setup:
     note: "Both simulators erased + freshly booted with the Local app installed + authorized."
 
 steps:
-  - id: device_a_create_and_name
-    name: "Device A creates a conversation and sets its profile name"
+  - id: device_a_first_launch_name
+    name: "Device A sets its name on the first-launch profile sheet"
+    device: A
+    actions:
+      - wait_for_element: { id: "profile-setup-name-field", timeout: 20 }
+      - type_in_field: { id: "profile-setup-name-field", text: "$device_a_name", clear_first: true }
+      - tap: { id: "profile-setup-save-button" }
+      - wait_for_element: { id: "compose-button", timeout: 10 }
+    verify:
+      - element_not_exists: { id: "profile-setup-name-field" }
+    criteria: device_a_creates_and_names
+    note: >
+      On a freshly erased device the "Hello / My name is" first-launch sheet
+      self-presents over the Chats tab (see test 01). Setting the name here
+      replaces the old in-conversation setup-profile-button flow. A human
+      contact is only visible when it has a displayName
+      (isVisibleInContactsList); Device A names itself "Alice" so Device B
+      sees a named contact, not the hidden "Somebody" default.
+
+  - id: device_a_create
+    name: "Device A creates a conversation"
     device: A
     actions:
       - tap: { id: "compose-button" }
       - tap: { id: "contacts-picker-confirm", optional: true }
       - wait_for_element: { id: "invite-qr-code", timeout: 15 }
-      - tap: { id: "setup-profile-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "$device_a_name", clear_first: true }
-      - press_return: { id: "quick-edit-display-name-field" }
-      - wait_for_element: { id: "invite-qr-code", timeout: 10 }
     verify:
       - element_exists: { id: "invite-qr-code" }
-    criteria: device_a_creates_and_names
+      - element_not_exists: { id: "setup-profile-button" }
     note: >
       compose-button opens the ContactsPicker in "compose" mode first (it lists
       existing contacts; on a freshly erased device the list is empty). Tap
       contacts-picker-confirm (label "Skip") to reach the new-conversation/invite
-      screen. It is optional because the picker only appears in compose mode. The
-      creator's profile is set on this screen via setup-profile-button (the joiner
-      uses profile-avatar-button instead - see device_b_join_and_name). A human
-      contact is only visible when it has a displayName (isVisibleInContactsList);
-      Device A names itself "Alice" so Device B sees a named contact, not the
-      hidden "Somebody" default.
+      screen. It is optional because the picker only appears in compose mode.
+      The profile was already set on the first-launch sheet, so the
+      setup-profile-button banner must not appear here.
 
   - id: extract_invite_url
     name: "Extract invite URL from Device A and derive the local deeplink"
@@ -87,30 +98,39 @@ steps:
       is invite_deeplink, used by the next step. (Dev/Prod universal links deep
       link fine because those associated domains serve AASA - see test 03.)
 
-  - id: device_b_join_and_name
-    name: "Device B joins via the invite and sets its profile name"
+  - id: device_b_first_launch_name
+    name: "Device B sets its name on the first-launch profile sheet"
+    device: B
+    actions:
+      - wait_for_element: { id: "profile-setup-name-field", timeout: 20 }
+      - type_in_field: { id: "profile-setup-name-field", text: "$device_b_name", clear_first: true }
+      - tap: { id: "profile-setup-save-button" }
+      - wait_for_element: { id: "compose-button", timeout: 10 }
+    verify:
+      - element_not_exists: { id: "profile-setup-name-field" }
+    note: >
+      Same first-launch sheet as Device A. Set Bob's name before opening the
+      invite deep link so the join flow isn't racing a self-presented sheet.
+
+  - id: device_b_join
+    name: "Device B joins via the invite"
     device: B
     actions:
       - sim_open_url: { url: "$invite_deeplink" }
       - tap: { label: "Open", optional: true }
       - wait_for_element: { id: "message-text-field", timeout: 60 }
       - wait_for_element: { label_contains: "2 members", timeout: 15 }
-      - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "$device_b_name", clear_first: true }
-      - press_return: { id: "quick-edit-display-name-field" }
     verify:
       - element_exists: { label_contains: "2 members" }
+      - element_not_exists: { id: "setup-profile-button" }
     criteria: device_b_joins_and_names
     note: >
       Open invite_deeplink (the convos-local:// form). If the open was routed
       through Safari, iOS shows an "Open in Convos?" prompt - tap Open (optional,
-      only appears when Safari was foreground). The joiner sets its
-      per-conversation name from the message bar's profile-avatar-button ("Edit
-      your profile"), not setup-profile-button (which only exists on the
-      creator's new-conversation screen). The joined screen reads "You joined as
-      Somebody" until named. Device A auto-processes the join request. Device B
-      names itself "Bob" so Device A sees a named, non-agent contact.
+      only appears when Safari was foreground). The global profile set on the
+      first-launch sheet auto-applies to the joined conversation, so the
+      setup-profile-button banner must not appear and the joined screen reads
+      "You joined as Bob". Device A auto-processes the join request.
 
   - id: exchange_messages
     name: "Two-way messaging (satisfies the contact-sync gate on both devices)"

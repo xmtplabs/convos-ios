@@ -272,9 +272,12 @@ public final class InviteCoordinator: @unchecked Sendable {
         // Removal is not a block - a removed member rejoins by sending a
         // fresh request (new message ID) with the same invite.
         if await handledRequestStore.isHandled(messageId: request.messageId) {
+            // No conversation resolved yet: the ledger short circuits before
+            // the invite is validated, so there is no group to re-snapshot.
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                verified: nil
             )
         }
 
@@ -391,6 +394,28 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Whether the creator's consent state on the invited group should reject
+    /// an otherwise-valid join request.
+    ///
+    /// Only `.denied` is a real denial - the creator deleted, blocked, or
+    /// exploded the conversation (all three write `.denied`). `.unknown` is
+    /// not a denial: it means this particular installation has no consent
+    /// record for the group yet. A secondary device or a fresh reinstall of
+    /// the creator's inbox arrives at `.unknown` until libxmtp device sync
+    /// delivers the record, and `resolveInvitedGroup` itself pulls the group
+    /// down via `syncConversations()` in exactly that case, guaranteeing an
+    /// `.unknown` read. Rejecting `.unknown` told joiners a perfectly valid
+    /// invite "no longer exists" whenever a non-primary installation answered
+    /// first, so it is treated as allowed here.
+    static func shouldRejectJoin(for consent: ConsentState) -> Bool {
+        switch consent {
+        case .denied:
+            return true
+        case .allowed, .unknown:
+            return false
+        }
+    }
+
     private func resolveInvitedGroup(
         conversationId: String,
         request: JoinRequest,
@@ -438,8 +463,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
             return .stop(benignFailure(request, error: .processingFailed))
         }
-        guard consent == .allowed else {
-            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
+        if Self.shouldRejectJoin(for: consent) {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state is '\(consent)'")
             await sendJoinError(
                 .consentNotAllowed,
                 reason: "creator consent state is '\(consent)'",
@@ -486,7 +511,12 @@ public final class InviteCoordinator: @unchecked Sendable {
             await handledRequestStore.markHandled(messageId: request.messageId)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                verified: AlreadyMemberContext(
+                    conversationId: conversationId,
+                    profile: request.profile,
+                    metadata: request.metadata
+                )
             )
         }
 
@@ -510,7 +540,12 @@ public final class InviteCoordinator: @unchecked Sendable {
             await sendJoinHandledMarker(for: request, client: client)
             return .alreadyMember(
                 dmConversationId: request.dmConversationId,
-                joinerInboxId: request.joinerInboxId
+                joinerInboxId: request.joinerInboxId,
+                verified: AlreadyMemberContext(
+                    conversationId: conversationId,
+                    profile: request.profile,
+                    metadata: request.metadata
+                )
             )
         }
 
@@ -618,9 +653,15 @@ public final class InviteCoordinator: @unchecked Sendable {
             // verification, so tampered slugs still reach the malicious
             // detection and DM blocking path.
             if await handledRequestStore.isHandled(messageId: message.id) {
-                handledOutcome = handledOutcome ?? .alreadyMember(
-                    dmConversationId: dm.id,
-                    joinerInboxId: message.senderInboxId
+                // Ledger pre-check before validation: no conversation resolved,
+                // so nothing to re-snapshot here.
+                handledOutcome = Self.preferringVerified(
+                    handledOutcome,
+                    over: .alreadyMember(
+                        dmConversationId: dm.id,
+                        joinerInboxId: message.senderInboxId,
+                        verified: nil
+                    )
                 )
                 continue
             }
@@ -632,7 +673,7 @@ public final class InviteCoordinator: @unchecked Sendable {
                 try? await dm.updateConsentState(state: .allowed)
                 return outcome
             case .alreadyMember:
-                handledOutcome = handledOutcome ?? outcome
+                handledOutcome = Self.preferringVerified(handledOutcome, over: outcome)
                 continue
             case .malicious:
                 return outcome
@@ -913,5 +954,23 @@ extension XMTPiOS.Dm {
         /// interleaved creator bookkeeping. Join DMs carry very little
         /// traffic, so a handful of messages is plenty.
         static let outgoingInviteScanLimit: Int = 10
+    }
+}
+
+extension InviteCoordinator {
+    /// Picks the already-member outcome to keep across one DM scan. A verified
+    /// context (a real conversation + the joiner's profile) lets the caller
+    /// re-publish the roster snapshot, so it must win over an earlier
+    /// ledger-only outcome whose context is nil. Same-richness outcomes keep
+    /// the first one seen, preserving the prior first-wins behavior.
+    static func preferringVerified(
+        _ existing: JoinRequestDMOutcome?,
+        over candidate: JoinRequestDMOutcome
+    ) -> JoinRequestDMOutcome {
+        guard let existing else { return candidate }
+        if existing.alreadyMemberContext == nil, candidate.alreadyMemberContext != nil {
+            return candidate
+        }
+        return existing
     }
 }

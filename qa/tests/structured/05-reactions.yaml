@@ -84,7 +84,7 @@ steps:
     verify:
       - element_exists: { label_contains: "🔥" }
     criteria: cli_reaction_attachment_visible
-    note: "Attachment renders as blurred image with 'Tap pic to reveal' label"
+    note: "Attachment renders as an image"
 
   - id: react_app_own
     name: "Long-press own message to add reaction"

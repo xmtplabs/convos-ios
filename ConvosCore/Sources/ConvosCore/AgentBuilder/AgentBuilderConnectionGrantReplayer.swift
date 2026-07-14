@@ -318,11 +318,18 @@ public final class AgentBuilderConnectionGrantReplayer: Sendable {
         }
     }
 
-    private static func verifiedAgentInboxIds(db: Database, conversationId: String) throws -> [String] {
-        let profileRows: [DBMemberProfile] = try DBMemberProfile
-            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+    // Internal (not private) so the canonical-read behavior can be unit-tested
+    // against a seeded database.
+    static func verifiedAgentInboxIds(db: Database, conversationId: String) throws -> [String] {
+        // The conversation roster is the source of truth for membership; canonical
+        // identity (agent kind + verification) lives in `DBProfile`. A verified
+        // agent learned only from a streamed profile has no legacy `DBMemberProfile`
+        // row, so read canonical.
+        let memberInboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
             .fetchAll(db)
-        return profileRows
+            .map(\.inboxId)
+        return try DBProfile.fetchAll(db, inboxIds: memberInboxIds)
             .filter { $0.isAgent && $0.agentVerification.isVerified }
             .map(\.inboxId)
     }

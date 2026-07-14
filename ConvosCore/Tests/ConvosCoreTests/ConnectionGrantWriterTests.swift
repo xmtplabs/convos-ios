@@ -17,22 +17,22 @@ struct ConnectionGrantWriterTests {
     private struct Fixture {
         let databaseManager: MockDatabaseManager
         let sessionStateManager: MockSessionStateManager
-        let profileWriter: MockMyProfileWriter
+        let metadataWriter: MockProfileMetadataWriter
         let writer: CloudConnectionGrantWriter
 
         init(inboxId: String = "mock-inbox-id", apiClient: (any ConvosAPIClientProtocol)? = nil) {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
-            let profileWriter = MockMyProfileWriter()
+            let metadataWriter = MockProfileMetadataWriter()
             let mockClient = MockXMTPClientProvider(inboxId: inboxId)
             let sessionStateManager = MockSessionStateManager(mockClient: mockClient, mockAPIClient: apiClient)
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager
-            self.profileWriter = profileWriter
+            self.metadataWriter = metadataWriter
             self.writer = CloudConnectionGrantWriter(
                 sessionStateManager: sessionStateManager,
                 databaseWriter: databaseManager.dbWriter,
                 databaseReader: databaseManager.dbReader,
-                myProfileWriter: profileWriter,
+                profileMetadataWriter: metadataWriter,
                 servicesStore: Self.makeServicesStore(apiClient: apiClient)
             )
         }
@@ -155,10 +155,10 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.connectionId == connection.id)
         #expect(stored.first?.serviceId == connection.serviceId)
 
-        #expect(fixture.profileWriter.publishedMetadata.count == 1)
-        let published = try #require(fixture.profileWriter.publishedMetadata.first)
+        #expect(fixture.metadataWriter.updates.count == 1)
+        let published = try #require(fixture.metadataWriter.updates.first)
         #expect(published.conversationId == conversationId)
-        let metadata = try #require(published.metadata)
+        let metadata = published.metadata
         guard case .string(let grantsJson) = try #require(metadata["connections"]) else {
             Issue.record("connections entry was not a string")
             return
@@ -179,7 +179,7 @@ struct ConnectionGrantWriterTests {
         try fixture.seedConversation(id: conversationId)
 
         struct PublishFailure: Error, Equatable {}
-        fixture.profileWriter.publishError = PublishFailure()
+        fixture.metadataWriter.updateError = PublishFailure()
 
         var caughtExpectedError: Bool = false
         do {
@@ -204,7 +204,7 @@ struct ConnectionGrantWriterTests {
         await #expect(throws: CloudConnectionGrantError.self) {
             try await fixture.writer.grantConnection("missing", to: "conv_x", grantedToInboxId: "agent-1")
         }
-        #expect(fixture.profileWriter.publishedMetadata.isEmpty)
+        #expect(fixture.metadataWriter.updates.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_x")
         #expect(stored.isEmpty)
     }
@@ -219,7 +219,7 @@ struct ConnectionGrantWriterTests {
         await #expect(throws: CloudConnectionGrantError.self) {
             try await fixture.writer.grantConnection(connection.id, to: "conv_x", grantedToInboxId: "agent-1")
         }
-        #expect(fixture.profileWriter.publishedMetadata.isEmpty)
+        #expect(fixture.metadataWriter.updates.isEmpty)
     }
 
     // MARK: - Revoke flow
@@ -244,11 +244,12 @@ struct ConnectionGrantWriterTests {
         #expect(stored.isEmpty)
 
         // The published metadata should have cleared the connections entry.
-        #expect(fixture.profileWriter.publishedMetadata.count == 1)
-        let published = try #require(fixture.profileWriter.publishedMetadata.first)
+        #expect(fixture.metadataWriter.updates.count == 1)
+        let published = try #require(fixture.metadataWriter.updates.first)
         #expect(published.conversationId == conversationId)
-        // With no remaining grants the writer passes nil metadata (empty map collapses).
-        #expect(published.metadata == nil)
+        // With no remaining grants the closure removes the connections key, so
+        // the merged map is empty (the writer collapses that to nil downstream).
+        #expect(published.metadata.isEmpty)
     }
 
     @Test("Revoke: publish failure leaves the DB row intact and propagates the error")
@@ -266,7 +267,7 @@ struct ConnectionGrantWriterTests {
         )
 
         struct PublishFailure: Error, Equatable {}
-        fixture.profileWriter.publishError = PublishFailure()
+        fixture.metadataWriter.updateError = PublishFailure()
 
         var caughtExpectedError: Bool = false
         do {
@@ -291,7 +292,7 @@ struct ConnectionGrantWriterTests {
 
         try await fixture.writer.revokeGrant(connectionId: "nope", from: "conv_nope", grantedToInboxId: "agent-1")
 
-        #expect(fixture.profileWriter.publishedMetadata.isEmpty)
+        #expect(fixture.metadataWriter.updates.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_nope")
         #expect(stored.isEmpty)
     }
@@ -314,9 +315,9 @@ struct ConnectionGrantWriterTests {
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.count == 2)
 
-        #expect(fixture.profileWriter.publishedMetadata.count == 2)
-        let lastPublish = try #require(fixture.profileWriter.publishedMetadata.last)
-        let metadata = try #require(lastPublish.metadata)
+        #expect(fixture.metadataWriter.updates.count == 2)
+        let lastPublish = try #require(fixture.metadataWriter.updates.last)
+        let metadata = lastPublish.metadata
         guard case .string(let grantsJson) = try #require(metadata["connections"]) else {
             Issue.record("connections entry was not a string")
             return

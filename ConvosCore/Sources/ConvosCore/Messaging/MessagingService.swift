@@ -30,6 +30,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     internal let coreActions: any CoreActions
+    /// Single shared instance so render-path resolvers (`contact(for:)`)
+    /// hit one warm in-memory contacts cache instead of constructing a
+    /// fresh repository per SwiftUI body evaluation.
+    private let sharedContactsRepository: ContactsRepository
     private var cancellables: Set<AnyCancellable> = []
 
     // swiftlint:disable:next function_parameter_count
@@ -89,10 +93,15 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
         self.coreActions = coreActions
+        // Both the app and the NSE construct a MessagingService, so this
+        // is the one bootstrap point common to every process that can
+        // verify a pairing join request.
+        PairingNonceLedger.shared.configure(appGroup: environment.appGroupIdentifier)
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
@@ -116,6 +125,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = ""
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
@@ -150,10 +160,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     // MARK: My Profile
 
-    func myProfileWriter() -> any MyProfileWriterProtocol {
-        MyProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
-    }
-
     func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
         MyGlobalProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
     }
@@ -162,7 +168,88 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         MyGlobalProfileRepository(sessionStateManager: sessionStateManager, databaseReader: databaseReader)
     }
 
+    // MARK: Profiles (canonical Profile table, transition)
+
+    private lazy var profileStore: any ProfileStoreProtocol = GRDBProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var selfProfileStore: any SelfProfileStoreProtocol = GRDBSelfProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader,
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    private lazy var profilePublishStore: any ProfilePublishStoreProtocol = GRDBProfilePublishStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
+        profileStore: profileStore,
+        selfProfileStore: selfProfileStore,
+        publishStore: profilePublishStore,
+        databaseReader: databaseReader,
+        conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: databaseWriter),
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    /// Canonical identity source. Inbound writes land here directly via
+    /// `ProfileInboundApplier`; reads are flipped onto it at the cutover.
+    func profilesRepository() -> ProfilesRepository {
+        sharedProfilesRepository
+    }
+
+    /// One-time backfill of the canonical stores from any legacy `memberProfile`
+    /// rows that predate the direct inbound seam, then warms the repository cache
+    /// and attaches the durable publish session. Self-guards on inbox-ready, so
+    /// it is safe to call early.
+    func startProfileServices() async {
+        if let selfInboxId = (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId {
+            do {
+                try await ProfileBackfill(
+                    databaseReader: databaseReader,
+                    profileStore: profileStore,
+                    selfInboxId: selfInboxId
+                ).run()
+            } catch {
+                Log.error("Profile backfill failed: \(error)")
+            }
+        }
+        await sharedProfilesRepository.warmUp()
+        // Carry an upgraded user's existing global avatar into the publisher's
+        // source so it keeps propagating to conversations after the transition.
+        await sharedProfilesRepository.seedSelfAvatarSourceIfNeeded()
+        await sharedProfilesRepository.bind(
+            session: MessagingProfilePublishSession(
+                sessionStateManager: sessionStateManager
+            )
+        )
+    }
+
+    func stopProfileServices() async {
+        await sharedProfilesRepository.unbind()
+    }
+
     // MARK: New Conversation
+
+    /// Seeds a newly-ready conversation with the current user's global profile
+    /// through the shared repository's durable publisher. Handed to
+    /// `ConversationStateManager` so it does not depend on the repository.
+    private var profileConversationSeeder: @Sendable (String) async -> Void {
+        { [sharedProfilesRepository] conversationId in
+            do {
+                try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+            } catch {
+                Log.warning("Failed to seed profile to conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {
         conversationStateManager(initialMemberInboxIds: [])
@@ -179,7 +266,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             environment: environment,
             initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager,
-            coreActions: coreActions
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
@@ -202,7 +290,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             conversationId: conversationId,
             initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager,
-            coreActions: coreActions
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
@@ -211,7 +300,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
         ConversationConsentWriter(
             sessionStateManager: sessionStateManager,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            pushTopicSubscriptionManager: PushTopicSubscriptionManager(
+                identityStore: identityStore,
+                deviceInfoProvider: deviceInfoProvider
+            )
         )
     }
 
@@ -234,14 +327,21 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             backgroundUploadManager: backgroundUploadManager,
             attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
             contactSyncCoordinator: contactSyncCoordinator(),
-            coreActions: coreActions
+            coreActions: coreActions,
+            ensureProfilePublished: { [sharedProfilesRepository] in
+                do {
+                    try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+                } catch {
+                    Log.warning("Failed to publish profile before send to \(conversationId): \(error.localizedDescription)")
+                }
+            }
         )
     }
 
     // MARK: Contacts
 
     func contactsRepository() -> any ContactsRepositoryProtocol {
-        ContactsRepository(databaseReader: databaseReader)
+        sharedContactsRepository
     }
 
     func contactsWriter() -> any ContactsWriterProtocol {
@@ -288,6 +388,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol {
+        ConversationLeaveWriter(
+            operations: XMTPLeaveGroupOperations(sessionStateManager: sessionStateManager),
+            consentWriter: conversationConsentWriter(),
+            databaseReader: databaseReader
+        )
+    }
+
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {
         ConversationPermissionsRepository(sessionStateManager: sessionStateManager,
                                           databaseReader: databaseReader)
@@ -307,13 +415,36 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         servicesStore
     }
 
+    /// One shared serialization choke point for every per-sender
+    /// `ProfileUpdate.metadata` write (connections, timezone, ...). The shared
+    /// instance is what lets a connections write and a timezone write queue
+    /// behind each other instead of clobbering the per-sender metadata map.
+    private lazy var sharedProfileMetadataWriter: ProfileMetadataWriter = ProfileMetadataWriter(
+        profilesRepository: { [sharedProfilesRepository] in sharedProfilesRepository },
+        databaseReader: databaseReader
+    )
+
+    func profileMetadataWriter() -> any ProfileMetadataWriterProtocol {
+        sharedProfileMetadataWriter
+    }
+
     func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         CloudConnectionGrantWriter(
             sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            myProfileWriter: myProfileWriter(),
+            profileMetadataWriter: sharedProfileMetadataWriter,
             servicesStore: servicesStore
+        )
+    }
+
+    func agentTimezonePublisher() async throws -> any AgentTimezonePublishing {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        return AgentTimezonePublisher(
+            profileMetadataWriter: sharedProfileMetadataWriter,
+            databaseReader: databaseReader,
+            myInboxId: inboxReady.client.inboxId,
+            appGroupIdentifier: environment.appGroupIdentifier
         )
     }
 
@@ -486,10 +617,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         for conversation in conversations {
             guard case let .group(group) = conversation else { continue }
             do {
-                let memberInboxIds = try await group.members.map(\.inboxId)
                 try await ProfileSnapshotBuilder.sendSnapshot(
                     group: group,
-                    memberInboxIds: memberInboxIds
+                    databaseReader: databaseReader
                 )
                 sent += 1
             } catch {

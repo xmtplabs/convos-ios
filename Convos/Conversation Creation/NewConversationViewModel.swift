@@ -25,6 +25,30 @@ struct IdentifiableError: Identifiable {
     }
 }
 
+/// Synchronous keep-signals for a minted conversation, latched by
+/// `NewConversationViewModel` at action time. Any set latch means the
+/// dismiss-time cleanup keeps the conversation.
+///
+/// - `sharedInvite`: the invite link was shared externally (native share
+///   sheet completed, or the in-convo "Share invite link" finished);
+///   deleting the conversation would break the recipient's join.
+/// - `scannedCode`: a recognized code was scanned through this VM; the
+///   scanned agent may not have joined yet (so the conversation can still
+///   read as empty) and a scanned invite join may still be in flight.
+/// - `customizedMetadata`: the user edited the name, description, or image,
+///   or flipped the "Include info with invites" toggle; set before the
+///   async write so an edit-then-dismiss cannot race it.
+/// - `memberJoined`: the conversation had a member besides the local user
+///   at some point this session, even if they left again.
+struct EngagementLatches: OptionSet {
+    let rawValue: Int
+
+    static let sharedInvite: EngagementLatches = EngagementLatches(rawValue: 1 << 0)
+    static let scannedCode: EngagementLatches = EngagementLatches(rawValue: 1 << 1)
+    static let customizedMetadata: EngagementLatches = EngagementLatches(rawValue: 1 << 2)
+    static let memberJoined: EngagementLatches = EngagementLatches(rawValue: 1 << 3)
+}
+
 enum NewConversationMode {
     case newConversation
     case newAgent
@@ -85,6 +109,15 @@ class NewConversationViewModel: Identifiable, Hashable {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
             conversationViewModel?.isInAgentBuilderFlow = isInAgentBuilderFlow
+            // Engagement latches survive the inbox-acquisition VM swap because
+            // they live here; re-wire the callbacks on every inner VM we vend
+            // (mirrors `allowsContactCard` above).
+            conversationViewModel?.onMetadataEdited = { [weak self] in
+                self?.engagement.insert(.customizedMetadata)
+            }
+            conversationViewModel?.onMemberJoined = { [weak self] in
+                self?.engagement.insert(.memberJoined)
+            }
             // Re-arm the optimistic agent overlay on every VM we vend so it
             // survives the placeholder -> real-conversation swap (mirrors
             // `suppressesContactCard` / `isInAgentBuilderFlow` above).
@@ -149,6 +182,16 @@ class NewConversationViewModel: Identifiable, Hashable {
     private let seededAgentTemplateIds: [String]
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
+    /// True when this conversation was entered from "Show an invite code".
+    /// The chat opens showing the invite QR at the top (the standard header)
+    /// and its trailing toolbar item is the scan viewfinder, whose tap opens
+    /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
+    /// into this one. Drives `trailingItemForReadyState`.
+    let showsEmbeddedInvite: Bool
+    /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
+    /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
+    /// thing shown); `.invite` for "Show an invite code" and normal convos.
+    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     private(set) var showingFullScreenScanner: Bool
     var presentingJoinConversationSheet: Bool = false
     var displayError: IdentifiableError? {
@@ -186,8 +229,8 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// Set when `commitConversationVisibility()` runs before the
     /// auto-created conversation reaches `.ready` (no id to flip yet).
     /// Flushed by `handleStateChange(.ready)`; cleared by
-    /// `deleteConversation()` so a dismissed builder can't promote a
-    /// conversation the user abandoned.
+    /// `tearDownAbandonedFlowTasks()` (both discard shapes) so a dismissed
+    /// builder can't promote a conversation the user abandoned.
     private var pendingVisibilityCommit: Bool = false
 
     /// The `.ready` hook's register(+queued commit) work. Awaited by
@@ -218,6 +261,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
+    /// Invoked when a scanned QR resolves into a conversation the user should be
+    /// taken into: a joined invite, or the fresh conversation a scanned agent is
+    /// being added to. The presenter dismisses the scanner and navigates into the
+    /// conversation. The id is settled (the conversation has reached `.ready`).
+    var onScanResolvedConversation: ((String) -> Void)?
     private var cachedInviteCode: String?
     private var consecutiveFailureCount: Int = 0
 
@@ -264,6 +312,21 @@ class NewConversationViewModel: Identifiable, Hashable {
     nonisolated(unsafe) private var _reachedJoiningState: Bool = false
     @ObservationIgnored
     private var _cleanedUp: Bool = false
+    /// Synchronous keep-signals accumulated over this VM's lifetime; once any
+    /// latch is set the dismiss-time cleanup keeps the conversation instead
+    /// of discarding it. Latches are set at action time -- before the async
+    /// database write lands -- so they cannot lose the race a state check at
+    /// dismiss could (e.g. a rename whose write is still in flight). The
+    /// database-derived gate (`ConversationEngagement` behind
+    /// `session.discardClaimedConversationIfUnengaged`) backstops any path
+    /// that misses a latch. See `EngagementLatches` for what each case means.
+    @ObservationIgnored
+    private(set) var engagement: EngagementLatches = []
+    /// Set when the pending state change was triggered by a scanned QR, so a
+    /// successful join / agent-add navigates the user into the resulting
+    /// conversation (and dismisses the scanner). Cleared once navigation fires.
+    @ObservationIgnored
+    private var pendingScanNavigation: Bool = false
     @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
@@ -292,10 +355,15 @@ class NewConversationViewModel: Identifiable, Hashable {
     init(
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
+        showsEmbeddedInvite: Bool = false,
+        embeddedInviteInitialSegment: ScanInviteSegment = .invite,
+        defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.showsEmbeddedInvite = showsEmbeddedInvite
+        self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -316,9 +384,16 @@ class NewConversationViewModel: Identifiable, Hashable {
             self.pendingAgentTemplateIds = agentTemplateIds
         }
 
-        // Only `.newAgent` defers row visibility to the Make tap; every
-        // other mode shows the conversation as soon as it exists.
-        self.defersVisibilityUntilCommit = if case .newAgent = mode { true } else { false }
+        // `.newAgent` defers row visibility to the Make tap. A claimed
+        // embedded-invite convo (the Contacts tab's "Invite a new contact"
+        // top-three) can opt into the same deferral so its row stays hidden
+        // until the user actually enters it -- otherwise it'd commit on tab
+        // appearance and leave a stray empty convo at the top of chats.
+        if case .newAgent = mode {
+            self.defersVisibilityUntilCommit = true
+        } else {
+            self.defersVisibilityUntilCommit = defersInviteVisibilityUntilEntered
+        }
 
         switch mode {
         case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
@@ -356,6 +431,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.isExistingConversation = if case .existingConversation = mode { true } else { false }
 
         self.isCreatingConversation = mode.isNewConversation
+        self.messagesTopBarTrailingItem = showsEmbeddedInvite ? .scan : .share
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -383,10 +459,12 @@ class NewConversationViewModel: Identifiable, Hashable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
+        showsEmbeddedInvite: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.showsEmbeddedInvite = showsEmbeddedInvite
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -418,15 +496,16 @@ class NewConversationViewModel: Identifiable, Hashable {
     }
 
     func cleanUpIfNeeded() {
+        if cleanUpEmptyEmbeddedInviteIfNeeded() { return }
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
         // Defensive: `.existingConversation` flows should already exit
         // via `_reachedReadyState` (useExisting emits .ready). If that
-        // ever drifts and `deleteConversation` stops being a no-op,
-        // this prevents destroying the real conversation behind the
-        // sheet on dismiss-before-ready.
+        // ever drifts and the discard stops being a no-op, this prevents
+        // destroying the real conversation behind the sheet on
+        // dismiss-before-ready.
         guard !isExistingConversation else { return }
         _cleanedUp = true
-        deleteConversation()
+        discardConversationIfUnengaged()
     }
 
     // MARK: - Inbox Acquisition
@@ -454,7 +533,10 @@ class NewConversationViewModel: Identifiable, Hashable {
                 case .newAgent:
                     shouldCommitNow = false
                 default:
-                    shouldCommitNow = true
+                    // A deferred embedded-invite convo stays hidden until the
+                    // user enters it (`commitConversationVisibility()`), so its
+                    // claimed row doesn't surface as a stray empty convo.
+                    shouldCommitNow = !defersVisibilityUntilCommit
                 }
                 if shouldCommitNow, let existingConversationId {
                     await session.commitClaimedConversation(id: existingConversationId)
@@ -622,21 +704,6 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     // MARK: - Actions
 
-    func onScanInviteCode() {
-        presentingJoinConversationSheet = true
-    }
-
-    /// Routes a scanned QR payload. A `convos://template/<id>` code
-    /// pivots the scanner into the agent-template spawn flow; anything
-    /// else is treated as a conversation invite, exactly as before.
-    func handleScannedCode(_ code: String) {
-        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
-            startAgentTemplateConversation(templateId: templateId)
-        } else {
-            joinConversation(inviteCode: code)
-        }
-    }
-
     /// Pivots a scanner-mode flow into the agent-template spawn path when
     /// the user scans a template QR. Mirrors the
     /// `.newConversationWithTemplate` deeplink mode: create a fresh
@@ -644,9 +711,27 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// once it reaches `.ready` (handled in `handleStateChange`).
     private func startAgentTemplateConversation(templateId: String) {
         pendingAgentTemplateIds = [templateId]
+        // Re-arm the one-shot join guard for this scan: a second distinct
+        // template (reachable via the screenshot picker in the same embedded
+        // convo) is a new batch and must fire, not be swallowed by the previous
+        // scan's latch. A re-emitted `.ready` for the same batch is still
+        // deduped -- `requestPendingAgentJoinsIfReady` sets the latch after it
+        // fires this batch.
+        didTriggerAgentJoin = false
         showingFullScreenScanner = false
-        isCreatingConversation = true
 
+        // The home-scan embedded flow (`.newConversation` + showsEmbeddedInvite)
+        // auto-creates its conversation up front, so the state machine is already
+        // past `.uninitialized` and a second `createConversation()` would be
+        // dropped as an invalid transition -- silently losing the scanned agent.
+        // Route it into that conversation instead: fire now if it is already
+        // ready, otherwise the `.ready` hook picks up `pendingAgentTemplateIds`.
+        guard !autoCreateConversation else {
+            requestPendingAgentJoinsIfReady()
+            return
+        }
+
+        isCreatingConversation = true
         guard conversationStateManager != nil else {
             pendingAgentTemplateCreate = true
             return
@@ -832,9 +917,17 @@ class NewConversationViewModel: Identifiable, Hashable {
         isCreatingConversation = false
     }
 
+    /// The trailing toolbar item for an interactive new conversation.
+    /// "Show an invite code" convos surface the scan viewfinder (whose tap
+    /// opens a new conversation); every other new convo surfaces the share /
+    /// add-people menu.
+    private var defaultTrailingItem: MessagesViewTopBarTrailingItem {
+        showsEmbeddedInvite ? .scan : .share
+    }
+
     @MainActor
     private func resetUIState() {
-        messagesTopBarTrailingItem = .share
+        messagesTopBarTrailingItem = defaultTrailingItem
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
@@ -878,7 +971,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         .sink { [weak self] in
             guard let self else { return }
             guard conversationState.isReadyOrJoining else { return }
-            messagesTopBarTrailingItem = .share
+            messagesTopBarTrailingItem = defaultTrailingItem
         }
         .store(in: &cancellables)
     }
@@ -902,6 +995,94 @@ class NewConversationViewModel: Identifiable, Hashable {
 /// (inherited from the type), so behavior is identical to when these
 /// lived inline.
 extension NewConversationViewModel {
+    /// Discards an embedded-invite conversation ("Show an invite code") that
+    /// the user dismissed without engaging, so the empty convo doesn't pile
+    /// up in the chats list.
+    ///
+    /// The default `cleanUpIfNeeded` keeps any conversation that reached
+    /// `.ready`, but an embedded-invite convo is warm-claimed with a pre-minted
+    /// invite and reaches `.ready` immediately, so that guard would never fire.
+    /// This gates on real engagement instead: any `EngagementLatches` latch
+    /// (invite shared, code scanned, metadata customized, member ever joined),
+    /// sent/received messages, or current other members keeps the convo;
+    /// otherwise it goes through the engagement-gated discard, whose
+    /// database-side check backstops any signal the latches missed. Returns
+    /// true when it handled (kept or discarded) the convo so the caller skips
+    /// the default path.
+    ///
+    /// Message count uses `countMessages`, which counts only real `.messages`
+    /// groups -- the conversation's own self-join membership `.update` row is
+    /// excluded, so a freshly created (but unused) convo still reads as empty.
+    @discardableResult
+    func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
+        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
+        guard engagement.isEmpty else { return true }
+        let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
+        let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
+        let everHadOtherMembers = conversationViewModel?.everHadOtherMembers ?? false
+        guard !hasMessages, !hasOtherMembers, !everHadOtherMembers else { return true }
+        _cleanedUp = true
+        discardConversationIfUnengaged()
+        return true
+    }
+
+    /// Records that this conversation's invite link was shared externally, so
+    /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps the conversation instead of
+    /// tearing it down and breaking the shared invite.
+    ///
+    /// The latch covers this VM's synchronous dismiss path; the persisted
+    /// `hasSharedInvite` write covers the database-gated discard layers that
+    /// cannot see VM latches - the superseded-claim discard when a later scan
+    /// joins a different conversation, the state machine's
+    /// previous-conversation cleanup during that join, and any check after
+    /// this VM is gone.
+    func markInviteShared() {
+        engagement.insert(.sharedInvite)
+        persistHasSharedInvite()
+    }
+
+    private func persistHasSharedInvite() {
+        guard let conversationStateManager else { return }
+        let conversationId = claimedConversationId ?? conversationStateManager.conversationId
+        guard !conversationId.isEmpty else { return }
+        Task { [conversationStateManager] in
+            do {
+                try await conversationStateManager.conversationLocalStateWriter.setHasSharedInvite(true, for: conversationId)
+            } catch {
+                Log.error("Failed to persist hasSharedInvite for \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func onScanInviteCode() {
+        presentingJoinConversationSheet = true
+    }
+
+    /// Routes a scanned QR payload. A `convos://template/<id>` code
+    /// pivots the scanner into the agent-template spawn flow; anything
+    /// else is treated as a conversation invite, exactly as before.
+    func handleScannedCode(_ code: String) {
+        // A scan should land the user in the resulting conversation once it is
+        // ready (see `navigateToScannedConversationIfPending`). Non-scan entries
+        // (the `.joinInvite` deep link) call `joinConversation` directly and
+        // never set this, so they keep morphing in place.
+        pendingScanNavigation = true
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            // Marked at scan time, for recognized codes only, so the
+            // empty-convo teardown keeps this conversation even when no
+            // navigation callback is wired (see `EngagementLatches`). An
+            // unrecognized payload never joins anything, so its convo stays
+            // eligible for the normal empty-dismiss cleanup.
+            engagement.insert(.scannedCode)
+            startAgentTemplateConversation(templateId: templateId)
+        } else {
+            if InviteURLDetector.detectInviteURL(in: code) != nil {
+                engagement.insert(.scannedCode)
+            }
+            joinConversation(inviteCode: code)
+        }
+    }
+
     /// Promotes this VM's hidden conversation row into a visible one.
     /// Covers both deferred-visibility shapes: the cache-claimed row
     /// (id known since acquire) and the auto-created `startsUnused` row
@@ -910,6 +1091,13 @@ extension NewConversationViewModel {
     /// `handleStateChange(.ready)` - mirroring how message sends queue
     /// until the conversation exists.
     func commitConversationVisibility() async {
+        // A commit can land while the inbox/claim acquisition is still in
+        // flight (the Contacts tab mints on demand and commits in the same
+        // tap). Wait for it so a warm-cache claim's id is adopted first;
+        // otherwise this falls through to `pendingVisibilityCommit`, which
+        // only the cache-miss `.ready` hook flushes, and the entered
+        // conversation would stay hidden forever.
+        await inboxAcquisitionTask?.value
         if let claimedConversationId {
             // Order behind the `.ready` hook's claim registration so the
             // commit's claim removal can't be overwritten by a late
@@ -933,15 +1121,14 @@ extension NewConversationViewModel {
         try await conversationStateManager.send(text: text)
     }
 
+    /// Unconditional teardown for explicit deletes (the user's "Delete"
+    /// action) and the Agent Builder's deliberate cancel; a deliberate
+    /// delete must never be silently overridden by the engagement gate.
+    /// Implicit dismiss-cleanup routes through
+    /// `discardConversationIfUnengaged()` instead.
     func deleteConversation() {
         Log.info("Deleting conversation")
-        newConversationTask?.cancel()
-        joinConversationTask?.cancel()
-        joinTimeoutTask?.cancel()
-        // A queued visibility commit must not survive dismissal - the user
-        // abandoned the builder, so a late `.ready` shouldn't promote the
-        // conversation into the chats list.
-        pendingVisibilityCommit = false
+        tearDownAbandonedFlowTasks()
         // Drop the conversation row claimed via `prepareNewConversation()`
         // when the user backs out without engaging. Key off
         // `claimedConversationId` so existing-conversation flows
@@ -958,17 +1145,57 @@ extension NewConversationViewModel {
         }
     }
 
+    /// Implicit-dismiss counterpart of `deleteConversation()`: same task
+    /// teardown, but the claimed row goes through the session's
+    /// engagement-gated discard, which keeps (and commits visible) a
+    /// conversation whose database state shows engagement -- customized
+    /// metadata, chat messages, or a member now or ever -- and only
+    /// destroys a genuinely untouched one.
+    private func discardConversationIfUnengaged() {
+        Log.info("Discarding conversation if unengaged")
+        tearDownAbandonedFlowTasks()
+        if let claimedId = claimedConversationId {
+            Task { [session] in
+                await session.discardClaimedConversationIfUnengaged(id: claimedId)
+            }
+        }
+    }
+
+    /// Shared teardown for both discard shapes: the sheet is going away, so
+    /// in-flight create/join work is cancelled and a queued visibility
+    /// commit must not survive dismissal - the user abandoned the flow, so
+    /// a late `.ready` shouldn't promote the conversation into the chats
+    /// list.
+    private func tearDownAbandonedFlowTasks() {
+        newConversationTask?.cancel()
+        joinConversationTask?.cancel()
+        joinTimeoutTask?.cancel()
+        pendingVisibilityCommit = false
+    }
+
     func setDismissAction(_ action: DismissAction) {
         dismissAction = action
     }
 
+    /// Dismisses the sheet after an error the user backed out of (the error
+    /// sheet's cancel/dismiss). This is an implicit teardown, not a deliberate
+    /// "delete this conversation" -- so a shared embedded invite must survive it
+    /// (deleting it would break the invite already in someone else's hands).
+    /// `cleanUpEmptyEmbeddedInviteIfNeeded` keeps a shared/engaged embedded convo
+    /// and discards only an untouched one; non-embedded flows fall through to the
+    /// full deletion. An explicit user delete still routes through
+    /// `deleteConversation()` directly and is unaffected.
     func dismissWithDeletion() {
-        _cleanedUp = true
         displayError = nil
         currentError = nil
         isCreatingConversation = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
         inboxAcquisitionTask?.cancel()
+        guard !cleanUpEmptyEmbeddedInviteIfNeeded() else {
+            dismissAction?()
+            return
+        }
+        _cleanedUp = true
         deleteConversation()
         dismissAction?()
     }
@@ -1008,6 +1235,56 @@ extension NewConversationViewModel {
         }
     }
 
+    /// Requests the pending agent-template joins into the current conversation
+    /// once it has reached `.ready`. Shared by the auto-create scan path (which
+    /// can land after `.ready`) and the `.ready` state hook (which fires as soon
+    /// as the conversation exists). One-shot via `didTriggerAgentJoin` so a
+    /// re-emitted `.ready` can't request the joins twice. Uses the batched
+    /// method -- the single-flight `requestAgentJoin(templateId:)` would cancel
+    /// each prior call as the loop advances, leaving only the last to land.
+    private func requestPendingAgentJoinsIfReady(conversationId: String? = nil) {
+        guard _reachedReadyState, !didTriggerAgentJoin, !pendingAgentTemplateIds.isEmpty else { return }
+        didTriggerAgentJoin = true
+        conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
+        // A scanned agent lands in the conversation it was added to. The
+        // `.ready` hook passes the id straight off the ready result: the state
+        // manager's own `conversationId` is updated by a separate observer of
+        // the same state sequence, so reading it here could race and navigate
+        // to a stale draft id. The already-ready scan path passes nil and
+        // falls back to the manager, whose id is settled by then.
+        navigateToScannedConversationIfPending(conversationId ?? conversationStateManager?.conversationId ?? "")
+    }
+
+    /// Hands the presenter the conversation a scan resolved to, so it can
+    /// dismiss the scanner and navigate into it. No-op unless the pending state
+    /// change came from a scan and the id is settled. The conversation survives
+    /// the scanner-sheet dismissal regardless -- `handleScannedCode` already
+    /// marked it (`EngagementLatches.scannedCode`) at scan time.
+    private func navigateToScannedConversationIfPending(_ conversationId: String) {
+        guard pendingScanNavigation, !conversationId.isEmpty,
+              let onScanResolvedConversation else { return }
+        pendingScanNavigation = false
+        onScanResolvedConversation(conversationId)
+    }
+
+    /// A scanned invite joins a different conversation, superseding the one this
+    /// embedded new-convo flow claimed up front. The state machine discards the
+    /// superseded conversation's local rows during the join (unless it is
+    /// engaged -- see `cleanUpPreviousConversationIfNeeded`), but releasing the
+    /// claimed cache reservation and leaving its published MLS group are this
+    /// VM's responsibility -- otherwise the group is stranded on the network and
+    /// the reservation leaks. Discard the claimed id through the engagement
+    /// gate -- a customized conversation (e.g. renamed before the scan) is kept
+    /// rather than destroyed -- and clear it so the joined conversation is kept
+    /// normally on dismiss.
+    private func discardSupersededClaimedConversationIfNeeded(_ result: ConversationReadyResult) {
+        guard let supersededId = claimedConversationId, supersededId != result.conversationId else { return }
+        claimedConversationId = nil
+        Task { [session] in
+            await session.discardClaimedConversationIfUnengaged(id: supersededId)
+        }
+    }
+
     @MainActor
     private func handleStateChange(_ state: ConversationStateMachine.State) {
         conversationState = state
@@ -1041,7 +1318,7 @@ extension NewConversationViewModel {
             conversationViewModel?.isWaitingForInviteAcceptance = true
             conversationViewModel?.showsInfoView = true
             messagesTopBarTrailingItemEnabled = false
-            messagesTopBarTrailingItem = .share
+            messagesTopBarTrailingItem = defaultTrailingItem
             messagesTextFieldEnabled = false
             isCreatingConversation = false
             currentError = nil
@@ -1055,6 +1332,9 @@ extension NewConversationViewModel {
 
             if result.origin == .joined {
                 conversationViewModel?.inviteWasAccepted()
+                // A scanned invite has finished joining -- take the user into the
+                // joined conversation (and dismiss the scanner).
+                navigateToScannedConversationIfPending(result.conversationId)
             } else {
                 conversationViewModel?.isWaitingForInviteAcceptance = false
             }
@@ -1069,6 +1349,8 @@ extension NewConversationViewModel {
             let readyElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
+
+            discardSupersededClaimedConversationIfNeeded(result)
 
             // Deferred-visibility cache-miss path: the state machine created
             // this conversation hidden (`startsUnused`), so adopt its id as
@@ -1087,38 +1369,51 @@ extension NewConversationViewModel {
                         await session.commitClaimedConversation(id: conversationId)
                     }
                 }
+            } else if showsEmbeddedInvite, result.origin == .created, claimedConversationId == nil {
+                // Non-deferred embedded auto-create (home Scan / show-invite-code
+                // on a cache miss): the state machine published a real,
+                // already-visible group but no warm-cache id was claimed up
+                // front. Adopt its id -- no register/commit, the row is already
+                // visible -- so a later scan-join supersession or teardown can
+                // leave the MLS group instead of stranding it on the network.
+                claimedConversationId = result.conversationId
             }
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
-            // pending templateId. Uses the batched method -- the
-            // single-flight `requestAgentJoin(templateId:)` would cancel
-            // each prior call as the loop advances, leaving only the
-            // last to land. One-shot - `.ready` may re-emit.
-            if !pendingAgentTemplateIds.isEmpty, !didTriggerAgentJoin {
-                didTriggerAgentJoin = true
-                conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
-            }
+            // pending templateId (see `requestPendingAgentJoinsIfReady`).
+            requestPendingAgentJoinsIfReady(conversationId: result.conversationId)
 
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)
+            releaseScanLatchIfJoinConclusivelyDead()
 
         case .error(let error):
             consecutiveFailureCount += 1
             handleErrorState(error)
+            releaseScanLatchIfJoinConclusivelyDead()
         }
+    }
+
+    /// `.scannedCode` latches at scan-recognition time so a mid-join dismiss
+    /// cannot cancel the in-flight join (`tearDownAbandonedFlowTasks`) or
+    /// discard the conversation it lands in. When the join or spawn dies
+    /// conclusively - the failure surface offers no retry - that protection
+    /// has nothing left to protect, and keeping the latch would make the
+    /// error-sheet dismiss keep an untouched conversation that the
+    /// "+"-sheet/home-scan flows already committed visible: a lingering
+    /// empty convo in the chats list. A retryable failure keeps the latch,
+    /// since a retry relaunches the join and needs the same mid-join
+    /// dismiss protection.
+    private func releaseScanLatchIfJoinConclusivelyDead() {
+        guard displayError?.retryAction == nil else { return }
+        engagement.remove(.scannedCode)
     }
 
     private func applyGlobalConversationDefaultsIfNeeded(using stateManager: any ConversationStateManagerProtocol) async {
         let conversationId: String = stateManager.conversationId
         guard !conversationId.isEmpty else { return }
-
-        do {
-            try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: conversationId)
-        } catch {
-            Log.error("Error applying global auto reveal preference: \(error)")
-        }
 
         // The include-info default applies to every conversation this VM
         // creates - the auto-create modes and the scanned-template path

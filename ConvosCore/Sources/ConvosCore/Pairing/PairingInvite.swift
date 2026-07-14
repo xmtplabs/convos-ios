@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 @preconcurrency import XMTPiOS
 
 /// The payload carried by the URL-safe slug in a `https://<domain>/pair/<slug>`
@@ -65,6 +66,7 @@ public enum PairingInviteError: Error, LocalizedError, Sendable {
     case expired
     case signatureInvalid
     case nonceInvalid
+    case nonceGenerationFailed
 
     public var errorDescription: String? {
         switch self {
@@ -78,6 +80,8 @@ public enum PairingInviteError: Error, LocalizedError, Sendable {
             return "Pairing invite signature is invalid"
         case .nonceInvalid:
             return "Pairing invite nonce is invalid"
+        case .nonceGenerationFailed:
+            return "Could not generate pairing invite nonce"
         }
     }
 }
@@ -111,6 +115,47 @@ public extension PairingInvite {
         }
         try invite.verifySignature()
         return invite
+    }
+
+    /// Creates a fully-signed invite for the given identity - the same
+    /// payload the initiator's QR flow encodes into a slug. Also used to
+    /// mint an invite on behalf of a device whose identity was found in
+    /// the iCloud-synced keychain backup: holding that backup's private
+    /// key carries the same authority the QR flow proves, so
+    /// `fromURLSafeSlug`'s signature check passes and the joiner's
+    /// identity-share validation anchors to the expected address.
+    static func signed(
+        initiatorInboxId: String,
+        privateKey: PrivateKey,
+        expiresAt: Date
+    ) async throws -> PairingInvite {
+        var nonce = Data(count: 16)
+        let nonceStatus: OSStatus = nonce.withUnsafeMutableBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return errSecUnknownFormat }
+            return SecRandomCopyBytes(kSecRandomDefault, 16, baseAddress)
+        }
+        guard nonceStatus == errSecSuccess else {
+            throw PairingInviteError.nonceGenerationFailed
+        }
+        let issuedAt = Int64(Date().timeIntervalSince1970)
+        let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
+        let address = privateKey.walletAddress
+        let payload = signingPayload(
+            initiatorInboxId: initiatorInboxId,
+            initiatorAddress: address,
+            nonce: nonce,
+            issuedAt: issuedAt,
+            expiresAt: expiresAtUnix
+        )
+        let signature = try await privateKey.sign(payload.toHexString())
+        return PairingInvite(
+            initiatorInboxId: initiatorInboxId,
+            initiatorAddress: address,
+            nonce: nonce,
+            issuedAt: issuedAt,
+            expiresAt: expiresAtUnix,
+            signature: signature.rawData
+        )
     }
 
     /// Recovers the signing address from `signature` over the canonical

@@ -12,9 +12,51 @@ enum PairingFlowState: Equatable {
     case expired
 }
 
+/// How the initiator pairing sheet was entered.
+enum PairingSheetMode: Equatable {
+    /// Settings > Devices > Add new device: create an invite and show
+    /// the QR for a joiner to scan.
+    case createInvite
+    /// A verified join request already arrived via the main message
+    /// stream (iCloud-discovery joiner); respond with a PIN immediately,
+    /// no QR step.
+    case respondToJoinRequest(joinerInboxId: String, deviceName: String)
+}
+
 @Observable
 @MainActor
-final class PairingSheetViewModel {
+final class PairingSheetViewModel: Identifiable {
+    /// The initiator sheet currently mid-flow, if any. Weak so dismissal
+    /// (either host nils its reference) clears it automatically. The
+    /// auto-surface path checks this to avoid presenting a second
+    /// initiator flow - two coordinators would race PIN generation for
+    /// the same joiner and the handshake would fail on a stale PIN.
+    private(set) static weak var active: PairingSheetViewModel?
+
+    /// The most recently created sheet VM and when it was created. A VM
+    /// exists only to be presented, but `active` isn't claimed until the
+    /// sheet's `.task` runs `startPairing()` - leaving a short window
+    /// (creation to first frame) where a concurrent verified join request
+    /// sees `active == nil` and would spawn a second coordinator for the
+    /// same joiner. `isFlowActiveOrStarting` closes that window without
+    /// breaking the dropped-presentation watchdog: a VM whose presentation
+    /// SwiftUI dropped never becomes `active` and stops blocking once the
+    /// grace period lapses.
+    private static weak var starting: PairingSheetViewModel?
+    private static var startingAt: Date?
+
+    /// True while an initiator flow owns, or is about to own, the
+    /// exchange. Callers gating auto-surfaced join requests should check
+    /// this rather than `active` alone; see `starting`.
+    static var isFlowActiveOrStarting: Bool {
+        if active != nil { return true }
+        if starting != nil, let startingAt,
+           Date().timeIntervalSince(startingAt) < Constant.startingGrace {
+            return true
+        }
+        return false
+    }
+
     var flowState: PairingFlowState = .qrCode(url: "")
     var canDismiss: Bool = true
     var title: String = "Pair new device"
@@ -23,6 +65,11 @@ final class PairingSheetViewModel {
     private let pairingService: any PairingServiceProtocol
     private let appGroupIdentifier: String?
     private let timeoutInterval: TimeInterval
+    private let mode: PairingSheetMode
+    /// When the invite targets a specific iCloud device (the Devices
+    /// screen's "Other devices in iCloud" section), the sheet's scan
+    /// instruction names it instead of the generic "your new device".
+    let targetDeviceName: String?
     private(set) var coordinator: PairingCoordinator?
     private var joinerDeviceName: String = "New Device"
     private var joinerInboxId: String?
@@ -34,13 +81,25 @@ final class PairingSheetViewModel {
     init(
         pairingService: any PairingServiceProtocol,
         timeoutInterval: TimeInterval = 120,
-        appGroupIdentifier: String? = nil
+        mode: PairingSheetMode = .createInvite,
+        appGroupIdentifier: String? = nil,
+        targetDeviceName: String? = nil
     ) {
         self.pairingService = pairingService
         self.appGroupIdentifier = appGroupIdentifier
         self.timeoutInterval = timeoutInterval
+        self.mode = mode
+        self.targetDeviceName = targetDeviceName
         self.secondsRemaining = Int(timeoutInterval)
         self.observers = PairingNotificationObservers()
+        if case .respondToJoinRequest = mode {
+            // Respond mode never shows a QR; start in the spinner state
+            // so the sheet doesn't flash the empty QR layout while the
+            // pairing service bootstraps toward `.showingPin`.
+            self.flowState = .syncing
+        }
+        Self.starting = self
+        Self.startingAt = Date()
         observeNotifications()
     }
 
@@ -75,6 +134,16 @@ final class PairingSheetViewModel {
     }
 
     func startPairing() async {
+        Self.active = self
+        switch mode {
+        case .createInvite:
+            await startInviteFlow()
+        case let .respondToJoinRequest(joinerInboxId, deviceName):
+            await startRespondFlow(joinerInboxId: joinerInboxId, deviceName: deviceName)
+        }
+    }
+
+    private func startInviteFlow() async {
         let coordinator = PairingCoordinator(pairingService: pairingService, timeoutInterval: timeoutInterval)
         self.coordinator = coordinator
 
@@ -99,6 +168,47 @@ final class PairingSheetViewModel {
             startCountdown()
         } catch {
             Log.error("Pairing start failed: \(error)")
+            // The service may have started before the failing call; stop
+            // it so its stream doesn't outlive the failed flow (mirrors
+            // confirmEmoji's failure handling).
+            await pairingService.stop()
+            flowState = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Mirrors the back half of `onJoinRequestReceived`: the join request
+    /// already arrived (verified by the stream layer), so the coordinator
+    /// starts directly in `.showingPin` and the PIN goes straight to the
+    /// joiner.
+    private func startRespondFlow(joinerInboxId: String, deviceName: String) async {
+        let coordinator = PairingCoordinator(pairingService: pairingService, timeoutInterval: timeoutInterval)
+        self.coordinator = coordinator
+
+        do {
+            try await pairingService.start()
+            guard let initiatorInboxId = await pairingService.pairingInboxId() else {
+                await pairingService.stop()
+                flowState = .failed("Pairing service is not ready")
+                return
+            }
+            let pin = try await coordinator.startPairing(
+                respondingToJoinerInboxId: joinerInboxId,
+                deviceName: deviceName,
+                initiatorInboxId: initiatorInboxId
+            )
+            joinerDeviceName = deviceName
+            self.joinerInboxId = joinerInboxId
+            expiresAt = Date().addingTimeInterval(timeoutInterval)
+            secondsRemaining = Int(timeoutInterval)
+            try await pairingService.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
+            QAEvent.emit(.pairing, "responding_to_join_request", ["joinerInboxId": joinerInboxId])
+            flowState = .showingPin(pin: pin, deviceName: deviceName)
+            startCountdown()
+        } catch {
+            Log.error("Pairing respond flow failed: \(error)")
+            // Mirrors confirmEmoji's failure handling: the service was
+            // started above, so stop its stream before parking in .failed.
+            await pairingService.stop()
             flowState = .failed(error.localizedDescription)
         }
     }
@@ -124,6 +234,15 @@ final class PairingSheetViewModel {
 
     func onJoinRequestReceived(deviceName: String, joinerInboxId: String) async {
         guard let coordinator else { return }
+        // The joiner's resend loop re-delivers requests this flow has
+        // already answered. The coordinator no-ops on them (it only
+        // accepts from `.waitingForScan`) and keeps its own expiration
+        // timer, so re-processing here would rebase the VM countdown
+        // past the coordinator's real expiry and re-send the PIN for
+        // nothing.
+        if case .showingPin = flowState, joinerInboxId == self.joinerInboxId {
+            return
+        }
 
         do {
             // Let the coordinator validate first — it rejects duplicate
@@ -247,5 +366,13 @@ final class PairingSheetViewModel {
 
     func triggerCancel() {
         Task { await cancel() }
+    }
+
+    private enum Constant {
+        /// How long a freshly created VM blocks a second flow before its
+        /// sheet must have presented (and claimed `active`). Matches the
+        /// auto-surface watchdog's presentation grace in
+        /// `ConversationsViewModel` so both sides age out together.
+        static let startingGrace: TimeInterval = 3
     }
 }

@@ -164,18 +164,42 @@ public enum ConvosAPI {
     // POST /v2/agents/join
     // The body is validated strictly server-side: unknown keys are rejected.
     // `templateId` is optional - omitting it requests a bare join (the
-    // backend provisions a default agent). A nil `templateId` is omitted
-    // from the encoded JSON by Codable's synthesized encoder.
+    // backend provisions a default agent). Nil optionals are omitted from
+    // the encoded JSON by Codable's synthesized encoder.
+    //
+    // Exactly one of `slug` (invite flow) or `conversationId` (direct-add).
+    // In direct-add mode the backend provisions the agent and responds with
+    // its `inboxId`; the client adds that inbox to the declared group with
+    // addMembers and is done — the runtime observes the resulting group
+    // welcome and attaches, with no confirmation call.
 
     public struct AgentJoinRequest: Codable {
-        public let slug: String
+        public let slug: String?
+        public let conversationId: String?
         public let templateId: String?
         public let options: AgentJoinOptions?
+        /// IANA timezone identifier (e.g. "Europe/Paris") carrying the
+        /// conversation creator's device timezone, used by the agent runtime as
+        /// the conversation's baseline/default. Distinct from the per-sender
+        /// "timezone" key in ProfileUpdate.metadata, which reflects each
+        /// member's own current device timezone: this one is set once at join
+        /// time and does not track travel or DST. Optional and nil-omitted by
+        /// Codable, so the wire format stays backward-compatible until the
+        /// backend reads it.
+        public let timezone: String?
 
-        public init(slug: String, templateId: String? = nil, options: AgentJoinOptions? = nil) {
+        public init(
+            slug: String? = nil,
+            conversationId: String? = nil,
+            templateId: String? = nil,
+            options: AgentJoinOptions? = nil,
+            timezone: String? = nil
+        ) {
             self.slug = slug
+            self.conversationId = conversationId
             self.templateId = templateId
             self.options = options
+            self.timezone = timezone
         }
     }
 
@@ -188,9 +212,17 @@ public enum ConvosAPI {
     /// the generic chat persona.
     public struct AgentJoinOptions: Codable, Sendable {
         public let onboarding: String?
+        /// Dev-only agent variant slug, routing the join to the variant's
+        /// ephemeral worker (`variant.assistantWorkerUrl`) server-side. Nested
+        /// here (not top-level) because the join schema is `.strict()`; omitted
+        /// from the encoded body when `nil` (via `encodeIfPresent`) so default
+        /// joins stay byte-identical. The backend strips it before forwarding to
+        /// the worker.
+        public let variantId: String?
 
-        public init(onboarding: String?) {
+        public init(onboarding: String?, variantId: String? = nil) {
             self.onboarding = onboarding
+            self.variantId = variantId
         }
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
@@ -199,10 +231,55 @@ public enum ConvosAPI {
     public struct AgentJoinResponse: Codable {
         public let success: Bool
         public let joined: Bool
+        /// Populated on every dispatch; required for the join-status poll.
+        public let instanceId: String?
+        /// Direct-add only: the agent's XMTP inbox to add with addMembers.
+        /// Nil when registration outlasted the backend's wait budget — poll
+        /// GET /v2/agents/join/:instanceId until it lands.
+        public let inboxId: String?
 
-        public init(success: Bool, joined: Bool) {
+        public init(success: Bool, joined: Bool, instanceId: String? = nil, inboxId: String? = nil) {
             self.success = success
             self.joined = joined
+            self.instanceId = instanceId
+            self.inboxId = inboxId
+        }
+    }
+
+    // MARK: - v2/agents/join/:instanceId
+
+    public struct AgentJoinStatusResponse: Codable {
+        public let success: Bool
+        public let instanceId: String
+        public let joinStatus: String
+        public let joined: Bool
+        public let inboxId: String?
+        public let conversationId: String?
+        public let joinFailureReason: String?
+
+        public init(
+            success: Bool,
+            instanceId: String,
+            joinStatus: String,
+            joined: Bool,
+            inboxId: String? = nil,
+            conversationId: String? = nil,
+            joinFailureReason: String? = nil
+        ) {
+            self.success = success
+            self.instanceId = instanceId
+            self.joinStatus = joinStatus
+            self.joined = joined
+            self.inboxId = inboxId
+            self.conversationId = conversationId
+            self.joinFailureReason = joinFailureReason
+        }
+
+        /// Typed view of the wire `joinStatus`. Switch over this (not the
+        /// raw string) so a terminal backend status can't be silently
+        /// missed at the call site.
+        public var provisionStatus: AgentProvisionStatus {
+            AgentProvisionStatus(wire: joinStatus)
         }
     }
 
@@ -263,6 +340,19 @@ public enum ConvosAPI {
         }
     }
 
+    /// Response envelope for `GET /v2/agent-prompt-hints` -- a flat list of
+    /// curated prompt strings (each <= 350 chars) the agent builder's dice
+    /// control drops into the "What needs done?" composer. Public and
+    /// unauthenticated; decoding is tolerant of extra keys via default Codable
+    /// behavior.
+    public struct AgentPromptHintsResponse: Codable, Sendable {
+        public let hints: [String]
+
+        public init(hints: [String]) {
+            self.hints = hints
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {
@@ -309,6 +399,7 @@ public enum ConvosAPI {
     /// body too would let a caller claim someone else's transaction.
     struct VerifySubscriptionRequest: Encodable {
         let jwsRepresentation: String
+        let platform: String = "apple"
     }
 
     struct VerifySubscriptionResponse: Decodable {

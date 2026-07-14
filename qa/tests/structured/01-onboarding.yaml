@@ -1,8 +1,9 @@
 id: "01"
 name: "Fresh Onboarding Flow"
 description: >
-  Verify that a first-time user can launch the app, create a conversation,
-  and complete the profile onboarding flow.
+  Verify that a first-time user is offered the first-launch "Hello / My name
+  is" profile setup sheet, can complete it, and then creates a conversation
+  without being re-prompted for a profile.
 tags: [onboarding, core, destructive]
 depends_on: []
 estimated_duration_s: 120
@@ -38,6 +39,50 @@ steps:
       was removed from the app; a fresh install lands directly on the home
       shell with the compose button available.
 
+  - id: first_launch_profile_sheet
+    name: "First-launch profile setup sheet appears"
+    actions:
+      - wait_for_element: { id: "profile-setup-name-field", timeout: 20 }
+    verify:
+      - element_exists: { id: "profile-setup-name-field" }
+      - element_exists: { id: "profile-setup-terms-toggle" }
+      - element_exists: { id: "profile-setup-save-button" }
+    criteria: first_launch_sheet_appears
+    note: >
+      The "Hello / My name is" sheet self-presents over the Chats tab once the
+      inbox is ready (it waits for the global profile load, so allow up to
+      20s on a cold fresh install). It presents on every launch while the
+      user has no name or photo set — the shown-once latch was removed — and
+      it only shows when no other device's identity exists in the
+      iCloud-synced keychain backup; an erased simulator satisfies that. If
+      the found-device pairing sheet appears instead, the simulator was not
+      fully erased. The CTA reads "Come in" and is disabled until a name is
+      entered (the terms toggle defaults on). While the CTA is disabled the
+      sheet cannot be swiped away (interactive dismissal is blocked).
+
+  - id: first_launch_profile_setup
+    name: "Set name via the first-launch sheet"
+    actions:
+      - type_in_field: { id: "profile-setup-name-field", text: "QA Tester", clear_first: true }
+      - tap: { id: "profile-setup-save-button" }
+      - wait_for_element: { id: "compose-button", timeout: 10 }
+    verify:
+      - element_not_exists: { id: "profile-setup-name-field" }
+    criteria: profile_can_be_set
+    note: >
+      A keyboard tutorial overlay may appear on fresh simulators — dismiss it
+      by tapping "Continue" before typing. Empty state: the name field
+      placeholder is "Name", the avatar shows person.crop.circle.fill (it
+      becomes a monogram once a name is typed, or the photo once one is
+      picked), the terms toggle is ON by default, and the CTA is
+      disabled/gray until a name is entered. Turning the toggle off disables
+      the CTA again. Saving publishes the global profile and dismisses the
+      sheet. Tapping the avatar, photo, or camera buttons
+      (profile-setup-avatar / profile-setup-photo-button /
+      profile-setup-camera-button) is covered by test 19. Note for
+      automation: idb taps don't register on the SwiftUI toggle — use a
+      short swipe across the knob if the toggle needs flipping.
+
   - id: create_conversation
     name: "Create a new conversation"
     actions:
@@ -48,48 +93,27 @@ steps:
       - element_exists: { id: "message-text-field" }
     criteria: compose_opens_conversation
 
-  - id: profile_prompt
-    name: "Profile setup prompt appears"
+  - id: no_profile_reprompt
+    name: "No in-conversation profile prompt"
     actions:
-      - wait_for_element: { id: "setup-profile-button", timeout: 15 }
+      - find_elements: { pattern: "setup-profile-button" }
     verify:
-      - element_exists: { id: "setup-profile-button" }
-    criteria: profile_prompt_appears
-    note: "Poll immediately — ephemeral element may appear quickly after conversation creation"
-
-  - id: profile_setup
-    name: "Set profile via profile editor"
-    actions:
-      - tap: { id: "setup-profile-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "QA Tester", clear_first: true }
-      - tap: { id: "quick-edit-done-button" }
-    verify:
-      - find_elements: { pattern: "QA Tester" }
-    criteria: profile_can_be_set
+      - element_not_exists: { id: "setup-profile-button" }
+    criteria: no_profile_reprompt
     note: >
-      Quick-edit uses quick-edit-display-name-field and quick-edit-done-button.
-      A keyboard tutorial overlay may appear on fresh simulators — dismiss it
-      by tapping "Continue" before typing.
-
-  - id: profile_saved
-    name: "Profile saved pill appears (auto-dismisses)"
-    actions:
-      - wait_for_element: { label_contains: "Profile saved", timeout: 10 }
-    verify:
-      - element_exists: { label_contains: "Profile saved" }
-    criteria: profile_saved_confirmation
-    note: >
-      The pill auto-dismisses after ~3 seconds and the flow advances
-      automatically. Do not tap "Continue" — that button no longer exists.
+      The profile was set on the first-launch sheet, so the legacy
+      in-conversation "Add your name and pic" prompt must not appear. (That
+      flow still exists as a fallback for users who enable the CTA but swipe
+      the sheet away without saving; the sheet re-presents on the next
+      launch while the profile stays unset — see 01b in the markdown doc.)
 
   - id: notification_permission
     name: "Notification permission step shown"
     actions:
+      - wait_for_element: { id: "notification-permission-button", timeout: 15 }
       - tap: { id: "notification-permission-button" }
       - wait_for_element: { label: "Allow", timeout: 5 }
     verify:
-      - element_exists: { id: "notification-permission-button" }
       - any_element_matches: { patterns: ["Allow", "Don't Allow"] }
     criteria: notification_step_shown
     note: "App shows custom prompt (notification-permission-button) first, then system dialog"
@@ -128,14 +152,14 @@ teardown: []
 criteria:
   app_launches_fresh:
     description: "App launches to the home shell after simulator erase (compose button available)"
+  first_launch_sheet_appears:
+    description: "First-launch 'Hello / My name is' profile sheet self-presents with name field, terms toggle, and Come in button"
+  profile_can_be_set:
+    description: "Profile can be set via the first-launch sheet and the sheet dismisses on Come in"
   compose_opens_conversation:
     description: "Compose button opens a new conversation flow"
-  profile_prompt_appears:
-    description: "Profile setup prompt appears after creating the first conversation"
-  profile_can_be_set:
-    description: "Profile can be set via the profile editor"
-  profile_saved_confirmation:
-    description: "Profile saved confirmation appears"
+  no_profile_reprompt:
+    description: "The in-conversation profile setup prompt does not appear after completing the first-launch sheet"
   notification_step_shown:
     description: "Notification permission step is shown"
   onboarding_completes:

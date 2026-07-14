@@ -24,6 +24,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// in normal chat. The Agent Builder passes `.hidden` so the
     /// underlying chat doesn't flash a QR while the user is still drafting.
     var headerMode: MessagesHeaderMode = .standard
+    /// Set by the "Show an invite code" new-convo flow. When true, the chat
+    /// pins the shared `InviteCodeBody` (Scan/Invite segmented toggle) as a top
+    /// `safeAreaInset`, suppresses the duplicate message-list-header QR, and
+    /// drops the lone scan toolbar item (the Scan segment owns scanning). The
+    /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
+    /// brand-new convo rather than scanning into this one.
+    var showsEmbeddedInvite: Bool = false
+    /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
+    /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
+    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
+    /// Routes a code decoded by the embedded Scan segment to the new-convo join
+    /// path. Nil keeps the embedded viewfinder decode-only.
+    var onScannedInviteCode: ((String) -> Void)?
+    /// Fires when the embedded invite's "Share invite link" completes, so the
+    /// backing new-convo flow can mark its invite as shared and skip the
+    /// empty-conversation teardown that would otherwise break the shared link.
+    var onInviteShared: (() -> Void)?
     /// Shared SwiftUI namespace used by the Agent Builder commit morph.
     /// Set by `AgentBuilderView` so its composer card and the in-stream
     /// summary cell can match-geometry into each other via `glassEffectID`.
@@ -34,6 +51,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
+    /// Tracks keyboard visibility so the pager dots hide and the pager-dots
+    /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
@@ -44,13 +63,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
-
-    /// Read-only when the presenter asks for it (stale/removed device) or
-    /// when the local user was removed from this conversation but can still
-    /// view it (e.g. it was open when the removal landed).
-    private var effectiveReadOnly: Bool {
-        isReadOnly || viewModel.conversation.wasRemoved
-    }
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -76,6 +88,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
+        // Moving into the Scan/Invite overlay must leave the keyboard down.
+        // The composer's first responder lives across the messages view
+        // controller's UIKit boundary, so clear both layers: the coordinator
+        // (so no focus-restore logic re-raises it) and the actual first
+        // responder. The invite picker sheet additionally re-resigns on its
+        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
+        // restores the composer's first responder when the sheet finishes
+        // dismissing.
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
     }
 
@@ -112,11 +134,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
         navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
-    }
-
-    private func handleRevealMediaInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(revealMediaInfo: RevealMediaInfoNavigatorArgs())
     }
 
     private func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
@@ -197,7 +214,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// profile. Built once per `ConversationView` lifetime; reads
     /// through the messaging service's contacts repository.
     private var contactOverride: @Sendable (String) -> Contact? {
-        viewModel.messagingService.contactsRepository().contact(for:)
+        // Prefer current member profiles over the lagging contacts table so
+        // system-message and receipt rows stay in sync with the message bubble.
+        Contact.memberAwareResolver(
+            members: viewModel.conversation.members,
+            contactLookup: viewModel.messagingService.contactsRepository().contact(for:)
+        )
     }
 
     private var messagesView: some View {
@@ -244,10 +266,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
             },
-            onProfilePhotoTap: {
-                onboardingCoordinator.didTapProfilePhoto()
-                viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-            },
             onSendMessage: {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
@@ -270,6 +288,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
             },
+            onOpenMessageDetail: { message in
+                viewModel.presentingMessageDetail = message
+            },
+            expandedMessageIds: viewModel.expandedMessageIds,
+            onToggleMessageExpanded: { messageId in
+                viewModel.toggleMessageExpanded(messageId)
+            },
             replyingToMessage: viewModel.replyingToMessage,
             replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
             onCancelReply: viewModel.cancelReply,
@@ -278,9 +303,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
-            shouldBlurPhotos: viewModel.shouldBlurPhotos,
-            onPhotoRevealed: viewModel.onPhotoRevealed(_:),
-            onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onPhotoSelected: viewModel.addPhotoAttachment(_:),
             onVideoSelected: viewModel.addVideoAttachment(url:),
@@ -313,15 +335,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: effectiveReadOnly ? .suppressed : headerMode,
+            headerMode: effectiveHeaderMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
-            onConvosAction: { viewModel.onConvosButtonTapped() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
+            showsInviteScanCard: showsTopOfConvoInvite,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: embeddedInviteInitialSegment,
+            onScannedInviteCode: inviteScanScannedHandler,
+            onInviteShareCompleted: onInviteShareCompletedHandler,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -358,13 +384,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        if !topBarTrailingHidden {
+        // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
+        // toolbar item is dropped for that flow.
+        if !topBarTrailingHidden && !showsEmbeddedInvite {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
                 } else {
                     switch messagesTopBarTrailingItem {
-                    case .share: addToConversationMenu
+                    case .share:
+                        // A full conversation can't mint new invite links, so the
+                        // invite affordance is hidden entirely (mirrors
+                        // `showsTopOfConvoInvite`'s `!isFull` gate).
+                        if !viewModel.isFull {
+                            inviteButton
+                        }
                     case .scan: scanInviteButton
                     }
                 }
@@ -384,26 +418,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("lock-info-button")
     }
 
-    private var addToConversationMenu: some View {
-        AddToConversationMenu(
-            isFull: viewModel.isFull,
-            isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
-            onConvoCode: {
-                if viewModel.isFull {
-                    showingFullInfo = true
-                } else {
-                    viewModel.presentingShareView = true
-                }
-            },
-            onCopyLink: {
-                viewModel.copyInviteLink()
-            },
-            onInviteAgent: {
-                viewModel.presentAgentBuilder()
-            },
-            onAddFromContacts: handleAddFromContactsTap
-        )
+    /// The in-conversation top-right invite affordance. Opens the "Invite"
+    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
+    /// scoped to this conversation, carrying the three convo-scoped invite
+    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
+    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    private var inviteButton: some View {
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
+        }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
     }
 
     private var handleAddFromContactsTap: () -> Void {
@@ -496,66 +522,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
-    private var metricsObserversPart1: MetricsObserversPart1 {
-        MetricsObserversPart1(
-            presentingConversationSettings: viewModel.presentingConversationSettings,
-            presentingProfileSettings: viewModel.presentingProfileSettings,
-            presentingShareView: viewModel.presentingShareView,
-            presentingConversationForked: viewModel.presentingConversationForked,
-            presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
-            presentingAgentsIntro: viewModel.presentingAgentsIntro,
-            presentingPaywall: viewModel.presentingPaywall,
-            showingAgentsInfo: showingAgentsInfo,
-            showingLockedInfo: showingLockedInfo,
-            onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
-            onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
-            onShareViewChanged: handleShareViewChanged(from:to:),
-            onConversationForkedChanged: handleConversationForkedChanged(from:to:),
-            onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
-            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
-            onPaywallChanged: handlePaywallChanged(from:to:),
-            onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
-            onLockedInfoChanged: handleLockedInfoChanged(from:to:)
-        )
-    }
-
-    private var metricsObserversPart3: MetricsObserversPart3 {
-        MetricsObserversPart3(
-            presentingProfileForMember: viewModel.presentingProfileForMember,
-            presentingContactForAgentShare: viewModel.presentingContactForAgentShare,
-            presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
-            presentingThinkingDetail: viewModel.presentingThinkingDetail,
-            onMemberProfileChanged: handleMemberProfileChanged(from:to:),
-            onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
-            onReactionsChanged: handleReactionsChanged(from:to:),
-            onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
-        )
-    }
-
-    private var metricsObserversPart2: MetricsObserversPart2 {
-        MetricsObserversPart2(
-            showingFullInfo: showingFullInfo,
-            presentingRevealMediaInfo: viewModel.presentingRevealMediaInfoSheet,
-            presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
-            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
-            presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
-            presentingAddFromContactsPicker: presentingAddFromContactsPicker,
-            onFullInfoChanged: handleFullInfoChanged(from:to:),
-            onRevealMediaInfoChanged: handleRevealMediaInfoChanged(from:to:),
-            onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
-            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
-            onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
-            onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
-        )
-    }
-
     var body: some View {
-        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            dotsHidden: contextMenuPresented,
-            scrollingDisabled: contextMenuPresented,
+            dotsHidden: contextMenuState.isPresented,
+            scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
             thingsPage: { thingsPage }
         )
@@ -599,21 +571,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             capabilityApprovalSheet
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            MyInfoView(
-                profile: .constant(viewModel.myProfileViewModel.profile),
-                profileImage: $viewModel.myProfileViewModel.profileImage,
-                editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                profileSettingsViewModel: profileSettingsViewModel,
-                showsCancelButton: true,
-                showsProfile: true,
-                showsUseProfileButton: true,
-                canEditProfile: false
-            ) { profileSettings in
-                viewModel.onUseProfile(profileSettings.profile, profileSettings.profileImage)
-            }
-            .onDisappear {
-                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
-            }
+            // ProfileSetupSheet owns the full save; no dismiss handler —
+            // the old onProfileSettingsDismissed re-saved from the stale
+            // myProfileViewModel and clobbered the just-saved profile.
+            ProfileSetupSheet(mode: .edit)
         }
         .toolbar { topBarTrailing }
         .debugConnectionInjectorSheet(
@@ -629,7 +590,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .addFromContactsPicker(
             viewModel: viewModel,
-            isPresented: $presentingAddFromContactsPicker
+            isPresented: $presentingAddFromContactsPicker,
+            onInviteShared: onInviteShared
         )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
@@ -640,12 +602,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .sheet(item: $viewModel.presentingAgentBuilder) { builderViewModel in
+        .sheet(item: $viewModel.presentingAgentBuilder, onDismiss: {
+            // Coming out of the in-chat maker, don't reopen the conversation
+            // keyboard: the agent still has to build and join before anything
+            // can be sent, so landing back here with the input focused isn't
+            // useful. Clear focus instead of letting it restore to `.message`.
+            focusCoordinator.moveFocus(to: nil)
+        }, content: { builderViewModel in
             AgentBuilderView(
                 viewModel: builderViewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )
-        }
+        })
         .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
             viewModel.presentAgentBuilderAfterIntroIfNeeded()
         }, content: {
@@ -673,7 +641,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
-            ReadByDrawerView(members: group.readByMembers)
+            ReadByDrawerView(
+                members: group.readByMembers,
+                memberContactOverride: contactOverride
+            )
         }
         .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
             ThinkingDetailView(
@@ -684,6 +655,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.sendThinkingControl(action, for: descriptor)
                 },
                 profileSheetForMember: profileSheetForMember
+            )
+        }
+        .sheet(item: $viewModel.presentingMessageDetail) { message in
+            MessageDetailView(
+                message: message,
+                onCopy: { text in
+                    UIPasteboard.general.string = text
+                },
+                onReply: { repliedMessage in
+                    viewModel.presentingMessageDetail = nil
+                    viewModel.onReply(repliedMessage)
+                    focusCoordinator.moveFocus(to: .message)
+                }
             )
         }
         .selfSizingSheet(isPresented: $showingLockedInfo) {
@@ -704,13 +688,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showingFullInfo = false
             })
         }
-        .selfSizingSheet(
-            isPresented: $viewModel.presentingRevealMediaInfoSheet,
-            onDismiss: { viewModel.showRevealSettingsToast() },
-            content: {
-                RevealMediaInfoSheet()
-            }
-        )
         .selfSizingSheet(
             isPresented: $viewModel.presentingPhotosInfoSheet,
             onDismiss: { focusCoordinator.moveFocus(to: .message) },
@@ -752,6 +729,7 @@ struct MemberContactDetailSheetContent: View {
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,
+                variantStamp: member.profile.variant,
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,
@@ -797,6 +775,43 @@ struct AgentShareContactDetailSheetContent: View {
     }
 }
 
+extension ConversationView {
+    /// Read-only when the presenter asks for it (stale/removed device) or
+    /// when the local user was removed from this conversation but can still
+    /// view it (e.g. it was open when the removal landed).
+    private var effectiveReadOnly: Bool {
+        isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
+    /// It shows above the chat for every conversation that meets the same
+    /// eligibility the legacy message-list QR header used (you created it, it's
+    /// not locked, it's not full), for the whole active invite session: from
+    /// first entry, through joins and incoming messages, until the host
+    /// navigates back to home and returns (tracked by the persisted
+    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
+    /// session. The "Show an invite code" new-convo flow shows it
+    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
+    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
+    /// the duplicate message-list-header QR is suppressed via
+    /// `effectiveHeaderMode -> .hidden`.
+    var showsTopOfConvoInvite: Bool {
+        if showsEmbeddedInvite { return true }
+        guard !effectiveReadOnly, headerMode == .standard else { return false }
+        let conversation = viewModel.conversation
+        guard !conversation.isDraft else { return false }
+        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
+    }
+
+    /// Read-only surfaces suppress every leading affordance. The inline
+    /// Invite/Scan card now lives in the index-0 `.invite` cell (branched on
+    /// `showsInviteScanCard`), so the header no longer forces `.hidden` to
+    /// dedupe against a pinned overlay.
+    private var effectiveHeaderMode: MessagesHeaderMode {
+        effectiveReadOnly ? .suppressed : headerMode
+    }
+}
+
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
@@ -814,6 +829,59 @@ struct AgentShareContactDetailSheetContent: View {
             messagesTopBarTrailingItemEnabled: true,
             messagesTextFieldEnabled: true,
             bottomBarContent: { EmptyView() }
+        )
+    }
+}
+
+extension ConversationView {
+    private var metricsObserversPart1: MetricsObserversPart1 {
+        MetricsObserversPart1(
+            presentingConversationSettings: viewModel.presentingConversationSettings,
+            presentingProfileSettings: viewModel.presentingProfileSettings,
+            presentingShareView: viewModel.presentingShareView,
+            presentingConversationForked: viewModel.presentingConversationForked,
+            presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
+            presentingAgentsIntro: viewModel.presentingAgentsIntro,
+            presentingPaywall: viewModel.presentingPaywall,
+            showingAgentsInfo: showingAgentsInfo,
+            showingLockedInfo: showingLockedInfo,
+            onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
+            onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
+            onShareViewChanged: handleShareViewChanged(from:to:),
+            onConversationForkedChanged: handleConversationForkedChanged(from:to:),
+            onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
+            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
+            onPaywallChanged: handlePaywallChanged(from:to:),
+            onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
+            onLockedInfoChanged: handleLockedInfoChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart3: MetricsObserversPart3 {
+        MetricsObserversPart3(
+            presentingProfileForMember: viewModel.presentingProfileForMember,
+            presentingContactForAgentShare: viewModel.presentingContactForAgentShare,
+            presentingReactionsForMessage: viewModel.presentingReactionsForMessage,
+            presentingThinkingDetail: viewModel.presentingThinkingDetail,
+            onMemberProfileChanged: handleMemberProfileChanged(from:to:),
+            onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
+            onReactionsChanged: handleReactionsChanged(from:to:),
+            onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
+        )
+    }
+
+    private var metricsObserversPart2: MetricsObserversPart2 {
+        MetricsObserversPart2(
+            showingFullInfo: showingFullInfo,
+            presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
+            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
+            presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
+            presentingAddFromContactsPicker: presentingAddFromContactsPicker,
+            onFullInfoChanged: handleFullInfoChanged(from:to:),
+            onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
+            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
+            onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
+            onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
     }
 }

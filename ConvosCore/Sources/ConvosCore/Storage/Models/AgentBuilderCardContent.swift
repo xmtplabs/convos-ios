@@ -27,6 +27,11 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
     /// Display name of the member who created the agent (the build messages'
     /// sender). Used for the footer copy when `creatorIsCurrentUser` is false.
     public let creatorDisplayName: String
+    /// Profile of the member who created the agent, used to render their avatar
+    /// next to the footer attribution. Resolved from the build messages' sender
+    /// (or the current user for the creator's own card); nil during the brief
+    /// pending window before any message is available to resolve it.
+    public let creatorProfile: Profile?
     /// Raw values of the iOS-side `AgentBuilderConnection`s enabled at Make.
     /// Populated only on the creator's client (from the local summary); empty
     /// elsewhere.
@@ -46,6 +51,7 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
         attachments: [HydratedAttachment] = [],
         creatorIsCurrentUser: Bool = true,
         creatorDisplayName: String = "",
+        creatorProfile: Profile? = nil,
         connectionIdentifiers: [String] = [],
         existingConversation: Bool = false,
         transitionEligible: Bool = false
@@ -55,6 +61,7 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
         self.attachments = attachments
         self.creatorIsCurrentUser = creatorIsCurrentUser
         self.creatorDisplayName = creatorDisplayName
+        self.creatorProfile = creatorProfile
         self.connectionIdentifiers = connectionIdentifiers
         self.existingConversation = existingConversation
         self.transitionEligible = transitionEligible

@@ -31,6 +31,7 @@ public struct PreparedBackgroundUpload: Sendable {
     public let encryptionNonce: Data
     public let contentDigest: String
     public let filename: String
+    public let encryptedContentLength: UInt32
 
     public init(
         taskId: String,
@@ -41,7 +42,8 @@ public struct PreparedBackgroundUpload: Sendable {
         encryptionSalt: Data,
         encryptionNonce: Data,
         contentDigest: String,
-        filename: String
+        filename: String,
+        encryptedContentLength: UInt32
     ) {
         self.taskId = taskId
         self.encryptedFileURL = encryptedFileURL
@@ -52,6 +54,7 @@ public struct PreparedBackgroundUpload: Sendable {
         self.encryptionNonce = encryptionNonce
         self.contentDigest = contentDigest
         self.filename = filename
+        self.encryptedContentLength = encryptedContentLength
     }
 }
 
@@ -189,7 +192,8 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
             encryptionSalt: encrypted.salt,
             encryptionNonce: encrypted.nonce,
             contentDigest: encrypted.digest,
-            filename: filename
+            filename: filename,
+            encryptedContentLength: UInt32(encrypted.payload.count)
         )
     }
 

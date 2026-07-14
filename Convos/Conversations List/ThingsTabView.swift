@@ -1,9 +1,11 @@
 import ConvosCore
 import SwiftUI
 
-/// Cross-conversation "Things" tab. Renders a grid of the most
-/// recent agent-sent HTML attachment from every conversation, with the
-/// conversation's display name + unread dot under each preview square.
+/// Cross-conversation "Things" tab. Renders a grid of every agent-sent
+/// HTML attachment across all conversations (a conversation can appear
+/// more than once), with each thing's title (its HTML `<title>`, falling
+/// back to the filename, then the conversation name) under each preview
+/// square.
 /// See [[ThingsOverviewViewModel]] for the data layer and
 /// [[ThingPreviewCell]] for the cell.
 ///

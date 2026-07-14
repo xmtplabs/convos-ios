@@ -15,10 +15,8 @@ Run this test twice with two different setting combinations.
 Run the full scenario twice:
 
 - **Run A**
-  - Reveal mode / Blur incoming pics = ON
   - Include info with invites = ON
 - **Run B**
-  - Reveal mode / Blur incoming pics = OFF
   - Include info with invites = OFF
 
 ## Steps (execute for each run)
@@ -35,21 +33,17 @@ Run the full scenario twice:
 5. Tap compose to start a new conversation.
 6. Open conversation info edit (Edit info).
 7. Verify **Include info with invites** matches the run value.
-8. Verify reveal preference matches the run value:
-   - Blur ON run => auto-reveal OFF
-   - Blur OFF run => auto-reveal ON
 
 ### 3) Transition draft -> real by having another member join
 
-9. From the app, generate/copy an invite URL for this conversation.
-10. Use CLI to join that invite with another participant.
-11. Wait for the app conversation to transition from draft to real (joined member visible or ready state reflected in UI).
+8. From the app, generate/copy an invite URL for this conversation.
+9. Use CLI to join that invite with another participant.
+10. Wait for the app conversation to transition from draft to real (joined member visible or ready state reflected in UI).
 
 ### 4) Validate defaults after real transition
 
-12. Re-open conversation info edit.
-13. Verify **Include info with invites** still matches the run value.
-14. Verify reveal preference still matches the run value.
+11. Re-open conversation info edit.
+12. Verify **Include info with invites** still matches the run value.
 
 ## Teardown
 

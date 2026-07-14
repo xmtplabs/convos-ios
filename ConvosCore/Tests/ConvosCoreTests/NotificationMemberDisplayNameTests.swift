@@ -36,14 +36,17 @@ struct NotificationMemberDisplayNameTests {
         ).insert(db)
     }
 
+    /// Seeds the member's canonical identity. `notificationMemberDisplayName`
+    /// reads `DBProfile` (per-inbox), not the legacy per-conversation
+    /// `DBMemberProfile`.
     private func seedMemberProfile(db: Database, name: String?, memberKind: DBMemberKind? = nil) throws {
-        try DBMemberProfile(
-            conversationId: conversationId,
+        try DBProfile(
             inboxId: memberInboxId,
             name: name,
-            avatar: nil,
-            memberKind: memberKind
-        ).insert(db)
+            memberKind: memberKind,
+            profileSource: .profileUpdate,
+            updatedAt: Date()
+        ).save(db)
     }
 
     private func seedContact(db: Database, displayName: String?) throws {

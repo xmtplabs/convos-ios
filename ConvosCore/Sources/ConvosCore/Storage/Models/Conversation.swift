@@ -24,6 +24,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// chat that already has members. The plus-menu "Convo code" entry
     /// still reaches the QR on demand.
     public let hidesInviteCard: Bool
+    /// Per-conversation UI session flag for a host: true once the host has
+    /// navigated back to home from an active invite session. While false the
+    /// inline Invite/Scan card leads the transcript; once true it collapses to
+    /// the regular top cell. Persisted locally so the collapse survives
+    /// relaunches, and app-backgrounding does not flip it.
+    public let leftHostedInviteSession: Bool
     /// True when the local user was removed from this conversation (persisted
     /// from a GroupUpdated removal, cleared when a sync proves membership
     /// again). List queries already exclude removed conversations; this
@@ -68,6 +74,58 @@ public extension Conversation {
         members.filter { !$0.isCurrentUser }
     }
 
+    /// The variant marker of this conversation's variant-built agent member, if
+    /// any. Drives the dev-only 🧪 name badge (conversations list) and header
+    /// badge; `nil` for default agents and human-only conversations. The stamp
+    /// itself is the signal -- only a variant-built agent carries
+    /// `profile.variant` -- so the internal-build gate is applied at the call
+    /// site, not here.
+    var agentVariant: AgentVariantStamp? {
+        members.first(where: { $0.profile.variant != nil })?.profile.variant
+    }
+
+    /// Copy of this conversation with `leftHostedInviteSession` replaced.
+    /// Used to optimistically end a hosted invite session in memory while the
+    /// persisting GRDB write is still in flight, so an instant back-out and
+    /// re-entry reads the ended state instead of flashing the inline card.
+    func withLeftHostedInviteSession(_ ended: Bool) -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: clientConversationId,
+            creator: creator,
+            createdAt: createdAt,
+            consent: consent,
+            kind: kind,
+            name: name,
+            description: description,
+            members: members,
+            otherMember: otherMember,
+            messages: messages,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: ended,
+            wasRemoved: wasRemoved,
+            lastMessage: lastMessage,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft,
+            invite: invite,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            agentJoinStatus: agentJoinStatus,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
+    }
+
     /// Copy of this conversation with `members` replaced. Used by the
     /// optimistic contacts-picker flows to overlay synthetic members onto
     /// a DB-emitted conversation so the chat header keeps rendering the
@@ -90,6 +148,7 @@ public extension Conversation {
             isMuted: isMuted,
             pinnedOrder: pinnedOrder,
             hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
             wasRemoved: wasRemoved,
             lastMessage: lastMessage,
             imageURL: imageURL,
@@ -186,14 +245,16 @@ public extension Conversation {
         if otherMembers.count == 1, let member = otherMembers.first {
             return .profile(member.profile, member.agentVerification)
         }
-        if let conversationEmoji, !conversationEmoji.isEmpty {
-            return .emoji(conversationEmoji)
-        }
+        // A group whose members have avatars renders the combined cluster of
+        // their photos. This is checked before the conversation emoji because
+        // that emoji is only ever an auto-seeded fallback (there is no UI to
+        // choose it), so it should show only when there is nothing better - not
+        // suppress the member cluster.
         let otherProfiles = otherMembers.map(\.profile)
-        if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
-            return .emoji(defaultEmoji)
+        if !otherProfiles.isEmpty, otherProfiles.hasAnyAvatar {
+            return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
         }
-        return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
+        return .emoji(defaultEmoji)
     }
 
     var memberNamesString: String {

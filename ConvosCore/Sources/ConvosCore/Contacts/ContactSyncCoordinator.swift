@@ -25,8 +25,9 @@ public protocol ContactSyncCoordinatorProtocol: Sendable {
 }
 
 /// Single entry point for the auto-add work described in the contact list PRD.
-/// Wraps `ContactsWriter` and reads from the existing `conversation_members`
-/// and `memberProfile` tables to seed each new contact with a profile snapshot.
+/// Wraps `ContactsWriter` and reads from `conversation_members` plus the
+/// canonical `profile` / `profileAvatar` tables to seed each new contact with a
+/// profile snapshot.
 final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -117,11 +118,15 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 .filter(DBConversationMember.Columns.conversationId == conversationId)
                 .fetchAll(db)
 
-            let profiles = try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                .fetchAll(db)
-            let profilesByInboxId: [String: DBMemberProfile] = Dictionary(
-                uniqueKeysWithValues: profiles.map { ($0.inboxId, $0) }
+            // Canonical identity (name + agent kind + template metadata) lives in
+            // `DBProfile`; the per-conversation avatar lives in `DBProfileAvatar`.
+            // A member learned only from a streamed profile message has no legacy
+            // `DBMemberProfile` row, so reading canonical is required to seed the
+            // contact with a real name/avatar.
+            let memberInboxIds = members.map(\.inboxId)
+            let identities = try DBProfile.fetchAll(db, inboxIds: memberInboxIds)
+            let identitiesByInboxId: [String: DBProfile] = Dictionary(
+                uniqueKeysWithValues: identities.map { ($0.inboxId, $0) }
             )
 
             var upsertedCount: Int = 0
@@ -129,25 +134,26 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 if member.inboxId == selfInboxId {
                     continue
                 }
-                let profile = profilesByInboxId[member.inboxId]
+                let identity = identitiesByInboxId[member.inboxId]
+                let avatar = try DBProfileAvatar.fetchOne(db, inboxId: member.inboxId, conversationId: conversationId)
                 let snapshot = ContactProfileSnapshot(
-                    displayName: profile?.name,
-                    avatarURL: profile?.avatar,
-                    avatarSalt: profile?.avatarSalt,
-                    avatarNonce: profile?.avatarNonce,
-                    avatarKey: profile?.avatarKey,
+                    displayName: identity?.name,
+                    avatarURL: avatar?.url,
+                    avatarSalt: avatar?.salt,
+                    avatarNonce: avatar?.nonce,
+                    avatarKey: avatar?.encryptionKey,
                     profileUpdatedAt: nil,
                     // Derived from the stored memberKind. nil means no agent
                     // signal (preserve existing); .agent / .verifiedConvos /
                     // .verifiedUserOAuth map to the corresponding
                     // AgentVerification.
-                    agentVerification: profile?.memberKind?.agentVerification,
+                    agentVerification: identity?.memberKind?.agentVerification,
                     // Template identity for template-backed agents, persisted
                     // so the contact can spawn a fresh instance after the
                     // user leaves every conversation with a running instance.
-                    agentTemplateId: profile?.agentTemplateId,
-                    agentTemplatePublishedURL: profile?.agentTemplatePublishedURL,
-                    agentTemplateEmoji: profile?.agentTemplateEmoji
+                    agentTemplateId: identity?.agentTemplateId,
+                    agentTemplatePublishedURL: identity?.agentTemplatePublishedURL,
+                    agentTemplateEmoji: identity?.agentTemplateEmoji
                 )
                 try ContactsWriter.upsertContactInTransaction(
                     db: db,

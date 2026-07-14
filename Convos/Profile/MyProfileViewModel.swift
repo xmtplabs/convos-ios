@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 @Observable
 class MyProfileViewModel {
-    private let myProfileWriter: any MyProfileWriterProtocol
+    private let messagingService: any MessagingServiceProtocol
     private let myProfileRepository: any MyProfileRepositoryProtocol
     private(set) var profile: Profile
     private var cancellables: Set<AnyCancellable> = []
@@ -28,11 +28,11 @@ class MyProfileViewModel {
 
     init(
         inboxId: String,
-        myProfileWriter: any MyProfileWriterProtocol,
+        messagingService: any MessagingServiceProtocol,
         myProfileRepository: any MyProfileRepositoryProtocol
     ) {
         self.profile = .empty(inboxId: inboxId)
-        self.myProfileWriter = myProfileWriter
+        self.messagingService = messagingService
         self.myProfileRepository = myProfileRepository
 
         do {
@@ -114,12 +114,16 @@ class MyProfileViewModel {
         editingDisplayName = displayName
         updateDisplayNameTask?.cancel()
         beginUpdate()
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
         updateDisplayNameTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             do {
-                try await unsafeWriter.update(displayName: displayName, conversationId: conversationId)
+                try await repository.publishMyProfile(
+                    displayName: displayName,
+                    avatarBytes: nil,
+                    priorityConversationId: conversationId
+                )
             } catch {
                 Log.error("Error updating profile display name: \(error.localizedDescription)")
             }
@@ -130,13 +134,13 @@ class MyProfileViewModel {
         updateMetadataTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
         updateMetadataTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             await displayNameTask?.value
             do {
-                try await unsafeWriter.update(metadata: profileMetadata, conversationId: conversationId)
+                try await repository.publishMyProfileMetadata(profileMetadata)
             } catch {
                 Log.error("Error updating profile metadata: \(error.localizedDescription)")
             }
@@ -150,7 +154,8 @@ class MyProfileViewModel {
         updateImageTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        let unsafeWriter = myProfileWriter
+        let repository = messagingService.profilesRepository()
+        let avatarBytes = profileImage.jpegData(compressionQuality: 1.0)
         updateImageTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
@@ -158,7 +163,11 @@ class MyProfileViewModel {
             // so the avatar update reads the profile with the correct name
             await displayNameTask?.value
             do {
-                try await unsafeWriter.update(avatar: profileImage, conversationId: conversationId)
+                try await repository.publishMyProfile(
+                    displayName: nil,
+                    avatarBytes: avatarBytes,
+                    priorityConversationId: conversationId
+                )
             } catch {
                 Log.error("Error updating profile image: \(error.localizedDescription)")
             }
@@ -187,9 +196,22 @@ class MyProfileViewModel {
         let trimmedDisplayName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmoji = editingEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestProfile = try? myProfileRepository.fetch()
-        if latestProfile == nil || latestProfile?.name != trimmedDisplayName {
+        // Don't push an empty name over an existing one (it would render as
+        // "Somebody"). The writer guards this too, but skipping here avoids a
+        // redundant re-broadcast of the unchanged name.
+        let wouldClearExistingName = trimmedDisplayName.isEmpty && (latestProfile?.name?.isEmpty == false)
+        // The name we actually use everywhere below: never blank out an existing
+        // name. When a clear is prevented this is the preserved stored name, so
+        // neither the field nor the "save as profile" forward gets the stale
+        // empty string.
+        let resolvedDisplayName = wouldClearExistingName ? (latestProfile?.name ?? "") : trimmedDisplayName
+        if !wouldClearExistingName, latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
             didChange = true
+        } else if wouldClearExistingName {
+            // Clearing was prevented; restore the field so it doesn't show blank
+            // while the stored name is actually preserved (mirrors saveAndAwait).
+            editingDisplayName = resolvedDisplayName
         }
 
         let updatedMetadata: ProfileMetadata? = {
@@ -218,7 +240,7 @@ class MyProfileViewModel {
             // ProfileSettingsViewModel.shared via an inline binding, so no need to copy it
             // here. Image and name still flow through this view model and need forwarding.
             let settingsViewModel = ProfileSettingsViewModel.shared
-            settingsViewModel.editingDisplayName = trimmedDisplayName
+            settingsViewModel.editingDisplayName = resolvedDisplayName
             settingsViewModel.profileImage = pendingProfileImage
             settingsViewModel.save()
             saveDisplayNameAsProfile = false
@@ -236,7 +258,7 @@ extension MyProfileViewModel {
     static var mock: MyProfileViewModel {
         return .init(
             inboxId: "mock-inbox-id",
-            myProfileWriter: MockMyProfileWriter(),
+            messagingService: MockMessagingService(),
             myProfileRepository: MockMyProfileRepository()
         )
     }

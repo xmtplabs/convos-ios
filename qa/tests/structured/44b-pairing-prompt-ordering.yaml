@@ -1,0 +1,127 @@
+id: "44b"
+name: "Pairing Prompt Ordering (Newer Backups Suppressed)"
+description: >
+  Verify the pairable-backup ordering rule: the "Pair <device>?" prompt
+  only offers iCloud-synced backups created before this install's own
+  key. A backup restamped to the future (standing in for "a second
+  device was set up after this one") must not be offered; restamped to
+  the past it must be offered again. Runs on a single disposable clone
+  of the primary simulator using the CONVOS_QA_WIPE_PRIMARY_IDENTITY
+  and CONVOS_QA_RESTAMP_FOREIGN_BACKUPS launch hooks - no second
+  onboarded device needed.
+tags: [pairing, multi-device, devices, icloud, keychain]
+depends_on: ["01"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: false
+  shared_conversation: false
+  # The primary simulator's app must be onboarded so its identity has
+  # been mirrored into the synced-backup keychain slot; the clone
+  # inherits that backup.
+  screen: conversations_list
+
+state:
+  clone_udid: null
+  found_device_name: null
+
+setup:
+  - action: clone_primary_as_ordering_sim
+    save:
+      clone_udid: "from clone"
+    note: >
+      `xcrun simctl shutdown $PRIMARY`, `xcrun simctl clone $PRIMARY
+      convos-qa-ordering`, boot both, relaunch the app on the primary.
+      All test steps run on the clone; the primary's account state is
+      never touched. simctl clone requires the source to be shut down -
+      expect a brief primary outage here. Launches of the app on the
+      clone need the App Check debug token for placeholder registration:
+      source .env and pass
+      SIMCTL_CHILD_FIRAAppCheckDebugToken="$FIREBASE_APP_CHECK_DEBUG_TOKEN"
+      on every simctl launch below.
+
+steps:
+  - id: wipe_creates_newer_own_key
+    name: "Wipe hook replaces the primary identity and the old backup prompts"
+    actions:
+      - launch_app_with_env:
+          env: { CONVOS_QA_WIPE_PRIMARY_IDENTITY: "1" }
+      - wait_for_element: { id: "pair-found-device-button", timeout: 45 }
+      - screenshot: {}
+    verify:
+      - event_exists: { name: "app.qa_wiped_primary_identity" }
+      - element_exists: { id: "pair-found-device-button" }
+    expect_event: "pairing.found_device_prompt_shown"
+    criteria: older_backup_prompts
+    save:
+      found_device_name: "deviceName= param of pairing.found_device_prompt_shown"
+    note: >
+      This mirrors test 44's single-sim shortcut: the wipe hook deletes
+      the device-local identity, the app registers a fresh placeholder
+      (whose backup mirror is stamped now), and the prior identity's
+      older backup is offered. pairableCount may exceed 1 if the primary
+      carried backups from earlier wipe cycles - the criteria use >=1
+      and =0 semantics on purpose. Do not tap Skip - it sets the
+      hasDeclinedFoundDevicePairing flag and would suppress the prompt
+      for the rest of the test. Terminate the app instead to move on.
+
+  - id: newer_backup_suppressed
+    name: "Foreign backup restamped to the future is not offered"
+    actions:
+      - terminate_app: {}
+      - launch_app_with_env:
+          env: { CONVOS_QA_RESTAMP_FOREIGN_BACKUPS: "3600" }
+      - sim_log_events: { event_filter: "pairing.found_device_check" }
+      - screenshot: {}
+    verify:
+      - event_exists: { name: "app.qa_restamped_foreign_backups" }
+      - element_not_exists: { id: "pair-found-device-button" }
+    expect_event: "pairing.found_device_check"
+    criteria: newer_backup_suppressed
+    note: >
+      The restamp hook shifts every non-own backup's backedUpAt to
+      now+3600s, making the prior identity's backup strictly newer than
+      this install's own key. found_device_check must report
+      pairableCount=0 and the prompt must stay absent - hold a negative
+      poll on pair-found-device-button for ~8s after the check event
+      fires. qa_restamped_foreign_backups carries count=<n>; expect
+      count >= 1, and treat count=0 as a setup failure (no foreign
+      backup present), not a pass.
+
+  - id: older_backup_reprompts
+    name: "Foreign backup restamped to the past is offered again"
+    actions:
+      - terminate_app: {}
+      - launch_app_with_env:
+          env: { CONVOS_QA_RESTAMP_FOREIGN_BACKUPS: "-86400" }
+      - wait_for_element: { id: "pair-found-device-button", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - event_exists: { name: "app.qa_restamped_foreign_backups" }
+      - element_exists: { id: "pair-found-device-button" }
+    expect_event: "pairing.found_device_prompt_shown"
+    criteria: older_backup_reprompts
+    note: >
+      Restamping the same backup a day into the past proves the
+      suppression in the previous step was the ordering rule and not a
+      decline flag, keychain miss, or hook side effect: the only thing
+      that changed between the two launches is the timestamp.
+
+teardown:
+  - action: delete_ordering_sim
+    args: { udid: "$clone_udid" }
+    optional: true
+    note: >
+      `xcrun simctl shutdown $clone_udid && xcrun simctl delete
+      $clone_udid`. The clone holds a throwaway placeholder identity and
+      exists only for this test; deleting it is the whole teardown. The
+      primary simulator was never modified.
+
+criteria:
+  older_backup_prompts:
+    description: "On the wiped launch, the prior identity's (older) backup drives the Pair prompt: qa_wiped_primary_identity fires with status=0 and pair-found-device-button appears"
+  newer_backup_suppressed:
+    description: "With the foreign backup restamped to now+3600s, found_device_check reports pairableCount=0 and the Pair prompt does not appear (qa_restamped_foreign_backups count >= 1)"
+  older_backup_reprompts:
+    description: "With the same backup restamped to now-86400s, found_device_check reports pairableCount>=1 and the Pair prompt appears again"

@@ -17,11 +17,19 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
 
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
+    /// Unsubscribes the conversation's push topic on leave so the backend
+    /// stops pushing it immediately, instead of waiting for the next full
+    /// reconcile. Best-effort: failures are swallowed by the manager and
+    /// the next reconcile re-converges. Nil in unit tests that don't
+    /// exercise the push path.
+    private let pushTopicSubscriptionManager: (any PushTopicSubscriptionManaging)?
 
     init(sessionStateManager: any SessionStateManagerProtocol,
-         databaseWriter: any DatabaseWriter) {
+         databaseWriter: any DatabaseWriter,
+         pushTopicSubscriptionManager: (any PushTopicSubscriptionManaging)? = nil) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
+        self.pushTopicSubscriptionManager = pushTopicSubscriptionManager
     }
 
     func join(conversation: Conversation) async throws {
@@ -51,9 +59,19 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
             return
         }
 
-        let client = try await sessionStateManager.waitForInboxReadyResult().client
-        try await client.update(consent: .denied, for: targetId)
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        try await inboxReady.client.update(consent: .denied, for: targetId)
         try await persistDeniedConsent(conversationId: targetId)
+
+        // Drop the conversation's push topic now that the user has left, so the
+        // backend stops pushing it immediately. The full reconcile would also
+        // diff a denied conversation out of the desired set, but only on the
+        // next resume / cold start / token change; this closes that window.
+        await pushTopicSubscriptionManager?.unsubscribeFromGroupTopic(
+            conversationId: targetId,
+            params: SyncClientParams(client: inboxReady.client, apiClient: inboxReady.apiClient),
+            context: "leave conversation"
+        )
     }
 
     /// A pending invite can resolve while the delete is in flight: the real

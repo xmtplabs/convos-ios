@@ -4,10 +4,10 @@ import SwiftUI
 /// stable glass capsule whose width + tint animate between two states:
 ///
 /// - **Expanded**: a capsule -- agent avatar leading, a "Make an agent"
-///   placeholder label, and three trailing icon buttons for photo / camera
-///   / voice-memo entry points. Capped at the width it would occupy on the
-///   largest iPhone in portrait so it doesn't stretch the full width of a
-///   wide iPad, and centered within the available width.
+///   placeholder label, and a trailing icon button for the voice-memo entry
+///   point. Capped at the width it would occupy on the largest iPhone in
+///   portrait so it doesn't stretch the full width of a wide iPad, and
+///   centered within the available width.
 /// - **Collapsed**: a 52pt circle at the trailing edge (the capsule shrunk
 ///   to its height with a black tint so it reads as a solid agent avatar).
 ///
@@ -28,8 +28,6 @@ import SwiftUI
 struct AgentBuilderBar: View {
     let isExpanded: Bool
     let onTap: () -> Void
-    let onTapPhotos: () -> Void
-    let onTapCamera: () -> Void
     let onTapVoiceMemo: () -> Void
     /// Optional matched-transition source applied to the glass shape. When
     /// set, sheets presented after tapping the bar zoom out of it.
@@ -93,7 +91,7 @@ struct AgentBuilderBar: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            attachmentButtonGroup
+            voiceMemoButton
         }
         .padding(DesignConstants.Spacing.step2x)
         .frame(maxWidth: .infinity)
@@ -109,13 +107,18 @@ struct AgentBuilderBar: View {
             .frame(width: Constant.collapsedSize, height: Constant.collapsedSize)
     }
 
-    private var attachmentButtonGroup: some View {
-        HStack(spacing: Constant.attachmentIconSpacing) {
-            attachmentButton(systemImage: "photo.fill", label: "Add photo", action: onTapPhotos)
-            attachmentButton(systemImage: "camera.fill", label: "Take photo", action: onTapCamera)
-            attachmentButton(systemImage: "waveform", label: "Record voice memo", action: onTapVoiceMemo)
+    private var voiceMemoButton: some View {
+        Button(action: onTapVoiceMemo) {
+            Image(systemName: "waveform")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.colorTextSecondary)
+                .frame(width: Constant.trailingIconWidth, height: Constant.trailingIconHeight)
+                .contentShape(.rect)
         }
-        .padding(.horizontal, Constant.attachmentGroupHorizontalPadding)
+        .buttonStyle(.plain)
+        .hoverEffect(.lift)
+        .accessibilityLabel("Record voice memo")
+        .padding(.horizontal, Constant.trailingIconHorizontalPadding)
     }
 
     private var agentAvatar: some View {
@@ -132,19 +135,6 @@ struct AgentBuilderBar: View {
             .accessibilityLabel("Make an agent")
     }
 
-    private func attachmentButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Color.colorTextSecondary)
-                .frame(width: Constant.attachmentIconWidth, height: Constant.attachmentIconHeight)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.lift)
-        .accessibilityLabel(label)
-    }
-
     private enum Constant {
         /// Height of both visual states: the expanded content's natural height
         /// (36pt glyph footprint + step2x*2 padding = 52pt). The collapsed
@@ -159,14 +149,13 @@ struct AgentBuilderBar: View {
         /// the available width is always <= this, so the cap never binds.
         static let maxExpandedWidth: CGFloat = 408.0
         /// The leading glyph sits in a 36x36 footprint, inset per the design so
-        /// the visible mark (~16.7x18) reads in line with the trailing icons.
+        /// the visible mark (~16.7x18) reads in line with the trailing icon.
         /// The asset has no internal padding, so the inset is applied here.
         static let expandedIconFrameSize: CGFloat = 36.0
         static let expandedIconInsets: EdgeInsets = EdgeInsets(top: 8, leading: 10.67, bottom: 10, trailing: 8.67)
-        static let attachmentIconWidth: CGFloat = 20.0
-        static let attachmentIconHeight: CGFloat = 18.0
-        static let attachmentIconSpacing: CGFloat = 24.0
-        static let attachmentGroupHorizontalPadding: CGFloat = 8.0
+        static let trailingIconWidth: CGFloat = 20.0
+        static let trailingIconHeight: CGFloat = 18.0
+        static let trailingIconHorizontalPadding: CGFloat = 8.0
     }
 }
 
@@ -186,13 +175,13 @@ private struct MatchedTransitionSourceModifier: ViewModifier {
 }
 
 #Preview("Expanded") {
-    AgentBuilderBar(isExpanded: true, onTap: {}, onTapPhotos: {}, onTapCamera: {}, onTapVoiceMemo: {})
+    AgentBuilderBar(isExpanded: true, onTap: {}, onTapVoiceMemo: {})
         .padding()
         .background(Color.colorBackgroundSurfaceless)
 }
 
 #Preview("Collapsed") {
-    AgentBuilderBar(isExpanded: false, onTap: {}, onTapPhotos: {}, onTapCamera: {}, onTapVoiceMemo: {})
+    AgentBuilderBar(isExpanded: false, onTap: {}, onTapVoiceMemo: {})
         .padding()
         .background(Color.colorBackgroundSurfaceless)
 }

@@ -1,6 +1,7 @@
 import ConvosCore
 import ConvosMetrics
 import SwiftUI
+import UIKit
 
 /// Full-height sheet that renders the per-session thinking history for one
 /// `convos.org/thinking:1.0` descriptor. Reuses `MessagesViewController`
@@ -44,6 +45,11 @@ struct ThinkingDetailView: View {
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var topBarHeight: CGFloat = 0.0
     @State private var presentingAgentProfile: Bool = false
+    /// A long thinking moment whose "Read more" was tapped. Presented as a
+    /// `MessageDetailView` sheet over this sheet (not via the VM's
+    /// `presentingMessageDetail`, which would try to present from
+    /// `ConversationView` underneath this covered presenter and no-op).
+    @State private var presentingMomentDetail: AnyMessage?
     @State private var navState: ThinkingDetailNavigatorImpl = .init()
     @State private var navigator: ThinkingDetailCollector?
 
@@ -108,6 +114,13 @@ struct ThinkingDetailView: View {
         .presentationBackground(.colorBackgroundRaisedSecondary)
         .sheet(isPresented: $presentingAgentProfile) {
             profileSheetForMember(descriptor.sender)
+        }
+        .sheet(item: $presentingMomentDetail) { moment in
+            MessageDetailView(
+                message: moment,
+                onCopy: { text in UIPasteboard.general.string = text },
+                onReply: { _ in presentingMomentDetail = nil }
+            )
         }
         .onAppear {
             ensureNavigator()
@@ -189,7 +202,6 @@ struct ThinkingDetailView: View {
             invite: .empty,
             onUserInteraction: {},
             hasLoadedAllMessages: false,
-            shouldBlurPhotos: true,
             focusCoordinator: focusCoordinator,
             onTapAvatar: { _ in },
             onLoadPreviousMessages: {},
@@ -200,9 +212,8 @@ struct ThinkingDetailView: View {
             onTapReadReceipts: { _ in },
             onTapThinkingIndicator: { _ in },
             onReply: { _ in },
+            onOpenMessageDetail: { presentingMomentDetail = $0 },
             contextMenuState: .init(),
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAgentOutOfCredits: {},
             creditsDepleted: false,

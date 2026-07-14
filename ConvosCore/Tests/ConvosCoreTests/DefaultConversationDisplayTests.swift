@@ -367,6 +367,7 @@ struct DefaultConversationDisplayTests {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false,
             lastMessage: nil,
             imageURL: URL(string: "https://example.com/image.jpg"),
@@ -411,6 +412,7 @@ struct DefaultConversationDisplayTests {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false,
             lastMessage: nil,
             imageURL: nil,
@@ -542,6 +544,82 @@ struct DefaultConversationDisplayTests {
             #expect(profiles.contains { $0.profileEmoji == "🦊" })
         } else {
             #expect(Bool(false), "Expected clustered avatar type when a member has an emoji avatar")
+        }
+    }
+
+    @Test("avatarType clusters a group with member avatars even when a conversation emoji is seeded")
+    func avatarTypeClustersOverSeededConversationEmoji() {
+        // The conversation emoji is only ever an auto-seeded fallback (there is
+        // no UI to choose it), so it must not suppress the member cluster - the
+        // #686 introduced checking the emoji before the cluster, but then this decision
+        // was reversed. 
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember(
+                profile: Profile.mock(inboxId: "other1", name: "Alice"),
+                role: .member,
+                isCurrentUser: false
+            ),
+            ConversationMember(
+                profile: Profile.mock(inboxId: "other2", name: "Bob"),
+                role: .member,
+                isCurrentUser: false
+            )
+        ]
+        let conversation = Conversation(
+            id: "test",
+            clientConversationId: "client-test",
+            creator: .mock(isCurrentUser: true),
+            createdAt: Date(),
+            consent: .allowed,
+            kind: .group,
+            name: nil,
+            description: nil,
+            members: members,
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: "🦊",
+            includeInfoInPublicPreview: false,
+            isDraft: false,
+            invite: nil,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
+        )
+
+        if case .clustered(let profiles) = conversation.avatarType {
+            #expect(profiles.count == 2)
+        } else {
+            #expect(Bool(false), "Expected clustered avatar type - a seeded conversation emoji must not suppress the member cluster")
+        }
+    }
+
+    @Test("emptyStateMock avatarType resolves to the supplied emoji")
+    func emptyStateMockAvatarTypeIsSuppliedEmoji() {
+        // The empty-state CTA carousel mock must render its emoji, not a
+        // cluster of never-loading mock avatars, even though member avatars
+        // outrank the conversation emoji for real groups.
+        let conversation = Conversation.emptyStateMock(id: "cta", name: "Book Club", emoji: "📚")
+
+        if case .emoji(let emoji) = conversation.avatarType {
+            #expect(emoji == "📚")
+        } else {
+            #expect(Bool(false), "Expected emoji avatar type - the empty-state mock members must not form a cluster")
         }
     }
 
@@ -716,6 +794,7 @@ private extension Conversation {
             isMuted: false,
             pinnedOrder: nil,
             hidesInviteCard: false,
+            leftHostedInviteSession: false,
             wasRemoved: false,
             lastMessage: nil,
             imageURL: nil,

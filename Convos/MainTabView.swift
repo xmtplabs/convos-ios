@@ -1,6 +1,5 @@
 import ConvosCore
 import ConvosMetrics
-import PhotosUI
 import SwiftUI
 
 /// Root tab shell for the app. Hosts the existing `ConversationsView` under
@@ -71,15 +70,6 @@ struct MainTabView: View {
     /// because SwiftUI's safe-area inset chain doesn't reliably propagate
     /// to the UIKit collection view.
     @State private var builderBarHeight: CGFloat = 0
-    /// Photo / camera / voice-memo entry points for the
-    /// `AgentBuilderBar`. Tapping the photo or camera icon presents
-    /// the matching picker first; only once the user has actually picked
-    /// (or captured) media do we open the builder sheet, so abandoning
-    /// the picker leaves the user where they were. Voice memo skips the
-    /// picker and opens the builder directly in recording mode.
-    @State private var isPhotoPickerPresented: Bool = false
-    @State private var isCameraPresented: Bool = false
-    @State private var selectedPhotos: [PhotosPickerItem] = []
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
     /// level so both the Chats and Things tabs share a single sheet
@@ -117,6 +107,12 @@ struct MainTabView: View {
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    /// Curated agent-builder prompt hints, hydrated from disk on init and
+    /// refreshed once on launch (see `body`'s `.task`). Injected into the
+    /// environment so the agent builder's dice control -- in this view's
+    /// builder sheet and in builders presented from descendant conversation
+    /// screens -- can read the cached hints.
+    @State private var promptHints: PromptHintsModel = .live()
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -273,10 +269,17 @@ struct MainTabView: View {
 
     var body: some View {
         bodyCore
+            .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
+            .environment(promptHints)
+            .task {
+                await promptHints.loadOnLaunch()
+            }
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
+                conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
+                conversationsViewModel.isChatsTabActive = activeTab == .chats
             }
             .modifier(metricsObserversModifier)
     }
@@ -328,8 +331,12 @@ struct MainTabView: View {
             }
         }
         .tint(Color.colorTextPrimary)
-        .onChange(of: activeTab) { _, _ in
+        .onChange(of: activeTab) { _, newTab in
             updateBuilderBarReveal(forOffset: activeTabScrollOffset)
+            // Fires after SwiftUI has applied the tab switch, so a parked
+            // scan navigation gated on the Chats tab consumes only once the
+            // switch has actually committed.
+            conversationsViewModel.isChatsTabActive = newTab == .chats
         }
     }
 
@@ -347,8 +354,20 @@ struct MainTabView: View {
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
             suggestedAgentsService: SuggestedAgentsService.live(),
-            scrollTarget: $contactsScrollTarget
+            scrollTarget: $contactsScrollTarget,
+            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onScanJoinedConversation: handleContactsScanJoinedConversation,
+            hasPushedContactDetail: !contactsPath.isEmpty
         )
+    }
+
+    /// A scan started from the Contacts tab joined a conversation. The joined
+    /// convo lives under the Chats tab; `navigateToScannedConversation` asks
+    /// the shell to switch there (via `bringChatsTabToFront`) and selects the
+    /// conversation only once the switch has committed and the row is in the
+    /// list, so the push can never land while Contacts is frontmost.
+    private func handleContactsScanJoinedConversation(_ conversationId: String) {
+        conversationsViewModel.navigateToScannedConversation(conversationId)
     }
 
     /// Wraps each tab's content in its own `NavigationStack` carrying the
@@ -393,7 +412,7 @@ struct MainTabView: View {
                         .transition(.blurReplace)
                 }
             }
-            .toolbar { sharedToolbar(for: tab) }
+            .toolbar { sharedToolbar() }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             // `.automatic`, not `.visible`, when no conversation is selected:
             // an explicit `.visible` at the stack root overrides the
@@ -405,54 +424,32 @@ struct MainTabView: View {
             .toolbar(isConversationSelected ? .hidden : .automatic, for: .tabBar)
     }
 
-    /// Shared toolbar (compose + add-agent) applied to each tab's
+    /// Shared toolbar (scan + compose) applied to each tab's
     /// `NavigationStack`. The AppIndicatorPill is *not* a toolbar item —
     /// native toolbars clip the slot height (~44pt) and the pill is taller.
     /// It's rendered as a SwiftUI overlay anchored at top-leading instead
     /// (see `sharedAppIndicatorOverlay`).
     @ToolbarContentBuilder
-    private func sharedToolbar(for tab: ConvosTab) -> some ToolbarContent {
+    private func sharedToolbar() -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Compose", systemImage: "square.and.pencil") {
+            let scanAction = {
+                conversationsViewModel.onJoinConvo()
+            }
+            Button(action: scanAction) {
+                Image(systemName: "viewfinder")
+            }
+            .accessibilityLabel("Scan a code")
+            .accessibilityIdentifier("scan-button")
+            .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Compose", systemImage: "plus") {
                 conversationsViewModel.onStartConvo()
             }
             .matchedTransitionSource(id: Constant.composerTransitionId, in: namespace)
             .accessibilityIdentifier("compose-button")
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
-        // Declared after Compose so it sits at the trailing edge (to the
-        // right of Compose) once the top builder bar has faded on scroll.
-        if showsToolbarBuilderButton(for: tab) {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: openBuilder) {
-                    Image("addAgentIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                }
-                .accessibilityLabel("Make an agent")
-                .accessibilityIdentifier("toolbar-add-agent-button")
-                .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
-            }
-        }
-    }
-
-    /// The compact "add agent" nav-bar button replaces the builder bar once
-    /// it has faded out on scroll. iPhone only (compact width): on iPad the
-    /// bar collapses to its own circle instead, so no nav-bar button. Also
-    /// hidden while the bar is revealed and while a conversation is pushed.
-    ///
-    /// The Contacts tab is the exception: it never shows the builder bar (the
-    /// contacts search bar owns the top), so the "add agent" button lives in
-    /// the nav bar permanently there, on every size class.
-    private func showsToolbarBuilderButton(for tab: ConvosTab) -> Bool {
-        if tab == .contacts {
-            return !isConversationSelected
-        }
-        return horizontalSizeClass == .compact
-            && !isBuilderBarRevealed
-            && !isConversationSelected
     }
 
     /// AppIndicatorPill rendered as an overlay above the entire app
@@ -562,7 +559,7 @@ struct MainTabView: View {
         .padding(.top, safeAreaInsets.top)
         .padding(.leading, leadingAppIndicatorPadding)
         .padding(.trailing, DesignConstants.Spacing.step3x)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     private var leadingAppIndicatorPadding: CGFloat {
@@ -616,7 +613,7 @@ struct MainTabView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, safeAreaInsets.top)
         .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .transition(.blurReplace)
+        .transition(.blurReplace.combined(with: .hitTestGate))
         // Keep the lifted indicator's coordinator current: unlike the
         // committed-conversation coordinator (updated by ConversationPresenter),
         // ConversationIndicatorWrapper doesn't, so its quick-editor focus would
@@ -686,8 +683,6 @@ struct MainTabView: View {
         AgentBuilderBar(
             isExpanded: expanded,
             onTap: openBuilder,
-            onTapPhotos: { isPhotoPickerPresented = true },
-            onTapCamera: { isCameraPresented = true },
             onTapVoiceMemo: openBuilderInVoiceMemoMode,
             transitionSourceNamespace: namespace,
             transitionSourceId: Constant.builderTransitionId
@@ -722,49 +717,6 @@ struct MainTabView: View {
     /// to wait for the inner conversation VM's recorder to materialize.
     private func openBuilderInVoiceMemoMode() {
         conversationsViewModel.onStartAgent(entryMode: .voiceMemo)
-    }
-
-    /// Camera capture (still image): open the builder and load the image
-    /// into the inner conversation VM's attachment list. The fullScreenCover
-    /// is dismissed by flipping `isCameraPresented` before opening the
-    /// builder so the sheet sits on top of the (now-dismissing) camera
-    /// cover with no visible flash.
-    private func handleCameraImageCaptured(_ image: UIImage) {
-        isCameraPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        builderViewModel.addPhotoAttachment(image)
-    }
-
-    private func handleCameraVideoCaptured(_ url: URL) {
-        isCameraPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        builderViewModel.addVideoAttachment(url: url)
-    }
-
-    /// Photo / video library selection: load each picked item asynchronously
-    /// (videos transferred as `VideoFile`, stills as `Data` -> `UIImage`)
-    /// and add them to the freshly-created builder VM. The picker is
-    /// dismissed and `selectedPhotos` is cleared synchronously so a
-    /// subsequent tap on the photo icon opens the picker fresh.
-    private func handleSelectedPhotosChanged(to newValue: [PhotosPickerItem]) {
-        guard !newValue.isEmpty else { return }
-        let items = newValue
-        selectedPhotos = []
-        isPhotoPickerPresented = false
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        Task {
-            for item in items {
-                if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
-                    await MainActor.run { builderViewModel.addVideoAttachment(url: videoFile.url) }
-                } else if let data = try? await item.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) {
-                    await MainActor.run { builderViewModel.addPhotoAttachment(image) }
-                }
-            }
-        }
     }
 
     private enum Constant {
@@ -922,23 +874,40 @@ private struct BuilderBarHeightKey: PreferenceKey {
     }
 }
 
-/// All the sheets / covers / pickers that the `MainTabView` shell hosts,
-/// extracted into a `ViewModifier` so the host's `body` stays within the
+/// All the sheets / covers that the `MainTabView` shell hosts, extracted
+/// into a `ViewModifier` so the host's `body` stays within the
 /// `warn-long-expression-type-checking` budget.
 struct MainTabSheetsModifier: ViewModifier {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     let coreActions: any CoreActions
     @Binding var presentingAppSettings: Bool
-    @Binding var isPhotoPickerPresented: Bool
-    @Binding var isCameraPresented: Bool
-    @Binding var selectedPhotos: [PhotosPickerItem]
     @Binding var thingsAgentContactMember: ConversationMember?
     let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
-    let onPhotosChanged: ([PhotosPickerItem]) -> Void
-    let onCameraImageCaptured: (UIImage) -> Void
-    let onCameraVideoCaptured: (URL) -> Void
+
+    /// Routes every dismissal of the incoming-pairing sheet through
+    /// `dismissIncomingPairingRequest()` so the flow is cancelled before
+    /// the view model reference is dropped. A plain item binding with an
+    /// `onDismiss` can't do this for interactive (swipe) dismissal:
+    /// SwiftUI nils the binding before `onDismiss` runs, so by then
+    /// there's no view model left to cancel and the pairing service's
+    /// stream keeps running. Cancelling is safe on every path - the view
+    /// model only sends the joiner-facing cancellation error from
+    /// mid-handshake states, and stopping the service after completion
+    /// or failure is the same cleanup the QR flow does on sheet close.
+    private var incomingPairingBinding: Binding<PairingSheetViewModel?> {
+        Binding(
+            get: { conversationsViewModel.incomingPairingRequest },
+            set: { newValue in
+                if newValue == nil {
+                    conversationsViewModel.dismissIncomingPairingRequest()
+                } else {
+                    conversationsViewModel.incomingPairingRequest = newValue
+                }
+            }
+        )
+    }
 
     func body(content: Content) -> some View {
         content
@@ -953,22 +922,6 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "agent-builder-transition-source", in: namespace)
                 )
             }
-            .photosPicker(
-                isPresented: $isPhotoPickerPresented,
-                selection: $selectedPhotos,
-                maxSelectionCount: maxPendingMediaAttachments,
-                matching: .any(of: [.images, .videos])
-            )
-            .onChange(of: selectedPhotos) { _, newValue in
-                onPhotosChanged(newValue)
-            }
-            .fullScreenCover(isPresented: $isCameraPresented) {
-                CameraPickerView(
-                    onImageCaptured: onCameraImageCaptured,
-                    onVideoCaptured: onCameraVideoCaptured
-                )
-                .ignoresSafeArea()
-            }
             .sheet(isPresented: $presentingAppSettings) {
                 AppSettingsView(
                     viewModel: conversationsViewModel.appSettingsViewModel,
@@ -982,6 +935,13 @@ struct MainTabSheetsModifier: ViewModifier {
                 )
                 .interactiveDismissDisabled(conversationsViewModel.appSettingsViewModel.isDeleting)
             }
+            .selfSizingSheet(
+                item: incomingPairingBinding,
+                content: { pairingVM in
+                    PairingSheetView(viewModel: pairingVM)
+                        .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
             .sheet(item: $conversationsViewModel.newConversationViewModel) { newConvoViewModel in
                 NewConversationView(
                     viewModel: newConvoViewModel,
@@ -993,23 +953,18 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow, onDismiss: {
-                conversationsViewModel.endComposeFlow()
-            }, content: {
-                if let composeViewModel = conversationsViewModel.composeConversationViewModel {
-                    ComposeFlowView(
-                        conversationsViewModel: conversationsViewModel,
-                        composeConversationViewModel: composeViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
-                    )
-                    .background(.colorBackgroundSurfaceless)
-                    .presentationSizing(.page)
-                    .navigationTransition(
-                        .zoom(sourceID: "composer-transition-source", in: namespace)
-                    )
-                }
-            })
+            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow) {
+                ComposeFlowView(
+                    conversationsViewModel: conversationsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "composer-transition-source", in: namespace)
+                )
+            }
             .sheet(item: $thingsAgentContactMember) { member in
                 thingsAgentContactSheet(for: member)
             }
@@ -1085,15 +1040,9 @@ extension MainTabView {
             profileSettingsViewModel: profileSettingsViewModel,
             coreActions: coreActions,
             presentingAppSettings: $presentingAppSettings,
-            isPhotoPickerPresented: $isPhotoPickerPresented,
-            isCameraPresented: $isCameraPresented,
-            selectedPhotos: $selectedPhotos,
             thingsAgentContactMember: $thingsAgentContactMember,
             thingsPushedConvoVM: thingsPushedConvoVM,
-            namespace: namespace,
-            onPhotosChanged: handleSelectedPhotosChanged(to:),
-            onCameraImageCaptured: handleCameraImageCaptured,
-            onCameraVideoCaptured: handleCameraVideoCaptured
+            namespace: namespace
         )
     }
 }
