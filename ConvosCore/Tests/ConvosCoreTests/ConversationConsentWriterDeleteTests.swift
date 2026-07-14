@@ -235,6 +235,7 @@ private final class InboxUnavailableSessionStateManager: SessionStateManagerProt
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
     func requestDiscovery() async {}
+    func runHistorySyncBackfill() async {}
     func startAgentJoinRequestPolling() async {}
     func addObserver(_ observer: SessionStateObserver) {}
     func removeObserver(_ observer: SessionStateObserver) {}

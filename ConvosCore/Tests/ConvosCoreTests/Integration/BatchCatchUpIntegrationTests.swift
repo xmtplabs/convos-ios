@@ -127,6 +127,89 @@ struct BatchCatchUpIntegrationTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("History backfill re-ingests messages behind the catch-up cursor")
+    func historyBackfillIgnoresCursors() async throws {
+        let fixtures = TestFixtures()
+        try await fixtures.createTestClients()
+
+        guard let clientA = fixtures.clientA as? Client,
+              let clientB = fixtures.clientB as? Client,
+              let clientIdB = fixtures.clientIdB else {
+            throw TestError.missingClients
+        }
+        let inboxIdB = clientB.inboxID
+
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdB, clientId: clientIdB, createdAt: Date()).insert(db)
+        }
+
+        let group = try await clientA.conversations.newGroup(
+            with: [clientB.inboxID],
+            name: "Backfill Test Group"
+        )
+        try await clientB.conversations.sync()
+
+        let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
+        let conversationWriter = ConversationWriter(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            messageWriter: messageWriter
+        )
+        let batch = BatchCatchUp(
+            conversationWriter: conversationWriter,
+            messageWriter: messageWriter,
+            databaseWriter: fixtures.databaseManager.dbWriter
+        )
+
+        // First batch persists the conversation row - the state a freshly
+        // paired installation is in right after welcomes are ingested.
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+
+        // Now messages land in libxmtp's local database while the app-side
+        // cursor sits ahead of their sentNs - the exact state a history-
+        // archive import produces (imported messages keep their original,
+        // older timestamps and emit no stream events).
+        let messageCount = 3
+        for i in 1...messageCount {
+            _ = try await group.send(content: "Backfill msg \(i)")
+        }
+        let cursorNs = Int64(Date().nanosecondsSince1970)
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBConversationCatchUpCursor.advance(to: cursorNs, for: group.id, in: db)
+        }
+
+        let storedBefore = try await fixtures.databaseManager.dbReader.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM message WHERE conversationId = ?
+            """, arguments: [group.id])
+        } ?? 0
+
+        // A forward-only batch fetches afterNs: cursor and must miss the
+        // older messages entirely - this is the bug shape the backfill
+        // exists for.
+        let forwardOnly = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        #expect(forwardOnly.messagesProcessed == 0, "Forward-only batch should see nothing behind the cursor, got \(forwardOnly.messagesProcessed)")
+
+        // The backfill ignores the cursor and re-ingests everything.
+        let backfill = try await batch.run(
+            client: clientB,
+            inboxId: inboxIdB,
+            since: nil,
+            activeConversationId: nil,
+            fetchFromBeginning: true
+        )
+        #expect(backfill.messagesProcessed >= messageCount, "Backfill should ingest the \(messageCount) pre-cursor messages, got \(backfill.messagesProcessed)")
+
+        let storedAfter = try await fixtures.databaseManager.dbReader.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM message WHERE conversationId = ?
+            """, arguments: [group.id])
+        } ?? 0
+        #expect(storedAfter - storedBefore >= messageCount, "Expected the \(messageCount) pre-cursor messages to be new rows, got \(storedAfter - storedBefore) (before=\(storedBefore), after=\(storedAfter))")
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("Batch does not mark the conversation the user is viewing as unread")
     func batchSkipsUnreadForActiveConversation() async throws {
         let fixtures = TestFixtures()

@@ -344,14 +344,20 @@ steps:
       (SessionManager.requestHistorySyncAfterPairing): it asks Device A -
       guaranteed online, it just confirmed the pair - to upload a history
       archive through the device-sync group, and libxmtp imports it in the
-      background. Poll the chats list for the probe conversation; open it
-      and confirm the message body once the row appears. Both sync workers
-      run on their own cadence, so allow the full timeout; if nothing has
-      arrived by ~90s, background and re-foreground the app on BOTH
-      devices once (foregrounding nudges a device-sync pass) and keep
-      polling. Device A must stay unlocked and foregrounded - it is the
-      only peer that can answer the request. The label match drops the
-      leading letter to sidestep keyboard auto-capitalization.
+      background (observed ~3s end to end on simulators). The import writes
+      straight into libxmtp's database with no stream events, so the app
+      runs cursor-ignoring backfill passes at t+5/20/60/150s after the
+      request - each emits pairing.history_backfill_ran with
+      conversations/messages counts; the probe should surface on Device B
+      at the first pass after the import lands (typically t+5s). Poll the
+      chats list for the probe conversation; open it and confirm the
+      message body once the row appears. If nothing has arrived by ~90s,
+      check the backfill events: passes firing with messages=0 mean the
+      archive hasn't landed (Device A side); no events at all means the
+      backfill scheduling regressed. Device A must stay unlocked and
+      foregrounded - it is the only peer that can answer the request. The
+      label match drops the leading letter to sidestep keyboard
+      auto-capitalization.
 
   - id: background_notification_optional
     name: "Backgrounded Device A gets a local pairing notification"

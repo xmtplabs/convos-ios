@@ -383,6 +383,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager.startAgentJoinRequestPolling()
     }
 
+    /// `nonisolated` so the non-Sendable client obtained from
+    /// `waitForInboxReadyResult` never crosses the actor's isolation
+    /// boundary on its way into the (also nonisolated) backfill.
+    public nonisolated func runHistorySyncBackfill() async {
+        guard let syncingManager else { return }
+        guard let result = try? await waitForInboxReadyResult() else { return }
+        await syncingManager.runHistoryBackfill(client: result.client)
+    }
+
     // MARK: - SessionStateManagerProtocol
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {

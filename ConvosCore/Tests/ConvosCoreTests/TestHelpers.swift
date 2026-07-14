@@ -309,6 +309,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
         await incrementBatchCatchUpCount()
     }
 
+    nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
+    }
+
     private func incrementBatchCatchUpCount() {
         runBatchCatchUpCallCount += 1
     }
