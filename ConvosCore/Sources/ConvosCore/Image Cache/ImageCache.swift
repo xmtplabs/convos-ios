@@ -141,6 +141,11 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     // the lock and the surrounding @unchecked Sendable contract.
     private let lastShownLock: OSAllocatedUnfairLock<[String: UIImage]> = OSAllocatedUnfairLock(uncheckedState: [:])
 
+    // Identities whose continuity hint is known to be absent on disk, so the
+    // synchronous cold-start read probes the filesystem at most once per
+    // identity per process.
+    private let lastShownMissesLock: OSAllocatedUnfairLock<Set<String>> = OSAllocatedUnfairLock(initialState: [])
+
     // Pending pre-upload images: identity -> staged image, for objects whose
     // imageCacheURL is still nil (e.g. an invite or avatar mid-upload). Kept
     // separate from the continuity hint so a nil URL only ever shows an
@@ -216,8 +221,14 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             rememberLastShown(memoryImage, for: object.imageCacheIdentifier, persist: false)
             return memoryImage
         }
-        // Non-nil URL not cached yet: bridge with the continuity hint.
-        return lastShownInMemory(for: object.imageCacheIdentifier)
+        // Non-nil URL not cached yet: bridge with the continuity hint. On a cold
+        // launch the in-memory hint is empty, so fall through to a synchronous
+        // read of the small disk hint - this is what lets the first render after
+        // a fresh process start show the photo instead of a placeholder.
+        if let memoryHint = lastShownInMemory(for: object.imageCacheIdentifier) {
+            return memoryHint
+        }
+        return lastShownFromDiskSync(for: object.imageCacheIdentifier)
     }
 
     /// Continuity placeholder for an identity (memory hint, then disk hint).
@@ -483,74 +494,6 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             Log.error("Failed to inline decrypt image for \(urlKey): \(error)")
             return nil
         }
-    }
-
-    // MARK: - Continuity hint (identity-keyed, read-only display fallback)
-
-    private func lastShownInMemory(for identifier: String) -> UIImage? {
-        lastShownLock.withLock { $0[identifier] }
-    }
-
-    private func stagedInMemory(for identifier: String) -> UIImage? {
-        stagedLock.withLock { $0[identifier] }
-    }
-
-    private func rememberStaged(_ image: UIImage, for identifier: String) {
-        stagedLock.withLock { $0[identifier] = image }
-    }
-
-    private func clearStaged(for identifier: String) {
-        stagedLock.withLock { $0.removeValue(forKey: identifier) }
-    }
-
-    /// Records the last-shown image for an identity. Memory always; disk only on
-    /// `persist` (a genuinely new image arriving), to avoid disk churn on every
-    /// render. Never fetches and never affects byte-cache truth.
-    private func rememberLastShown(_ image: UIImage, for identifier: String, persist: Bool) {
-        lastShownLock.withLock { $0[identifier] = image }
-        guard persist else { return }
-        Task { await saveLastShownToDisk(image, for: identifier) }
-    }
-
-    private func clearLastShown(for identifier: String) {
-        lastShownLock.withLock { $0.removeValue(forKey: identifier) }
-        Task {
-            await performDiskOperation { cache in
-                let fileURL = cache.lastShownCacheURL.appendingPathComponent(
-                    cache.sanitizedFilename(for: identifier, fileExtension: ".jpg")
-                )
-                guard cache.fileManager.fileExists(atPath: fileURL.path) else { return }
-                try? cache.fileManager.removeItem(at: fileURL)
-            }
-        }
-    }
-
-    private func saveLastShownToDisk(_ image: UIImage, for identifier: String) async {
-        guard let data = ImageCompression.resizeAndCompressToJPEG(image, compressionQuality: 0.7) else { return }
-        await performDiskOperation { cache in
-            let fileURL = cache.lastShownCacheURL.appendingPathComponent(
-                cache.sanitizedFilename(for: identifier, fileExtension: ".jpg")
-            )
-            do {
-                try data.write(to: fileURL, options: .atomic)
-            } catch {
-                Log.error("Failed to save continuity hint: \(identifier) - \(error)")
-            }
-        }
-    }
-
-    private func loadLastShownFromDisk(for identifier: String) async -> UIImage? {
-        let fileURL = lastShownCacheURL.appendingPathComponent(
-            sanitizedFilename(for: identifier, fileExtension: ".jpg")
-        )
-        let exists: Bool = await performDiskOperation(default: false) { cache in
-            cache.fileManager.fileExists(atPath: fileURL.path)
-        }
-        guard exists, let image = BoundedImageDecode.image(contentsOf: fileURL) else { return nil }
-        lastShownLock.withLock { storage in
-            if storage[identifier] == nil { storage[identifier] = image }
-        }
-        return image
     }
 
     // MARK: - Identifier-based Methods (QR codes, generated images)
@@ -922,6 +865,100 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             return
         }
         cache.setObject(resizedImage, forKey: key as NSString, cost: memoryCost(for: resizedImage))
+    }
+}
+
+// MARK: - Continuity hint (identity-keyed, read-only display fallback)
+
+extension ImageCache {
+    private func lastShownInMemory(for identifier: String) -> UIImage? {
+        lastShownLock.withLock { $0[identifier] }
+    }
+
+    /// Synchronous continuity-hint read used to seed the first render after a
+    /// cold launch, when the in-memory hint is empty but the thumbnail is on
+    /// disk. Reads the file directly instead of hopping to `diskCacheQueue`
+    /// (which is busy with cleanup and prefetch writes at launch); the hint is
+    /// a small bounded-decode JPEG, so the read costs a few milliseconds once
+    /// per identity. Identities with no hint file are remembered so repeated
+    /// renders don't re-probe the filesystem.
+    private func lastShownFromDiskSync(for identifier: String) -> UIImage? {
+        let alreadyMissed = lastShownMissesLock.withLock { $0.contains(identifier) }
+        guard !alreadyMissed else { return nil }
+        let fileURL = lastShownCacheURL.appendingPathComponent(
+            sanitizedFilename(for: identifier, fileExtension: ".jpg")
+        )
+        guard let image = BoundedImageDecode.image(contentsOf: fileURL) else {
+            lastShownMissesLock.withLock { _ = $0.insert(identifier) }
+            return nil
+        }
+        lastShownLock.withLock { storage in
+            if storage[identifier] == nil { storage[identifier] = image }
+        }
+        return image
+    }
+
+    private func stagedInMemory(for identifier: String) -> UIImage? {
+        stagedLock.withLock { $0[identifier] }
+    }
+
+    private func rememberStaged(_ image: UIImage, for identifier: String) {
+        stagedLock.withLock { $0[identifier] = image }
+    }
+
+    private func clearStaged(for identifier: String) {
+        stagedLock.withLock { $0.removeValue(forKey: identifier) }
+    }
+
+    /// Records the last-shown image for an identity. Memory always; disk only on
+    /// `persist` (a genuinely new image arriving), to avoid disk churn on every
+    /// render. Never fetches and never affects byte-cache truth.
+    private func rememberLastShown(_ image: UIImage, for identifier: String, persist: Bool) {
+        lastShownLock.withLock { $0[identifier] = image }
+        lastShownMissesLock.withLock { _ = $0.remove(identifier) }
+        guard persist else { return }
+        Task { await saveLastShownToDisk(image, for: identifier) }
+    }
+
+    private func clearLastShown(for identifier: String) {
+        lastShownLock.withLock { $0.removeValue(forKey: identifier) }
+        Task {
+            await performDiskOperation { cache in
+                let fileURL = cache.lastShownCacheURL.appendingPathComponent(
+                    cache.sanitizedFilename(for: identifier, fileExtension: ".jpg")
+                )
+                guard cache.fileManager.fileExists(atPath: fileURL.path) else { return }
+                try? cache.fileManager.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    private func saveLastShownToDisk(_ image: UIImage, for identifier: String) async {
+        guard let data = ImageCompression.resizeAndCompressToJPEG(image, compressionQuality: 0.7) else { return }
+        await performDiskOperation { cache in
+            let fileURL = cache.lastShownCacheURL.appendingPathComponent(
+                cache.sanitizedFilename(for: identifier, fileExtension: ".jpg")
+            )
+            do {
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                Log.error("Failed to save continuity hint: \(identifier) - \(error)")
+            }
+        }
+    }
+
+    private func loadLastShownFromDisk(for identifier: String) async -> UIImage? {
+        let fileURL = lastShownCacheURL.appendingPathComponent(
+            sanitizedFilename(for: identifier, fileExtension: ".jpg")
+        )
+        let exists: Bool = await performDiskOperation(default: false) { cache in
+            cache.fileManager.fileExists(atPath: fileURL.path)
+        }
+        guard exists, let image = BoundedImageDecode.image(contentsOf: fileURL) else { return nil }
+        lastShownLock.withLock { storage in
+            if storage[identifier] == nil { storage[identifier] = image }
+        }
+        return image
     }
 }
 
