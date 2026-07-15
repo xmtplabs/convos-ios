@@ -168,16 +168,19 @@ enum LegacyDataWipe {
     /// iCloud-synced copies. Unlike the one-shot generation-bump sweep this
     /// throws when a delete fails, so the deletion manifest keeps its
     /// durable record and retries on the next launch instead of assuming.
-    static func wipeLegacyIdentityKeychainServices(accessGroup: String) throws {
+    ///
+    /// - Parameters:
+    ///   - accessGroup: the team-prefixed keychain access group the
+    ///     identity stores write under (`AppEnvironment.keychainAccessGroup`).
+    ///   - deleteService: seam over `SecItemDelete` so tests can verify the
+    ///     queries carry the given access group and every legacy service.
+    static func wipeLegacyIdentityKeychainServices(
+        accessGroup: String,
+        deleteService: (_ service: String, _ accessGroup: String) -> OSStatus = deleteLegacyKeychainService
+    ) throws {
         var failedServices: [String] = []
         for service in legacyIdentityKeychainServices {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
-            ]
-            let status = SecItemDelete(query as CFDictionary)
+            let status = deleteService(service, accessGroup)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 Log.error("Account-deletion wipe: failed to remove legacy keychain service \(service), status=\(status)")
                 failedServices.append(service)
@@ -187,6 +190,16 @@ enum LegacyDataWipe {
         if !failedServices.isEmpty {
             throw LegacyKeychainSweepIncompleteError(services: failedServices)
         }
+    }
+
+    private static func deleteLegacyKeychainService(_ service: String, accessGroup: String) -> OSStatus {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+        ]
+        return SecItemDelete(query as CFDictionary)
     }
 
     private static func deleteKeychainItems(service: String, accessGroup: String) {

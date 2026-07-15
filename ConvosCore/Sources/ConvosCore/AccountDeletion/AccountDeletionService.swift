@@ -20,6 +20,16 @@ public enum AccountDeletionError: Error {
     /// request was provably never sent. The record was cleared and keys
     /// are intact; the user can simply retry.
     case preflightFailed(underlying: any Error)
+    /// A pre-send step failed (nothing was sent) and the record could not
+    /// be cleared afterwards. The record is held marked as aborted: launch
+    /// recovery retries only the cleanup and never re-sends the deletion,
+    /// so nothing gets deleted unless the user explicitly retries.
+    case preflightFailedRecordHeld(underlying: any Error)
+    /// A pending record belongs to an identity this device no longer holds
+    /// (pairing displaced it) and its backend deletion could not be
+    /// confirmed. The record is held for a later retry; the requested
+    /// operation did not run.
+    case displacedRecordUnresolved
     /// The deletion request failed or its outcome is ambiguous. The record
     /// stays in `requested` with keys intact; launch recovery (or an
     /// explicit retry) resolves it.
@@ -108,16 +118,40 @@ public struct AccountDeletionDependencies: Sendable {
 ///   the deletion endpoint's 200 or the barrier's terminal mint response
 ///   confirms. A surviving cached token is retried as a last resort when
 ///   the keys are gone; otherwise the record holds.
-/// - All entry points (user flow, launch recovery, remote-deletion wipe)
-///   are single-flighted: a second caller joins the in-flight run instead
-///   of interleaving with it across actor suspension points.
+/// - All entry points (user flow, launch recovery, remote-deletion wipe,
+///   local reset) are single-flighted: a caller repeating the in-flight
+///   operation joins it, and a caller with a different operation is
+///   serialized behind it and then runs its own — never adopting an
+///   outcome that does not answer its request (a delete joining a
+///   hold-only recovery run must not report success).
 public actor AccountDeletionService {
+    /// Which operation a run performs. Only same-kind callers may share an
+    /// outcome; different kinds serialize.
+    private enum RunKind {
+        case userDeletion
+        case launchRecovery
+        case remoteWipe
+        case localReset
+    }
+
+    private struct ActiveRun {
+        let kind: RunKind
+        let id: UInt64
+        let task: Task<Void, any Error>
+    }
+
     private let store: AccountDeletionStateStore
     private let dependencies: AccountDeletionDependencies
     /// In-flight run, if any. Actor isolation alone does not serialize
     /// whole flows (reentrancy interleaves at suspension points), so every
     /// public entry point funnels through `singleFlight`.
-    private var activeRun: Task<Void, any Error>?
+    private var activeRun: ActiveRun?
+    private var runCounter: UInt64 = 0
+    /// True once a run in this process completed the full teardown (record
+    /// cleared after a finished wipe). Lets a delete or remote-wipe caller
+    /// serialized behind the completing run report completion truthfully
+    /// instead of failing on the now-empty keychain.
+    private var didCompleteTeardown: Bool = false
 
     public init(store: AccountDeletionStateStore, dependencies: AccountDeletionDependencies) {
         self.store = store
@@ -139,7 +173,7 @@ public actor AccountDeletionService {
     public func deleteAccount(
         onProgress: @escaping @Sendable (AccountDeletionProgress) -> Void
     ) async throws {
-        try await singleFlight {
+        try await singleFlight(kind: .userDeletion) {
             try await self.performDeleteAccount(onProgress: onProgress)
         }
     }
@@ -149,7 +183,7 @@ public actor AccountDeletionService {
     /// place for the next attempt.
     public func recoverAtLaunch() async {
         do {
-            try await singleFlight {
+            try await singleFlight(kind: .launchRecovery) {
                 await self.performRecoverAtLaunch()
             }
         } catch {
@@ -165,22 +199,55 @@ public actor AccountDeletionService {
     public func wipeAfterRemoteDeletion(
         onProgress: @escaping @Sendable (AccountDeletionProgress) -> Void = { _ in }
     ) async throws {
-        try await singleFlight {
+        try await singleFlight(kind: .remoteWipe) {
             try await self.performWipeAfterRemoteDeletion(onProgress: onProgress)
         }
     }
 
-    private func singleFlight(_ operation: @escaping @Sendable () async throws -> Void) async throws {
-        if let running = activeRun {
-            // Join the in-flight run: every entry point operates on the
-            // same durable record, so the first run's outcome is the
-            // outcome.
-            try await running.value
+    /// Runs a caller-supplied local reset (key destruction included) under
+    /// the same gate as the deletion runs, so "no deletion record exists"
+    /// and "the reset runs" are one atomic step: a deletion cannot persist
+    /// a `requested` record between the check and the reset destroying the
+    /// keys, and a reset cannot start while a deletion run is in flight.
+    /// Throws `AccountDeletionInProgressError` while any record is active
+    /// (or a corrupt record's phase is unknowable).
+    public func performLocalResetIfIdle(_ reset: @escaping @Sendable () async throws -> Void) async throws {
+        try await singleFlight(kind: .localReset) {
+            guard case .none = self.store.load() else {
+                throw AccountDeletionInProgressError()
+            }
+            try await reset()
+        }
+    }
+
+    private func singleFlight(kind: RunKind, _ operation: @escaping @Sendable () async throws -> Void) async throws {
+        if let active = activeRun, active.kind == kind {
+            // Same operation already in flight: its outcome answers this
+            // caller too.
+            try await active.task.value
             return
         }
-        let task = Task { try await operation() }
-        activeRun = task
-        defer { activeRun = nil }
+        // Either no run is active, or a different operation is in flight.
+        // A different operation's outcome must never be adopted (a delete
+        // joining a hold-only recovery run would report success without
+        // deleting anything), so serialize behind it and then run this
+        // caller's own operation against the durable state it left.
+        let predecessor = activeRun?.task
+        runCounter += 1
+        let id = runCounter
+        let task = Task {
+            if let predecessor {
+                // The predecessor's failure is not this run's failure.
+                _ = try? await predecessor.value
+            }
+            try await operation()
+        }
+        activeRun = ActiveRun(kind: kind, id: id, task: task)
+        defer {
+            if activeRun?.id == id {
+                activeRun = nil
+            }
+        }
         try await task.value
     }
 
@@ -198,11 +265,15 @@ public actor AccountDeletionService {
             if let identity, !matches(existing, identity) {
                 // The pending record belongs to keys this device no longer
                 // holds (pairing displaced them). Never mint or wipe with
-                // the new identity under the old record; resolve the old
-                // record as far as a surviving cached token allows, sweep
-                // only its record-scoped slots, then honor the user's
-                // explicit intent to delete the current account.
-                await resolveDisplacedRecord(existing)
+                // the new identity under the old record; only a confirmed
+                // backend deletion may resolve the old record. Unconfirmed,
+                // it is held and this delete cannot start (one durable
+                // record at a time). The live identity keeps working, so
+                // its re-auth resumes.
+                guard await resolveDisplacedRecord(existing) else {
+                    dependencies.setReauthSuspended(false)
+                    throw AccountDeletionError.displacedRecordUnresolved
+                }
                 existingRecord = nil
             } else {
                 existingRecord = existing
@@ -211,6 +282,16 @@ public actor AccountDeletionService {
             // A corrupt record file is replaced by this explicit,
             // re-confirmed deletion; `begin` documents that trade.
             existingRecord = nil
+        }
+
+        if existingRecord == nil, didCompleteTeardown, (try? dependencies.loadIdentity()) == nil {
+            // A teardown already completed in this process and no new
+            // identity exists: the account is gone. A caller serialized
+            // behind the completing run lands here; report completion
+            // rather than a false "identity unavailable" failure.
+            dependencies.setReauthSuspended(false)
+            onProgress(.completed)
+            return
         }
 
         let active: AccountDeletionRecord
@@ -281,6 +362,19 @@ public actor AccountDeletionService {
             dependencies.setReauthSuspended(true)
             Log.error("AccountDeletion: corrupt deletion record at launch; holding provisioning until explicit retry")
         case .record(let record):
+            if record.phase == .requested, record.preflightAborted == true {
+                // The deletion request was provably never sent and the UI
+                // reported a clean failure; the account is alive. Retry
+                // only the cleanup — never re-send the deletion without
+                // explicit user intent — and leave re-auth alone.
+                do {
+                    try await store.clear()
+                    Log.info("AccountDeletion: cleared aborted pre-send record at launch")
+                } catch {
+                    Log.error("AccountDeletion: aborted pre-send record still cannot be cleared; will retry next launch: \(error)")
+                }
+                return
+            }
             dependencies.setReauthSuspended(true)
             switch record.phase {
             case .requested:
@@ -321,10 +415,13 @@ public actor AccountDeletionService {
             return
         }
         guard matches(record, identity) else {
-            // Pairing displaced the record's identity. Resolve the old
-            // record as far as possible without touching the new identity,
-            // then lift the suspension so the live identity keeps working.
-            await resolveDisplacedRecord(record)
+            // Pairing displaced the record's identity. Only a confirmed
+            // backend deletion resolves the old record; unconfirmed, it is
+            // held for a later retry. Either way the suspension lifts so
+            // the live identity keeps working.
+            if await resolveDisplacedRecord(record) == false {
+                Log.error("AccountDeletion: displaced record held unresolved at launch; will retry")
+            }
             dependencies.setReauthSuspended(false)
             return
         }
@@ -349,12 +446,24 @@ public actor AccountDeletionService {
         switch store.load() {
         case .record(let existing):
             if let identity, !matches(existing, identity) {
-                await resolveDisplacedRecord(existing)
+                guard await resolveDisplacedRecord(existing) else {
+                    throw AccountDeletionError.displacedRecordUnresolved
+                }
                 record = try await beginRemoteWipeRecord(identity: identity)
             } else {
                 record = existing
             }
-        case .none, .corrupted:
+        case .none:
+            if didCompleteTeardown, identity == nil {
+                // The wipe already ran in this process (this caller was
+                // serialized behind the completing run); nothing is left
+                // to tear down.
+                dependencies.setReauthSuspended(false)
+                onProgress(.completed)
+                return
+            }
+            record = try await beginRemoteWipeRecord(identity: identity)
+        case .corrupted:
             record = try await beginRemoteWipeRecord(identity: identity)
         }
         try await runTeardown(from: record, onProgress: onProgress)
@@ -416,15 +525,8 @@ public actor AccountDeletionService {
                 // The deletion request was provably never sent, so this
                 // maps to the "no record, local intact" failure row:
                 // clean failure, keys intact, plain retry from settings.
-                // Reauth resumes only when the record is actually gone; a
-                // surviving record keeps the suspension so launch recovery
-                // retries it instead of silently diverging from the UI.
-                do {
-                    try await store.clear()
-                    dependencies.setReauthSuspended(false)
-                } catch {
-                    Log.error("AccountDeletion: failed to clear record after pre-send failure; launch recovery will retry: \(error)")
-                }
+                // Reauth resumes only when the record is actually gone.
+                try await clearRecordAfterPreflightFailure(preflightError: error)
             }
             throw AccountDeletionError.preflightFailed(underlying: error)
         }
@@ -444,6 +546,28 @@ public actor AccountDeletionService {
         }
     }
 
+    /// Clears the record after a provably-unsent request. When the clear
+    /// fails, the surviving record must not silently re-send the deletion
+    /// at the next launch after the UI reported a clean failure: it is
+    /// marked aborted so launch recovery retries only the cleanup, and the
+    /// caller is told the pending state is stuck rather than reset.
+    private func clearRecordAfterPreflightFailure(preflightError: any Error) async throws {
+        do {
+            try await store.clear()
+            dependencies.setReauthSuspended(false)
+        } catch {
+            Log.error("AccountDeletion: failed to clear record after pre-send failure; holding it as aborted: \(error)")
+            do {
+                try await store.markPreflightAborted()
+            } catch {
+                Log.error("AccountDeletion: could not mark the stuck record as aborted: \(error)")
+            }
+            // The account is alive and nothing was sent; re-auth resumes.
+            dependencies.setReauthSuspended(false)
+            throw AccountDeletionError.preflightFailedRecordHeld(underlying: preflightError)
+        }
+    }
+
     /// Last-resort confirmation with a surviving pre-deletion JWT (15-min
     /// TTL) read from the record's own slot names. Returns the promoted
     /// record on a 200; nil for every failure (never a confirmation).
@@ -459,30 +583,47 @@ public actor AccountDeletionService {
         }
     }
 
-    /// Resolves a record whose identity was displaced by pairing: attempts
-    /// a cached-token backend confirmation for the old account, sweeps only
-    /// the record-scoped slots (the old address-scoped keychain entries and
-    /// synced backup — never the live identity, database, or caches, which
-    /// belong to the new identity), and clears the record. When no token
-    /// survives, the old backend account cannot be reached from this device
-    /// again; that is logged loudly rather than hidden behind a wipe.
-    private func resolveDisplacedRecord(_ record: AccountDeletionRecord) async {
-        if let token = dependencies.cachedToken(record) {
+    /// Resolves a record whose identity was displaced by pairing. Only a
+    /// confirmed backend deletion may resolve it: for a `requested` record
+    /// a surviving cached token is tried against the deletion endpoint, and
+    /// on that 200 (or when the record was already past `requested`) the
+    /// record-scoped slots are swept (the old address-scoped keychain
+    /// entries and synced backup — never the live identity, database, or
+    /// caches, which belong to the new identity) and the record cleared.
+    /// Returns false without touching the slots or the record when
+    /// confirmation fails or no token survives: the record is held so a
+    /// later retry can still confirm, instead of permanently abandoning a
+    /// potentially live backend account.
+    private func resolveDisplacedRecord(_ record: AccountDeletionRecord) async -> Bool {
+        if record.phase == .requested {
+            guard let token = dependencies.cachedToken(record) else {
+                Log.error("AccountDeletion: displaced record has no surviving token; holding it (no resolution without backend confirmation)")
+                return false
+            }
             do {
                 _ = try await dependencies.requestDeletion(record.operationId, token)
                 Log.info("AccountDeletion: displaced record's backend deletion confirmed via surviving cached token")
             } catch {
-                Log.error("AccountDeletion: displaced record could not be confirmed (\(error)); its backend account is unreachable from this device")
+                Log.error("AccountDeletion: displaced record could not be confirmed (\(error)); holding it for a later retry")
+                return false
             }
-        } else {
-            Log.error("AccountDeletion: displaced record has no surviving token; its backend account is unreachable from this device")
+            do {
+                // Durably mark the confirmation before the slots go: a
+                // crash below resumes through the confirmed-displaced path
+                // without needing the (about to be swept) cached token.
+                try await store.advance(to: .backendConfirmed)
+            } catch {
+                Log.warning("AccountDeletion: could not persist displaced record confirmation: \(error)")
+            }
         }
         await dependencies.sweepRecordScopedSlots(record)
         do {
             try await store.clear()
         } catch {
             Log.error("AccountDeletion: failed to clear displaced record: \(error)")
+            return false
         }
+        return true
     }
 
     // MARK: - Teardown
@@ -501,8 +642,11 @@ public actor AccountDeletionService {
            !record.inboxId.isEmpty,
            !matches(record, identity) {
             Log.error("AccountDeletion: confirmed record's identity was displaced; sweeping record-scoped slots only")
-            await dependencies.sweepRecordScopedSlots(record)
-            try await store.clear()
+            guard await resolveDisplacedRecord(record) else {
+                // Already confirmed, so only a failed record clear lands
+                // here; the record survives and the next launch retries.
+                throw AccountDeletionError.displacedRecordUnresolved
+            }
             dependencies.setReauthSuspended(false)
             return
         }
@@ -531,6 +675,7 @@ public actor AccountDeletionService {
             throw AccountDeletionError.wipeIncomplete(failures: result.failures)
         }
         try await store.clear()
+        didCompleteTeardown = true
         dependencies.setReauthSuspended(false)
         onProgress(.completed)
     }

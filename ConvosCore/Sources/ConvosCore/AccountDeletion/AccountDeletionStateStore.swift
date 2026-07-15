@@ -128,6 +128,15 @@ public actor AccountDeletionStateStore {
         return advanced
     }
 
+    /// Marks the current record preflight-aborted: the deletion request
+    /// was provably never sent and the record could not be cleared. Launch
+    /// recovery retries only the cleanup for such a record and never
+    /// re-sends the deletion. A no-op when no record is loadable.
+    public func markPreflightAborted() throws {
+        guard let current = load().activeRecord else { return }
+        try write(current.markedPreflightAborted())
+    }
+
     /// Clears the record; the `completed` transition and the final act of
     /// the wipe. Idempotent.
     public func clear() throws {

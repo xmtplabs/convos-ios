@@ -38,4 +38,32 @@ enum AccountDeletionWipeSteps {
             try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
         }
     }
+
+    /// Every log directory the wipe must empty: libxmtp's log directory
+    /// and the application logger's directory (both carry inbox and
+    /// account identifiers). Kept as a function so a test can verify the
+    /// manifest sweeps the directory the production logger actually
+    /// writes to, not just the XMTP one.
+    static func logDirectoriesToSweep(environment: AppEnvironment) -> [URL] {
+        [
+            environment.defaultXMTPLogsDirectoryURL,
+            environment.defaultApplicationLogsDirectoryURL,
+        ]
+    }
+
+    /// The keychain access group the legacy-identity sweep queries. Must
+    /// be the team-prefixed group the identity stores actually write under
+    /// (`keychainAccessGroup`), not the bare app-group identifier: a query
+    /// on the wrong group fails the entitlement check or matches nothing,
+    /// silently leaving legacy identity items behind.
+    static func legacyIdentitySweepAccessGroup(environment: AppEnvironment) -> String {
+        environment.keychainAccessGroup
+    }
+
+    /// Persistent image caches, awaited: returns only after the disk sweep
+    /// finished and throws when files (or a directory enumeration) failed,
+    /// so the record is never cleared while cached images may remain.
+    static func wipeImageCaches() async throws {
+        try await ImageCacheContainer.shared.removeAllPersistentImagesAndWait()
+    }
 }

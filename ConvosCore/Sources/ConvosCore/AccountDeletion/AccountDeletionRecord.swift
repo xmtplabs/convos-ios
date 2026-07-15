@@ -74,6 +74,12 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
     /// response is gone. Nil until confirmation (and for pre-existing
     /// records written before this field existed).
     public private(set) var purgeWindowHours: Int?
+    /// True when a pre-send step failed (the deletion request was provably
+    /// never sent) and the record could not be cleared. Launch recovery
+    /// retries only the cleanup for such a record and never re-sends the
+    /// deletion, so the UI's clean-failure report stays truthful. Optional
+    /// so records written before this field existed decode as nil.
+    public private(set) var preflightAborted: Bool?
 
     public init(
         operationId: UUID,
@@ -97,6 +103,14 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
         self.backendConfirmedAt = nil
         self.wipeStartedAt = nil
         self.purgeWindowHours = nil
+        self.preflightAborted = nil
+    }
+
+    /// Returns a copy marked preflight-aborted (see `preflightAborted`).
+    public func markedPreflightAborted() -> AccountDeletionRecord {
+        var copy = self
+        copy.preflightAborted = true
+        return copy
     }
 
     /// Returns a copy advanced to `next`, stamping the phase timestamp.

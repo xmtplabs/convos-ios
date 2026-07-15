@@ -174,4 +174,21 @@ struct AccountDeletionStateStoreTests {
         let reopened = AccountDeletionStateStore(directoryURL: directory)
         #expect(reopened.load().activeRecord == record)
     }
+
+    @Test("Preflight-aborted marker round-trips and preserves the record")
+    func preflightAbortedMarkerRoundTrips() async throws {
+        let directory = try makeTempDirectory()
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        let record = makeRecord()
+        try await store.begin(record)
+        #expect(store.load().activeRecord?.preflightAborted == nil)
+
+        try await store.markPreflightAborted()
+
+        let reopened = AccountDeletionStateStore(directoryURL: directory)
+        let loaded = try #require(reopened.load().activeRecord)
+        #expect(loaded.preflightAborted == true)
+        #expect(loaded.phase == .requested)
+        #expect(loaded.operationId == record.operationId)
+    }
 }

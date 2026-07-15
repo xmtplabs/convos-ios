@@ -218,10 +218,13 @@ extension SessionManager {
         handlers[.xmtpLocalDatabase] = WipeStep { [environment] _ in
             // Throwing: a leftover artifact fails the entry so the record
             // stays and the next launch retries, instead of clearing the
-            // durable record over surviving database files. The XMTP log
-            // directory carries inbox identifiers, so it goes too.
+            // durable record over surviving database files. The XMTP and
+            // application log directories carry inbox identifiers, so
+            // they go too.
             try XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
-            try XMTPDatabaseFileSweeper.sweepContents(of: environment.defaultXMTPLogsDirectoryURL)
+            for directory in AccountDeletionWipeSteps.logDirectoriesToSweep(environment: environment) {
+                try XMTPDatabaseFileSweeper.sweepContents(of: directory)
+            }
         }
 
         handlers[.keychainIdentityFamily] = WipeStep { [identityStore, environment] record in
@@ -235,7 +238,9 @@ extension SessionManager {
             // retry. The current v3 family is deliberately excluded here:
             // its synced-backup service holds other identities' backups,
             // which the scoped deletes above must not touch.
-            try LegacyDataWipe.wipeLegacyIdentityKeychainServices(accessGroup: environment.appGroupIdentifier)
+            try LegacyDataWipe.wipeLegacyIdentityKeychainServices(
+                accessGroup: AccountDeletionWipeSteps.legacyIdentitySweepAccessGroup(environment: environment)
+            )
         }
 
         handlers[.siweJwtSlot] = WipeStep { record in
@@ -266,7 +271,7 @@ extension SessionManager {
             // Awaited and throwing: the fire-and-forget variant would let
             // the record clear before the disk sweep finished, so a crash
             // in that window would leave cached images with no rerun.
-            try await ImageCacheContainer.shared.removeAllPersistentImagesAndWait()
+            try await AccountDeletionWipeSteps.wipeImageCaches()
         }
 
         handlers[.appGroupPairingStores] = WipeStep { [environment] _ in

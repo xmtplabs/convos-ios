@@ -115,6 +115,10 @@ struct DeleteAccountView: View {
             return "Your account was deleted, but some local data couldn't be erased yet. Hold to retry, or it finishes on the next launch."
         case AccountDeletionError.preflightFailed:
             return "Couldn't reach the server, so nothing was deleted. Deleting your account requires a network connection - check it and try again."
+        case AccountDeletionError.preflightFailedRecordHeld:
+            return "Couldn't reach the server, so nothing was deleted. The pending state on this device couldn't be reset yet; it clears on the next launch, and nothing gets deleted unless you retry."
+        case AccountDeletionError.displacedRecordUnresolved:
+            return "A deletion started for a previous account on this device is still unconfirmed. Check your connection and try again."
         case AccountDeletionError.backendRequestFailed:
             return "Couldn't confirm the deletion with the server. Nothing was erased on this device - check your connection and try again."
         default:

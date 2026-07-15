@@ -589,36 +589,38 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     return
                 }
 
-                // A local reset must never destroy the identity keys while
-                // an account deletion is unresolved: a `requested` record
-                // whose keys are gone can no longer be confirmed against
-                // the backend. Resolve or retry the deletion first.
-                if self.accountDeletionStore.load().blocksIdentityProvisioning {
-                    Log.error("Local reset refused: an account deletion is in flight and must resolve first")
-                    continuation.finish(throwing: AccountDeletionInProgressError())
-                    return
-                }
-
                 do {
-                    // Yield progress events in lockstep with the work they
-                    // describe: the UI reads the stream in order and expects
-                    // each event to correspond to the phase that is about to
-                    // run (or has just run).
-                    continuation.yield(.clearingDeviceRegistration)
-                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
+                    // A local reset must never destroy the identity keys
+                    // while an account deletion is unresolved: a `requested`
+                    // record whose keys are gone can no longer be confirmed
+                    // against the backend. The deletion service actor gates
+                    // the record check and the reset as one atomic run, so a
+                    // deletion cannot persist a record between the check and
+                    // the key destruction below.
+                    try await self.accountDeletionService().performLocalResetIfIdle {
+                        // Yield progress events in lockstep with the work they
+                        // describe: the UI reads the stream in order and expects
+                        // each event to correspond to the phase that is about to
+                        // run (or has just run).
+                        continuation.yield(.clearingDeviceRegistration)
+                        DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
 
-                    let hasService = self.cachedMessagingService.withLock { $0 != nil }
-                    continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
+                        let hasService = self.cachedMessagingService.withLock { $0 != nil }
+                        continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
-                    continuation.yield(.deletingFromDatabase)
-                    try await self.tearDownInbox()
+                        continuation.yield(.deletingFromDatabase)
+                        try await self.tearDownInbox()
 
-                    if hasService {
-                        continuation.yield(.stoppingServices(completed: 1, total: 1))
+                        if hasService {
+                            continuation.yield(.stoppingServices(completed: 1, total: 1))
+                        }
+
+                        continuation.yield(.completed)
                     }
-
-                    continuation.yield(.completed)
                     continuation.finish()
+                } catch let error as AccountDeletionInProgressError {
+                    Log.error("Local reset refused: an account deletion is in flight and must resolve first")
+                    continuation.finish(throwing: error)
                 } catch {
                     // Still clear device registration on the failure path so
                     // we don't leave a dangling APNs record pointed at a

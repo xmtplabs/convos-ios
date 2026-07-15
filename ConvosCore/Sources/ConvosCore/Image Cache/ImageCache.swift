@@ -994,13 +994,24 @@ extension ImageCache {
     }
 
     /// Runs on the disk queue (see `performDiskOperation`). Returns the
-    /// number of files that could not be removed.
+    /// number of failures: files that could not be removed, plus any
+    /// directory whose contents could not be enumerated (its images may
+    /// remain, so the awaited wipe must not report success). A missing
+    /// directory is clean — there is nothing in it to remove.
     private func removeAllPersistentImagesFromDisk() -> Int {
         var failureCount = 0
         for dir in [persistentCacheURL, lastShownCacheURL, diskCacheURL] {
-            guard let contents = try? fileManager.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: nil
-            ) else { continue }
+            let contents: [URL]
+            do {
+                contents = try fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            } catch let error as NSError {
+                if error.domain == NSCocoaErrorDomain, error.code == NSFileReadNoSuchFileError {
+                    continue
+                }
+                Log.error("Failed to enumerate image directory \(dir.lastPathComponent) - \(error)")
+                failureCount += 1
+                continue
+            }
             for fileURL in contents {
                 do { try fileManager.removeItem(at: fileURL) } catch {
                     Log.error("Failed to remove image: \(fileURL.lastPathComponent) - \(error)")

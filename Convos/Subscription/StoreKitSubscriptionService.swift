@@ -526,6 +526,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         defaults.removeObject(forKey: Constant.appAccountTokenKey)
         defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
         defaults.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+        // The re-verify timer is bound to the deleted account's contest
+        // window; left alive it would wake under whatever identity is
+        // provisioned next and refresh subscription state in that session.
+        pendingClaimReverifyTask?.cancel()
+        pendingClaimReverifyTask = nil
         claimCandidateJWS.withLock { $0 = nil }
         forwardedTransactionIds.removeAll()
         lastFetchedAt = nil
