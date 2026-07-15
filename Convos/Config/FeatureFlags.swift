@@ -42,15 +42,15 @@ final class FeatureFlags {
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
-    /// flips take effect on the next launch). Hard-locked off in production
-    /// until the production backend serves the bidi surface.
+    /// flips take effect on the next launch). Deliberately not prod-locked
+    /// like the flags above: the production backend serves the bidi surface
+    /// as of 2026-07-15, and this toggle exists to dogfood it there.
+    /// Default-off keeps everyone else on the legacy stream path.
     var isXMTPBidiStreamsEnabled: Bool {
         get {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.xmtpBidiStreamsEnabledKey)
         }
         set {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
         }
     }
