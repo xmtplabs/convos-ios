@@ -82,7 +82,26 @@ extension SessionManager {
         if case .none = accountDeletionStore.load() {
             return
         }
+        // A resumed wipe may drive the app-owned manifest entries (StoreKit,
+        // analytics, UI defaults). The app registers those hooks synchronously
+        // right after the client is constructed, but this recovery runs on a
+        // detached launch Task, so wait briefly for registration rather than
+        // racing ahead and failing the app-owned entries as missing handlers.
+        // Bounded: a full-app context that never registers hooks falls back to
+        // the existing loud-failure-and-retry behavior.
+        await awaitAccountDeletionAppHooks()
         await accountDeletionService().recoverAtLaunch()
+    }
+
+    private func awaitAccountDeletionAppHooks() async {
+        let deadline = Date().addingTimeInterval(Constant.appHooksRegistrationBudget)
+        while accountDeletionAppHooks.withLock({ $0 == nil }) {
+            if Date() >= deadline {
+                Log.warning("AccountDeletion: app wipe hooks not registered within budget; proceeding, unregistered entries will fail and retry")
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     /// Single shared instance: launch recovery, UI retries, and the
@@ -178,8 +197,18 @@ extension SessionManager {
             Log.warning("AccountDeletion: session not ready; skipping best-effort installation revocation")
             return
         }
-        guard let identity = try? identityStore.loadSync(), identity.inboxId == client.inboxId else {
-            Log.warning("AccountDeletion: identity missing or mismatched; skipping installation revocation")
+        guard let identity = try? identityStore.loadSync(),
+              identity.inboxId == client.inboxId,
+              identity.inboxId == record.inboxId,
+              identity.clientId == record.clientId,
+              BackendAuthSigningContext.make(from: identity.keys.privateKey).address.lowercased() == record.ethAddress else {
+            // Bind revocation to the record, not just the live client: a
+            // pairing swap between confirmation and here can replace both the
+            // identity and the cached session, so an inboxId == client.inboxId
+            // check alone would pass vacuously against the new pair and
+            // irreversibly revoke an innocent live inbox. Skipping is always
+            // safe - this step is best-effort.
+            Log.warning("AccountDeletion: identity missing or does not match the record; skipping installation revocation")
             return
         }
         let deadline = Date().addingTimeInterval(Constant.revocationBudget)
@@ -287,5 +316,10 @@ extension SessionManager {
         /// Soft budget for the best-effort revocation step; a call is not
         /// started once the budget is spent.
         static let revocationBudget: TimeInterval = 15
+        /// Bounded wait for the app to register the account-deletion wipe
+        /// hooks before launch recovery may drive the manifest; hooks land
+        /// microseconds after client construction, so this is near-instant in
+        /// practice and only bounds a full-app context that never registers.
+        static let appHooksRegistrationBudget: TimeInterval = 5
     }
 }

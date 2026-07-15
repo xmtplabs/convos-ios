@@ -51,6 +51,15 @@ final class AccountDeletedObserver {
         isAccountDeleted = false
     }
 
+    /// Re-presents the sheet after a local wipe failed: the backend account
+    /// is still deleted, so the terminal state and its retry affordance must
+    /// survive the session rather than being hidden behind a gated
+    /// (non-`AccountDeletedError`) service. The host view's `onChange` on
+    /// this flag re-arms its local dismissal state.
+    func present() {
+        isAccountDeleted = true
+    }
+
     private func apply(state: SessionStateMachine.State) {
         if case let .error(error) = state, error is AccountDeletedError {
             isAccountDeleted = true

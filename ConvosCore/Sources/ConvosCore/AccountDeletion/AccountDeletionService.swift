@@ -464,7 +464,18 @@ public actor AccountDeletionService {
         onProgress: @escaping @Sendable (AccountDeletionProgress) -> Void
     ) async throws {
         dependencies.setReauthSuspended(true)
-        let identity = try? dependencies.loadIdentity()
+        let identity: KeychainIdentity?
+        do {
+            identity = try dependencies.loadIdentity()
+        } catch {
+            // An unreadable keychain is not proof the identity is gone: a
+            // present-but-unreadable identity must never be treated as
+            // absent, which would synthesize an empty-scoped record and run
+            // the full manifest unbound (deleting the account's iCloud
+            // key backup by an empty inboxId while the record clears). Fail
+            // retryably; the sheet retry and launch recovery remain exits.
+            throw AccountDeletionError.identityUnavailable
+        }
         let record: AccountDeletionRecord
         switch store.load() {
         case .record(let existing):
@@ -473,6 +484,15 @@ public actor AccountDeletionService {
                     throw AccountDeletionError.displacedRecordUnresolved
                 }
                 record = try await beginRemoteWipeRecord(identity: identity)
+            } else if existing.phase == .requested {
+                // Reaching a remote wipe means the backend deletion is
+                // certain (the terminal identity-deleted barrier is the only
+                // way in), but a reused record can still say `requested`.
+                // Advance it so the durable phase reflects the wipe: a crash
+                // mid-wipe then resumes from `backendConfirmed` instead of
+                // holding forever on a `requested` record whose keys and
+                // token slots the manifest already destroyed.
+                record = try await store.advance(to: .backendConfirmed)
             } else {
                 record = existing
             }
@@ -647,6 +667,18 @@ public actor AccountDeletionService {
     /// potentially live backend account.
     private func resolveDisplacedRecord(_ record: AccountDeletionRecord) async -> Bool {
         if record.phase == .requested {
+            guard record.sendAttempted == true else {
+                // No durable send marker means the deletion request was
+                // provably never sent (sends happen only after the marker
+                // persists), so the old backend account is still alive. Never
+                // auto-send it via the cached token here - that would breach
+                // the "unmarked records are never auto-sent" invariant and
+                // could silently delete a live account after a pairing swap.
+                // Hold instead; its synced backup (the live account's iCloud
+                // recovery channel) is left untouched because no sweep runs.
+                Log.error("AccountDeletion: displaced record has no send marker; holding it (never auto-sending a provably-unsent deletion)")
+                return false
+            }
             guard let token = dependencies.cachedToken(record) else {
                 Log.error("AccountDeletion: displaced record has no surviving token; holding it (no resolution without backend confirmation)")
                 return false
@@ -694,7 +726,17 @@ public actor AccountDeletionService {
         from record: AccountDeletionRecord,
         onProgress: @escaping @Sendable (AccountDeletionProgress) -> Void
     ) async throws {
-        if let identity = try? dependencies.loadIdentity(),
+        let liveIdentity: KeychainIdentity?
+        do {
+            liveIdentity = try dependencies.loadIdentity()
+        } catch {
+            // A read error is not proof the identity is unchanged: a present-
+            // but-unreadable displaced identity must not skip the displacement
+            // guard and let the full manifest destroy the new identity's local
+            // data. Fail retryably; recovery re-runs next launch.
+            throw AccountDeletionError.identityUnavailable
+        }
+        if let identity = liveIdentity,
            !record.inboxId.isEmpty,
            !matches(record, identity) {
             Log.error("AccountDeletion: confirmed record's identity was displaced; sweeping record-scoped slots only")

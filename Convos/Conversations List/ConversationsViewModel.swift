@@ -1392,10 +1392,18 @@ extension ConversationsViewModel {
         Task { @MainActor [weak self] in
             do {
                 try await session.wipeAfterRemoteAccountDeletion()
-                ProfileSettingsViewModel.shared.rebind(session: session)
             } catch {
+                // The backend account is already gone; only the local wipe
+                // failed. Re-present the sheet so its retry affordance
+                // survives the session, instead of binding the observer to a
+                // gated service whose error is not `AccountDeletedError` (which
+                // would leave `isAccountDeleted` false and the sheet gone).
                 Log.error("Local wipe after remote account deletion failed: \(error)")
+                deleted.present()
+                self?.isWipingDeletedAccount = false
+                return
             }
+            ProfileSettingsViewModel.shared.rebind(session: session)
             let stateManager = session.messagingService().sessionStateManager
             deleted.bind(to: stateManager)
             stale.bind(to: stateManager)

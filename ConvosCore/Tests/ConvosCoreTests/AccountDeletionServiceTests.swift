@@ -575,6 +575,85 @@ struct AccountDeletionServiceTests {
         #expect(store.load().activeRecord == nil)
     }
 
+    @Test("Remote wipe advances a reused requested record before teardown so a crash resumes from backendConfirmed")
+    func remoteWipeAdvancesRequestedRecordBeforeTeardown() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
+            ethAddress: "0xabc", deviceId: "device-1"
+        ))
+        try await store.markSendAttempted()
+
+        let events = EventLog()
+        let service = makeService(store: store, events: events, config: Config(identity: try makeIdentity()))
+
+        let progressLog = EventLog()
+        try await service.wipeAfterRemoteDeletion { progressLog.record("\($0)") }
+
+        // The reused requested record was advanced to backendConfirmed, so
+        // revocation runs from that phase and the durable phase reflects the
+        // wipe. Without the advance, teardown would run the wipe while the
+        // record still said requested, and a crash mid-wipe would hold forever.
+        #expect(events.contains("revoke(phase: backend_confirmed)"))
+        #expect(progressLog.contains("revokingDevices"))
+        #expect(events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(store.load().activeRecord == nil)
+    }
+
+    @Test("A displaced requested record with no send marker holds and is never auto-sent, even with a cached token")
+    func displacedUnmarkedRecordHoldsAndNeverSends() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+        // Deliberately not marked send-attempted: the request was provably
+        // never sent, so the old backend account is still alive.
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.cachedToken = { _ in "cached-jwt-A" }
+        let service = makeService(store: store, events: events, config: config)
+
+        do {
+            try await service.deleteAccount { _ in }
+            Issue.record("Expected displacedRecordUnresolved")
+        } catch AccountDeletionError.displacedRecordUnresolved {
+            // Expected: the unmarked displaced record is held, not sent.
+        }
+        // The invariant: an unmarked record is never auto-sent, even when
+        // displaced with a surviving cached token, and its synced backup
+        // (the live account's iCloud recovery channel) is left untouched.
+        #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
+        #expect(!events.events.contains(where: { $0.hasPrefix("sweepRecordScopedSlots(") }))
+        #expect(store.load().activeRecord?.inboxId == "inbox-A")
+    }
+
+    @Test("A confirmed teardown resume with an unreadable keychain fails retryably, never running the full manifest")
+    func confirmedResumeKeychainReadErrorHoldsWithoutWipe() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
+            ethAddress: "0xabc", deviceId: "device-1"
+        ))
+        try await store.advance(to: .backendConfirmed)
+
+        let events = EventLog()
+        var config = Config(identity: nil)
+        config.identityProvider = { throw KeychainReadFailure() }
+        let service = makeService(store: store, events: events, config: config)
+
+        do {
+            try await service.deleteAccount { _ in }
+            Issue.record("Expected identityUnavailable")
+        } catch AccountDeletionError.identityUnavailable {
+            // Expected: an unreadable keychain is not proof the identity is
+            // unchanged, so the full manifest must not run against it.
+        }
+        #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(store.load().activeRecord?.phase == .backendConfirmed)
+    }
+
     // MARK: - Missing identity holds
 
     @Test("Requested record with no identity and no cached token holds: no wipe, no clear")

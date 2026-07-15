@@ -644,14 +644,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         await unusedConversationCache.cancel()
 
-        // Keep the cached service reference live through the entire teardown.
-        // A concurrent `loadOrCreateService()` (push arriving mid-delete,
-        // SwiftUI sync accessor, etc.) will then observe the being-torn-down
-        // service rather than building a second one that would open the same
-        // SQLCipher xmtp-*.db3 files while the first is being deleted. The
-        // cache is cleared only after the XMTP client, keychain, and DBInbox
-        // rows are fully gone — at which point any new caller correctly
-        // builds a fresh registering-state service.
+        // Keep the cached service reference live while the XMTP client is
+        // stopped and its SQLCipher xmtp-*.db3 files are released. A
+        // concurrent `loadOrCreateService()` (push arriving mid-delete,
+        // SwiftUI sync accessor, etc.) then observes the being-torn-down
+        // service rather than building a second one against the same files.
         let existing = cachedMessagingService.withLock { $0 }
 
         if let existing {
@@ -661,11 +658,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await existing.waitForDeletionComplete()
         }
 
+        // The client is stopped and its state machine is `.idle` here, so
+        // evict the cache even if the keychain or row wipe below throws: the
+        // deletion manifest repeats those steps and may clear the record, and
+        // a surviving dead `.idle` service would otherwise be returned by
+        // every `messagingService()` access until relaunch (breaking the
+        // completion promise that the next access registers a fresh identity).
+        defer { cachedMessagingService.withLock { $0 = nil } }
+
         try await identityStore.delete()
 
         try await wipeResidualInboxRows()
-
-        cachedMessagingService.withLock { $0 = nil }
     }
 
     func wipeResidualInboxRows() async throws {
