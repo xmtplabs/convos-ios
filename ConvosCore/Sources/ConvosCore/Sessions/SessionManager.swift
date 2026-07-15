@@ -1193,6 +1193,13 @@ public extension SessionManager {
     /// run would wipe the newly-paired keychain entry. Inline file
     /// deletion keeps the keychain intact.
     func refreshAfterPairingCompleted() async {
+        // Rebind backend auth to the adopted identity before anything else
+        // can hit the backend: the process-global SIWE signing context and
+        // the legacy device-scoped JWT still belong to the pre-pairing
+        // placeholder identity, whose JWT stays valid for up to 15 minutes.
+        // Any account-scoped call in that window would act as the
+        // placeholder's backend account instead of the adopted one.
+        await rebindBackendAuthToAdoptedIdentity()
         // Mirror `tearDownInbox`'s ordering: keep the cached reference live
         // through stop + wipe so a concurrent `loadOrCreateService()` call
         // observes the being-torn-down service rather than building a second
@@ -1211,6 +1218,51 @@ public extension SessionManager {
         }
         cachedMessagingService.withLock { $0 = nil }
         requestHistorySyncAfterPairing()
+    }
+
+    /// Points the process-global SIWE signing context at the adopted
+    /// identity's key and drops the legacy device-scoped JWT, so JWT
+    /// selection immediately stops resolving the placeholder identity's
+    /// token. Then proactively runs a fresh SIWE exchange off the critical
+    /// path so the adopted address's JWT slot is warm before the first
+    /// authenticated request needs it. The backend derives the accountId
+    /// from the signing address, so this is the moment the joiner
+    /// converges onto the initiator's backend account. Failure is logged
+    /// and dropped - the flipped signing context alone already routes the
+    /// next request's 401 re-auth through SIWE with the adopted key, and
+    /// the new session's authorize re-runs the exchange regardless.
+    private func rebindBackendAuthToAdoptedIdentity() async {
+        let identity: KeychainIdentity
+        do {
+            guard let loaded = try await identityStore.load() else {
+                Log.warning("SessionManager: no identity after pairing adoption; skipping backend auth rebind")
+                return
+            }
+            identity = loaded
+        } catch {
+            Log.warning("SessionManager: failed to load adopted identity for backend auth rebind: \(error.localizedDescription)")
+            return
+        }
+        let signing = BackendAuthSigningContext.make(from: identity.keys.privateKey)
+        apiClient.updateSIWESigningContext(signing)
+        do {
+            try KeychainService().delete(account: KeychainAccount.jwt(deviceId: DeviceInfo.deviceIdentifier))
+        } catch {
+            Log.warning("SessionManager: failed to drop legacy JWT after pairing: \(error.localizedDescription)")
+        }
+        Log.info("SessionManager: rebound backend auth to adopted identity (address \(signing.address))")
+
+        Task { [apiClient] in
+            do {
+                let appCheckToken = try await FirebaseHelperCore.getAppCheckToken()
+                let token = try await apiClient.authenticateWithSIWE(appCheckToken: appCheckToken, signing: signing)
+                let accountId = BackendAuthProbe.extractAccountId(from: token) ?? "?"
+                Log.info("SessionManager: backend re-auth after pairing complete (accountId=\(accountId))")
+                QAEvent.emit(.pairing, "backend_reauth_after_pairing", ["accountId": accountId])
+            } catch {
+                Log.warning("SessionManager: proactive SIWE after pairing failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Best-effort: ask the inbox's other installations to upload message

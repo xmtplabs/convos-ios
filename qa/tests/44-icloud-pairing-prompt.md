@@ -44,6 +44,7 @@ Simulators don't sync iCloud Keychain, so the "new device on the same iCloud acc
 
 ### Post-pair checks (optional)
 
+10b. Device B fires `pairing.backend_reauth_after_pairing` within ~30s of pairing completion, and its `accountId` equals Device A's (from A's "Successfully authenticated with backend (SIWE, ...)" log line). This proves the joiner rebound backend auth to the adopted identity instead of riding its placeholder account's still-valid JWT.
 11. Device B's conversation list mirrors Device A's history with no "Add your name and pic" CTA - proof the found inbox id became this device's identity.
 11b. Device B fires `pairing.history_sync_requested` right after adoption and the "History probe 44" conversation (with its message body) appears within ~3 minutes - the joiner asked Device A for a history archive through the device-sync group and libxmtp imported it. Device A must stay foregrounded (it is the only peer that can answer). If nothing arrives by ~90s, background/foreground both apps once and keep polling.
 12. Relaunch Device B once more: the prompt must not return even though the decline flag was cleared in step 5 - B's identity now matches the backup, so it is excluded from the pairable list.
@@ -67,6 +68,7 @@ Shut down and delete the cloned `convos-qa-icloud-b` simulator. Do not delete De
 - [ ] Both devices reach Device added / Device paired
 - [ ] Device A commits the "History probe 44" conversation before the pair
 - [ ] `pairing.history_sync_requested` fires on Device B and the probe message arrives via the history archive
+- [ ] `pairing.backend_reauth_after_pairing` fires on Device B with Device A's accountId
 - [ ] (Optional) Device B mirrors A's history with no onboarding CTA
 - [ ] (Optional) No re-prompt after pairing despite the cleared decline flag
 

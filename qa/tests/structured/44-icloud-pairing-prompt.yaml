@@ -311,6 +311,29 @@ steps:
   # ----------------------------------------------------------------------
   # Post-pair checks
   # ----------------------------------------------------------------------
+  - id: backend_account_converges
+    name: "Device B rebinds backend auth to the adopted identity"
+    device: B
+    actions:
+      - sim_log_events: { event_filter: "pairing.backend_reauth_after_pairing" }
+    verify:
+      - event_exists: { name: "pairing.backend_reauth_after_pairing" }
+    expect_event: "pairing.backend_reauth_after_pairing"
+    criteria: backend_account_converges
+    note: >
+      Right after adoption, refreshAfterPairingCompleted points the SIWE
+      signing context at the adopted key, drops the legacy device JWT,
+      and runs a fresh SIWE exchange - the event carries accountId=<uuid>.
+      The backend derives the accountId from the signing address, so this
+      value must EQUAL Device A's accountId: compare against the
+      "Successfully authenticated with backend (SIWE, address=...,
+      accountId=...)" line in Device A's app-group log. A mismatch, or
+      the event never firing within ~30s of pairing completion, means the
+      joiner is still acting as its pre-pairing placeholder account
+      (stale-auth window regression). Device B's own earlier SIWE line
+      (pre-pairing) is expected to show a different accountId - that is
+      the placeholder, not a failure.
+
   - id: device_b_adopted_main_identity
     name: "Device B mirrors Device A's history (adopted the found inbox id)"
     device: B
@@ -435,6 +458,8 @@ criteria:
     description: "Device A confirms the emoji fingerprint"
   pairing_completed:
     description: "Both devices reach Device added / Device paired"
+  backend_account_converges:
+    description: "backend_reauth_after_pairing fires on Device B with an accountId equal to Device A's (joiner converges onto the initiator's backend account)"
   b_adopts_main_identity:
     description: "Device B mirrors A's history with no onboarding CTA (optional)"
   history_sync_delivers:
