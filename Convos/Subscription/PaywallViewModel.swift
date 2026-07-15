@@ -21,6 +21,16 @@ final class PaywallViewModel {
     /// prior account; asks the user to confirm the explicit reclaim.
     var isShowingReclaimPrompt: Bool = false
     private(set) var isReclaiming: Bool = false
+
+    /// Persistent notice for a claim awaiting its contest window (202):
+    /// nothing pushes the claimant, so the marker must stay visible until
+    /// re-verification resolves it.
+    var pendingClaimNotice: String? {
+        guard let deadline = subscriptionService.pendingClaimContestEndsAt else { return nil }
+        let formatted: String = deadline.formatted(date: .abbreviated, time: .shortened)
+        return "Subscription transfer pending - completes around \(formatted) unless the previous account objects."
+    }
+
     private(set) var products: [PaywallProduct] = []
     private(set) var currentSubscription: UserSubscription?
     private(set) var isLoadingProducts: Bool = false

@@ -76,6 +76,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// (StoreKit defaults, analytics identity, UI defaults). Set once at
     /// app startup via `setAccountDeletionAppHooks`.
     let accountDeletionAppHooks: OSAllocatedUnfairLock<AccountDeletionAppHooks?> = .init(initialState: nil)
+    /// Single `AccountDeletionService` instance so launch recovery, user
+    /// retries, and the remote-deletion wipe share one single-flight actor
+    /// (see `AccountDeletionService.singleFlight`).
+    let accountDeletionServiceLock: OSAllocatedUnfairLock<AccountDeletionService?> = .init(initialState: nil)
 
     /// Single-inbox means a single cached `MessagingService`. The lock
     /// serializes every construction path — any sync or async caller that
@@ -582,6 +586,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
+                    return
+                }
+
+                // A local reset must never destroy the identity keys while
+                // an account deletion is unresolved: a `requested` record
+                // whose keys are gone can no longer be confirmed against
+                // the backend. Resolve or retry the deletion first.
+                if self.accountDeletionStore.load().blocksIdentityProvisioning {
+                    Log.error("Local reset refused: an account deletion is in flight and must resolve first")
+                    continuation.finish(throwing: AccountDeletionInProgressError())
                     return
                 }
 

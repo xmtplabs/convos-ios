@@ -114,7 +114,7 @@ struct ConvosApp: App {
         // reports these entries as failures rather than skipping them.
         convos.session.setAccountDeletionAppHooks(AccountDeletionAppHooks(
             wipeStoreKitState: {
-                StoreKitSubscriptionService.wipeAccountScopedState()
+                await StoreKitSubscriptionService.shared.wipeAccountScopedState()
             },
             resetAnalyticsIdentity: {
                 PostHogCollector.resetIdentity()

@@ -1186,7 +1186,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     private func deleteDatabaseFiles() {
-        XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
+        // Best-effort on this path (the account-deletion manifest is the
+        // throwing, retried consumer of the sweeper).
+        do {
+            try XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
+        } catch {
+            Log.error("Failed to sweep XMTP database files: \(error)")
+        }
     }
 
     private func cleanupInboxData() async throws {
@@ -1404,10 +1410,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 throw CancellationError()
             } catch SIWEAuthError.identityDeleted {
                 // Deletion-barrier terminal response: deterministic, so
-                // retrying would only re-probe the barrier. Map to the
-                // terminal session error the observer layer surfaces as
-                // the account-deleted state.
+                // retrying would only re-probe the barrier. Suspend
+                // automatic re-auth process-wide (like the locally
+                // initiated flow) so background requests stop probing, and
+                // map to the terminal session error the observer layer
+                // surfaces as the account-deleted state.
                 Log.warning("Backend auth: deletion barrier reports identity deleted; entering terminal account-deleted state")
+                apiClient.setAutomaticReauthSuspended(true)
                 throw AccountDeletedError()
             } catch {
                 lastError = error

@@ -456,17 +456,32 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var legalFooter: some View {
-        HStack(spacing: DesignConstants.Spacing.step6x) {
-            if let url = URL(string: "https://hq.convos.org/privacy-and-terms") {
-                Link("Terms & Privacy", destination: url)
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            pendingClaimNotice
+            HStack(spacing: DesignConstants.Spacing.step6x) {
+                if let url = URL(string: "https://hq.convos.org/privacy-and-terms") {
+                    Link("Terms & Privacy", destination: url)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Button("Restore", action: viewModel.restoreTapped)
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
-            Button("Restore", action: viewModel.restoreTapped)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var pendingClaimNotice: some View {
+        if let notice = viewModel.pendingClaimNotice {
+            Text(notice)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("pending-claim-notice")
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

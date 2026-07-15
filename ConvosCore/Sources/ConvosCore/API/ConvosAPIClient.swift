@@ -492,10 +492,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             } catch SIWEAuthError.identityDeleted {
                 // The deletion barrier answered an automatic re-auth: the
                 // account is gone (deleted from this or a paired device).
-                // Broadcast so the session layer can surface the terminal
-                // account-deleted state, and propagate the typed error —
-                // never silently re-mint into the barrier.
+                // Suspend further automatic re-auth process-wide — exactly
+                // like the locally initiated flow does — so no other client
+                // instance keeps probing the barrier from background noise.
+                // Then broadcast so the session layer can surface the
+                // terminal account-deleted state, and propagate the typed
+                // error — never silently re-mint into the barrier.
                 Log.warning("reAuthenticate: deletion barrier hit (identity_deleted); account was deleted")
+                ReauthSuspension.shared.set(true)
                 NotificationCenter.default.post(name: .accountWasDeletedRemotely, object: nil)
                 throw SIWEAuthError.identityDeleted
             }

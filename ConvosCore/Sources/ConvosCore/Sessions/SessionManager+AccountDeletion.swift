@@ -56,7 +56,7 @@ extension SessionManager {
                     return
                 }
                 do {
-                    try await self.makeAccountDeletionService().deleteAccount { progress in
+                    try await self.accountDeletionService().deleteAccount { progress in
                         continuation.yield(progress)
                     }
                     continuation.finish()
@@ -73,7 +73,7 @@ extension SessionManager {
     /// runs the local wipe only (a `backendConfirmed` record is written
     /// first so a crash mid-wipe resumes).
     public func wipeAfterRemoteAccountDeletion() async throws {
-        try await makeAccountDeletionService().wipeAfterRemoteDeletion()
+        try await accountDeletionService().wipeAfterRemoteDeletion()
     }
 
     /// Launch-time recovery for a deletion interrupted by a crash or kill;
@@ -82,11 +82,22 @@ extension SessionManager {
         if case .none = accountDeletionStore.load() {
             return
         }
-        await makeAccountDeletionService().recoverAtLaunch()
+        await accountDeletionService().recoverAtLaunch()
     }
 
-    func makeAccountDeletionService() -> AccountDeletionService {
-        AccountDeletionService(store: accountDeletionStore, dependencies: makeAccountDeletionDependencies())
+    /// Single shared instance: launch recovery, UI retries, and the
+    /// remote-deletion wipe must funnel into one single-flight actor so two
+    /// runs can never interleave on the same durable record.
+    func accountDeletionService() -> AccountDeletionService {
+        accountDeletionServiceLock.withLock { existing in
+            if let existing { return existing }
+            let service = AccountDeletionService(
+                store: accountDeletionStore,
+                dependencies: makeAccountDeletionDependencies()
+            )
+            existing = service
+            return service
+        }
     }
 
     // MARK: - Dependency wiring
@@ -107,6 +118,13 @@ extension SessionManager {
                 let appCheckToken = try await FirebaseHelperCore.getAppCheckToken()
                 return try await apiClient.authenticateWithSIWE(appCheckToken: appCheckToken, signing: signing)
             },
+            cachedToken: { record in
+                let slot = KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress)
+                guard let token = try? KeychainService().retrieveString(account: slot), !token.isEmpty else {
+                    return nil
+                }
+                return token
+            },
             requestDeletion: { [apiClient] operationId, jwt in
                 try await apiClient.deleteAccount(operationId: operationId, jwt: jwt)
             },
@@ -126,6 +144,16 @@ extension SessionManager {
             },
             makeWipeExecutor: { [weak self] in
                 self?.makeAccountDeletionWipeExecutor() ?? WipeManifestExecutor(handlers: [:])
+            },
+            sweepRecordScopedSlots: { [identityStore] record in
+                // Only slots the record itself names: safe when the live
+                // identity is a different (displaced) one.
+                let keychain = KeychainService()
+                try? keychain.delete(account: KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress))
+                try? keychain.delete(account: KeychainAccount.siweAccountId(deviceId: record.deviceId, address: record.ethAddress))
+                if !record.inboxId.isEmpty {
+                    try? await identityStore.deleteSyncedBackup(inboxId: record.inboxId)
+                }
             }
         )
     }
@@ -188,21 +216,26 @@ extension SessionManager {
         var handlers: [WipeManifestEntry: WipeStep] = [:]
 
         handlers[.xmtpLocalDatabase] = WipeStep { [environment] _ in
-            XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
+            // Throwing: a leftover artifact fails the entry so the record
+            // stays and the next launch retries, instead of clearing the
+            // durable record over surviving database files. The XMTP log
+            // directory carries inbox identifiers, so it goes too.
+            try XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
+            try XMTPDatabaseFileSweeper.sweepContents(of: environment.defaultXMTPLogsDirectoryURL)
         }
 
-        handlers[.keychainIdentityFamily] = WipeStep { [identityStore] record in
-            try await identityStore.delete()
-            // Deleting a synchronizable item can fail or propagate slowly,
-            // and `delete()` can no longer scope the backup once the
-            // primary slot is gone. Retry directly by inboxId and verify;
-            // a persistent survivor fails the entry so the next launch
-            // retries instead of assuming the key left iCloud.
-            try await identityStore.deleteSyncedBackup(inboxId: record.inboxId)
-            let backups = try await identityStore.loadSyncedBackups()
-            if backups.contains(where: { $0.inboxId == record.inboxId }) {
-                throw SyncedBackupRemovalIncompleteError()
-            }
+        handlers[.keychainIdentityFamily] = WipeStep { [identityStore, environment] record in
+            try await AccountDeletionWipeSteps.wipeKeychainIdentityFamily(
+                identityStore: identityStore,
+                record: record
+            )
+            // Historical identity services (pre-v3 and v4-local), local and
+            // iCloud-synced copies. The generation-bump sweep is one-shot
+            // and best-effort; the manifest variant throws so failures
+            // retry. The current v3 family is deliberately excluded here:
+            // its synced-backup service holds other identities' backups,
+            // which the scoped deletes above must not touch.
+            try LegacyDataWipe.wipeLegacyIdentityKeychainServices(accessGroup: environment.appGroupIdentifier)
         }
 
         handlers[.siweJwtSlot] = WipeStep { record in
@@ -222,9 +255,7 @@ extension SessionManager {
         }
 
         handlers[.databaseRows] = WipeStep { [databaseWriter] _ in
-            try await databaseWriter.write { db in
-                try Self.wipeAccountScopedRows(db)
-            }
+            try await AccountDeletionWipeSteps.wipeDatabaseRows(databaseWriter: databaseWriter)
         }
 
         handlers[.deviceRegistrationDefaults] = WipeStep { [platformProviders] _ in
@@ -232,7 +263,10 @@ extension SessionManager {
         }
 
         handlers[.imageCaches] = WipeStep { _ in
-            ImageCacheContainer.shared.removeAllPersistentImages()
+            // Awaited and throwing: the fire-and-forget variant would let
+            // the record clear before the disk sweep finished, so a crash
+            // in that window would leave cached images with no rerun.
+            try await ImageCacheContainer.shared.removeAllPersistentImagesAndWait()
         }
 
         handlers[.appGroupPairingStores] = WipeStep { [environment] _ in

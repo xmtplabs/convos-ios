@@ -35,6 +35,8 @@ struct AccountDeletionServiceTests {
         var mint: @Sendable (KeychainIdentity) async throws -> String = { _ in "jwt" }
         var deletion: (@Sendable (UUID, String) async throws -> ConvosAPI.AccountDeletionResponse)?
         var failingEntries: Set<WipeManifestEntry> = []
+        var cachedToken: @Sendable (AccountDeletionRecord) -> String? = { _ in nil }
+        var ethAddress: @Sendable (KeychainIdentity) -> String = { _ in "0xabc" }
     }
 
     private func makeStore() throws -> AccountDeletionStateStore {
@@ -64,13 +66,18 @@ struct AccountDeletionServiceTests {
         let failingEntries = config.failingEntries
         let identity = config.identity
         let mint = config.mint
+        let cachedToken = config.cachedToken
+        let ethAddress = config.ethAddress
         let dependencies = AccountDeletionDependencies(
             loadIdentity: { identity },
             deviceId: { "device-1" },
-            ethAddress: { _ in "0xabc" },
+            ethAddress: ethAddress,
             mintToken: { identityValue in
                 events.record("mint(phase: \(store.load().activeRecord?.phase.rawValue ?? "none"))")
                 return try await mint(identityValue)
+            },
+            cachedToken: { record in
+                cachedToken(record)
             },
             requestDeletion: { operationId, jwt in
                 events.record("delete(\(operationId.uuidString.lowercased()), jwt: \(jwt), phase: \(store.load().activeRecord?.phase.rawValue ?? "none"))")
@@ -96,6 +103,9 @@ struct AccountDeletionServiceTests {
                     }
                 }
                 return WipeManifestExecutor(handlers: handlers)
+            },
+            sweepRecordScopedSlots: { record in
+                events.record("sweepRecordScopedSlots(\(record.inboxId))")
             }
         )
         return AccountDeletionService(store: store, dependencies: dependencies)
@@ -383,5 +393,171 @@ struct AccountDeletionServiceTests {
         }
         #expect(store.load().activeRecord == nil)
         #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+    }
+
+    // MARK: - Identity binding
+
+    @Test("Recovery never mints or wipes with an identity that does not match the record")
+    func recoveryRefusesMismatchedIdentity() async throws {
+        let store = try makeStore()
+        // Record for identity A; the keychain now holds identity B
+        // (pairing displaced A while its deletion was pending).
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.mint = { _ in
+            Issue.record("Must never mint with an identity that does not match the record")
+            throw APIError.invalidRequest
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        // No full wipe (identity B's data must survive), only the old
+        // record's scoped slots; the live identity's re-auth resumes.
+        #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(!events.contains("stopServices"))
+        #expect(events.contains("sweepRecordScopedSlots(inbox-A)"))
+        #expect(events.events.last == "reauthSuspended(false)")
+        #expect(store.load().activeRecord == nil)
+    }
+
+    @Test("A displaced record still confirms its backend deletion via a surviving cached token")
+    func displacedRecordConfirmsWithCachedToken() async throws {
+        let store = try makeStore()
+        let operationId = UUID()
+        try await store.begin(AccountDeletionRecord(
+            operationId: operationId, inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.cachedToken = { record in
+            record.inboxId == "inbox-A" ? "cached-jwt-A" : nil
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        #expect(events.events.contains(where: { $0.hasPrefix("delete(\(operationId.uuidString.lowercased())") && $0.contains("jwt: cached-jwt-A") }))
+        // Confirmed for the old account, but never the full local wipe:
+        // the device now belongs to identity B.
+        #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(store.load().activeRecord == nil)
+    }
+
+    @Test("A confirmed record whose identity was displaced never runs the full manifest")
+    func displacedConfirmedRecordSkipsFullWipe() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+        try await store.advance(to: .backendConfirmed)
+
+        let events = EventLog()
+        let service = makeService(store: store, events: events, config: Config(identity: try makeIdentity()))
+
+        await service.recoverAtLaunch()
+        #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(!events.events.contains(where: { $0.hasPrefix("revoke(") }))
+        #expect(events.contains("sweepRecordScopedSlots(inbox-A)"))
+        #expect(store.load().activeRecord == nil)
+    }
+
+    // MARK: - Missing identity holds
+
+    @Test("Requested record with no identity and no cached token holds: no wipe, no clear")
+    func requestedWithoutIdentityHolds() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
+            ethAddress: "0xabc", deviceId: "device-1"
+        ))
+
+        let events = EventLog()
+        let service = makeService(store: store, events: events, config: Config(identity: nil))
+
+        await service.recoverAtLaunch()
+        #expect(store.load().activeRecord?.phase == .requested)
+        #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(!events.contains("stopServices"))
+        // Re-auth stays suspended while the unresolved record holds.
+        #expect(events.events.last != "reauthSuspended(false)")
+    }
+
+    @Test("Requested record with no identity confirms via a surviving cached token, then wipes")
+    func requestedWithoutIdentityConfirmsWithCachedToken() async throws {
+        let store = try makeStore()
+        let operationId = UUID()
+        try await store.begin(AccountDeletionRecord(
+            operationId: operationId, inboxId: "inbox-1", clientId: "client-1",
+            ethAddress: "0xabc", deviceId: "device-1"
+        ))
+
+        let events = EventLog()
+        var config = Config(identity: nil)
+        config.cachedToken = { _ in "cached-jwt" }
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        #expect(events.events.contains(where: { $0.hasPrefix("delete(\(operationId.uuidString.lowercased())") && $0.contains("jwt: cached-jwt") }))
+        #expect(events.events.contains(where: { $0.hasPrefix("wipe(") }))
+        #expect(store.load().activeRecord == nil)
+    }
+
+    // MARK: - Single flight
+
+    @Test("Concurrent entry points single-flight: one backend request, one wipe")
+    func concurrentRunsSingleFlight() async throws {
+        let store = try makeStore()
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.deletion = { operationId, _ in
+            // Hold the first run mid-request so the second caller arrives
+            // while it is in flight.
+            try await Task.sleep(nanoseconds: 100_000_000)
+            return ConvosAPI.AccountDeletionResponse(
+                status: "deleted",
+                operationId: operationId.uuidString.lowercased(),
+                deletedAt: Date(),
+                purgeWindowHours: 24
+            )
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        async let first: Void = service.deleteAccount { _ in }
+        async let second: Void = service.recoverAtLaunch()
+        try await first
+        await second
+
+        let deleteCalls = events.events.filter { $0.hasPrefix("delete(") }
+        #expect(deleteCalls.count == 1)
+        let wipeRuns = events.events.filter { $0 == "wipe(\(WipeManifestEntry.databaseRows.rawValue))" }
+        #expect(wipeRuns.count == 1)
+        #expect(store.load().activeRecord == nil)
+    }
+
+    // MARK: - Suspension consistency
+
+    @Test("A failed record write releases the reauth suspension")
+    func beginFailureReleasesSuspension() async throws {
+        // Store rooted in a directory that does not exist: the initial
+        // record write fails.
+        let missingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-deletion-missing-\(UUID().uuidString)", isDirectory: true)
+        let store = AccountDeletionStateStore(directoryURL: missingDirectory)
+
+        let events = EventLog()
+        let service = makeService(store: store, events: events, config: Config(identity: try makeIdentity()))
+
+        await #expect(throws: (any Error).self) {
+            try await service.deleteAccount { _ in }
+        }
+        #expect(events.events.last == "reauthSuspended(false)")
+        #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
     }
 }

@@ -57,6 +57,8 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func removeAllPersistentImages() {}
 
+    public func removeAllPersistentImagesAndWait() async throws {}
+
     // MARK: - Observation
 
     public var cacheUpdates: AnyPublisher<String, Never> {

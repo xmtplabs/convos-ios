@@ -34,6 +34,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// or transferable account). Lock-backed so the protocol's synchronous
     /// `reclaimCandidateAvailable` can read it without an actor hop.
     private nonisolated let claimCandidateJWS: OSAllocatedUnfairLock<String?> = .init(initialState: nil)
+    /// Timer that re-verifies once a pending claim's contest window ends
+    /// (no push comes to the claimant). Rescheduled on every pending
+    /// outcome and on launch when a persisted marker is still in the
+    /// future; cancelled in deinit.
+    nonisolated(unsafe) private var pendingClaimReverifyTask: Task<Void, Never>?
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -49,6 +54,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         self.subscriptionSubject = CurrentValueSubject(Self.loadCachedSubscription())
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
+            // A pending-claim marker whose window already ended reconciles
+            // through this first refresh; one still in the future re-arms
+            // the re-verify timer.
+            await self.reconcileExpiredPendingClaim()
+            await self.schedulePendingClaimReverifyIfNeeded()
             await self.refreshFromEntitlements()
             await self.listenForTransactionUpdates()
         }
@@ -57,6 +67,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     deinit {
         updateListenerTask?.cancel()
+        pendingClaimReverifyTask?.cancel()
     }
 
     /// Single funnel for every subscription-state publish. Sends on the
@@ -258,12 +269,14 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             case .pending(let contestEndsAt):
                 if let contestEndsAt {
                     UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+                    scheduleClaimReverify(at: contestEndsAt)
                 }
             }
             return outcome
         } catch SubscriptionClaimError.rejected(.pendingContest(let contestEndsAt)) {
             if let contestEndsAt {
                 UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+                scheduleClaimReverify(at: contestEndsAt)
             }
             throw SubscriptionClaimError.rejected(.pendingContest(contestEndsAt: contestEndsAt))
         }
@@ -277,6 +290,25 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         // Force re-forwarding of entitlements so verify reflects the
         // transfer outcome.
         forwardedTransactionIds.removeAll()
+    }
+
+    /// Launch-time half of the contest-window contract: a persisted marker
+    /// still in the future re-arms the re-verify timer (the process that
+    /// created it is usually gone by the time the window ends).
+    private func schedulePendingClaimReverifyIfNeeded() {
+        guard let deadline = pendingClaimContestEndsAt, deadline > Date() else { return }
+        scheduleClaimReverify(at: deadline)
+    }
+
+    private func scheduleClaimReverify(at deadline: Date) {
+        pendingClaimReverifyTask?.cancel()
+        let interval: TimeInterval = deadline.timeIntervalSinceNow + Constant.claimReverifyGrace
+        guard interval > 0 else { return }
+        pendingClaimReverifyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            await self.refresh(force: true)
+        }
     }
 
     public func refresh(force: Bool) async {
@@ -476,17 +508,28 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         static let appAccountTokenKey: String = "storeKit.appAccountToken"
         static let lastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
         static let pendingClaimContestEndsAtKey: String = "storeKit.pendingClaimContestEndsAt"
+        /// Slack past `contestEndsAt` before re-verifying, so the backend's
+        /// window-end transfer job has run.
+        static let claimReverifyGrace: TimeInterval = 60
     }
 
     /// Account-deletion wipe step: removes every StoreKit binding tying
     /// this install to the deleted account. The `appAccountToken` in
     /// particular is bound to the deleted account's Apple buyer record;
-    /// a later account on this install must mint a fresh one.
-    public static func wipeAccountScopedState() {
+    /// a later account on this install must mint a fresh one. Also resets
+    /// the singleton's in-memory state (published subscription, reclaim
+    /// candidate, forwarded-transaction memo) so a newly provisioned
+    /// identity in the same process doesn't inherit account-scoped
+    /// subscription or reclaim state.
+    public func wipeAccountScopedState() async {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: Constant.appAccountTokenKey)
         defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
         defaults.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+        claimCandidateJWS.withLock { $0 = nil }
+        forwardedTransactionIds.removeAll()
+        lastFetchedAt = nil
+        publish(nil)
     }
 
     /// Persist the most recently published subscription snapshot so the next
