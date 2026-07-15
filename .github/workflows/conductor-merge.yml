@@ -18,23 +18,45 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
+      go: ${{ steps.pr.outputs.go }}
       version: ${{ steps.pr.outputs.version }}
     steps:
       - id: pr
         env:
           GH_TOKEN: ${{ github.token }}
+          # User content — pass via env, never inline into the script.
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
+          # startsWith() in the job `if` is only a cheap prefilter — require
+          # the exact command as the comment's first line, so e.g.
+          # "@convos-conductor merge this later?" never fires a real merge.
+          first=$(printf '%s' "$COMMENT_BODY" | head -n1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+          if [ "$first" != "@convos-conductor merge" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::not an exact merge command"
+            exit 0
+          fi
           head=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" --jq .head.ref)
-          case "$head" in
-            release/*|hotfix/*) echo "version=${head#*/}" >> "$GITHUB_OUTPUT";;
-            *) echo "::notice::not a train PR"; exit 0;;
-          esac
+          # Branch names are externally influenced; only an exact
+          # release/X.Y.Z or hotfix/X.Y.Z may produce a version.
+          if [[ ! "$head" =~ ^(release|hotfix)/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::not a train PR"
+            exit 0
+          fi
+          {
+            echo "go=true"
+            echo "version=${head#*/}"
+          } >> "$GITHUB_OUTPUT"
 
   call:
     needs: resolve
     if: needs.resolve.outputs.version != ''
+    # Must cover the called job's declared permissions (contents: read for its
+    # checkout) — granting only pull-requests would zero contents and GitHub
+    # would refuse the nested job. The merge itself uses the bot token.
     permissions:
-      pull-requests: write
+      contents: read
     uses: xmtplabs/convos-releases/.github/workflows/train-merge.yml@main
     with:
       version: ${{ needs.resolve.outputs.version }}

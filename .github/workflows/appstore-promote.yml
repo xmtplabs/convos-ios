@@ -42,7 +42,6 @@ jobs:
     if: needs.resolve.outputs.go == 'true'
     permissions:
       contents: read
-      pull-requests: read
       id-token: write
     uses: xmtplabs/convos-releases/.github/workflows/ios-appstore-promote.yml@main
     with:
