@@ -118,6 +118,8 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private let incomingPairingObservers: PairingNotificationObservers = .init()
     let staleDeviceObserver: StaleDeviceObserver = .init()
+    let accountDeletedObserver: AccountDeletedObserver = .init()
+    private(set) var isWipingDeletedAccount: Bool = false
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
@@ -311,13 +313,17 @@ final class ConversationsViewModel {
         self.conversationsRepository = session.conversationsRepository(
             for: .allowed
         )
-        // Bind the stale-device observer to the session's state manager
-        // so the banner appears when this device's installation is
-        // revoked from the network. Done asynchronously because
+        // Bind the stale-device and account-deleted observers to the
+        // session's state manager so their sheets appear when this
+        // device's installation is revoked, or the account is deleted
+        // from another device. Done asynchronously because
         // messagingService() may need to construct the service.
         let stale = staleDeviceObserver
+        let deleted = accountDeletedObserver
         Task { @MainActor in
-            stale.bind(to: session.messagingService().sessionStateManager)
+            let stateManager = session.messagingService().sessionStateManager
+            stale.bind(to: stateManager)
+            deleted.bind(to: stateManager)
         }
         self.conversationsCountRepository = session.conversationsCountRepo(
             for: .allowed,
@@ -1365,5 +1371,50 @@ extension ConversationsViewModel {
         let vm = ConversationsViewModel(session: client.session)
         vm.conversations = conversations
         return vm
+    }
+}
+
+// MARK: - Account deletion
+
+extension ConversationsViewModel {
+    /// Called by `AccountDeletedSheet` when the user holds to wipe a
+    /// device whose account was deleted elsewhere. Local wipe only — the
+    /// backend account is already gone, and the flow never provisions a
+    /// replacement without the user's next explicit act.
+    func wipeForDeletedAccount() {
+        guard !isWipingDeletedAccount else { return }
+        isWipingDeletedAccount = true
+        accountDeletedObserver.dismiss()
+        selectedConversation = nil
+        let session = self.session
+        let deleted = accountDeletedObserver
+        let stale = staleDeviceObserver
+        Task { @MainActor [weak self] in
+            do {
+                try await session.wipeAfterRemoteAccountDeletion()
+                ProfileSettingsViewModel.shared.rebind(session: session)
+            } catch {
+                Log.error("Local wipe after remote account deletion failed: \(error)")
+            }
+            let stateManager = session.messagingService().sessionStateManager
+            deleted.bind(to: stateManager)
+            stale.bind(to: stateManager)
+            self?.isWipingDeletedAccount = false
+        }
+    }
+
+    /// Called after Settings completes a real account deletion. The wipe
+    /// already ran; clear UI selection and rebind the session observers to
+    /// the freshly built (registering) service.
+    func accountDeletionCompleted() {
+        selectedConversation = nil
+        let session = self.session
+        let stale = staleDeviceObserver
+        let deleted = accountDeletedObserver
+        Task { @MainActor in
+            let stateManager = session.messagingService().sessionStateManager
+            stale.bind(to: stateManager)
+            deleted.bind(to: stateManager)
+        }
     }
 }

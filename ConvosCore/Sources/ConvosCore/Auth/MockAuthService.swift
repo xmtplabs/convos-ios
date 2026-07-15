@@ -157,11 +157,6 @@ class MockAuthService: LocalAuthServiceProtocol {
         _currentUser = nil
     }
 
-    func deleteAccount(with providerId: String) throws {
-        try keychain.delete(account: Self.mockUserAccount)
-        _currentUser = nil
-    }
-
     func signOut() async throws {
         if persist {
             try keychain.delete(account: Self.mockUserAccount)

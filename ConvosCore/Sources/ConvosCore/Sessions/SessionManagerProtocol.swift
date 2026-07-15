@@ -134,6 +134,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// identity, UI defaults). Call once at app startup.
     func setAccountDeletionAppHooks(_ hooks: AccountDeletionAppHooks)
 
+    /// Local-wipe-only exit for a paired device that discovered its
+    /// account was deleted elsewhere (terminal identity-deleted state).
+    /// Never auto-provisions a replacement account.
+    func wipeAfterRemoteAccountDeletion() async throws
+
     // MARK: Messaging Services
 
     func messagingService() -> AnyMessagingService
@@ -287,6 +292,8 @@ extension SessionManagerProtocol {
     }
 
     public func setAccountDeletionAppHooks(_ hooks: AccountDeletionAppHooks) {}
+
+    public func wipeAfterRemoteAccountDeletion() async throws {}
 
     /// Default for conformers without keychain access (test mocks): no
     /// other devices to pair with. The real lookup lives on `SessionManager`.

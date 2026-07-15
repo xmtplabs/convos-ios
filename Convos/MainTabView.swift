@@ -928,7 +928,7 @@ struct MainTabSheetsModifier: ViewModifier {
                     profileSettingsViewModel: profileSettingsViewModel,
                     session: conversationsViewModel.session,
                     coreActions: coreActions,
-                    onDeleteAllData: conversationsViewModel.deleteAllData
+                    onAccountDeleted: conversationsViewModel.accountDeletionCompleted
                 )
                 .navigationTransition(
                     .zoom(sourceID: "app-settings-transition-source", in: namespace)

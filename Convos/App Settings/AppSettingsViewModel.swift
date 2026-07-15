@@ -10,6 +10,15 @@ final class AppSettingsViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var deletionProgress: InboxDeletionProgress?
     private(set) var deletionError: Error?
+    private(set) var accountDeletionProgress: AccountDeletionProgress?
+
+    /// True when a durable deletion record is pending resolution (an
+    /// earlier attempt sent the request but never got a confirmed
+    /// outcome, or a wipe is unfinished). The settings row surfaces a
+    /// retry in this state.
+    var hasPendingAccountDeletion: Bool {
+        session.accountDeletionStatus().blocksIdentityProvisioning
+    }
 
     // MARK: - Dependencies
 
@@ -41,10 +50,37 @@ final class AppSettingsViewModel {
         Task { await runDeletion(onComplete: onComplete) }
     }
 
+    /// Deletes the account for real: backend deletion first (keys intact),
+    /// then the manifest-driven local wipe. Distinct from `deleteAllData`,
+    /// which is a local reset that leaves the backend account alive.
+    func deleteAccount(onComplete: @escaping () -> Void) {
+        guard !isDeleting else { return }
+        prepareForDeletion()
+        Task { await runAccountDeletion(onComplete: onComplete) }
+    }
+
+    private func runAccountDeletion(onComplete: @escaping () -> Void) async {
+        do {
+            for try await progress in session.deleteAccountWithProgress() {
+                accountDeletionProgress = progress
+            }
+            // The wipe manifest cleared persisted state; this rebinds the
+            // in-memory singletons (profile writer, cached view-model
+            // state) so the running process matches the wiped disk.
+            resetLocalState()
+            isDeleting = false
+            onComplete()
+        } catch {
+            deletionError = error
+            isDeleting = false
+        }
+    }
+
     private func prepareForDeletion() {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
+        accountDeletionProgress = nil
     }
 
     private func resetLocalState() {

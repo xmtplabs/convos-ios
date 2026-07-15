@@ -107,6 +107,28 @@ struct ConvosApp: App {
         self.metricsDelegate = metricsDelegate
         self.convos = .client(environment: environment, platformProviders: .iOS, coreActions: coreMetrics.actions)
 
+        // Register the app-layer account-deletion wipe steps. These cover
+        // state ConvosCore can't reach: the StoreKit appAccountToken and
+        // cached subscription defaults, the analytics identity, and the
+        // app-target UI defaults. Until registered, the wipe manifest
+        // reports these entries as failures rather than skipping them.
+        convos.session.setAccountDeletionAppHooks(AccountDeletionAppHooks(
+            wipeStoreKitState: {
+                StoreKitSubscriptionService.wipeAccountScopedState()
+            },
+            resetAnalyticsIdentity: {
+                PostHogCollector.resetIdentity()
+            },
+            wipeUserInterfaceDefaults: {
+                await MainActor.run {
+                    GlobalConvoDefaults.shared.reset()
+                    ConversationViewModel.resetUserDefaults()
+                    ConversationsViewModel.resetUserDefaults()
+                    ConversationOnboardingCoordinator.resetUserDefaults()
+                }
+            }
+        ))
+
         // Sync the mock credits/subscription state from the persisted picker
         // preset so HOME pill + paywall reflect the operator's last selection.
         // Non-production only; production builds will swap in real services.

@@ -68,6 +68,14 @@ extension SessionManager {
         }
     }
 
+    /// Paired-device exit for the account-deleted terminal state: the
+    /// backend already deleted the account from another device, so this
+    /// runs the local wipe only (a `backendConfirmed` record is written
+    /// first so a crash mid-wipe resumes).
+    public func wipeAfterRemoteAccountDeletion() async throws {
+        try await makeAccountDeletionService().wipeAfterRemoteDeletion()
+    }
+
     /// Launch-time recovery for a deletion interrupted by a crash or kill;
     /// runs before any session bootstrap work (see `init`).
     func recoverPendingAccountDeletionIfNeeded() async {

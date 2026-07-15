@@ -48,6 +48,7 @@ struct ConversationsView: View {
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var staleDeviceSheetDismissed: Bool = false
+    @State private var accountDeletedSheetDismissed: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -269,6 +270,7 @@ struct ConversationsView: View {
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
             staleDeviceSheetDismissed: $staleDeviceSheetDismissed,
+            accountDeletedSheetDismissed: $accountDeletedSheetDismissed,
             namespace: namespace
         ))
         .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
@@ -277,11 +279,17 @@ struct ConversationsView: View {
             // them post-reset), clear the dismissal so the sheet returns.
             if isRemoved { staleDeviceSheetDismissed = false }
         }
+        .onChange(of: viewModel.accountDeletedObserver.isAccountDeleted) { _, isDeleted in
+            if isDeleted { accountDeletedSheetDismissed = false }
+        }
         .onChange(of: scenePhase) { _, newPhase in
-            // Re-present the stale-device sheet on each foreground entry so
-            // a previously-dismissed banner doesn't permanently hide the
+            // Re-present the terminal-state sheets on each foreground entry
+            // so a previously-dismissed banner doesn't permanently hide the
             // fact that the device is in a terminal state.
-            if newPhase == .active { staleDeviceSheetDismissed = false }
+            if newPhase == .active {
+                staleDeviceSheetDismissed = false
+                accountDeletedSheetDismissed = false
+            }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
@@ -299,6 +307,7 @@ private struct ConversationsSheetModifier: ViewModifier {
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
     @Binding var staleDeviceSheetDismissed: Bool
+    @Binding var accountDeletedSheetDismissed: Bool
     var namespace: Namespace.ID
 
     private var staleDeviceSheetBinding: Binding<Bool> {
@@ -306,6 +315,15 @@ private struct ConversationsSheetModifier: ViewModifier {
             get: { viewModel.staleDeviceObserver.isDeviceRemoved && !staleDeviceSheetDismissed },
             set: { newValue in
                 if !newValue { staleDeviceSheetDismissed = true }
+            }
+        )
+    }
+
+    private var accountDeletedSheetBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.accountDeletedObserver.isAccountDeleted && !accountDeletedSheetDismissed },
+            set: { newValue in
+                if !newValue { accountDeletedSheetDismissed = true }
             }
         )
     }
@@ -381,6 +399,13 @@ private struct ConversationsSheetModifier: ViewModifier {
                     onDelete: { viewModel.resetForStaleDevice() },
                     onContinue: { staleDeviceSheetDismissed = true },
                     isDeleting: viewModel.appSettingsViewModel.isDeleting
+                )
+            }
+            .selfSizingSheet(isPresented: accountDeletedSheetBinding) {
+                AccountDeletedSheet(
+                    onWipe: { viewModel.wipeForDeletedAccount() },
+                    onContinue: { accountDeletedSheetDismissed = true },
+                    isWiping: viewModel.isWipingDeletedAccount
                 )
             }
             .background {

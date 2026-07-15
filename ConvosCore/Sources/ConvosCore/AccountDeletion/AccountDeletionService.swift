@@ -154,6 +154,36 @@ public actor AccountDeletionService {
         }
     }
 
+    // MARK: - Remote-deletion wipe (paired device)
+
+    /// Paired-device exit: the backend already deleted the account (the
+    /// terminal identity-deleted response arrived outside any local
+    /// deletion flow). Writes a `backendConfirmed` record first so a crash
+    /// mid-wipe resumes, then runs the normal teardown. No backend call is
+    /// made or possible.
+    public func wipeAfterRemoteDeletion(
+        onProgress: @escaping @Sendable (AccountDeletionProgress) -> Void = { _ in }
+    ) async throws {
+        dependencies.setReauthSuspended(true)
+        let record: AccountDeletionRecord
+        switch store.load() {
+        case .record(let existing):
+            record = existing
+        case .none, .corrupted:
+            let identity = try? dependencies.loadIdentity()
+            let fresh = AccountDeletionRecord(
+                operationId: UUID(),
+                inboxId: identity?.inboxId ?? "",
+                clientId: identity?.clientId ?? "",
+                ethAddress: identity.map { dependencies.ethAddress($0) } ?? "",
+                deviceId: dependencies.deviceId()
+            )
+            try await store.begin(fresh)
+            record = try await store.advance(to: .backendConfirmed)
+        }
+        try await runTeardown(from: record, onProgress: onProgress)
+    }
+
     // MARK: - Launch recovery
 
     /// Resolves a pending deletion at cold launch. The four situations:
