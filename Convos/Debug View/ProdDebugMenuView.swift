@@ -20,7 +20,10 @@ import UserNotifications
 //
 // Hard rules enforced here:
 // - No mutating controls (no "Request Now", no "Register Device Again", no
-//   purchase / change-plan CTAs, no mock-credit toggles).
+//   purchase / change-plan CTAs, no mock-credit toggles). One deliberate
+//   exception: the XMTP bidi streaming opt-in flips only a local default
+//   that selects the stream transport at next launch -- nothing account- or
+//   network-mutating -- and exists to dogfood bidi in production.
 // - The live `BackendAuthProbe` (JWT minter) is never imported or instantiated
 //   here. The identity readout uses `DeviceIdentitySnapshot`, which is
 //   network-free and carries no JWT.
@@ -161,13 +164,16 @@ struct ProdDebugMenuView: View {
         }
     }
 
-    // MARK: - Feature flags (display only)
+    // MARK: - Feature flags (display only, except the bidi opt-in)
 
     @ViewBuilder
     private var featureFlagsSection: some View {
         let injectorEnabled: Bool = FeatureFlags.shared.isDebugInjectorEnabled
         Section("Feature flags") {
             labeledRow("Debug injector", injectorEnabled ? "On" : "Off")
+            // The one interactive control in this curated menu; see the
+            // module overview for why it is allowed here.
+            Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
         }
     }
 
