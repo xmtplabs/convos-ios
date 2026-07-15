@@ -21,6 +21,8 @@ _: {
           # fastlane + lanes from convos-releases; the wrapper exports
           # CONVOS_LANES for the stub Fastfile.
           inputs'.convos-releases.packages.fastlane
+          # train CLI from convos-releases (release-train orchestration).
+          inputs'.convos-releases.packages.train
           # dSYM upload to Sentry in the prod TestFlight workflow
           pkgs.sentry-cli
         ];
