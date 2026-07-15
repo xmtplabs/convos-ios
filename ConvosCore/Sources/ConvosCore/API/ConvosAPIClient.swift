@@ -57,6 +57,21 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// SIWE-bound JWT → 200. Legacy device-only JWT → 403. Missing → 401.
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse
 
+    /// Deletes the caller's account (`DELETE /v2/accounts/me`). The supplied
+    /// JWT is injected directly as `X-Convos-AuthToken` — no keychain
+    /// lookup, and never the automatic 401 re-authentication pipeline. Any
+    /// 200 is success, including a replay against an already-deleted
+    /// account (the echoed operationId is then the stored one and may
+    /// differ from `operationId`). A 401 means invalid/expired token and is
+    /// never deletion confirmation.
+    func deleteAccount(operationId: UUID, jwt: String) async throws -> ConvosAPI.AccountDeletionResponse
+
+    /// Suspends (or resumes) the automatic re-authentication on 401,
+    /// process-wide. Set for the duration of the account-deletion flow: an
+    /// automatic re-auth is exactly the request pattern that would turn
+    /// background noise into deletion-barrier probes.
+    func setAutomaticReauthSuspended(_ suspended: Bool)
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -338,6 +353,28 @@ final class LockedSigningContext: @unchecked Sendable {
     }
 }
 
+/// Process-wide switch that suspends the automatic 401 re-authentication.
+/// Shared across all `ConvosAPIClient` instances for the same reason as
+/// `LockedSigningContext`: several services construct their own client via
+/// the factory, and the account-deletion flow must silence every one of
+/// them, not just the session's.
+final class ReauthSuspension: @unchecked Sendable {
+    static let shared: ReauthSuspension = ReauthSuspension()
+
+    private let lock: NSLock = NSLock()
+    private var suspended: Bool = false
+
+    func set(_ value: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        suspended = value
+    }
+
+    var isSuspended: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return suspended
+    }
+}
+
 final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let baseURL: URL
     private let session: URLSession
@@ -426,6 +463,10 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {
         siweSigningContext.set(context)
+    }
+
+    func setAutomaticReauthSuspended(_ suspended: Bool) {
+        ReauthSuspension.shared.set(suspended)
     }
 
     private func reAuthenticate() async throws -> String {
@@ -648,13 +689,13 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 409:
+            // Typed so call sites can branch on the envelope's code (e.g.
+            // subscription verify's `subscription_account_mismatch` and its
+            // additive `claimable` flag) instead of string-matching a
+            // generic server error.
+            throw APIError.conflict(APIConflictDetails.parse(from: data))
         default:
-            // 409 (subscription_account_mismatch) falls through deliberately.
-            // The backend still returns it (PR #215 strict-ownership invariant),
-            // but iOS treats it as a generic retryable server fault instead
-            // of a typed dead-end — purchase + restore flows already surface
-            // .serverError with a "try again" affordance, and refresh logic
-            // (foreground + view-appear) will reconcile any transient state.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
     }
@@ -680,6 +721,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         guard retryCount < maxRetryCount else {
             Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        guard !ReauthSuspension.shared.isSuspended else {
+            Log.info("401 while automatic re-authentication is suspended (account deletion in flight); not re-authenticating")
             throw APIError.notAuthenticated
         }
 
@@ -1190,10 +1236,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let response: ConvosAPI.VerifySubscriptionResponse = try await performRequest(request)
         return response.subscription
     }
+}
 
-    // MARK: - Helper Methods
+// MARK: - Helper Methods
 
+extension ConvosAPIClient {
     func parseErrorMessage(from data: Data) -> String? {
+        Self.parseErrorMessage(from: data)
+    }
+
+    /// Static so pure response-mapping helpers (e.g. the SIWE exchange
+    /// failure mapper) can share it without an instance.
+    static func parseErrorMessage(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let message = json["message"] as? String {
                 return message
@@ -1312,6 +1366,7 @@ public enum APIError: Error {
     case invalidResponse
     case invalidRequest
     case serverError(String?)
+    case conflict(APIConflictDetails)
     case rateLimitExceeded
     case noAgentsAvailable
     case agentPoolTimeout
@@ -1342,6 +1397,8 @@ extension APIError: DisplayError {
             return "Invalid request"
         case .serverError:
             return "Server error"
+        case .conflict:
+            return "Request conflict"
         case .rateLimitExceeded:
             return "Too many requests"
         case .noAgentsAvailable:
@@ -1377,6 +1434,8 @@ extension APIError: DisplayError {
             return "The request could not be created."
         case .serverError(let message):
             return message ?? "The server encountered an error."
+        case .conflict(let details):
+            return details.message ?? "The request conflicted with the server's state."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
         case .noAgentsAvailable:

@@ -11,6 +11,20 @@ import Foundation
 /// its own implementations and is unaffected. Tests that specifically exercise
 /// these methods should override them on their stub or use a dedicated fixture.
 extension ConvosAPIClientProtocol {
+    /// Defaults for the account-deletion additions so pre-existing stubs
+    /// don't each re-stub them. Deletion-flow tests use a dedicated
+    /// fixture that records calls and programs failures.
+    func deleteAccount(operationId: UUID, jwt: String) async throws -> ConvosAPI.AccountDeletionResponse {
+        ConvosAPI.AccountDeletionResponse(
+            status: "deleted",
+            operationId: operationId.uuidString.lowercased(),
+            deletedAt: Date(),
+            purgeWindowHours: 24
+        )
+    }
+
+    func setAutomaticReauthSuspended(_ suspended: Bool) {}
+
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(
             balance: 0,
