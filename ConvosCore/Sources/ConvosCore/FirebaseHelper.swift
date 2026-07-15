@@ -104,8 +104,8 @@ public enum SharedAppCheckTokenStore {
     }
 
     private enum Constant {
-        static let tokenKey = "appCheck.sharedToken"
-        static let expirationKey = "appCheck.sharedTokenExpiration"
+        static let tokenKey: String = "appCheck.sharedToken"
+        static let expirationKey: String = "appCheck.sharedTokenExpiration"
         static let minimumRemainingLifetime: TimeInterval = 60
     }
 }
