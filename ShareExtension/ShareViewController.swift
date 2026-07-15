@@ -217,8 +217,12 @@ final class ShareComposeModel {
                 try await Self.sendAndAwaitPublish(writer: imageWriter) {
                     try await imageWriter.send(image: photo.image)
                 }
+                Log.info("image attachment published")
             }
-            if !text.isEmpty {
+            if text.isEmpty {
+                Log.info("no text to send (composer text empty after trimming)")
+            } else {
+                Log.info("publishing text (\(text.count) chars)")
                 let textWriter = messagingService.messageWriter(
                     for: targetConversationId,
                     backgroundUploadManager: UnavailableBackgroundUploadManager()

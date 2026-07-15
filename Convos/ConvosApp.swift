@@ -236,6 +236,18 @@ struct ConvosApp: App {
             )
         }
 
+        // Messages the share extension wrote to the shared database from its
+        // own process are invisible to this process's GRDB observation (it
+        // only tracks in-process writes), so the conversation list and open
+        // conversation would show them only after the next app-side write.
+        // Nudge every observation to re-read on foreground.
+        let databaseWriter = convos.databaseWriter
+        Task {
+            try? await databaseWriter.write { db in
+                try db.notifyChanges(in: .fullDatabase)
+            }
+        }
+
         // Opportunistic agent-timezone republish (agent-timezone Channel B).
         // Once per foreground session, after a short settle delay, the session
         // republishes the device timezone for every agent conversation whose
