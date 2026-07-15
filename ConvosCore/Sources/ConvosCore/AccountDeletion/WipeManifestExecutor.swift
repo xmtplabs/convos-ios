@@ -50,6 +50,22 @@ public struct WipeManifestExecutor: Sendable {
         self.handlers = handlers
     }
 
+    /// Entries this executor has handlers for. Wiring tests assert the
+    /// production executor maps every manifest entry to a handler.
+    var handledEntries: Set<WipeManifestEntry> {
+        Set(handlers.keys)
+    }
+
+    /// Runs a single entry's handler, for wiring tests that must drive one
+    /// production handler in isolation. Throws `missingHandler` when the
+    /// entry has none.
+    func run(entry: WipeManifestEntry, record: AccountDeletionRecord) async throws {
+        guard let step = handlers[entry] else {
+            throw WipeManifestExecutorError.missingHandler(entry)
+        }
+        try await step.run(record: record)
+    }
+
     public func run(record: AccountDeletionRecord) async -> WipeManifestRunResult {
         var executed: [WipeManifestEntry] = []
         var failures: [WipeManifestFailure] = []

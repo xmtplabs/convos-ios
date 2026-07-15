@@ -66,4 +66,32 @@ enum AccountDeletionWipeSteps {
     static func wipeImageCaches() async throws {
         try await ImageCacheContainer.shared.removeAllPersistentImagesAndWait()
     }
+
+    /// Address-scoped SIWE JWT slot, named from the record (the identity
+    /// key may already be gone). `deleteAccount` is a seam over the real
+    /// keychain so tests can verify the exact slot the production auth
+    /// path writes is the one deleted.
+    static func wipeSiweJwtSlot(
+        record: AccountDeletionRecord,
+        deleteAccount: (String) throws -> Void = { try KeychainService().delete(account: $0) }
+    ) throws {
+        try deleteAccount(KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress))
+    }
+
+    /// Address-scoped cached backend account-id slot, named from the
+    /// record.
+    static func wipeSiweAccountIdSlot(
+        record: AccountDeletionRecord,
+        deleteAccount: (String) throws -> Void = { try KeychainService().delete(account: $0) }
+    ) throws {
+        try deleteAccount(KeychainAccount.siweAccountId(deviceId: record.deviceId, address: record.ethAddress))
+    }
+
+    /// Legacy device-only JWT slot, named from the record's device id.
+    static func wipeLegacyJwtSlot(
+        record: AccountDeletionRecord,
+        deleteAccount: (String) throws -> Void = { try KeychainService().delete(account: $0) }
+    ) throws {
+        try deleteAccount(KeychainAccount.jwt(deviceId: record.deviceId))
+    }
 }

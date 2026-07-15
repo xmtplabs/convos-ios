@@ -284,14 +284,26 @@ public actor AccountDeletionService {
             existingRecord = nil
         }
 
-        if existingRecord == nil, didCompleteTeardown, (try? dependencies.loadIdentity()) == nil {
-            // A teardown already completed in this process and no new
-            // identity exists: the account is gone. A caller serialized
-            // behind the completing run lands here; report completion
-            // rather than a false "identity unavailable" failure.
-            dependencies.setReauthSuspended(false)
-            onProgress(.completed)
-            return
+        if existingRecord == nil, didCompleteTeardown {
+            // A teardown already completed in this process. Only a
+            // successful keychain read that finds no identity proves the
+            // account is gone; then a caller serialized behind the
+            // completing run gets completion rather than a false
+            // "identity unavailable" failure. A read error is not that
+            // proof — a re-provisioned identity may exist behind it — so
+            // fail retryably instead of claiming success.
+            let liveIdentity: KeychainIdentity?
+            do {
+                liveIdentity = try dependencies.loadIdentity()
+            } catch {
+                dependencies.setReauthSuspended(false)
+                throw AccountDeletionError.identityUnavailable
+            }
+            if liveIdentity == nil {
+                dependencies.setReauthSuspended(false)
+                onProgress(.completed)
+                return
+            }
         }
 
         let active: AccountDeletionRecord
@@ -375,6 +387,17 @@ public actor AccountDeletionService {
                 }
                 return
             }
+            if record.phase == .requested, record.sendAttempted != true {
+                // No durable send marker means the request was provably
+                // never sent (sends happen only after the marker persists)
+                // - including the case where the user saw a failure but
+                // neither the clear nor the abort marker could be written.
+                // Never auto-send at launch: hold and surface; the settings
+                // pending row offers the explicit retry, and the account is
+                // alive so re-auth stays untouched.
+                Log.warning("AccountDeletion: requested record has no send marker; holding for explicit retry, never auto-sending")
+                return
+            }
             dependencies.setReauthSuspended(true)
             switch record.phase {
             case .requested:
@@ -454,13 +477,23 @@ public actor AccountDeletionService {
                 record = existing
             }
         case .none:
-            if didCompleteTeardown, identity == nil {
-                // The wipe already ran in this process (this caller was
-                // serialized behind the completing run); nothing is left
-                // to tear down.
-                dependencies.setReauthSuspended(false)
-                onProgress(.completed)
-                return
+            if didCompleteTeardown {
+                // The wipe already ran in this process. Completion may be
+                // reported only when the keychain readably holds no
+                // identity; a read error could hide a re-provisioned
+                // identity, so it fails retryably rather than claiming
+                // the wipe covered it.
+                let liveIdentity: KeychainIdentity?
+                do {
+                    liveIdentity = try dependencies.loadIdentity()
+                } catch {
+                    throw AccountDeletionError.identityUnavailable
+                }
+                if liveIdentity == nil {
+                    dependencies.setReauthSuspended(false)
+                    onProgress(.completed)
+                    return
+                }
             }
             record = try await beginRemoteWipeRecord(identity: identity)
         case .corrupted:
@@ -529,6 +562,24 @@ public actor AccountDeletionService {
                 try await clearRecordAfterPreflightFailure(preflightError: error)
             }
             throw AccountDeletionError.preflightFailed(underlying: error)
+        }
+
+        if record.sendAttempted != true {
+            do {
+                // Durably record that a send is about to happen. Launch
+                // recovery auto-resends only records carrying this marker,
+                // so a record whose failure the user already saw (and
+                // whose abort marker could not be persisted) can never be
+                // silently re-sent. If the marker itself cannot be
+                // persisted, do not send: an unmarked record with an
+                // in-flight request would be exactly that ambiguity.
+                try await store.markSendAttempted()
+            } catch {
+                if clearRecordOnPreflightFailure {
+                    try await clearRecordAfterPreflightFailure(preflightError: error)
+                }
+                throw AccountDeletionError.preflightFailed(underlying: error)
+            }
         }
 
         do {
@@ -613,7 +664,12 @@ public actor AccountDeletionService {
                 // without needing the (about to be swept) cached token.
                 try await store.advance(to: .backendConfirmed)
             } catch {
-                Log.warning("AccountDeletion: could not persist displaced record confirmation: \(error)")
+                // With the confirmation unpersisted, the cached-token slot
+                // is still the record's only recovery channel; never
+                // destroy it in that state. Hold and retry later — the
+                // endpoint call is idempotent for this operation.
+                Log.error("AccountDeletion: could not persist displaced record confirmation; keeping the record and its slots for a retry: \(error)")
+                return false
             }
         }
         await dependencies.sweepRecordScopedSlots(record)

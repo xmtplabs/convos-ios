@@ -80,6 +80,13 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
     /// deletion, so the UI's clean-failure report stays truthful. Optional
     /// so records written before this field existed decode as nil.
     public private(set) var preflightAborted: Bool?
+    /// True once the flow has durably committed to sending the deletion
+    /// request; written before the request goes out, so its absence proves
+    /// the request was never sent. Launch recovery auto-resends only
+    /// records carrying this marker: an unmarked `requested` record (e.g.
+    /// one whose failure the user saw but whose cleanup could not be
+    /// persisted) is held for explicit retry, never silently re-sent.
+    public private(set) var sendAttempted: Bool?
 
     public init(
         operationId: UUID,
@@ -104,12 +111,20 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
         self.wipeStartedAt = nil
         self.purgeWindowHours = nil
         self.preflightAborted = nil
+        self.sendAttempted = nil
     }
 
     /// Returns a copy marked preflight-aborted (see `preflightAborted`).
     public func markedPreflightAborted() -> AccountDeletionRecord {
         var copy = self
         copy.preflightAborted = true
+        return copy
+    }
+
+    /// Returns a copy marked send-attempted (see `sendAttempted`).
+    public func markedSendAttempted() -> AccountDeletionRecord {
+        var copy = self
+        copy.sendAttempted = true
         return copy
     }
 

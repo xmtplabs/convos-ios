@@ -191,4 +191,24 @@ struct AccountDeletionStateStoreTests {
         #expect(loaded.phase == .requested)
         #expect(loaded.operationId == record.operationId)
     }
+
+    @Test("Send-attempted marker round-trips in one atomic write and preserves the record")
+    func sendAttemptedMarkerRoundTrips() async throws {
+        let directory = try makeTempDirectory()
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        let record = makeRecord()
+        try await store.begin(record)
+        #expect(store.load().activeRecord?.sendAttempted == nil)
+
+        try await store.markSendAttempted()
+
+        let reopened = AccountDeletionStateStore(directoryURL: directory)
+        let loaded = try #require(reopened.load().activeRecord)
+        #expect(loaded.sendAttempted == true)
+        #expect(loaded.phase == .requested)
+        #expect(loaded.operationId == record.operationId)
+        // The marker survives phase advancement.
+        let advanced = try await store.advance(to: .backendConfirmed)
+        #expect(advanced.sendAttempted == true)
+    }
 }

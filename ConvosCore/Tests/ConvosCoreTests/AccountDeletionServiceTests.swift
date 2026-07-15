@@ -30,11 +30,14 @@ struct AccountDeletionServiceTests {
         }
     }
 
+    private struct KeychainReadFailure: Error {}
+
     private struct Config {
         var identity: KeychainIdentity?
         /// When set, wins over `identity`: lets a test change the loadable
-        /// identity mid-flow (e.g. the wipe emptying the keychain).
-        var identityProvider: (@Sendable () -> KeychainIdentity?)?
+        /// identity mid-flow (e.g. the wipe emptying the keychain) or make
+        /// the read itself fail.
+        var identityProvider: (@Sendable () throws -> KeychainIdentity?)?
         var mint: @Sendable (KeychainIdentity) async throws -> String = { _ in "jwt" }
         var deletion: (@Sendable (UUID, String) async throws -> ConvosAPI.AccountDeletionResponse)?
         var failingEntries: Set<WipeManifestEntry> = []
@@ -69,13 +72,13 @@ struct AccountDeletionServiceTests {
         }
         let failingEntries = config.failingEntries
         let identity = config.identity
-        let loadIdentity: @Sendable () -> KeychainIdentity? = config.identityProvider ?? { identity }
+        let loadIdentity: @Sendable () throws -> KeychainIdentity? = config.identityProvider ?? { identity }
         let mint = config.mint
         let wipeHandler = config.wipeHandler
         let cachedToken = config.cachedToken
         let ethAddress = config.ethAddress
         let dependencies = AccountDeletionDependencies(
-            loadIdentity: { loadIdentity() },
+            loadIdentity: { try loadIdentity() },
             deviceId: { "device-1" },
             ethAddress: ethAddress,
             mintToken: { identityValue in
@@ -198,6 +201,7 @@ struct AccountDeletionServiceTests {
             ethAddress: "0xabc", deviceId: "device-1"
         )
         try await store.begin(record)
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: identity)
@@ -219,6 +223,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: identity.inboxId, clientId: identity.clientId,
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: identity)
@@ -276,6 +281,7 @@ struct AccountDeletionServiceTests {
             operationId: operationId, inboxId: identity.inboxId, clientId: identity.clientId,
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         let service = makeService(store: store, events: events, config: Config(identity: identity))
@@ -413,6 +419,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
             ethAddress: "0xaaa", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: try makeIdentity())
@@ -469,6 +476,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
             ethAddress: "0xaaa", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: try makeIdentity())
@@ -482,6 +490,47 @@ struct AccountDeletionServiceTests {
         #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
     }
 
+    @Test("A displaced confirmation that cannot be persisted keeps the record and its slots")
+    func displacedConfirmationPersistFailureKeepsSlots() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-deletion-service-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+        try await store.markSendAttempted()
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.cachedToken = { _ in "cached-jwt-A" }
+        config.deletion = { operationId, _ in
+            // The backend confirms, but the confirmation cannot be
+            // persisted (store directory locked before returning).
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+            return ConvosAPI.AccountDeletionResponse(
+                status: "deleted",
+                operationId: operationId.uuidString.lowercased(),
+                deletedAt: Date(),
+                purgeWindowHours: 24
+            )
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+        // With the confirmation unpersisted, the cached-token slot is the
+        // record's only recovery channel: it must survive, and the record
+        // must hold for a later retry.
+        #expect(!events.events.contains(where: { $0.hasPrefix("sweepRecordScopedSlots(") }))
+        #expect(store.load().activeRecord?.phase == .requested)
+    }
+
     @Test("A displaced record still confirms its backend deletion via a surviving cached token")
     func displacedRecordConfirmsWithCachedToken() async throws {
         let store = try makeStore()
@@ -490,6 +539,7 @@ struct AccountDeletionServiceTests {
             operationId: operationId, inboxId: "inbox-A", clientId: "client-A",
             ethAddress: "0xaaa", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: try makeIdentity())
@@ -534,6 +584,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         let service = makeService(store: store, events: events, config: Config(identity: nil))
@@ -554,6 +605,7 @@ struct AccountDeletionServiceTests {
             operationId: operationId, inboxId: "inbox-1", clientId: "client-1",
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: nil)
@@ -605,6 +657,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let events = EventLog()
         var config = Config(identity: nil)
@@ -637,6 +690,7 @@ struct AccountDeletionServiceTests {
             operationId: UUID(), inboxId: identity.inboxId, clientId: identity.clientId,
             ethAddress: "0xabc", deviceId: "device-1"
         ))
+        try await store.markSendAttempted()
 
         let identityBox = OSAllocatedUnfairLock<KeychainIdentity?>(initialState: identity)
         let events = EventLog()
@@ -670,6 +724,67 @@ struct AccountDeletionServiceTests {
         #expect(events.events.filter { $0 == "wipe(\(WipeManifestEntry.databaseRows.rawValue))" }.count == 1)
         #expect(progressLog.events.last == "completed")
         #expect(store.load().activeRecord == nil)
+    }
+
+    @Test("After a completed teardown, a keychain read error fails a delete retryably, never as false success")
+    func completedTeardownKeychainReadErrorFailsDelete() async throws {
+        let store = try makeStore()
+        let identity = try makeIdentity()
+        let failReads = OSAllocatedUnfairLock(initialState: false)
+        let events = EventLog()
+        var config = Config(identity: nil)
+        config.identityProvider = {
+            if failReads.withLock({ $0 }) { throw KeychainReadFailure() }
+            return identity
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        // First delete completes the teardown (sets the process marker).
+        try await service.deleteAccount { _ in }
+        #expect(store.load().activeRecord == nil)
+
+        // The keychain becomes unreadable: a re-provisioned identity could
+        // exist behind the error, so the next delete must fail retryably
+        // instead of reporting the earlier completion as its own.
+        failReads.withLock { $0 = true }
+        let progressLog = EventLog()
+        do {
+            try await service.deleteAccount { progressLog.record("\($0)") }
+            Issue.record("Expected identityUnavailable")
+        } catch AccountDeletionError.identityUnavailable {
+            // Expected: retryable, no success claimed.
+        }
+        #expect(!progressLog.contains("completed"))
+        #expect(events.events.filter { $0.hasPrefix("delete(") }.count == 1)
+    }
+
+    @Test("After a completed teardown, a keychain read error fails a remote wipe retryably, never as false success")
+    func completedTeardownKeychainReadErrorFailsRemoteWipe() async throws {
+        let store = try makeStore()
+        let identity = try makeIdentity()
+        let failReads = OSAllocatedUnfairLock(initialState: false)
+        let events = EventLog()
+        var config = Config(identity: nil)
+        config.identityProvider = {
+            if failReads.withLock({ $0 }) { throw KeychainReadFailure() }
+            return identity
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        try await service.deleteAccount { _ in }
+        let wipesAfterDelete = events.events.filter { $0 == "wipe(\(WipeManifestEntry.databaseRows.rawValue))" }.count
+        #expect(wipesAfterDelete == 1)
+
+        failReads.withLock { $0 = true }
+        let progressLog = EventLog()
+        do {
+            try await service.wipeAfterRemoteDeletion { progressLog.record("\($0)") }
+            Issue.record("Expected identityUnavailable")
+        } catch AccountDeletionError.identityUnavailable {
+            // Expected: retryable, no success claimed.
+        }
+        #expect(!progressLog.contains("completed"))
+        #expect(events.events.filter { $0 == "wipe(\(WipeManifestEntry.databaseRows.rawValue))" }.count == wipesAfterDelete)
     }
 
     // MARK: - Local-reset gate
@@ -768,6 +883,52 @@ struct AccountDeletionServiceTests {
         // The account is alive and no deletion was sent; re-auth resumes.
         #expect(events.events.last == "reauthSuspended(false)")
         #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
+
+        // Worst case: neither the clear nor the abort marker could be
+        // persisted (both writes hit the locked directory). The surviving
+        // record has no send marker, so launch recovery must hold it and
+        // never silently re-send the deletion the user was told failed.
+        let recoveryEvents = EventLog()
+        var recoveryConfig = Config(identity: try makeIdentity())
+        recoveryConfig.mint = { _ in
+            Issue.record("Recovery must never re-send a deletion whose failure the user saw")
+            throw APIError.invalidRequest
+        }
+        recoveryConfig.deletion = { _, _ in
+            Issue.record("Recovery must never re-send a deletion whose failure the user saw")
+            throw APIError.invalidRequest
+        }
+        let recoveryService = makeService(store: store, events: recoveryEvents, config: recoveryConfig)
+        await recoveryService.recoverAtLaunch()
+        #expect(store.load().activeRecord?.phase == .requested)
+        #expect(recoveryEvents.events.isEmpty)
+    }
+
+    @Test("A requested record without the send marker is held at launch, never auto-sent")
+    func unsentRequestedRecordHeldAtLaunch() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-1", clientId: "client-1",
+            ethAddress: "0xabc", deviceId: "device-1"
+        ))
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.mint = { _ in
+            Issue.record("An unmarked record must never mint at launch")
+            throw APIError.invalidRequest
+        }
+        config.deletion = { _, _ in
+            Issue.record("An unmarked record must never be sent at launch")
+            throw APIError.invalidRequest
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        // Held and surfaced (the settings pending row offers the explicit
+        // retry); the account is alive so re-auth stays untouched.
+        #expect(store.load().activeRecord?.phase == .requested)
+        #expect(events.events.isEmpty)
     }
 
     @Test("An aborted pre-send record is cleared at launch without re-sending the deletion")

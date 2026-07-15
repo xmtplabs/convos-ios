@@ -244,19 +244,15 @@ extension SessionManager {
         }
 
         handlers[.siweJwtSlot] = WipeStep { record in
-            try KeychainService().delete(
-                account: KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress)
-            )
+            try AccountDeletionWipeSteps.wipeSiweJwtSlot(record: record)
         }
 
         handlers[.siweAccountIdSlot] = WipeStep { record in
-            try KeychainService().delete(
-                account: KeychainAccount.siweAccountId(deviceId: record.deviceId, address: record.ethAddress)
-            )
+            try AccountDeletionWipeSteps.wipeSiweAccountIdSlot(record: record)
         }
 
         handlers[.legacyJwtSlot] = WipeStep { record in
-            try KeychainService().delete(account: KeychainAccount.jwt(deviceId: record.deviceId))
+            try AccountDeletionWipeSteps.wipeLegacyJwtSlot(record: record)
         }
 
         handlers[.databaseRows] = WipeStep { [databaseWriter] _ in

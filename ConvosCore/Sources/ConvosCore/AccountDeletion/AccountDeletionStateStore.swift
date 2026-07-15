@@ -137,6 +137,15 @@ public actor AccountDeletionStateStore {
         try write(current.markedPreflightAborted())
     }
 
+    /// Marks the current record send-attempted, in one atomic record
+    /// write. The deletion flow persists this before the request goes out;
+    /// launch recovery auto-resends only marked records. A no-op when no
+    /// record is loadable.
+    public func markSendAttempted() throws {
+        guard let current = load().activeRecord else { return }
+        try write(current.markedSendAttempted())
+    }
+
     /// Clears the record; the `completed` transition and the final act of
     /// the wipe. Idempotent.
     public func clear() throws {
