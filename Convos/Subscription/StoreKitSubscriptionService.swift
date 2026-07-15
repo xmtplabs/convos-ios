@@ -1,6 +1,7 @@
 import Combine
 import ConvosCore
 import Foundation
+import os
 import StoreKit
 
 public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
@@ -28,6 +29,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// in this process. See `refreshFromEntitlements()` for why per-launch
     /// forwarding (not persisted) is the right granularity.
     private var forwardedTransactionIds: Set<UInt64> = []
+    /// JWS of the entitlement whose verify most recently rejected with a
+    /// claimable ownership mismatch (the provider key belongs to a deleted
+    /// or transferable account). Lock-backed so the protocol's synchronous
+    /// `reclaimCandidateAvailable` can read it without an actor hop.
+    private nonisolated let claimCandidateJWS: OSAllocatedUnfairLock<String?> = .init(initialState: nil)
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -206,11 +212,71 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async -> Bool {
         do {
             _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
+            claimCandidateJWS.withLock { $0 = nil }
             return true
+        } catch APIError.conflict(let details) where details.code == BackendErrorCode.subscriptionAccountMismatch {
+            // Ownership mismatch. When the backend signals the claim may
+            // succeed for this caller (deleted prior owner, no cooldown
+            // block), remember the proof so an explicit Restore act can
+            // offer the reclaim. Informative only - the claim endpoint
+            // re-evaluates authoritatively.
+            let claimable = details.claimable == true
+            claimCandidateJWS.withLock { $0 = claimable ? jwsRepresentation : nil }
+            Log.warning("Backend verify 409 subscription_account_mismatch for transaction \(transactionId) (claimable: \(claimable))")
+            return false
         } catch {
             Log.error("Backend verify failed for transaction \(transactionId): \(error)")
             return false
         }
+    }
+
+    // MARK: - Reclaim (explicit user act)
+
+    nonisolated public var reclaimCandidateAvailable: Bool {
+        claimCandidateJWS.withLock { $0 != nil }
+    }
+
+    nonisolated public var pendingClaimContestEndsAt: Date? {
+        UserDefaults.standard.object(forKey: Constant.pendingClaimContestEndsAtKey) as? Date
+    }
+
+    public func reclaimSubscription() async throws -> SubscriptionClaimOutcome {
+        guard let jws = claimCandidateJWS.withLock({ $0 }) else {
+            throw SubscriptionClaimError.noCandidate
+        }
+        // Fresh limited-use attestation per attempt: the server consumes
+        // it, so a retried claim must never reuse a token.
+        let appCheckToken = try await FirebaseHelperCore.getLimitedUseAppCheckToken()
+        do {
+            let outcome = try await apiClient.claimSubscription(jwsRepresentation: jws, appCheckToken: appCheckToken)
+            claimCandidateJWS.withLock { $0 = nil }
+            switch outcome {
+            case .transferred(let subscription):
+                UserDefaults.standard.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+                publish(subscription)
+                await CreditsServices.shared.refresh(force: true)
+            case .pending(let contestEndsAt):
+                if let contestEndsAt {
+                    UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+                }
+            }
+            return outcome
+        } catch SubscriptionClaimError.rejected(.pendingContest(let contestEndsAt)) {
+            if let contestEndsAt {
+                UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+            }
+            throw SubscriptionClaimError.rejected(.pendingContest(contestEndsAt: contestEndsAt))
+        }
+    }
+
+    /// Clears an expired pending-claim marker so the normal verify path
+    /// reconciles the outcome (no push comes to the claimant).
+    private func reconcileExpiredPendingClaim() {
+        guard let deadline = pendingClaimContestEndsAt, deadline <= Date() else { return }
+        UserDefaults.standard.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+        // Force re-forwarding of entitlements so verify reflects the
+        // transfer outcome.
+        forwardedTransactionIds.removeAll()
     }
 
     public func refresh(force: Bool) async {
@@ -218,6 +284,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
            Date().timeIntervalSince(last) < Self.refreshTTL {
             return
         }
+        reconcileExpiredPendingClaim()
         await refreshFromEntitlements()
         lastFetchedAt = Date()
     }
@@ -408,6 +475,18 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private enum Constant {
         static let appAccountTokenKey: String = "storeKit.appAccountToken"
         static let lastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
+        static let pendingClaimContestEndsAtKey: String = "storeKit.pendingClaimContestEndsAt"
+    }
+
+    /// Account-deletion wipe step: removes every StoreKit binding tying
+    /// this install to the deleted account. The `appAccountToken` in
+    /// particular is bound to the deleted account's Apple buyer record;
+    /// a later account on this install must mint a fresh one.
+    public static func wipeAccountScopedState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Constant.appAccountTokenKey)
+        defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
+        defaults.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
     }
 
     /// Persist the most recently published subscription snapshot so the next

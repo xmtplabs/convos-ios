@@ -302,4 +302,8 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
         throw MockAPIError.invalidURL
     }
+
+    func claimSubscription(jwsRepresentation: String, appCheckToken: String) async throws -> SubscriptionClaimOutcome {
+        throw SubscriptionClaimError.notFound
+    }
 }

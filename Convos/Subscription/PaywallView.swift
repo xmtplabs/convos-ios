@@ -72,6 +72,28 @@ struct PaywallView: View {
         } message: { message in
             Text(message)
         }
+        .alert(
+            "Reclaim subscription?",
+            isPresented: $viewModel.isShowingReclaimPrompt
+        ) {
+            reclaimPromptButtons
+        } message: {
+            Text(Self.reclaimPromptMessage)
+        }
+    }
+
+    private static let reclaimPromptMessage: String = """
+    This subscription is linked to a previous account. Move it to this \
+    account? If the previous account is still active, the transfer can \
+    take a few days and may be contested. If it can't be moved \
+    automatically, contact support.
+    """
+
+    @ViewBuilder
+    private var reclaimPromptButtons: some View {
+        let reclaimAction = { viewModel.reclaimConfirmed() }
+        Button("Reclaim", action: reclaimAction)
+        Button("Cancel", role: .cancel) {}
     }
 
     // MARK: - Hero

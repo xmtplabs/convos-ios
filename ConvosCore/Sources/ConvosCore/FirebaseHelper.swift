@@ -32,6 +32,15 @@ public enum FirebaseHelperCore {
         let result = try await AppCheck.appCheck().token(forcingRefresh: forceRefresh)
         return result.token
     }
+
+    /// Mints a limited-use (consumable) App Check token. Required by
+    /// server routes that consume the attestation — e.g. the subscription
+    /// claim endpoint. Never reuse one across attempts: a consumed token
+    /// replays as invalid.
+    public static func getLimitedUseAppCheckToken() async throws -> String {
+        let result = try await AppCheck.appCheck().limitedUseToken()
+        return result.token
+    }
 }
 
 final class AppAttestFactory: NSObject, AppCheckProviderFactory {

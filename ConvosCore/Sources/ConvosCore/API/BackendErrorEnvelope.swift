@@ -28,6 +28,14 @@ struct BackendErrorEnvelope: Decodable {
     let code: String?
     let claimable: Bool?
     let reason: String?
+    /// Carried by claim rejections whose reason is `pending_contest` (and
+    /// by the 202 pending body, decoded separately).
+    let contestEndsAt: String?
+
+    var contestEndsAtDate: Date? {
+        guard let contestEndsAt else { return nil }
+        return ISO8601DateFormatter().date(from: contestEndsAt)
+    }
 
     static func parse(from data: Data) -> BackendErrorEnvelope? {
         try? JSONDecoder().decode(BackendErrorEnvelope.self, from: data)

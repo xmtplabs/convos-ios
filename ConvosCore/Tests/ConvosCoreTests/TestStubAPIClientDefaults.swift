@@ -43,6 +43,10 @@ extension ConvosAPIClientProtocol {
         throw CancellationError()
     }
 
+    func claimSubscription(jwsRepresentation: String, appCheckToken: String) async throws -> SubscriptionClaimOutcome {
+        throw SubscriptionClaimError.notFound
+    }
+
     /// Default for the post-`options:` `requestAgentJoin` signature so
     /// pre-existing test mocks (which still carry the old
     /// `slug:templateId:forceErrorCode:` shape) don't have to re-stub it

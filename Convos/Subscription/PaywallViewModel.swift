@@ -17,6 +17,10 @@ final class PaywallViewModel {
     var isShowingAlert: Bool = false
     var alertTitle: String = ""
     var alertMessage: String?
+    /// Restore found a subscription tied to a deleted (or transferable)
+    /// prior account; asks the user to confirm the explicit reclaim.
+    var isShowingReclaimPrompt: Bool = false
+    private(set) var isReclaiming: Bool = false
     private(set) var products: [PaywallProduct] = []
     private(set) var currentSubscription: UserSubscription?
     private(set) var isLoadingProducts: Bool = false
@@ -188,9 +192,90 @@ final class PaywallViewModel {
             try await subscriptionService.restorePurchases()
             let restoredCount: Int = (subscriptionService.currentSubscription != nil) ? 1 : 0
             Task { await actions.purchasesRestored(restoredCount: restoredCount) }
+            // Restore surfaced a subscription bound to a deleted prior
+            // account. Offer the one-time reclaim; the claim itself only
+            // ever runs from the user's explicit confirmation.
+            if subscriptionService.reclaimCandidateAvailable {
+                isShowingReclaimPrompt = true
+            }
         } catch {
             Log.error("Paywall restore failed: \(error)")
             showAlert(title: "Couldn't restore", message: "Restore failed. Please try again.")
+        }
+    }
+
+    func reclaimConfirmed() {
+        Task { await reclaim() }
+    }
+
+    private func reclaim() async {
+        guard !isReclaiming else { return }
+        isReclaiming = true
+        defer { isReclaiming = false }
+        do {
+            let outcome = try await subscriptionService.reclaimSubscription()
+            switch outcome {
+            case .transferred:
+                showAlert(
+                    title: "Subscription restored",
+                    message: "Your subscription is now linked to this account."
+                )
+            case .pending(let contestEndsAt):
+                showAlert(title: "Transfer pending", message: Self.pendingCopy(contestEndsAt: contestEndsAt))
+            }
+        } catch let error as SubscriptionClaimError {
+            let content: (title: String, message: String) = Self.reclaimErrorCopy(for: error)
+            Log.error("Subscription reclaim failed: \(error)")
+            showAlert(title: content.title, message: content.message)
+        } catch {
+            Log.error("Subscription reclaim failed: \(error)")
+            showAlert(title: "Couldn't reclaim", message: "Something went wrong. Please try again.")
+        }
+    }
+
+    private static func pendingCopy(contestEndsAt: Date?) -> String {
+        let deadline: String
+        if let contestEndsAt {
+            deadline = "around \(contestEndsAt.formatted(date: .abbreviated, time: .shortened))"
+        } else {
+            deadline = "in a few days"
+        }
+        return "The transfer completes \(deadline) unless the previous account objects. Check back after that - no notification is sent."
+    }
+
+    private static func reclaimErrorCopy(for error: SubscriptionClaimError) -> (title: String, message: String) {
+        switch error {
+        case .noCandidate:
+            return ("Nothing to reclaim", "No transferable subscription was found for this account.")
+        case .invalidProof:
+            return ("Couldn't verify purchase", "The App Store couldn't confirm this subscription is active. Try again, or manage it in your App Store settings.")
+        case .appAttestationRequired:
+            return ("Couldn't verify this device", "Device verification failed. Please try again.")
+        case .notFound:
+            return ("No subscription found", "The App Store purchase couldn't be matched to a subscription.")
+        case .rejected(let reason):
+            return reclaimRejectionCopy(for: reason)
+        case .rateLimited:
+            return ("Too many attempts", "Please wait a moment and try again.")
+        case .serverError:
+            return ("Couldn't reclaim", "Something went wrong. Please try again later.")
+        }
+    }
+
+    private static func reclaimRejectionCopy(for reason: SubscriptionClaimRejectionReason) -> (title: String, message: String) {
+        switch reason {
+        case .notEntitled:
+            return ("Subscription not active", "The App Store reports this subscription is no longer active.")
+        case .cooldown:
+            return ("Recently transferred", "This subscription changed accounts within the last 30 days. Please contact support.")
+        case .undoConsumed, .transferFrozen:
+            return ("Can't transfer automatically", "This subscription can't be reclaimed automatically anymore. Please contact support.")
+        case .lineageUnresolved:
+            return ("Try again later", "We couldn't resolve this purchase yet. Please try again in a little while.")
+        case .pendingContest(let contestEndsAt):
+            return ("Transfer already pending", pendingCopy(contestEndsAt: contestEndsAt))
+        case .unknown:
+            return ("Couldn't reclaim", "This subscription can't be reclaimed right now. Please contact support.")
         }
     }
 

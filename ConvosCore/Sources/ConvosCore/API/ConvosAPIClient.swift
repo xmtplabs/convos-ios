@@ -245,6 +245,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription
+
+    /// Claims a subscription whose provider key belongs to a deleted (or
+    /// transferable) account into the caller's live account
+    /// (`POST /v2/accounts/me/subscription/claim`). Only ever called from
+    /// an explicit user act. `appCheckToken` must be a fresh limited-use
+    /// App Check token per attempt — the server consumes it.
+    func claimSubscription(jwsRepresentation: String, appCheckToken: String) async throws -> SubscriptionClaimOutcome
 }
 
 extension ConvosAPIClientProtocol {
@@ -522,7 +529,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Private Helpers
 
-    private func authenticatedRequest(
+    func authenticatedRequest(
         for path: String,
         method: String = "GET",
         queryParameters: [String: String]? = nil
@@ -623,7 +630,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    private func performAuthenticatedRequest(
+    func performAuthenticatedRequest(
         _ request: URLRequest,
         retryCount: Int = 0
     ) async throws -> (Data, HTTPURLResponse) {
