@@ -60,7 +60,7 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         return state.withLock { $0 }
     }
 
-    func loadSyncedBackups() throws -> [KeychainIdentityBackup] {
+    nonisolated func loadSyncedBackups() throws -> [KeychainIdentityBackup] {
         backupState.withLock { Array($0.values) }
     }
 

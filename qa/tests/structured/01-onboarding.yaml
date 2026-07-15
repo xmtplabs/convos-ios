@@ -50,8 +50,9 @@ steps:
     criteria: first_launch_sheet_appears
     note: >
       The "Hello / My name is" sheet self-presents over the Chats tab once the
-      inbox is ready (it waits for the global profile load, so allow up to
-      20s on a cold fresh install). It presents on every launch while the
+      inbox is ready. On a true fresh install (no identity in the keychain
+      yet) it presents immediately; after a reinstall it waits for the
+      restored profile to load, however long that takes. It presents on every launch while the
       user has no name or photo set — the shown-once latch was removed — and
       it only shows when no other device's identity exists in the
       iCloud-synced keychain backup; an erased simulator satisfies that. If
@@ -101,11 +102,10 @@ steps:
       - element_not_exists: { id: "setup-profile-button" }
     criteria: no_profile_reprompt
     note: >
-      The profile was set on the first-launch sheet, so the legacy
-      in-conversation "Add your name and pic" prompt must not appear. (That
-      flow still exists as a fallback for users who enable the CTA but swipe
-      the sheet away without saving; the sheet re-presents on the next
-      launch while the profile stays unset — see 01b in the markdown doc.)
+      The in-conversation "Add your name and pic" prompt was removed
+      entirely — the Nametag sheet is the only profile-setup surface. An
+      unnamed user (CTA enabled then swiped away without saving) simply
+      chats as "Somebody" and the sheet re-presents on the next launch.
 
   - id: notification_permission
     name: "Notification permission step shown"

@@ -53,8 +53,8 @@ steps:
     criteria: device_a_creates_and_names
     note: >
       On a freshly erased device the "Hello / My name is" first-launch sheet
-      self-presents over the Chats tab (see test 01). Setting the name here
-      replaces the old in-conversation setup-profile-button flow. A human
+      self-presents over the Chats tab (see test 01) and is the only
+      profile-setup surface. A human
       contact is only visible when it has a displayName
       (isVisibleInContactsList); Device A names itself "Alice" so Device B
       sees a named contact, not the hidden "Somebody" default.
@@ -74,8 +74,8 @@ steps:
       existing contacts; on a freshly erased device the list is empty). Tap
       contacts-picker-confirm (label "Skip") to reach the new-conversation/invite
       screen. It is optional because the picker only appears in compose mode.
-      The profile was already set on the first-launch sheet, so the
-      setup-profile-button banner must not appear here.
+      The profile was already set on the first-launch sheet; the inline
+      setup-profile-button flow no longer exists.
 
   - id: extract_invite_url
     name: "Extract invite URL from Device A and derive the local deeplink"
@@ -128,9 +128,9 @@ steps:
       Open invite_deeplink (the convos-local:// form). If the open was routed
       through Safari, iOS shows an "Open in Convos?" prompt - tap Open (optional,
       only appears when Safari was foreground). The global profile set on the
-      first-launch sheet auto-applies to the joined conversation, so the
-      setup-profile-button banner must not appear and the joined screen reads
-      "You joined as Bob". Device A auto-processes the join request.
+      first-launch sheet auto-applies to the joined conversation (the
+      inline setup-profile-button flow no longer exists) and the joined
+      screen reads "You joined as Bob". Device A auto-processes the join request.
 
   - id: exchange_messages
     name: "Two-way messaging (satisfies the contact-sync gate on both devices)"

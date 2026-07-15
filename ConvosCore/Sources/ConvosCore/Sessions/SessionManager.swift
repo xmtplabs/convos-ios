@@ -75,6 +75,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
     private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
+    /// Whether this launch's first identity resolution found an empty
+    /// keychain and registered a fresh identity. Nil until the first
+    /// successful `loadSync` inside `loadOrCreateService`. Its own lock,
+    /// NOT `cachedMessagingService`: that lock is held for the whole
+    /// service build (client creation + backend auth), and readers of
+    /// this latch must never queue behind it.
+    private let didRegisterFreshIdentity: OSAllocatedUnfairLock<Bool?> = .init(initialState: nil)
+
     /// Wall-clock of the last `identityStore.loadSync()` failure, lock-
     /// protected via the same lock as `cachedMessagingService` (both live
     /// inside the same `withLock` block). Used together with
@@ -345,6 +353,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 identity = try identityStore.loadSync()
                 lastKeychainReadFailure = nil
                 consecutiveKeychainReadFailures = 0
+                // First successful identity resolution of this launch:
+                // an empty keychain here means we are about to register a
+                // brand-new identity (a reinstall would have authorized
+                // the surviving one). Later rebuilds don't overwrite it.
+                let isFresh = identity == nil
+                didRegisterFreshIdentity.withLock { latch in
+                    if latch == nil { latch = isFresh }
+                }
             } catch {
                 lastKeychainReadFailure = Date()
                 consecutiveKeychainReadFailures += 1
@@ -1139,13 +1155,23 @@ public extension SessionManager {
     /// told apart from another device's.
     func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         do {
-            let backups = try await identityStore.loadSyncedBackups()
+            let backups = try identityStore.loadSyncedBackups()
             let currentInboxId = try identityStore.loadSync()?.inboxId
             return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
         } catch {
             Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")
             return []
         }
+    }
+
+    /// True when this launch's first service build found an empty
+    /// keychain and registered a brand-new identity - a provably fresh
+    /// install (delete+reinstall keeps the keychain, so a reinstall
+    /// authorizes the surviving identity instead). False while the
+    /// resolution hasn't happened yet or when the keychain was unreadable
+    /// - conservative for callers gating fresh-install-only behavior.
+    func registeredFreshIdentityThisLaunch() async -> Bool {
+        didRegisterFreshIdentity.withLock { $0 ?? false }
     }
 
     /// Same slot read as `pairableDeviceBackups`, but shaped for the
@@ -1163,7 +1189,7 @@ public extension SessionManager {
     /// as `pairableBackups`' nil-hides contract).
     func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
         do {
-            let backups = try await identityStore.loadSyncedBackups()
+            let backups = try identityStore.loadSyncedBackups()
             let currentInboxId = try identityStore.loadSync()?.inboxId
             return ICloudDeviceBackupsSnapshot.snapshot(from: backups, currentInboxId: currentInboxId)
         } catch {
@@ -1178,7 +1204,7 @@ public extension SessionManager {
     /// device itself, so the joiner's signature and identity-share address
     /// checks hold unchanged.
     func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
-        let backups = try await identityStore.loadSyncedBackups()
+        let backups = try identityStore.loadSyncedBackups()
         guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
             throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
         }
