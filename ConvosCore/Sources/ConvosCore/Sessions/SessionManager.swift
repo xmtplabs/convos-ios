@@ -75,6 +75,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
     private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
+    /// Whether this launch's first identity resolution found an empty
+    /// keychain and registered a fresh identity. Nil until the first
+    /// successful `loadSync` inside `loadOrCreateService`. Its own lock,
+    /// NOT `cachedMessagingService`: that lock is held for the whole
+    /// service build (client creation + backend auth), and readers of
+    /// this latch must never queue behind it.
+    private let didRegisterFreshIdentity: OSAllocatedUnfairLock<Bool?> = .init(initialState: nil)
+
     /// Wall-clock of the last `identityStore.loadSync()` failure, lock-
     /// protected via the same lock as `cachedMessagingService` (both live
     /// inside the same `withLock` block). Used together with
@@ -345,6 +353,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 identity = try identityStore.loadSync()
                 lastKeychainReadFailure = nil
                 consecutiveKeychainReadFailures = 0
+                // First successful identity resolution of this launch:
+                // an empty keychain here means we are about to register a
+                // brand-new identity (a reinstall would have authorized
+                // the surviving one). Later rebuilds don't overwrite it.
+                let isFresh = identity == nil
+                didRegisterFreshIdentity.withLock { latch in
+                    if latch == nil { latch = isFresh }
+                }
             } catch {
                 lastKeychainReadFailure = Date()
                 consecutiveKeychainReadFailures += 1
@@ -1139,12 +1155,46 @@ public extension SessionManager {
     /// told apart from another device's.
     func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         do {
-            let backups = try await identityStore.loadSyncedBackups()
+            let backups = try identityStore.loadSyncedBackups()
             let currentInboxId = try identityStore.loadSync()?.inboxId
             return PairableDeviceBackup.pairableBackups(from: backups, excludingInboxId: currentInboxId)
         } catch {
             Log.warning("SessionManager.pairableDeviceBackups failed: \(error)")
             return []
+        }
+    }
+
+    /// True when this launch's first service build found an empty
+    /// keychain and registered a brand-new identity - a provably fresh
+    /// install (delete+reinstall keeps the keychain, so a reinstall
+    /// authorizes the surviving identity instead). False while the
+    /// resolution hasn't happened yet or when the keychain was unreadable
+    /// - conservative for callers gating fresh-install-only behavior.
+    func registeredFreshIdentityThisLaunch() async -> Bool {
+        didRegisterFreshIdentity.withLock { $0 ?? false }
+    }
+
+    /// Same slot read as `pairableDeviceBackups`, but shaped for the
+    /// Devices screen: includes the current identity's own mirror and
+    /// applies no ordering filter (see `ICloudDeviceBackupsSnapshot`).
+    ///
+    /// Best-effort: keychain failures return an empty snapshot, and a
+    /// primary-slot read failure deliberately empties it even when the
+    /// backups loaded. Building the snapshot without the current inboxId
+    /// would classify the install's own mirror as another device -
+    /// listing the user's own key as pairable-to-self, badging it Main
+    /// in the wrong section, and un-escalating the delete-all guard on
+    /// the actual main device. A briefly empty section that recovers on
+    /// the next screen visit is the safer degradation (same reasoning
+    /// as `pairableBackups`' nil-hides contract).
+    func iCloudDeviceBackupsSnapshot() async -> ICloudDeviceBackupsSnapshot {
+        do {
+            let backups = try identityStore.loadSyncedBackups()
+            let currentInboxId = try identityStore.loadSync()?.inboxId
+            return ICloudDeviceBackupsSnapshot.snapshot(from: backups, currentInboxId: currentInboxId)
+        } catch {
+            Log.warning("SessionManager.iCloudDeviceBackupsSnapshot failed: \(error)")
+            return ICloudDeviceBackupsSnapshot(currentDevice: nil, otherDevices: [])
         }
     }
 
@@ -1154,7 +1204,7 @@ public extension SessionManager {
     /// device itself, so the joiner's signature and identity-share address
     /// checks hold unchanged.
     func pairingInviteSlug(forBackupInboxId inboxId: String, expiresAt: Date) async throws -> String {
-        let backups = try await identityStore.loadSyncedBackups()
+        let backups = try identityStore.loadSyncedBackups()
         guard let backup = backups.first(where: { $0.inboxId == inboxId }) else {
             throw KeychainIdentityStoreError.identityNotFound("synced backup for pairing")
         }
@@ -1304,6 +1354,28 @@ extension SessionManager {
         options: ConvosAPI.AgentJoinOptions? = nil,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await addAgentToConversation(
+            conversationId: conversationId,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode,
+            idempotencyKey: nil
+        )
+    }
+
+    /// Full direct-add join. `idempotencyKey` is the builder flow's persisted
+    /// join key (stable across retries of one logical join) so the backend
+    /// dedups a retried provision whose response was lost; `nil` (all
+    /// non-builder callers today) keeps the non-deduped behavior. Internal
+    /// because only the agent-template repository's wired join handler
+    /// threads a key; the public protocol surface stays as-is.
+    func addAgentToConversation(
+        conversationId: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?,
+        idempotencyKey: ConvosAPI.JoinIdempotencyKey?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
         // it is distinct from the per-sender "timezone" ProfileUpdate metadata
@@ -1317,11 +1389,13 @@ extension SessionManager {
         let resolved = try await Self.awaitProvisionedAgentInbox(
             requestJoin: {
                 try await self.apiClient.requestAgentJoin(
-                    slug: nil,
-                    conversationId: conversationId.lowercased(),
-                    templateId: templateId,
-                    options: options,
-                    timezone: creatorTimezone,
+                    ConvosAPI.AgentJoinRequest(
+                        conversationId: conversationId.lowercased(),
+                        templateId: templateId,
+                        idempotencyKey: idempotencyKey,
+                        options: options,
+                        timezone: creatorTimezone
+                    ),
                     forceErrorCode: forceErrorCode
                 )
             },
@@ -1502,7 +1576,7 @@ extension SessionManager {
     /// provision/add runs, then resume any in-flight generations persisted
     /// across a relaunch.
     func wireAgentTemplateRepository() {
-        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId in
+        agentTemplateRepositoryInstance.configureJoinHandler { [weak self] conversationId, templateId, variantId, joinIdempotencyKey in
             // Throw rather than letting optional chaining return a silent `nil`:
             // the invite step only detects failure via thrown errors, so a
             // no-op `nil` would be recorded as a false `.invited` with no agent
@@ -1512,7 +1586,13 @@ extension SessionManager {
             // byte-identical; when set, the same slug carries the join routing
             // and (via options.variantId) the load-bearing join-status poll.
             let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
-            _ = try await self.addAgentToConversation(conversationId: conversationId, templateId: templateId, options: options)
+            _ = try await self.addAgentToConversation(
+                conversationId: conversationId,
+                templateId: templateId,
+                options: options,
+                forceErrorCode: nil,
+                idempotencyKey: joinIdempotencyKey
+            )
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()
     }

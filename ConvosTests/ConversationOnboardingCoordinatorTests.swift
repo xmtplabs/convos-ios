@@ -80,13 +80,15 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state, .started)
     }
 
-    func testInviteWasAccepted_NotificationsAlreadyGranted_GoesToProfile() async {
+    func testInviteWasAccepted_NotificationsAlreadyGranted_CompletesWithoutPrompt() async {
         mockNotificationCenter.authStatus = .authorized
         coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
 
-        XCTAssertEqual(coordinator.state, .setupProfile)
+        // Profile setup is owned by the launch Nametag sheet; with
+        // notifications already granted the flow completes quietly.
+        XCTAssertEqual(coordinator.state, .idle)
         XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
     }
 
@@ -121,17 +123,18 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     // MARK: - Normal Flow Tests (Not Waiting for Invite)
 
-    func testStart_FirstTimeUser_ShowsNonDismissibleSetupProfile() async {
-        await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupProfile)
-    }
+    func testStart_FirstTimeUser_UnsetProfile_ProceedsToNotifications() async {
+        mockNotificationCenter.authStatus = .notDetermined
 
-    func testDidTapSetupProfile_MarksAsShown() async {
         await coordinator.start(for: testConversationId)
-        coordinator.didTapProfilePhoto()
 
-        let hasShown = UserDefaults.standard.bool(forKey: "hasShownProfileEditor")
-        XCTAssertTrue(hasShown)
+        // The Nametag sheet owns profile setup; the conversation flow never
+        // prompts and moves straight to the notifications step.
+        XCTAssertEqual(coordinator.state, .requestNotifications)
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"),
+            "An unset profile must not preemptively mark the per-conversation flag"
+        )
     }
 
     // MARK: - Auto-Dismiss Setup Profile Tests
@@ -142,11 +145,8 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         await coordinator.start(for: testConversationId)
 
-        let profileSettings = ProfileSettingsViewModel.shared.profileSettings
-        if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupProfile)
-        } else {
-            XCTAssertEqual(coordinator.state, .requestNotifications)
+        XCTAssertEqual(coordinator.state, .requestNotifications)
+        if !ProfileSettingsViewModel.shared.profileSettings.isDefault {
             XCTAssertTrue(
                 UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"),
                 "Auto-apply must mark the per-conversation flag"
@@ -216,17 +216,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     // MARK: - Per-Conversation Profile Tests
 
-    func testDidSelectProfile_TransitionsToNotifications() async {
-        mockNotificationCenter.authStatus = .notDetermined
-
-        await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupProfile)
-
-        await coordinator.didSelectProfile()
-
-        XCTAssertEqual(coordinator.state, .requestNotifications)
-    }
-
     func testStart_DifferentConversations_TrackedSeparately() async {
         let conversation1 = "conversation-1"
         let conversation2 = "conversation-2"
@@ -238,12 +227,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         coordinator.state = .idle
         await coordinator.start(for: conversation2)
 
-        let profileSettings = ProfileSettingsViewModel.shared.profileSettings
-        if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupProfile)
-        } else {
-            XCTAssertEqual(coordinator.state, .requestNotifications)
-        }
+        XCTAssertEqual(coordinator.state, .requestNotifications)
 
         UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversation1)")
         UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversation2)")
@@ -268,42 +252,16 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         let newConversationId = "new-convo-after-onboarding"
         await coordinator.start(for: newConversationId)
 
+        // Notifications already granted, so the flow completes either way;
+        // the per-conversation flag is only marked when a profile exists.
+        XCTAssertEqual(coordinator.state, .idle)
         let profileSettings = ProfileSettingsViewModel.shared.profileSettings
-        if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupProfile)
-            XCTAssertFalse(
-                UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(newConversationId)"),
-                "Entering setupProfile must not preemptively mark the per-conversation flag"
-            )
-        } else {
-            XCTAssertEqual(coordinator.state, .idle)
-            XCTAssertTrue(
-                UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(newConversationId)"),
-                "Auto-apply must mark the per-conversation flag"
-            )
-        }
+        XCTAssertEqual(
+            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(newConversationId)"),
+            !profileSettings.isDefault,
+            "Auto-apply marks the per-conversation flag only when a profile exists"
+        )
         UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(newConversationId)")
-    }
-
-    func testDidSelectProfile_SetsPerConversationFlag() async {
-        mockNotificationCenter.authStatus = .authorized
-        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
-
-        let conversationId = "convo-applying-profile"
-        await coordinator.start(for: conversationId)
-        XCTAssertFalse(
-            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(conversationId)"),
-            "Pre-condition: flag should not yet be set after start()"
-        )
-
-        await coordinator.didSelectProfile()
-
-        XCTAssertTrue(
-            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(conversationId)"),
-            "didSelectProfile (user applied the profile) must set the per-conversation flag"
-        )
-        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversationId)")
     }
 
     func testStart_HasCompletedOnboarding_ReopensSameConversation_Skips() async {
@@ -316,9 +274,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         await coordinator.start(for: conversationId)
 
-        if case .setupProfile = coordinator.state {
-            XCTFail("Re-opening a convo with the per-conversation flag set must not re-prompt")
-        }
+        XCTAssertEqual(coordinator.state, .idle, "Re-opening a convo with the per-conversation flag set must not re-prompt")
 
         UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversationId)")
     }
@@ -409,7 +365,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         mockNotificationCenter.authStatus = .denied
 
         await coordinator.start(for: testConversationId)
-        await coordinator.didSelectProfile()
         XCTAssertEqual(coordinator.state, .notificationsDenied)
 
         mockNotificationCenter.authStatus = .authorized
@@ -422,7 +377,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await waitForState(.idle)
     }
 
-    func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_ContinuesToProfile() async {
+    func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_Completes() async {
         mockNotificationCenter.authStatus = .denied
         coordinator.isWaitingForInviteAcceptance = true
 
@@ -436,7 +391,9 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await waitForState(.notificationsEnabled)
 
         await waitForAutodismiss()
-        await waitForState(.setupProfile)
+        // Profile setup is owned by the Nametag sheet; after the enabled
+        // pill autodismisses the flow completes.
+        await waitForState(.idle)
     }
 
     private func waitForState(

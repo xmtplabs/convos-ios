@@ -42,6 +42,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         static let attachments: Column = Column(CodingKeys.attachments)
         static let connections: Column = Column(CodingKeys.connections)
         static let variantId: Column = Column(CodingKeys.variantId)
+        static let joinIdempotencyKey: Column = Column(CodingKeys.joinIdempotencyKey)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -93,6 +94,15 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
     /// three consistent even when the build resumes after a relaunch. `nil` for
     /// default builds.
     let variantId: String?
+    /// Join idempotency key sent on `POST /v2/agents/join` so a retried join
+    /// whose response was lost adopts the already-provisioned instance instead
+    /// of creating a duplicate (see docs/adr/014-idempotent-agent-join.md).
+    /// Persisted raw value of a `ConvosAPI.JoinIdempotencyKey`, minted just
+    /// before the first join attempt; `nil` until then. Reused across
+    /// ambiguous failures (timeout, lost connection, relaunch resume) and
+    /// replaced with a fresh key after an explicit provision failure, because
+    /// the server retains terminated instance ids.
+    var joinIdempotencyKey: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -101,7 +111,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         case templateId, prompt
         case errorMessage = "error"
         case previewAgentName, previewEmoji, previewDescription, progressPhrases
-        case attachments, connections, variantId
+        case attachments, connections, variantId, joinIdempotencyKey
         case createdAt, updatedAt
     }
 
@@ -121,6 +131,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         attachments: String? = nil,
         connections: String? = nil,
         variantId: String? = nil,
+        joinIdempotencyKey: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -139,6 +150,7 @@ struct DBAgentTemplateGeneration: Codable, FetchableRecord, PersistableRecord, H
         self.attachments = attachments
         self.connections = connections
         self.variantId = variantId
+        self.joinIdempotencyKey = joinIdempotencyKey
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

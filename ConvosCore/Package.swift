@@ -31,7 +31,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.11.0-nightly.20260711.9358d22"
+            revision: "ios-4.11.0-nightly.20260715.b951280"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),

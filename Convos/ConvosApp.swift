@@ -32,6 +32,21 @@ struct ConvosApp: App {
         let environment = ConfigManager.shared.currentEnvironment
         ConvosLog.configure(environment: environment)
 
+        // Export the persisted bidi-streams opt-in while the process is still
+        // effectively single-threaded (setenv racing a native getenv from a
+        // spawned thread is undefined behavior) and before anything touches
+        // libxmtp, which latches the gate env var once, before the first
+        // stream -- so a Debug-menu flip takes effect here, on the next
+        // launch. Runtime setenv works for the Rust layer because it reads
+        // getenv, unlike the AppCheck case documented in FirebaseHelper.
+        // Main-app process only, deliberately: the NotificationService
+        // extension and App Clip run their own processes (with their own
+        // defaults containers) and stay on the legacy stream path.
+        if FeatureFlags.shared.isXMTPBidiStreamsEnabled {
+            setenv("XMTP_BIDI_STREAMS_ENABLED", "1", 1)
+            Log.info("XMTP bidi streams enabled for this launch")
+        }
+
         // Start Sentry as early as possible so crashes during the rest of app
         // init (database setup, Firebase, client creation) are captured. The
         // SwiftUI App initializer runs before the app delegate's

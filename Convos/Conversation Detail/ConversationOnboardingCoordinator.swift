@@ -46,23 +46,15 @@ enum NotificationPermissionState {
 
 // MARK: - Conversation Onboarding State
 
-/// Represents the current state of the conversation onboarding flow
+/// Represents the current state of the conversation onboarding flow.
+/// Profile setup is owned by the launch Nametag sheet
+/// (`ProfileSetupSheet`); this flow only auto-applies an existing global
+/// profile to the conversation and runs the notifications step.
 enum ConversationOnboardingState: Equatable {
     /// Idle - no onboarding flow active
     case idle
 
     case started
-
-    /// Show "Tap to add your name for this convo" prompt
-    case setupProfile
-
-    case settingUpProfile
-
-    /// Waiting to see if the user saves a profile
-    case presentingProfileSettings
-
-    /// Autodismissed success state after saving first Profile
-    case savedProfileSuccess
 
     /// One-time paywall step shown after the first profile setup.
     /// User must subscribe or claim the 7-day trial to proceed.
@@ -77,7 +69,6 @@ enum ConversationOnboardingState: Equatable {
     /// Notifications denied, prompt to change in settings
     case notificationsDenied
 
-    static let savedProfileSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
     // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
@@ -85,8 +76,6 @@ enum ConversationOnboardingState: Equatable {
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
         switch self {
-        case .savedProfileSuccess:
-            return Self.savedProfileSuccessDuration
         case .notificationsEnabled:
             return Self.notificationsEnabledSuccessDuration
         default:
@@ -104,16 +93,6 @@ final class ConversationOnboardingCoordinator {
     var state: ConversationOnboardingState = .idle
 
     private let profileSettingsViewModel: ProfileSettingsViewModel
-
-    var isSettingUpProfile: Bool {
-        switch state {
-        case .settingUpProfile,
-                .presentingProfileSettings:
-            return true
-        default:
-            return false
-        }
-    }
 
     var showOnboardingView: Bool {
         inProgress || isWaitingForInviteAcceptance
@@ -134,11 +113,6 @@ final class ConversationOnboardingCoordinator {
     private var pendingConversationId: String?
     private var currentConversationId: String?
     private var isConversationCreator: Bool = false
-    /// Re-entrancy guard for `handleDisplayNameEndedEditing`. The `state` check alone
-    /// passes synchronously while `saveAndAwait()` is in flight, so a second tap could
-    /// kick off a concurrent save (and a duplicate `profile_saved` QAEvent). The class
-    /// is `@MainActor`, so a plain Bool is sufficient.
-    private var isSavingProfile: Bool = false
 
     // MARK: - Persistence
 
@@ -151,26 +125,14 @@ final class ConversationOnboardingCoordinator {
     private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
     private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+    /// Legacy shown-once latch for the launch profile sheet. The sheet now
+    /// gates purely on the global profile being unset (see
+    /// `ConversationsViewModel.presentFirstLaunchProfileSetupIfNeeded`);
+    /// the key is only kept so resets clear installs that wrote it.
     private static let hasShownFirstLaunchProfileSheetKey: String = "hasShownFirstLaunchProfileSheet"
 
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
-    }
-
-    /// Whether the first-launch "Hello / My name is" profile sheet is still
-    /// owed: it hasn't been shown yet and the user has never been through a
-    /// profile editor (set up in Settings, completed the in-conversation
-    /// flow, or adopted a paired identity).
-    static var shouldOfferFirstLaunchProfileSheet: Bool {
-        !UserDefaults.standard.bool(forKey: hasShownFirstLaunchProfileSheetKey)
-            && !UserDefaults.standard.bool(forKey: hasShownProfileEditorKey)
-    }
-
-    /// Latches the first-launch profile sheet: set when the sheet is
-    /// presented (or found unnecessary because a profile already exists),
-    /// so it never shows twice.
-    static func markFirstLaunchProfileSheetShown() {
-        UserDefaults.standard.set(true, forKey: hasShownFirstLaunchProfileSheetKey)
     }
 
     /// Marks the global onboarding flags as completed so the in-conversation
@@ -199,8 +161,6 @@ final class ConversationOnboardingCoordinator {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
-
-    private(set) var shouldAnimateAvatarForProfileSetup: Bool = false
 
     private var hasShownProfileEditor: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasShownProfileEditorKey) }
@@ -332,8 +292,6 @@ final class ConversationOnboardingCoordinator {
 
             // Transition to next state based on current state
             switch state {
-            case .savedProfileSuccess:
-                await transitionAfterProfileSetup()
             case .notificationsEnabled:
                 if shouldShowProfileSetupAfterNotifications, let conversationId = pendingConversationId {
                     await startProfileSetupFlow(for: conversationId)
@@ -424,7 +382,9 @@ final class ConversationOnboardingCoordinator {
         }
     }
 
-    /// Start or continue the profile onboarding flow
+    /// Apply the global profile to this conversation (when one exists) and
+    /// continue to the notifications step. Profile setup itself is owned by
+    /// the launch Nametag sheet — this flow never prompts.
     private func startProfileSetupFlow(for conversationId: String) async {
         // Don't decide on an unloaded snapshot: at cold launch (and right
         // after pairing adoption) the shared profile view model still holds
@@ -444,9 +404,9 @@ final class ConversationOnboardingCoordinator {
         let profileSettings = profileSettingsViewModel.profileSettings
 
         if !profileSettings.isDefault {
-            // A profile already exists, so never prompt — regardless of the
-            // device-local editor flag, which can lag the profile (e.g. it is
-            // set asynchronously on a freshly paired device). Backfill it so
+            // A profile already exists — regardless of the device-local
+            // editor flag, which can lag the profile (e.g. it is set
+            // asynchronously on a freshly paired device). Backfill it so
             // related gates (like the input bar's "Chat as Somebody") agree.
             hasShownProfileEditor = true
             if !hasSetProfileForConversation {
@@ -455,21 +415,12 @@ final class ConversationOnboardingCoordinator {
             } else {
                 QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
             }
-            await transitionAfterProfileSetup()
-        } else if !hasShownProfileEditor {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "first_time"])
-            handleStateChange()
-        } else if !hasSetProfileForConversation {
-            shouldAnimateAvatarForProfileSetup = true
-            state = .setupProfile
-            QAEvent.emit(.onboarding, "setup_profile", ["reason": "no_profile"])
-            handleStateChange()
         } else {
-            QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
-            await transitionAfterProfileSetup()
+            // No profile set: the launch Nametag sheet re-offers until one
+            // exists, so the conversation flow proceeds without prompting.
+            QAEvent.emit(.onboarding, "profile_skipped", ["reason": "unset_owned_by_nametag"])
         }
+        await transitionAfterProfileSetup()
     }
 
     /// Call this when the invite has been accepted
@@ -484,64 +435,6 @@ final class ConversationOnboardingCoordinator {
             await startNotificationFlow(for: conversationId)
         default:
             break
-        }
-    }
-
-    /// User tapped to set up their profile (opens profile editor)
-    func didTapProfilePhoto() {
-        guard case .setupProfile = state else { return }
-        hasShownProfileEditor = true
-        shouldAnimateAvatarForProfileSetup = false
-        state = .settingUpProfile
-        handleStateChange()
-    }
-
-    func didSelectProfile() async {
-        QAEvent.emit(.onboarding, "profile_applied")
-        shouldAnimateAvatarForProfileSetup = false
-        if let conversationId = currentConversationId {
-            setHasSetProfile(true, for: conversationId)
-        }
-        await transitionAfterProfileSetup()
-    }
-
-    /// Handle when display name editing ends
-    /// - Parameters:
-    ///   - profile: The current profile
-    ///   - didChangeProfile: Whether the profile was actually changed
-    ///   - isSavingAsProfile: Whether the user is saving this as their profile
-    func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        // We deliberately only gate on `state == .settingUpProfile` here. Once the
-        // setup flow is active, the user is explicitly replacing their profile, so
-        // checking `profileSettings.isDefault` would block legitimate retries after a
-        // failed save (the first attempt mutates editingDisplayName and flips
-        // isDefault to false even though persistence didn't land).
-        guard state == .settingUpProfile, !isSavingProfile else { return }
-        isSavingProfile = true
-
-        let conversationId = currentConversationId
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.isSavingProfile = false }
-            // Mutating inside the Task means a failed save leaves the previous
-            // editing state intact for the SwiftUI binding to repaint, and the next
-            // tap re-enters with whatever the user just typed.
-            self.profileSettingsViewModel.editingDisplayName = displayName
-            self.profileSettingsViewModel.profileImage = profileImage
-            do {
-                try await self.profileSettingsViewModel.saveAndAwait()
-                QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
-                if let conversationId {
-                    self.setHasSetProfile(true, for: conversationId)
-                }
-                self.state = .savedProfileSuccess
-                self.handleStateChange()
-            } catch {
-                Log.error("Failed saving onboarding profile: \(error.localizedDescription)")
-                // Stay in `.settingUpProfile` so the user can retry; emit a QA event so
-                // the failure path is observable.
-                QAEvent.emit(.onboarding, "profile_save_failed", ["error": error.localizedDescription])
-            }
         }
     }
 

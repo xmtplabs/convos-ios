@@ -147,8 +147,7 @@ class ProfileSettingsViewModel {
     }
 
     /// Awaitable variant for callers that need to advance UI state only after persistence
-    /// succeeds (e.g. the onboarding coordinator, which gates `hasSetProfile` and the
-    /// `.savedProfileSuccess` transition on a confirmed write).
+    /// succeeds (e.g. the Nametag sheet, which dismisses only on a confirmed write).
     func saveAndAwait() async throws {
         guard let writer else {
             Log.error("ProfileSettingsViewModel.saveAndAwait called before bind")

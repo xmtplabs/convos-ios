@@ -23,7 +23,9 @@ struct DeleteAllDataView: View {
     }
 
     var subtitle: String {
-        "This will permanently delete all conversations on this device, as well as your profile."
+        let base = "This will permanently delete all conversations on this device, as well as your profile."
+        guard viewModel.currentDeviceIsMain else { return base }
+        return base + " This is your main device — the first one created for your account — and other devices pair through it."
     }
 
     var body: some View {
@@ -65,6 +67,9 @@ struct DeleteAllDataView: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
+        }
+        .task {
+            await viewModel.refreshMainDeviceStatus()
         }
         .onDisappear {
             navigator?.closed(context: navState.closeContext())

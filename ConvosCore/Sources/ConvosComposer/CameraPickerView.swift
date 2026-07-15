@@ -5,6 +5,9 @@ import UIKit
 public struct CameraPickerView: UIViewControllerRepresentable {
     let onImageCaptured: (UIImage) -> Void
     let onVideoCaptured: ((URL) -> Void)?
+    /// Enables the system move-and-scale crop step after capture (used for
+    /// profile photos; chat attachments send the full frame).
+    var allowsEditing: Bool = false
 
     public init(onImageCaptured: @escaping (UIImage) -> Void, onVideoCaptured: ((URL) -> Void)? = nil) {
         self.onImageCaptured = onImageCaptured
@@ -31,6 +34,7 @@ public struct CameraPickerView: UIViewControllerRepresentable {
         }
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        picker.allowsEditing = allowsEditing
         picker.mediaTypes = onVideoCaptured != nil ? ["public.image", "public.movie"] : ["public.image"]
         picker.videoMaximumDuration = 60
         picker.videoQuality = .typeHigh
@@ -58,7 +62,7 @@ public struct CameraPickerView: UIViewControllerRepresentable {
             if let mediaType = info[.mediaType] as? String, mediaType == "public.movie",
                let videoURL = info[.mediaURL] as? URL {
                 onVideoCaptured?(videoURL)
-            } else if let image = info[.originalImage] as? UIImage {
+            } else if let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage) {
                 onImageCaptured(image)
             }
             dismiss()

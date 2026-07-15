@@ -201,7 +201,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     }
 
     var profilePlaceholderText: String {
-        isSettingUpProfile ? "Add your name" : "Your name"
+        "Your name"
     }
 
     public var body: some View {

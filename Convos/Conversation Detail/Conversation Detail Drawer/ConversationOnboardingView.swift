@@ -7,9 +7,6 @@ import SwiftUI
 struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
-    let onTapSetupProfile: () -> Void
-    let onUseProfile: (Profile, UIImage?) -> Void
-    let onPresentProfileSettings: () -> Void
     let coreActions: any CoreActions
 
     private var permissionState: NotificationPermissionState? {
@@ -34,18 +31,8 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpProfile, .presentingProfileSettings, .presentingPaywall:
+            case .idle, .started, .presentingPaywall:
                 EmptyView()
-
-            case .setupProfile:
-                SetupProfileView {
-                    onTapSetupProfile()
-                }
-                .transition(.blurReplace)
-
-            case .savedProfileSuccess:
-                SetupProfileSuccessView()
-                    .transition(.blurReplace)
 
             case .requestNotifications,
                     .notificationsEnabled,
@@ -122,9 +109,6 @@ struct ConversationOnboardingView: View {
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     let onboardingSteps: [ConversationOnboardingState] = [
         .idle,
-        .setupProfile,
-        .settingUpProfile,
-        .savedProfileSuccess,
         .requestNotifications,
         .notificationsEnabled
     ]
@@ -160,50 +144,13 @@ struct ConversationOnboardingView: View {
         ConversationOnboardingView(
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
-            onTapSetupProfile: {},
-            onUseProfile: { _, _ in },
-            onPresentProfileSettings: {},
             coreActions: NoOpCoreActions()
         )
         .onAppear {
-            coordinator.state = .setupProfile
+            coordinator.state = .requestNotifications
         }
         .padding()
     }
-}
-
-#Preview("Setup Profile - Not Dismissible") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
-        coreActions: NoOpCoreActions()
-    )
-    .onAppear {
-        coordinator.state = .setupProfile
-    }
-    .padding()
-}
-
-#Preview("Setup Profile - Auto Dismiss") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
-        coreActions: NoOpCoreActions()
-    )
-    .onAppear {
-        coordinator.state = .setupProfile
-    }
-    .padding()
 }
 
 #Preview("Request Notifications") {
@@ -212,9 +159,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
+        focusCoordinator: focusCoordinator,
         coreActions: NoOpCoreActions()
     )
     .onAppear {
@@ -229,9 +174,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
+        focusCoordinator: focusCoordinator,
         coreActions: NoOpCoreActions()
     )
     .onAppear {
@@ -246,9 +189,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
+        focusCoordinator: focusCoordinator,
         coreActions: NoOpCoreActions()
     )
     .onAppear {
@@ -263,9 +204,7 @@ struct ConversationOnboardingView: View {
 
     ConversationOnboardingView(
         coordinator: coordinator,
-        focusCoordinator: focusCoordinator, onTapSetupProfile: {},
-        onUseProfile: { _, _ in },
-        onPresentProfileSettings: {},
+        focusCoordinator: focusCoordinator,
         coreActions: NoOpCoreActions()
     )
     .onAppear {
