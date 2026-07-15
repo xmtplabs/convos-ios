@@ -922,6 +922,10 @@ extension ImageCache {
 
     private func clearLastShown(for identifier: String) {
         lastShownLock.withLock { $0.removeValue(forKey: identifier) }
+        // Mark the identifier as missing before the async file deletion runs,
+        // so a concurrent lastShownFromDiskSync cannot decode the not-yet-
+        // deleted file and resurrect the cleared hint in memory.
+        lastShownMissesLock.withLock { _ = $0.insert(identifier) }
         Task {
             await performDiskOperation { cache in
                 let fileURL = cache.lastShownCacheURL.appendingPathComponent(
