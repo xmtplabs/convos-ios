@@ -55,9 +55,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @Binding var isPhotoPickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
-    let isSettingUpProfile: Bool
-    let animateAvatarForProfileSetup: Bool
-    let canEditProfile: Bool
     /// Pins the input bar in its expanded (full-width) state and disables the
     /// collapse chevron. Used by hosts without focus-coordinator-driven
     /// expand/collapse, like the share extension.
@@ -131,9 +128,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         isPhotoPickerPresented: Binding<Bool>,
         focusState: FocusState<MessagesViewInputFocus?>.Binding,
         focusCoordinator: FocusCoordinator,
-        isSettingUpProfile: Bool,
-        animateAvatarForProfileSetup: Bool,
-        canEditProfile: Bool,
         pinsExpandedInput: Bool = false,
         messagesTextFieldEnabled: Bool,
         onSendMessage: @escaping () -> Void,
@@ -174,9 +168,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         _isPhotoPickerPresented = isPhotoPickerPresented
         _focusState = focusState
         self.focusCoordinator = focusCoordinator
-        self.isSettingUpProfile = isSettingUpProfile
-        self.animateAvatarForProfileSetup = animateAvatarForProfileSetup
-        self.canEditProfile = canEditProfile
         self.pinsExpandedInput = pinsExpandedInput
         self._isMessageInputFocused = State(initialValue: pinsExpandedInput)
         self.messagesTextFieldEnabled = messagesTextFieldEnabled

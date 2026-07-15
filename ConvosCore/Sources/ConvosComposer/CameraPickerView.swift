@@ -9,9 +9,14 @@ public struct CameraPickerView: UIViewControllerRepresentable {
     /// profile photos; chat attachments send the full frame).
     var allowsEditing: Bool = false
 
-    public init(onImageCaptured: @escaping (UIImage) -> Void, onVideoCaptured: ((URL) -> Void)? = nil) {
+    public init(
+        onImageCaptured: @escaping (UIImage) -> Void,
+        onVideoCaptured: ((URL) -> Void)? = nil,
+        allowsEditing: Bool = false
+    ) {
         self.onImageCaptured = onImageCaptured
         self.onVideoCaptured = onVideoCaptured
+        self.allowsEditing = allowsEditing
     }
 
     public static var isAvailable: Bool {

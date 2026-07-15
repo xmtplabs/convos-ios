@@ -129,15 +129,6 @@ struct MessagesView<BottomBarContent: View>: View {
     /// the sheet's `.navigationTransition(.zoom(...))` destination.
     @Namespace private var htmlAttachmentTransitionNamespace: Namespace.ID
 
-    private var isSettingUpProfile: Bool {
-        onboardingCoordinator.state == .settingUpProfile
-    }
-
-    @MainActor
-    private var canEditProfile: Bool {
-        ProfileSettingsViewModel.shared.profileSettings.isDefault
-    }
-
     @MainActor @ViewBuilder
     private func composerQuickEditView(placeholderText: String, isImagePickerPresented: Binding<Bool>) -> some View {
         QuickEditView(
@@ -282,9 +273,6 @@ struct MessagesView<BottomBarContent: View>: View {
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
-                    isSettingUpProfile: isSettingUpProfile,
-                    animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
-                    canEditProfile: canEditProfile,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     onSendMessage: {
                         scrollToBottom?()
