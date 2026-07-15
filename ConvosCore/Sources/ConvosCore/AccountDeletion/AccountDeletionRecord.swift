@@ -69,6 +69,11 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
     public let requestedAt: Date
     public private(set) var backendConfirmedAt: Date?
     public private(set) var wipeStartedAt: Date?
+    /// External-purge completion window echoed by the deletion response;
+    /// carried so resumed flows and completion UI can read it after the
+    /// response is gone. Nil until confirmation (and for pre-existing
+    /// records written before this field existed).
+    public private(set) var purgeWindowHours: Int?
 
     public init(
         operationId: UUID,
@@ -91,16 +96,24 @@ public struct AccountDeletionRecord: Codable, Equatable, Sendable {
         self.requestedAt = requestedAt
         self.backendConfirmedAt = nil
         self.wipeStartedAt = nil
+        self.purgeWindowHours = nil
     }
 
     /// Returns a copy advanced to `next`, stamping the phase timestamp.
     /// Throws when the transition is illegal.
-    public func advanced(to next: AccountDeletionPhase, at date: Date = Date()) throws -> AccountDeletionRecord {
+    public func advanced(
+        to next: AccountDeletionPhase,
+        at date: Date = Date(),
+        purgeWindowHours: Int? = nil
+    ) throws -> AccountDeletionRecord {
         guard phase.canTransition(to: next) else {
             throw AccountDeletionStateStoreError.invalidTransition(from: phase, to: next)
         }
         var copy = self
         copy.phase = next
+        if let purgeWindowHours {
+            copy.purgeWindowHours = purgeWindowHours
+        }
         switch next {
         case .requested:
             break

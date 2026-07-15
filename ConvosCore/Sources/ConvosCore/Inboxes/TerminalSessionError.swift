@@ -24,3 +24,25 @@ public protocol TerminalSessionError: Error {}
 public struct DeviceReplacedError: TerminalSessionError, Equatable {
     public init() {}
 }
+
+/// Surfaced when the backend's deletion barrier reports this identity as
+/// deleted (`identity_deleted` at token mint) outside an in-flight local
+/// deletion — typically a paired device discovering the account was
+/// deleted from another device.
+///
+/// Distinct from `DeviceReplacedError`: a revoked installation means
+/// "reset locally and re-onboard" (the account lives on), while a deleted
+/// account offers only a local wipe — nothing may auto-provision a
+/// replacement account without explicit user intent.
+public struct AccountDeletedError: TerminalSessionError, Equatable {
+    public init() {}
+}
+
+public extension Notification.Name {
+    /// Posted by the API client when an automatic re-authentication hits
+    /// the deletion barrier's terminal response. The session layer maps it
+    /// to the `AccountDeletedError` terminal state so a live paired device
+    /// lands in a coherent account-deleted surface instead of an endless
+    /// stream of auth errors.
+    static let accountWasDeletedRemotely: Notification.Name = Notification.Name("convos.session.accountWasDeletedRemotely")
+}

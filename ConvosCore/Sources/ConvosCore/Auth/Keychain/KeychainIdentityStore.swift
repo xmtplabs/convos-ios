@@ -262,6 +262,14 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// the synced backup slot. Backups belonging to other identities are
     /// left untouched. Idempotent.
     func delete() throws
+
+    /// Removes one identity's synced-backup item directly by inboxId.
+    /// `delete()` scopes its backup removal by reading the primary slot,
+    /// so once the primary is gone a failed or slow synchronizable delete
+    /// can no longer be retried through it; the account-deletion wipe uses
+    /// this to verify-and-retry the backup removal from the durable
+    /// deletion record's inboxId. Idempotent.
+    func deleteSyncedBackup(inboxId: String) throws
 }
 
 /// Secure storage for the user's XMTP identity keys in the device keychain.
@@ -481,6 +489,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         try? deleteData(with: installationMarkerQuery)
         try? deleteData(with: consentBackupQuery)
         try deleteData(with: identityQuery)
+    }
+
+    public func deleteSyncedBackup(inboxId: String) throws {
+        try deleteData(with: syncedBackupQuery(inboxId: inboxId))
     }
 
     // MARK: - Slot Queries

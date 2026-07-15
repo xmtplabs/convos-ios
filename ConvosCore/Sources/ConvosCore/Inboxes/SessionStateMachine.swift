@@ -122,6 +122,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// session enters `.ready`. The notification is posted by
     /// `StreamProcessor` when a `DeviceRemovedContent` self-DM lands.
     private nonisolated(unsafe) var revocationObserver: (any NSObjectProtocol)?
+    /// Observer handle for `accountWasDeletedRemotely`, managed alongside
+    /// `revocationObserver`. Posted by the API client when an automatic
+    /// re-authentication hits the deletion barrier; mapped here to the
+    /// terminal `AccountDeletedError` state.
+    private nonisolated(unsafe) var accountDeletedObserver: (any NSObjectProtocol)?
     private var foregroundRetryCount: Int = 0
     private static let maxForegroundRetries: Int = 2
 
@@ -589,6 +594,18 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw SessionStateError.alreadyRegistered(inboxId: existing.inboxId, clientId: existing.clientId)
         }
 
+        // Mirror of SessionManager's provisioning gate: while an account
+        // deletion record is active (any non-completed phase, or a corrupt
+        // record whose phase is unknowable), registering a fresh identity
+        // would race the half-finished wipe. Defense in depth — the primary
+        // gate lives in `loadOrCreateService`, but any other path that can
+        // reach `.register` must hold too.
+        let deletionState = AccountDeletionStateStore(environment: environment).load()
+        if deletionState.blocksIdentityProvisioning {
+            Log.error("handleRegister called while an account deletion record is active; refusing to provision a fresh identity")
+            throw AccountDeletionInProgressError()
+        }
+
         emitStateChange(.registering)
         Log.info("Started registration flow with clientId: \(initialClientId)")
 
@@ -1015,6 +1032,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 await self?.emitTerminalError(DeviceReplacedError())
             }
         }
+        accountDeletedObserver = NotificationCenter.default.addObserver(
+            forName: .accountWasDeletedRemotely,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.emitTerminalError(AccountDeletedError())
+            }
+        }
     }
 
     private func stopRevocationObserver() {
@@ -1022,6 +1049,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             NotificationCenter.default.removeObserver(revocationObserver)
         }
         revocationObserver = nil
+        if let accountDeletedObserver {
+            NotificationCenter.default.removeObserver(accountDeletedObserver)
+        }
+        accountDeletedObserver = nil
     }
 
     private func emitTerminalError(_ error: any Error) {
@@ -1155,31 +1186,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     private func deleteDatabaseFiles() {
-        let fileManager = FileManager.default
-        let dbDirectory = environment.defaultDatabasesDirectoryURL
-
-        // XMTPiOS names its SQLite files `xmtp-<gRPC-host>-<hash>.db3`
-        // (e.g. `xmtp-grpc.dev.xmtp.network-abc123.db3`) — earlier code
-        // looked for an `xmtp-<env>-<inboxId>` pattern the SDK never
-        // produces, so explicit per-inbox deletion silently no-opped.
-        // Under single-inbox there's one `xmtp-*.db3` family per install,
-        // so removing every `xmtp-*` file in the directory is the correct
-        // scope.
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: dbDirectory,
-            includingPropertiesForKeys: nil
-        ) else {
-            return
-        }
-
-        for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
-            do {
-                try fileManager.removeItem(at: url)
-                Log.debug("Deleted XMTP database file: \(url.lastPathComponent)")
-            } catch {
-                Log.error("Failed to delete XMTP database file \(url.lastPathComponent): \(error)")
-            }
-        }
+        XMTPDatabaseFileSweeper.sweep(directory: environment.defaultDatabasesDirectoryURL)
     }
 
     private func cleanupInboxData() async throws {
@@ -1395,6 +1402,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 return
             } catch is CancellationError {
                 throw CancellationError()
+            } catch SIWEAuthError.identityDeleted {
+                // Deletion-barrier terminal response: deterministic, so
+                // retrying would only re-probe the barrier. Map to the
+                // terminal session error the observer layer surfaces as
+                // the account-deleted state.
+                Log.warning("Backend auth: deletion barrier reports identity deleted; entering terminal account-deleted state")
+                throw AccountDeletedError()
             } catch {
                 lastError = error
                 Log.warning("Backend auth attempt \(attempt + 1) failed: \(error.localizedDescription)")

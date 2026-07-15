@@ -117,6 +117,23 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
+    // MARK: Account deletion
+
+    /// Deletes the account for real: durable record, backend deletion
+    /// while the identity keys still exist, best-effort installation
+    /// revocation, then the manifest-driven local wipe. Distinct from
+    /// `deleteAllInboxesWithProgress`, which is a local reset that leaves
+    /// the backend account alive.
+    func deleteAccountWithProgress() -> AsyncThrowingStream<AccountDeletionProgress, Error>
+
+    /// Current durable deletion state (pending-retry UI, provisioning
+    /// gate diagnostics).
+    func accountDeletionStatus() -> AccountDeletionLoadResult
+
+    /// Registers the app-layer wipe steps (StoreKit defaults, analytics
+    /// identity, UI defaults). Call once at app startup.
+    func setAccountDeletionAppHooks(_ hooks: AccountDeletionAppHooks)
+
     // MARK: Messaging Services
 
     func messagingService() -> AnyMessagingService
@@ -257,6 +274,20 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 }
 
 extension SessionManagerProtocol {
+    /// Defaults for conformers that don't participate in account deletion
+    /// (previews, test mocks). The real flow lives on `SessionManager`.
+    public func deleteAccountWithProgress() -> AsyncThrowingStream<AccountDeletionProgress, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: AccountDeletionError.identityUnavailable)
+        }
+    }
+
+    public func accountDeletionStatus() -> AccountDeletionLoadResult {
+        .none
+    }
+
+    public func setAccountDeletionAppHooks(_ hooks: AccountDeletionAppHooks) {}
+
     /// Default for conformers without keychain access (test mocks): no
     /// other devices to pair with. The real lookup lives on `SessionManager`.
     public func pairableDeviceBackups() async -> [PairableDeviceBackup] {

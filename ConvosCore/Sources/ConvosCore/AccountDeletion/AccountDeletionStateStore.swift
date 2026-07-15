@@ -7,6 +7,14 @@ public enum AccountDeletionStateStoreError: Error, Equatable {
     case recordAlreadyExists(existingOperationId: UUID)
 }
 
+/// Thrown when identity provisioning is refused because an account-deletion
+/// record is active (any non-completed phase, or a corrupt record whose
+/// phase is unknowable). Not a `TerminalSessionError`: the condition clears
+/// when the wipe completes or the pending deletion is resolved.
+public struct AccountDeletionInProgressError: Error, Equatable {
+    public init() {}
+}
+
 /// Result of reading the durable deletion record.
 public enum AccountDeletionLoadResult: Sendable {
     /// No deletion is in flight.
@@ -107,11 +115,15 @@ public actor AccountDeletionStateStore {
     /// Advances the persisted record to `phase` and returns the new record.
     /// Transition legality is validated against the record on disk.
     @discardableResult
-    public func advance(to phase: AccountDeletionPhase, at date: Date = Date()) throws -> AccountDeletionRecord {
+    public func advance(
+        to phase: AccountDeletionPhase,
+        at date: Date = Date(),
+        purgeWindowHours: Int? = nil
+    ) throws -> AccountDeletionRecord {
         guard let current = load().activeRecord else {
             throw AccountDeletionStateStoreError.invalidTransition(from: .requested, to: phase)
         }
-        let advanced = try current.advanced(to: phase, at: date)
+        let advanced = try current.advanced(to: phase, at: date, purgeWindowHours: purgeWindowHours)
         try write(advanced)
         return advanced
     }

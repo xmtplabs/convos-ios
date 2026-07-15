@@ -88,6 +88,10 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         consentBackupState.withLock { $0 = nil }
     }
 
+    func deleteSyncedBackup(inboxId: String) throws {
+        backupState.withLock { $0.removeValue(forKey: inboxId) }
+    }
+
     func loadInstallationMarker() throws -> InstallationMarker? {
         markerState.withLock { $0 }
     }
