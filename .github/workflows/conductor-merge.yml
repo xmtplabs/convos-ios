@@ -1,0 +1,42 @@
+# @convos-conductor merge: comment command to merge a release/hotfix PR via
+# train tooling instead of the GitHub UI. Merge logic (permission re-check,
+# PR lookup, merge) lives in train-merge.yml / Train::Merge; this file just
+# gates on who's asking and resolves the version.
+name: Conductor Merge Command
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  resolve:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '@convos-conductor merge') &&
+      contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: warp-ubuntu-latest-x64-8x
+    permissions:
+      pull-requests: read
+    outputs:
+      version: ${{ steps.pr.outputs.version }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" --jq .head.ref)
+          case "$head" in
+            release/*|hotfix/*) echo "version=${head#*/}" >> "$GITHUB_OUTPUT";;
+            *) echo "::notice::not a train PR"; exit 0;;
+          esac
+
+  call:
+    needs: resolve
+    if: needs.resolve.outputs.version != ''
+    permissions:
+      pull-requests: write
+    uses: xmtplabs/convos-releases/.github/workflows/train-merge.yml@main
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      actor: ${{ github.event.comment.user.login }}
+    secrets: inherit

@@ -1,0 +1,56 @@
+# Stages an already-uploaded TestFlight RC's App Store Connect metadata once
+# its release/hotfix PR merges to main. Reusable job lives in convos-releases
+# (ios-appstore-promote.yml); this file just resolves the merged PR's
+# version/head-sha.
+name: Promote Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  resolve:
+    runs-on: warp-ubuntu-latest-x64-8x
+    permissions:
+      pull-requests: read
+    outputs:
+      go: ${{ steps.pr.outputs.go }}
+      version: ${{ steps.pr.outputs.version }}
+      head-sha: ${{ steps.pr.outputs.head-sha }}
+      pr: ${{ steps.pr.outputs.pr }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(.merge_commit_sha=="${{ github.sha }}") | select(.head.ref | test("^(release|hotfix)/"))][0]')
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "not a train merge"
+            exit 0
+          fi
+          {
+            echo "go=true"
+            echo "version=$(echo "$pr" | jq -r '.head.ref | sub("^(release|hotfix)/"; "")')"
+            echo "head-sha=$(echo "$pr" | jq -r .head.sha)"
+            echo "pr=$(echo "$pr" | jq -r .number)"
+          } >> "$GITHUB_OUTPUT"
+
+  promote:
+    needs: resolve
+    if: needs.resolve.outputs.go == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: xmtplabs/convos-releases/.github/workflows/ios-appstore-promote.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
+      version: ${{ needs.resolve.outputs.version }}
+      merge-sha: ${{ github.sha }}
+      head-sha: ${{ needs.resolve.outputs.head-sha }}
+      pr-number: ${{ needs.resolve.outputs.pr }}
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    secrets: inherit
