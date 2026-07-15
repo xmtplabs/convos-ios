@@ -79,6 +79,11 @@ struct ConvosApp: App {
             if let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL {
                 let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
                 FirebaseHelperCore.configure(with: url, debugToken: debugToken)
+                // Extensions can't App Attest, so the main app hands them its
+                // current App Check token via the shared app group (refreshed
+                // again on every foreground in handleScenePhaseActive).
+                let appGroupIdentifier = environment.appGroupIdentifier
+                Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
             } else {
                 Log.error("Missing Firebase plist URL for current environment")
             }
@@ -209,6 +214,11 @@ struct ConvosApp: App {
         Task {
             await CreditsServices.shared.refresh()
             await SubscriptionServices.shared.refresh()
+            // Keep the app-group App Check token fresh for extension
+            // processes (share extension sends need it to authenticate).
+            await FirebaseHelperCore.mirrorTokenToAppGroup(
+                ConfigManager.shared.currentEnvironment.appGroupIdentifier
+            )
         }
 
         // Opportunistic agent-timezone republish (agent-timezone Channel B).

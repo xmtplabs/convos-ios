@@ -98,6 +98,11 @@ final class ShareComposeModel {
             let environment = try NotificationExtensionEnvironment.getEnvironment()
             ConvosLog.configure(environment: environment)
             ConfigManager.configure(overrides: .empty)
+            // Prefer the App Check token the main app mirrored into the app
+            // group: the extension can't App Attest, and archive builds (PR
+            // preview, TestFlight) carry no pinned debug token, so its own
+            // attestation only works in local developer builds.
+            FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
             DeviceInfo.configure(IOSDeviceInfo())
             ImageCompression.configure(IOSImageCompression())
             PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
@@ -225,8 +230,10 @@ final class ShareComposeModel {
             Log.info("published to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
             return true
         } catch {
-            Log.error("send failed: \(error.localizedDescription)")
-            sendError = "Sending failed. Check your connection and try again."
+            Log.error("send failed: \(error)")
+            // Spike diagnostics: surface the underlying error so on-device
+            // failures are actionable without pulling the app-group log.
+            sendError = "Sending failed: \(error.localizedDescription)"
             return false
         }
     }
