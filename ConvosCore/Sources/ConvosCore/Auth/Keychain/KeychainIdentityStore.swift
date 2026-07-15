@@ -230,10 +230,10 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// Returns every identity present in the iCloud-synced backup slot.
     /// Each identity is backed up under its own account (keyed by
     /// inboxId), so unpaired identities on devices sharing an iCloud
-    /// account coexist instead of overwriting each other. Nothing reads
-    /// this during normal operation; it exists for an explicit recovery
-    /// flow after the user loses their device.
-    func loadSyncedBackups() throws -> [KeychainIdentityBackup]
+    /// account coexist instead of overwriting each other. Nonisolated so
+    /// the launch-time pairing / profile-sheet checks don't queue behind
+    /// registration work on the actor (a pure SecItemCopyMatching read).
+    nonisolated func loadSyncedBackups() throws -> [KeychainIdentityBackup]
 
     /// Reads this device's installation marker (see `InstallationMarker`).
     /// Device-local like the primary slot, so it survives app deletion
@@ -380,7 +380,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         try Self.loadIdentity(with: identityQuery)
     }
 
-    public func loadSyncedBackups() throws -> [KeychainIdentityBackup] {
+    public nonisolated func loadSyncedBackups() throws -> [KeychainIdentityBackup] {
         var query = syncedBackupServiceQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
@@ -520,7 +520,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     /// Service-wide query matching every item in the synced backup slot,
     /// regardless of account. Used to enumerate backups for recovery.
-    private func syncedBackupServiceQuery() -> [String: Any] {
+    private nonisolated func syncedBackupServiceQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.syncedBackupService,

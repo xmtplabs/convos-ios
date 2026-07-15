@@ -6,15 +6,115 @@ import Foundation
 /// the backup's key material stays inside ConvosCore
 /// (`SessionManager.pairingInviteSlug(forBackupInboxId:expiresAt:)` signs
 /// with it on demand).
-public struct PairableDeviceBackup: Sendable, Equatable {
+public struct PairableDeviceBackup: Sendable, Equatable, Identifiable {
     public let inboxId: String
     public let deviceName: String?
     public let backedUpAt: Date?
+
+    public var id: String { inboxId }
 
     public init(inboxId: String, deviceName: String?, backedUpAt: Date?) {
         self.inboxId = inboxId
         self.deviceName = deviceName
         self.backedUpAt = backedUpAt
+    }
+}
+
+/// Everything the Devices screen needs from the iCloud-synced backup
+/// slot: the current identity's own mirror, every other identity's
+/// backup, and which of them is the "main" device - the identity whose
+/// key was created first. `backedUpAt` is the best available proxy for
+/// key creation (a mirror is written when the identity is saved; pairing
+/// re-saves and late backfills can re-stamp it, the same caveat the
+/// prompt's ordering rule carries). Identical timestamps tie-break on
+/// the lexicographically smaller inboxId - deterministic, but it means
+/// the Main designation is approximate when keys were created in the
+/// same instant.
+///
+/// Unlike `PairableDeviceBackup.pairableBackups`, `otherDevices` is not
+/// filtered by the newer-than-own ordering rule: that rule exists so the
+/// unsolicited first-install prompt never offers a device demotion,
+/// whereas the Devices screen is an explicit, user-navigated inventory
+/// of every key on the iCloud account.
+public struct ICloudDeviceBackupsSnapshot: Sendable, Equatable {
+    /// The current identity's own mirror, nil when it hasn't been
+    /// written yet (or the keychain read failed upstream).
+    public let currentDevice: PairableDeviceBackup?
+    /// Every other identity's backup, oldest first.
+    public let otherDevices: [PairableDeviceBackup]
+
+    /// The inboxId of the oldest key on the iCloud account, nil when no
+    /// key carries a timestamp to order by.
+    public var mainDeviceInboxId: String? {
+        let candidates = ([currentDevice].compactMap { $0 } + otherDevices)
+            .filter { $0.backedUpAt != nil }
+        let oldest = candidates.min { (lhs: PairableDeviceBackup, rhs: PairableDeviceBackup) -> Bool in
+            (lhs.backedUpAt ?? .distantFuture, lhs.inboxId) < (rhs.backedUpAt ?? .distantFuture, rhs.inboxId)
+        }
+        return oldest?.inboxId
+    }
+
+    /// Whether the current identity holds the account's main (oldest)
+    /// key. False when ordering can't be established.
+    public var currentDeviceIsMain: Bool {
+        guard let currentDevice else { return false }
+        return mainDeviceInboxId == currentDevice.inboxId
+    }
+
+    /// `otherDevices` minus backups whose device name matches a device
+    /// already shown in the paired-devices section. A key stamped with
+    /// the same name as a listed device is almost always that device's
+    /// own abandoned identity (an account reset or wipe left the old
+    /// key's backup in iCloud), and listing it as an "other device"
+    /// shows the same device in both sections. Name matching is the only
+    /// available link between installations and backup identities, so
+    /// same-model devices with identical generic names can be
+    /// over-filtered - an accepted trade-off; an undated/unnamed backup
+    /// is never filtered.
+    public func otherDevices(excludingDeviceNames pairedNames: Set<String>) -> [PairableDeviceBackup] {
+        otherDevices.filter { backup in
+            guard let name = backup.deviceName else { return true }
+            return !pairedNames.contains(name)
+        }
+    }
+
+    public init(currentDevice: PairableDeviceBackup?, otherDevices: [PairableDeviceBackup]) {
+        self.currentDevice = currentDevice
+        self.otherDevices = otherDevices
+    }
+}
+
+extension ICloudDeviceBackupsSnapshot {
+    /// Builds the snapshot from raw synced backups. Static and pure so
+    /// it can be unit tested without a keychain. A nil `currentInboxId`
+    /// (no identity yet) leaves `currentDevice` nil and treats every
+    /// backup as another device's.
+    static func snapshot(
+        from backups: [KeychainIdentityBackup],
+        currentInboxId: String?
+    ) -> ICloudDeviceBackupsSnapshot {
+        let own = backups
+            .first { $0.inboxId == currentInboxId }
+            .map { (backup: KeychainIdentityBackup) -> PairableDeviceBackup in
+                PairableDeviceBackup(
+                    inboxId: backup.inboxId,
+                    deviceName: backup.deviceName,
+                    backedUpAt: backup.backedUpAt
+                )
+            }
+        let others = backups
+            .filter { $0.inboxId != currentInboxId }
+            .map { (backup: KeychainIdentityBackup) -> PairableDeviceBackup in
+                PairableDeviceBackup(
+                    inboxId: backup.inboxId,
+                    deviceName: backup.deviceName,
+                    backedUpAt: backup.backedUpAt
+                )
+            }
+            .sorted { (lhs: PairableDeviceBackup, rhs: PairableDeviceBackup) -> Bool in
+                (lhs.backedUpAt ?? .distantFuture, lhs.inboxId) < (rhs.backedUpAt ?? .distantFuture, rhs.inboxId)
+            }
+        return ICloudDeviceBackupsSnapshot(currentDevice: own, otherDevices: others)
     }
 }
 

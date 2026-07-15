@@ -1,0 +1,19 @@
+# TestFlight RC uploads for release trains: every push to a release or
+# hotfix branch. The scheduled dev stream stays in testflight-prod.yml.
+name: TestFlight RC
+
+on:
+  push:
+    branches: ["release/**", "hotfix/**"]
+
+jobs:
+  testflight_rc:
+    permissions:
+      id-token: write
+      contents: read
+    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight-prod.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    secrets: inherit

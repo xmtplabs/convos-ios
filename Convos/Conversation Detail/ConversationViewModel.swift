@@ -2813,10 +2813,6 @@ extension ConversationViewModel {
         isConversationImageDirty = false
     }
 
-    func onProfilePhotoTap(focusCoordinator: FocusCoordinator) {
-        focusCoordinator.moveFocus(to: .displayName)
-    }
-
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
         guard canStageMoreMedia else {
             try? FileManager.default.removeItem(at: url)
@@ -3768,19 +3764,9 @@ extension ConversationViewModel {
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         isEditingDisplayName = false
 
-        let pickedImage = myProfileViewModel.profileImage
         _ = myProfileViewModel.onEndedEditing(for: conversation.id)
 
-        onboardingCoordinator.handleDisplayNameEndedEditing(
-            displayName: myProfileViewModel.editingDisplayName,
-            profileImage: pickedImage
-        )
-
-        if onboardingCoordinator.isSettingUpProfile {
-            focusCoordinator.endEditing(for: .displayName, context: .onboardingProfile)
-        } else {
-            focusCoordinator.endEditing(for: .displayName, context: context)
-        }
+        focusCoordinator.endEditing(for: .displayName, context: context)
     }
 
     func onProfileSettings() {

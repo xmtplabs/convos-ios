@@ -58,6 +58,24 @@ struct AgentVariantPlumbingTests {
         #expect(options?["variantId"] as? String == "pr-1234")
     }
 
+    @Test("Join request carries idempotencyKey top-level as a lowercase string, omitted when nil")
+    func joinRequestIdempotencyKeyEncoding() throws {
+        // Uppercase input proves the type normalizes before encoding: the
+        // wire value must be lowercase regardless of the raw value's casing.
+        let key = try #require(ConvosAPI.JoinIdempotencyKey(rawValue: "6F0F7A8E-1B2C-4D3E-8F4A-5B6C7D8E9F0A"))
+        let keyed = ConvosAPI.AgentJoinRequest(
+            conversationId: "convo-1",
+            templateId: "tmpl-1",
+            idempotencyKey: key
+        )
+        let object = try Self.jsonObject(keyed)
+        #expect(object["idempotencyKey"] as? String == "6f0f7a8e-1b2c-4d3e-8f4a-5b6c7d8e9f0a")
+
+        // Nil-omitted so default joins stay byte-identical to shipped builds.
+        let unkeyed = ConvosAPI.AgentJoinRequest(conversationId: "convo-1", templateId: "tmpl-1")
+        #expect(try Self.jsonObject(unkeyed).keys.contains("idempotencyKey") == false)
+    }
+
     @Test("Join options omit variantId when nil")
     func joinOptionsOmitNilVariantId() throws {
         let object = try Self.jsonObject(ConvosAPI.AgentJoinOptions(onboarding: "agent-builder"))
@@ -234,14 +252,10 @@ private final class VariantRecordingStubAPIClient: TestStubAPIClient {
     }
 
     override func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
-        lock.withLock { capturedJoinVariantId = options?.variantId }
+        lock.withLock { capturedJoinVariantId = joinRequest.options?.variantId }
         return ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
 }

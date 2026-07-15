@@ -30,6 +30,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     internal let coreActions: any CoreActions
+    /// Single shared instance so render-path resolvers (`contact(for:)`)
+    /// hit one warm in-memory contacts cache instead of constructing a
+    /// fresh repository per SwiftUI body evaluation.
+    private let sharedContactsRepository: ContactsRepository
     private var cancellables: Set<AnyCancellable> = []
 
     // swiftlint:disable:next function_parameter_count
@@ -89,6 +93,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
@@ -120,6 +125,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = ""
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
@@ -335,7 +341,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: Contacts
 
     func contactsRepository() -> any ContactsRepositoryProtocol {
-        ContactsRepository(databaseReader: databaseReader)
+        sharedContactsRepository
     }
 
     func contactsWriter() -> any ContactsWriterProtocol {

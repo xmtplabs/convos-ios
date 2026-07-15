@@ -105,7 +105,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Namespace private var namespace: Namespace.ID
 
     var profilePlaceholderText: String {
-        onboardingCoordinator.state == .settingUpProfile ? "Add your name" : "Your name"
+        "Your name"
     }
 
     var body: some View {
