@@ -931,6 +931,104 @@ struct AccountDeletionServiceTests {
         #expect(events.events.isEmpty)
     }
 
+    // MARK: - Write-before-send invariant
+
+    @Test("A record that goes missing before the send marker is written blocks the send")
+    func missingRecordAtSendMarkerBlocksSend() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-deletion-service-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        let recordFile = directory.appendingPathComponent("account-deletion-record.json")
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.mint = { _ in
+            // The record disappears between begin and the marker write.
+            try? FileManager.default.removeItem(at: recordFile)
+            return "jwt"
+        }
+        config.deletion = { _, _ in
+            Issue.record("Nothing may be sent when the send marker provably did not persist")
+            throw APIError.invalidRequest
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await #expect(throws: AccountDeletionError.self) {
+            try await service.deleteAccount { _ in }
+        }
+        #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
+    }
+
+    @Test("A record that becomes unreadable before the send marker is written blocks the send")
+    func unreadableRecordAtSendMarkerBlocksSend() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-deletion-service-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        let recordFile = directory.appendingPathComponent("account-deletion-record.json")
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.mint = { _ in
+            // The record turns to garbage between begin and the marker
+            // write: unreadable, so the marker provably cannot persist.
+            try? Data("not json {".utf8).write(to: recordFile)
+            return "jwt"
+        }
+        config.deletion = { _, _ in
+            Issue.record("Nothing may be sent when the send marker provably did not persist")
+            throw APIError.invalidRequest
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        await #expect(throws: AccountDeletionError.self) {
+            try await service.deleteAccount { _ in }
+        }
+        #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
+    }
+
+    @Test("A send-marker write failure blocks the send and holds the record")
+    func failedSendMarkerWriteBlocksSend() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-deletion-service-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AccountDeletionStateStore(directoryURL: directory)
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.mint = { _ in
+            // Mint succeeds, but the store becomes unwritable before the
+            // marker write.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+            return "jwt"
+        }
+        config.deletion = { _, _ in
+            Issue.record("Nothing may be sent when the send marker provably did not persist")
+            throw APIError.invalidRequest
+        }
+        let service = makeService(store: store, events: events, config: config)
+
+        do {
+            try await service.deleteAccount { _ in }
+            Issue.record("Expected preflightFailedRecordHeld")
+        } catch AccountDeletionError.preflightFailedRecordHeld {
+            // Expected: clear also failed, so the stuck record is reported.
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+        #expect(!events.events.contains(where: { $0.hasPrefix("delete(") }))
+        // The surviving record is unmarked, so launch recovery holds it.
+        let survivor = store.load().activeRecord
+        #expect(survivor?.phase == .requested)
+        #expect(survivor?.sendAttempted == nil)
+    }
+
     @Test("An aborted pre-send record is cleared at launch without re-sending the deletion")
     func abortedRecordClearsAtLaunchWithoutResending() async throws {
         let store = try makeStore()

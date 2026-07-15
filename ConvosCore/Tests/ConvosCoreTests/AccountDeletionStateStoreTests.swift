@@ -211,4 +211,22 @@ struct AccountDeletionStateStoreTests {
         let advanced = try await store.advance(to: .backendConfirmed)
         #expect(advanced.sendAttempted == true)
     }
+
+    @Test("Send-attempted marking throws on a missing record: the marker provably did not persist")
+    func sendAttemptedMarkingThrowsOnMissingRecord() async throws {
+        let store = AccountDeletionStateStore(directoryURL: try makeTempDirectory())
+        await #expect(throws: AccountDeletionStateStoreError.recordNotLoadable) {
+            try await store.markSendAttempted()
+        }
+    }
+
+    @Test("Send-attempted marking throws on an unreadable record: never a silent success")
+    func sendAttemptedMarkingThrowsOnUnreadableRecord() async throws {
+        let directory = try makeTempDirectory()
+        try Data("not json {".utf8).write(to: directory.appendingPathComponent("account-deletion-record.json"))
+        let store = AccountDeletionStateStore(directoryURL: directory)
+        await #expect(throws: AccountDeletionStateStoreError.recordNotLoadable) {
+            try await store.markSendAttempted()
+        }
+    }
 }

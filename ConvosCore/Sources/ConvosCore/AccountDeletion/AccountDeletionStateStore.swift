@@ -5,6 +5,10 @@ public enum AccountDeletionStateStoreError: Error, Equatable {
     /// A record already exists for a different operation; a second deletion
     /// cannot begin until the first completes or is cleared.
     case recordAlreadyExists(existingOperationId: UUID)
+    /// A marker write required a loadable record, but none was readable
+    /// (missing or corrupt): the marker provably did not persist, and the
+    /// caller must not proceed as if it had.
+    case recordNotLoadable
 }
 
 /// Thrown when identity provisioning is refused because an account-deletion
@@ -138,11 +142,15 @@ public actor AccountDeletionStateStore {
     }
 
     /// Marks the current record send-attempted, in one atomic record
-    /// write. The deletion flow persists this before the request goes out;
-    /// launch recovery auto-resends only marked records. A no-op when no
-    /// record is loadable.
+    /// write. The deletion flow persists this before the request goes out
+    /// and must not send unless the marker provably persisted, so this
+    /// returns only after a successful write to a loadable record: a
+    /// missing or unreadable record throws `recordNotLoadable` instead of
+    /// silently succeeding.
     public func markSendAttempted() throws {
-        guard let current = load().activeRecord else { return }
+        guard let current = load().activeRecord else {
+            throw AccountDeletionStateStoreError.recordNotLoadable
+        }
         try write(current.markedSendAttempted())
     }
 
