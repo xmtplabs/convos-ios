@@ -41,11 +41,9 @@ final class ExtensionRuntime {
         // preview, TestFlight) carry no pinned debug token, so its own
         // attestation only works in local developer builds.
         FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
-        // Every image the cache serves this process (avatars, cached photos)
-        // decodes at most 512px - a 2048px decode is ~22 MB and a few of
-        // them concurrently breach the extension memory limit.
-        BoundedImageDecode.processMaxPixelSize = 512
-        ImageCacheContainer.isMemoryConstrainedProcess = true
+        // Memory flags (BoundedImageDecode cap, constrained image cache) are
+        // set in ShareViewController.viewDidLoad, before the first render
+        // can construct the cache singleton.
         DeviceInfo.configure(IOSDeviceInfo())
         ImageCompression.configure(IOSImageCompression())
         PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
@@ -85,6 +83,12 @@ final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         ComposerHostContext.isAppExtension = true
+        // Before any view renders: the first avatar to draw constructs the
+        // ImageCache singleton, which reads these at init. Setting them in
+        // the async prepare path races that first render and can lock in the
+        // main app's 300 MB cache budget and 2048px decodes.
+        ImageCacheContainer.isMemoryConstrainedProcess = true
+        BoundedImageDecode.processMaxPixelSize = 512
         view.backgroundColor = .systemBackground
 
         let composeView = ShareComposeView(
@@ -188,7 +192,9 @@ final class ShareComposeModel {
             uploadManager = runtime.uploadManager
             Log.info("client ready \(MemoryProbe.snapshot)")
 
-            let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
+            // A database read failure is not "no convos" - surface it as the
+            // bootstrap error it is instead of a misleading empty state.
+            let conversations = try client.session.conversationsRepository(for: [.allowed]).fetchAll()
             let intent = extensionContext?.intent as? INSendMessageIntent
             // When the share came from a donated suggestion, only that exact
             // conversation is an acceptable target - falling back to an
