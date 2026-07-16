@@ -8,6 +8,72 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+/// Process-scoped bootstrap for the share extension. iOS reuses extension
+/// processes across share-sheet presentations; building a second ConvosClient
+/// (or a second background session under the same identifier) in a reused
+/// process stalls the publish pipeline behind the first instance's still-open
+/// resources - observed as a publish that times out its whole runway on the
+/// second share from one process.
+@MainActor
+final class ExtensionRuntime {
+    let client: ConvosClient
+    let uploadManager: BackgroundUploadManager
+
+    private static var cached: ExtensionRuntime?
+
+    static func shared() throws -> ExtensionRuntime {
+        if let cached {
+            Log.info("extension runtime reused \(MemoryProbe.snapshot)")
+            return cached
+        }
+        let runtime = try ExtensionRuntime()
+        cached = runtime
+        return runtime
+    }
+
+    private init() throws {
+        let environment = try NotificationExtensionEnvironment.getEnvironment()
+        ConvosLog.configure(environment: environment)
+        Log.info("extension runtime boot \(MemoryProbe.snapshot)")
+        ConfigManager.configure(overrides: .empty)
+        // Prefer the App Check token the main app mirrored into the app
+        // group: the extension can't App Attest, and archive builds (PR
+        // preview, TestFlight) carry no pinned debug token, so its own
+        // attestation only works in local developer builds.
+        FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
+        // Every image the cache serves this process (avatars, cached photos)
+        // decodes at most 512px - a 2048px decode is ~22 MB and a few of
+        // them concurrently breach the extension memory limit.
+        BoundedImageDecode.processMaxPixelSize = 512
+        DeviceInfo.configure(IOSDeviceInfo())
+        ImageCompression.configure(IOSImageCompression())
+        PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
+        RichLinkMetadata.configure(IOSRichLinkMetadataProvider())
+        // App Attest is unavailable in app extensions, so the extension can
+        // only attest with the debug provider - which must never ship in a
+        // production build. Outside production, force it with the Dev token;
+        // in production, skip App Check configuration entirely until the
+        // main-app-vended token story lands (gated sends will fail there).
+        if !environment.isProduction,
+           let firebaseConfigURL = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
+            FirebaseHelperCore.configure(
+                with: firebaseConfigURL,
+                debugToken: Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN,
+                forceDebugProvider: true
+            )
+        }
+        uploadManager = BackgroundUploadManager(
+            sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
+            sharedContainerIdentifier: environment.appGroupIdentifier
+        )
+        client = ConvosClient.client(
+            environment: environment,
+            platformProviders: .iOSExtension,
+            coreActions: NoOpCoreActions()
+        )
+    }
+}
+
 /// Throwaway spike compose UI for the share extension. A custom UIViewController
 /// (not SLComposeServiceViewController) hosting the app's real composer
 /// (MessagesBottomBar from ConvosComposer) over the same send path as the app
@@ -112,47 +178,11 @@ final class ShareComposeModel {
 
     private func prepare(extensionContext: NSExtensionContext?) async {
         do {
-            let environment = try NotificationExtensionEnvironment.getEnvironment()
-            ConvosLog.configure(environment: environment)
-            Log.info("extension open \(MemoryProbe.snapshot)")
-            ConfigManager.configure(overrides: .empty)
-            // Prefer the App Check token the main app mirrored into the app
-            // group: the extension can't App Attest, and archive builds (PR
-            // preview, TestFlight) carry no pinned debug token, so its own
-            // attestation only works in local developer builds.
-            FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
-            // Every image the cache serves this process (avatars, cached
-            // photos) decodes at most 512px - a 2048px decode is ~22 MB and
-            // a few of them concurrently breach the extension memory limit.
-            BoundedImageDecode.processMaxPixelSize = 512
-            uploadManager = BackgroundUploadManager(
-                sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
-                sharedContainerIdentifier: environment.appGroupIdentifier
-            )
-            DeviceInfo.configure(IOSDeviceInfo())
-            ImageCompression.configure(IOSImageCompression())
-            PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
-            RichLinkMetadata.configure(IOSRichLinkMetadataProvider())
-            // App Attest is unavailable in app extensions, so the extension can
-            // only attest with the debug provider - which must never ship in a
-            // production build. Outside production, force it with the Dev token;
-            // in production, skip App Check configuration entirely until the
-            // main-app-vended token story lands (gated sends will fail there).
-            if !environment.isProduction,
-               let firebaseConfigURL = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
-                FirebaseHelperCore.configure(
-                    with: firebaseConfigURL,
-                    debugToken: Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN,
-                    forceDebugProvider: true
-                )
-            }
-            let client = ConvosClient.client(
-                environment: environment,
-                platformProviders: .iOSExtension,
-                coreActions: NoOpCoreActions()
-            )
+            let runtime = try ExtensionRuntime.shared()
+            let client = runtime.client
             self.client = client
-            Log.info("client constructed \(MemoryProbe.snapshot)")
+            uploadManager = runtime.uploadManager
+            Log.info("client ready \(MemoryProbe.snapshot)")
 
             let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
             let intent = extensionContext?.intent as? INSendMessageIntent
