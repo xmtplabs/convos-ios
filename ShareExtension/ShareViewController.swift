@@ -248,6 +248,11 @@ final class ShareComposeModel {
             return false
         }
         Log.info("staged to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
+        // The content is staged and the optimistic bubbles are in the
+        // transcript; clear the composer so the sheet doesn't sit on stale
+        // input during the publish window.
+        messageText = ""
+        pendingMediaAttachments = []
         await Self.waitForPublishes(from: writers, upTo: Constant.opportunisticPublishWindow)
         Log.info("closing share sheet; unfinished publishes drain on next app open")
         return true
