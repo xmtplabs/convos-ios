@@ -233,6 +233,10 @@ struct ConvosApp: App {
     }
 
     private func handleScenePhaseActive() {
+        // A targetless share staged content for the agent builder; open it
+        // pre-seeded. Runs before the drain so the builder appears promptly.
+        conversationsViewModel.startAgentFromSharedContentIfPending()
+
         // Foreground refresh — TTL-debounced inside both services, so this is a
         // cheap no-op if we were just active. Catches the case where credits
         // changed server-side while the app was backgrounded (agent runtime

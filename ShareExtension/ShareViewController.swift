@@ -136,6 +136,10 @@ final class ShareComposeModel {
     /// A shared URL rendered as the composer's link-preview chip (mirrors the
     /// in-app pasted-link flow); sent as its own message ahead of typed text.
     var pendingLinkPreview: LinkPreview?
+    /// True when the share carried no donated conversation target: sending
+    /// stages the content for the app, which opens the agent builder with it
+    /// pre-seeded on its next foreground.
+    var isNewAgentTarget: Bool = false
     var isReady: Bool = false
     var isSending: Bool = false
     /// User-visible reason the share sheet cannot proceed (intent target gone,
@@ -206,17 +210,18 @@ final class ShareComposeModel {
                     unavailableReason = "This convo is no longer available."
                 }
             } else {
-                target = conversations.first
-                if target == nil {
-                    unavailableReason = "No convos to share into yet."
-                }
+                // No donated target: the share starts a new agent. The
+                // content is staged for the app, which opens the agent
+                // builder pre-seeded on its next foreground.
+                target = nil
+                isNewAgentTarget = true
             }
             targetConversationId = target?.id
             targetConversation = target
             // The donated intent carries the conversation's display name
             // (Conversation.title lives in the app target, not here).
             let fallbackTitle: String? = target.map { $0.computedDisplayName(memberNameOverride: { _ in nil }) }
-            targetTitle = intent?.speakableGroupName?.spokenPhrase ?? fallbackTitle ?? "Convo"
+            targetTitle = intent?.speakableGroupName?.spokenPhrase ?? fallbackTitle ?? (isNewAgentTarget ? "New Agent" : "Convo")
 
             if let target {
                 if let myProfile = target.members.first(where: { $0.isCurrentUser })?.profile {
@@ -244,7 +249,7 @@ final class ShareComposeModel {
                     Log.info("shared text loaded (no link parsed): \(sharedText.count) chars")
                 }
             }
-            isReady = targetConversationId != nil
+            isReady = targetConversationId != nil || isNewAgentTarget
         } catch {
             Log.error("prepare failed: \(error.localizedDescription)")
             unavailableReason = "Convos could not start. Try again."
@@ -281,7 +286,7 @@ final class ShareComposeModel {
     /// app's foreground drain republishes from the staged rows. Returns false
     /// only when staging itself fails - the content would otherwise be lost.
     func send() async -> Bool {
-        guard !isSending, let client, let targetConversationId else {
+        guard !isSending, let client else {
             return false
         }
         isSending = true
@@ -289,7 +294,13 @@ final class ShareComposeModel {
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachmentCount = pendingMediaAttachments.count
-        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) \(MemoryProbe.snapshot)")
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) newAgent=\(isNewAgentTarget) \(MemoryProbe.snapshot)")
+        if isNewAgentTarget {
+            return stageForAgentBuilder(text: text)
+        }
+        guard let targetConversationId else {
+            return false
+        }
         let messagingService = client.session.messagingService()
         // One writer for the whole send: its queue publishes strictly in
         // order, so the text always reaches the network after the photos.
@@ -344,6 +355,41 @@ final class ShareComposeModel {
         await Self.waitForPublishes(from: writer, count: stagedCount, upTo: Constant.opportunisticPublishWindow)
         Log.info("closing share sheet; unfinished publishes drain on next app open")
         return true
+    }
+
+    /// Stages a targetless share for the agent builder: photos go to the
+    /// shared sent-photos cache, the record to the app group. The app opens
+    /// the builder pre-seeded on its next foreground. No network, no
+    /// publish - staging is purely local, so the sheet closes immediately.
+    private func stageForAgentBuilder(text: String) -> Bool {
+        do {
+            let environment = try NotificationExtensionEnvironment.getEnvironment()
+            let photoService = PhotoAttachmentService()
+            var filenames: [String] = []
+            for attachment in pendingMediaAttachments {
+                guard case .photo(let photo) = attachment else { continue }
+                let filename = photoService.generateFilename()
+                _ = try photoService.saveLocally(image: photo.image, filename: filename)
+                filenames.append(filename)
+            }
+            // The builder composer is plain text; a shared link rides along
+            // as the prompt's first line.
+            var promptText = text
+            if let linkURL = pendingLinkPreview?.url {
+                promptText = promptText.isEmpty ? linkURL : "\(linkURL)\n\(promptText)"
+            }
+            let share = PendingAgentBuilderShare(text: promptText, attachmentFilenames: filenames)
+            AgentBuilderShareHandoff.stage(share, appGroupIdentifier: environment.appGroupIdentifier)
+            Log.info("staged for agent builder: attachments=\(filenames.count) text=\(!promptText.isEmpty)")
+            messageText = ""
+            pendingMediaAttachments = []
+            pendingLinkPreview = nil
+            return true
+        } catch {
+            Log.error("agent-builder staging failed: \(error)")
+            sendError = "Could not stage the share: \(error.localizedDescription)"
+            return false
+        }
     }
 
     /// Keeps the process alive past sheet dismissal on a system-granted
@@ -605,6 +651,9 @@ struct ShareComposeView: View {
             if let conversation = model.targetConversation {
                 conversationIndicator(for: conversation)
                     .padding(.top, DesignConstants.Spacing.step2x)
+            } else if model.isNewAgentTarget {
+                newAgentPill
+                    .padding(.top, DesignConstants.Spacing.step2x)
             }
         }
         .onAppear { focusState = .message }
@@ -712,9 +761,27 @@ struct ShareComposeView: View {
             )
         } else if let reason = model.unavailableReason {
             ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+        } else if model.isNewAgentTarget {
+            ContentUnavailableView(
+                "New agent",
+                systemImage: "sparkles",
+                description: Text("Send this to start building an agent with it. Convos opens the builder next time you're in the app.")
+            )
         } else {
             Spacer(minLength: 0)
         }
+    }
+
+    private var newAgentPill: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "sparkles")
+            Text("New Agent")
+                .font(.headline)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .clipShape(.capsule)
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var composerBar: some View {

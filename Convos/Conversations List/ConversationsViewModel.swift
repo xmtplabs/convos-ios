@@ -477,6 +477,31 @@ final class ConversationsViewModel {
         agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }
 
+    /// Opens the agent builder pre-seeded with content a targetless share
+    /// staged from the share extension (the extension can't host the builder
+    /// flow itself). Called on every foreground; a no-op when nothing is
+    /// pending or a builder is already up.
+    func startAgentFromSharedContentIfPending() {
+        guard agentBuilderViewModel == nil else { return }
+        let appGroupIdentifier = ConfigManager.shared.currentEnvironment.appGroupIdentifier
+        guard let share = AgentBuilderShareHandoff.consume(appGroupIdentifier: appGroupIdentifier) else { return }
+        onStartAgent()
+        guard let builder = agentBuilderViewModel else { return }
+        if !share.text.isEmpty {
+            builder.composerText = share.text
+        }
+        let photoService = PhotoAttachmentService()
+        for filename in share.attachmentFilenames {
+            guard let url = try? photoService.localCacheURL(for: filename),
+                  let image = BoundedImageDecode.image(contentsOf: url) else {
+                Log.warning("Shared agent-builder attachment missing: \(filename)")
+                continue
+            }
+            builder.addPhotoAttachment(image)
+        }
+        Log.info("Opened agent builder from shared content: attachments=\(share.attachmentFilenames.count) text=\(!share.text.isEmpty)")
+    }
+
     private func join(from inviteCode: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
