@@ -11,6 +11,9 @@ extension ConvosClient {
         let databaseManager = DatabaseManager(environment: environment)
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
+        // Sent photos are cached in the app group so a photo sent from one
+        // process (share extension) renders in the other (main app).
+        PhotoAttachmentService.sharedContainerAppGroupIdentifier = environment.appGroupIdentifier
         // Device name is read lazily at each backup write (it can change
         // in Settings) and stamps the synced backup blob for the restore
         // picker, mirroring the pairing flow's device labels.

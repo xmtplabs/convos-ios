@@ -83,6 +83,13 @@ public protocol PhotoAttachmentServiceProtocol: Sendable {
 }
 
 public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Sendable {
+    /// App-group identifier for the sent-photos cache, set once at client
+    /// bootstrap. Sent photos are written by whichever process sends (main
+    /// app or share extension) and rendered by both, so the cache must live
+    /// in the shared container - a message row pointing into the share
+    /// extension's private caches renders as "Failed to load" in the app.
+    nonisolated(unsafe) public static var sharedContainerAppGroupIdentifier: String?
+
     public init() {}
 
     public func generateFilename() -> String {
@@ -90,11 +97,20 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     public func localCacheURL(for filename: String) throws -> URL {
+        try Self.sentPhotosDirectory().appendingPathComponent(filename)
+    }
+
+    private static func sentPhotosDirectory() throws -> URL {
+        if let appGroup = sharedContainerAppGroupIdentifier,
+           let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return container
+                .appendingPathComponent("Library/Caches", isDirectory: true)
+                .appendingPathComponent("SentPhotos", isDirectory: true)
+        }
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             throw PhotoAttachmentError.persistentStorageUnavailable
         }
-        let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
-        return photosDir.appendingPathComponent(filename)
+        return cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
     }
 
     public func saveLocally(image: ImageType, filename: String) throws -> LocallySavedPhoto {
@@ -218,10 +234,7 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     private func saveToLocalCache(data: Data, filename: String) throws -> URL {
-        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            throw PhotoAttachmentError.compressionFailed
-        }
-        let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
+        let photosDir = try Self.sentPhotosDirectory()
 
         try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
 
