@@ -374,7 +374,30 @@ final class ShareComposeModel {
     }
 
     private static func loadImage(from provider: NSItemProvider) async -> UIImage? {
-        await withCheckedContinuation { continuation in
+        // Ask for a file representation first: the provider writes the
+        // original to disk without decoding it. loadItem can deserialize a
+        // fully-decoded UIImage in-process, which for a large photo is alone
+        // enough to cross the extension's 120 MB jetsam ceiling before any
+        // downsampling code runs - both observed device kills died inside
+        // that hand-off. The mapped read plus CGImageSource subsampling never
+        // materializes the full-resolution bitmap.
+        let fromFile: UIImage? = await withCheckedContinuation { continuation in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
+                // The URL is only valid inside this handler; map the bytes
+                // now and decode from the mapping.
+                guard let url,
+                      let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: downsampledImage(from: data))
+            }
+        }
+        if let fromFile {
+            Log.info("shared image via file representation \(MemoryProbe.snapshot)")
+            return fromFile
+        }
+        return await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, _ in
                 let image: UIImage?
                 switch item {
@@ -383,12 +406,6 @@ final class ShareComposeModel {
                 case let data as Data:
                     image = downsampledImage(from: data)
                 case let provided as UIImage:
-                    // A directly-provided image bypasses the data path, so
-                    // bound it here too. preparingThumbnail decodes at the
-                    // target size via ImageIO subsampling - redrawing the
-                    // image instead would transiently materialize the full
-                    // resolution bitmap, which is itself enough to blow the
-                    // extension's 120 MB jetsam ceiling for a large photo.
                     image = downsampledProvidedImage(provided)
                 default:
                     image = nil
