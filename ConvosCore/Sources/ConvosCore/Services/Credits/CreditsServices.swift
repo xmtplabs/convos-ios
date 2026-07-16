@@ -41,12 +41,20 @@ public enum CreditsServices {
         )
     }
 
-    /// Account-deletion fence; see `CreditBalanceWriter.prepareForAccountWipe()`.
+    /// Account-deletion fence; see `CreditBalanceWriter.beginAccountWipe()`.
     /// Reaches the backend service directly rather than through `shared` so
     /// the fence runs even when the debug toggle points `shared` at the mock
     /// (the real writer is the only thing that writes `credit_balance`).
-    public static func prepareForAccountWipe() async {
-        await backendService?.prepareForAccountWipe()
+    /// Callers must pair it with `endAccountWipe()` in a `defer` around the
+    /// row deletion.
+    public static func beginAccountWipe() async {
+        await backendService?.beginAccountWipe()
+    }
+
+    /// Second half of the fence; synchronous so wipe paths can `defer` it
+    /// and a failed wipe can't leave credits refresh permanently disabled.
+    public static func endAccountWipe() {
+        backendService?.endAccountWipe()
     }
 
     public static var useRealBackend: Bool {

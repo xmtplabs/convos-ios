@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 /// Owns the write path for `credit_balance`. Fetches the latest balance from
 /// the backend via `GET /v2/accounts/me/credits` and upserts the single row.
@@ -14,11 +15,20 @@ public actor CreditBalanceWriter {
     private let apiClient: any ConvosAPIClientProtocol
     private var lastFetchedAt: Date?
     private var refreshTask: Task<Bool, Never>?
-    /// Bumped by `prepareForAccountWipe()`. A refresh captures it before
-    /// the network await and skips the DB write when it has moved, so a
-    /// fetch started for a deleted account can't re-insert that account's
+    /// Bumped by `beginAccountWipe()`. A refresh captures it before the
+    /// network await and skips the DB write when it has moved, so a fetch
+    /// started for a deleted account can't re-insert that account's
     /// balance after the account-scoped rows were wiped.
     private var epoch: UInt64 = 0
+    /// Wipe-in-progress latch, set by `beginAccountWipe()` and cleared by
+    /// `endAccountWipe()`. While set, every refresh is a rejected no-op
+    /// (no HTTP call, no DB write, no TTL stamp), closing the gap between
+    /// quiescence and the actual row deletion: a refresh entering that gap
+    /// would otherwise capture the already-bumped epoch and write after
+    /// the delete. Lock-backed (not actor state) so `endAccountWipe()` is
+    /// synchronous and the wipe paths can guarantee it in a `defer` even
+    /// when the deletion throws.
+    private nonisolated let wipeLatch: OSAllocatedUnfairLock<Bool> = .init(initialState: false)
 
     public init(
         databaseWriter: any DatabaseWriter,
@@ -29,6 +39,7 @@ public actor CreditBalanceWriter {
     }
 
     public func refresh(force: Bool) async {
+        guard !wipeLatch.withLock({ $0 }) else { return }
         if let refreshTask {
             _ = await refreshTask.value
             return
@@ -47,12 +58,15 @@ public actor CreditBalanceWriter {
         }
     }
 
-    /// Account-deletion fence. Invalidates any in-flight refresh (its DB
-    /// write is dropped) and waits for one that already passed the epoch
-    /// check to finish its write, so the caller can wipe the rows afterwards
-    /// knowing no stale balance lands later. Also resets the TTL so the next
-    /// account's first refresh isn't debounced against the wiped row.
-    public func prepareForAccountWipe() async {
+    /// Account-deletion fence, first half. Latches the writer (every
+    /// refresh until `endAccountWipe()` is a rejected no-op), invalidates
+    /// any in-flight refresh so its DB write is dropped, and waits for it
+    /// to settle. Also resets the TTL so the next account's first refresh
+    /// isn't debounced against the wiped row. Callers must pair this with
+    /// `endAccountWipe()` after the row deletion - in a `defer`, so a
+    /// failed wipe can't leave credits refresh permanently disabled.
+    public func beginAccountWipe() async {
+        wipeLatch.withLock { $0 = true }
         epoch += 1
         lastFetchedAt = nil
         if let refreshTask {
@@ -60,11 +74,17 @@ public actor CreditBalanceWriter {
         }
     }
 
+    /// Account-deletion fence, second half: reopens the writer for the
+    /// next account. Synchronous so wipe paths can call it from `defer`.
+    public nonisolated func endAccountWipe() {
+        wipeLatch.withLock { $0 = false }
+    }
+
     private func performRefresh() async -> Bool {
         let epochAtStart: UInt64 = epoch
         do {
             let balance = try await apiClient.getCreditBalance()
-            guard epoch == epochAtStart else { return false }
+            guard epoch == epochAtStart, !wipeLatch.withLock({ $0 }) else { return false }
             try await write(balance)
             return true
         } catch {

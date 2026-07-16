@@ -672,10 +672,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     func wipeResidualInboxRows() async throws {
-        // Quiesce the credits writer first so an in-flight balance refresh
-        // can't re-insert the wiped account's `credit_balance` row after
-        // the delete below.
-        await CreditsServices.prepareForAccountWipe()
+        // Latch and quiesce the credits writer so a balance refresh - in
+        // flight or starting before the delete below runs - can't
+        // re-insert the wiped account's `credit_balance` row afterwards.
+        // The deferred end reopens the writer even when the delete throws.
+        await CreditsServices.beginAccountWipe()
+        defer { CreditsServices.endAccountWipe() }
         try await databaseWriter.write { db in
             try Self.wipeAccountScopedRows(db)
         }
