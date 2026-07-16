@@ -233,7 +233,7 @@ import Testing
             keys: keys
         )
 
-        let backups = try await keychainStore.loadSyncedBackups()
+        let backups = try keychainStore.loadSyncedBackups()
         #expect(backups.count == 1)
         #expect(backups.first?.inboxId == "backup-load-inbox")
         #expect(backups.first?.clientId == "backup-load-client")
@@ -258,7 +258,7 @@ import Testing
             keys: secondKeys
         )
 
-        let backups = try await keychainStore.loadSyncedBackups()
+        let backups = try keychainStore.loadSyncedBackups()
         #expect(backups.count == 1)
         #expect(backups.first?.inboxId == "resave-inbox")
         #expect(backups.first?.clientId == "resave-client-two")
@@ -282,7 +282,7 @@ import Testing
             keys: pairedKeys
         )
 
-        let backups = try await keychainStore.loadSyncedBackups()
+        let backups = try keychainStore.loadSyncedBackups()
         #expect(backups.map(\.inboxId) == ["incoming-inbox"])
     }
 
@@ -293,10 +293,10 @@ import Testing
             clientId: "backup-delete-client",
             keys: keys
         )
-        #expect(try await keychainStore.loadSyncedBackups().count == 1)
+        #expect(try keychainStore.loadSyncedBackups().count == 1)
 
         try await keychainStore.delete()
-        #expect(try await keychainStore.loadSyncedBackups().isEmpty)
+        #expect(try keychainStore.loadSyncedBackups().isEmpty)
     }
 
     /// Two unpaired identities sharing an iCloud account must back up
@@ -320,12 +320,12 @@ import Testing
             keys: secondKeys
         )
 
-        let backedUpInboxIds = Set(try await keychainStore.loadSyncedBackups().map(\.inboxId))
+        let backedUpInboxIds = Set(try keychainStore.loadSyncedBackups().map(\.inboxId))
         #expect(backedUpInboxIds == ["coexist-inbox-a", "coexist-inbox-b"])
 
         // Deleting the current identity (B) must leave A's backup intact.
         try await keychainStore.delete()
-        let remaining = try await keychainStore.loadSyncedBackups()
+        let remaining = try keychainStore.loadSyncedBackups()
         #expect(remaining.map(\.inboxId) == ["coexist-inbox-a"])
     }
 
@@ -343,11 +343,11 @@ import Testing
         // Remove just the backup copy, leaving the primary slot intact.
         let deleteStatus = SecItemDelete(backupSlotQuery(inboxId: "backfill-inbox", synchronizable: true) as CFDictionary)
         #expect(deleteStatus == errSecSuccess)
-        #expect(try await keychainStore.loadSyncedBackups().isEmpty)
+        #expect(try keychainStore.loadSyncedBackups().isEmpty)
 
         await keychainStore.backfillSyncedBackupIfNeeded()
 
-        let backups = try await keychainStore.loadSyncedBackups()
+        let backups = try keychainStore.loadSyncedBackups()
         #expect(backups.first?.inboxId == "backfill-inbox")
         #expect(backups.first?.clientId == "backfill-client")
 
@@ -372,7 +372,7 @@ import Testing
         try await keychainStore.delete()
 
         #expect(try await keychainStore.load() == nil)
-        #expect(try await keychainStore.loadSyncedBackups().map(\.inboxId) == ["orphan-inbox"])
+        #expect(try keychainStore.loadSyncedBackups().map(\.inboxId) == ["orphan-inbox"])
     }
 
     /// One corrupt blob must not poison recovery: `loadSyncedBackups`
@@ -387,7 +387,7 @@ import Testing
             keys: keys
         )
 
-        let backups = try await keychainStore.loadSyncedBackups()
+        let backups = try keychainStore.loadSyncedBackups()
         #expect(backups.map(\.inboxId) == ["valid-inbox"])
     }
 
@@ -407,7 +407,7 @@ import Testing
             keys: keys
         )
 
-        let backup = try #require(try await namedStore.loadSyncedBackups().first)
+        let backup = try #require(try namedStore.loadSyncedBackups().first)
         #expect(backup.deviceName == "Test iPhone")
         let backedUpAt = try #require(backup.backedUpAt)
         #expect(backedUpAt >= beforeSave)
@@ -419,7 +419,7 @@ import Testing
             clientId: "named-client-two",
             keys: keys
         )
-        let rewritten = try #require(try await keychainStore.loadSyncedBackups().first)
+        let rewritten = try #require(try keychainStore.loadSyncedBackups().first)
         #expect(rewritten.deviceName == nil)
         #expect(rewritten.clientId == "named-client-two")
     }
@@ -436,7 +436,7 @@ import Testing
             deletePrimarySlotOnly()
         }
 
-        let backedUpInboxIds = Set(try await keychainStore.loadSyncedBackups().map(\.inboxId))
+        let backedUpInboxIds = Set(try keychainStore.loadSyncedBackups().map(\.inboxId))
         #expect(backedUpInboxIds == ["many-inbox-1", "many-inbox-2", "many-inbox-3"])
     }
 

@@ -126,7 +126,7 @@ struct KeychainSyncConfigTests {
     @Test("loadSyncedBackups returns empty on a fresh store")
     func syncedBackupsAreEmptyOnFreshStore() async throws {
         let store = MockKeychainIdentityStore()
-        let backups = try await store.loadSyncedBackups()
+        let backups = try store.loadSyncedBackups()
         #expect(backups.isEmpty)
     }
 
@@ -141,7 +141,7 @@ struct KeychainSyncConfigTests {
             keys: keys
         )
 
-        let backups = try await store.loadSyncedBackups()
+        let backups = try store.loadSyncedBackups()
         #expect(backups.count == 1)
         #expect(backups.first?.inboxId == "backup-inbox")
         #expect(backups.first?.clientId == "backup-client")
@@ -177,10 +177,10 @@ struct KeychainSyncConfigTests {
             clientId: "backup-client",
             keys: keys
         )
-        #expect(try await store.loadSyncedBackups().count == 1)
+        #expect(try store.loadSyncedBackups().count == 1)
 
         try await store.delete()
-        #expect(try await store.loadSyncedBackups().isEmpty)
+        #expect(try store.loadSyncedBackups().isEmpty)
     }
 
     @Test("a displacing save removes the displaced identity's backup")
@@ -203,7 +203,7 @@ struct KeychainSyncConfigTests {
             keys: pairedKeys
         )
 
-        let backups = try await store.loadSyncedBackups()
+        let backups = try store.loadSyncedBackups()
         #expect(backups.map(\.inboxId) == ["paired-inbox"])
     }
 
@@ -224,7 +224,7 @@ struct KeychainSyncConfigTests {
             keys: secondKeys
         )
 
-        let backups = try await store.loadSyncedBackups()
+        let backups = try store.loadSyncedBackups()
         #expect(backups.count == 1)
         #expect(backups.first?.clientId == "client-two")
     }
@@ -240,7 +240,7 @@ struct KeychainSyncConfigTests {
             keys: keys
         )
 
-        let backup = try #require(try await store.loadSyncedBackups().first)
+        let backup = try #require(try store.loadSyncedBackups().first)
         let encoded = try JSONEncoder().encode(backup)
         let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(json["databaseKey"] == nil)
@@ -259,11 +259,11 @@ struct KeychainSyncConfigTests {
             keys: keys
         )
         store._clearSyncedBackups()
-        #expect(try await store.loadSyncedBackups().isEmpty)
+        #expect(try store.loadSyncedBackups().isEmpty)
 
         await store.backfillSyncedBackupIfNeeded()
 
-        let backups = try await store.loadSyncedBackups()
+        let backups = try store.loadSyncedBackups()
         #expect(backups.first?.inboxId == "backfill-inbox")
         #expect(backups.first?.clientId == "backfill-client")
     }
@@ -275,6 +275,6 @@ struct KeychainSyncConfigTests {
         await store.backfillSyncedBackupIfNeeded()
 
         #expect(try await store.load() == nil)
-        #expect(try await store.loadSyncedBackups().isEmpty)
+        #expect(try store.loadSyncedBackups().isEmpty)
     }
 }

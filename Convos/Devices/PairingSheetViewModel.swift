@@ -69,6 +69,10 @@ final class PairingSheetViewModel: Identifiable {
     private let appGroupIdentifier: String?
     private let timeoutInterval: TimeInterval
     private let mode: PairingSheetMode
+    /// When the invite targets a specific iCloud device (the Devices
+    /// screen's "Other devices in iCloud" section), the sheet's scan
+    /// instruction names it instead of the generic "your new device".
+    let targetDeviceName: String?
     private(set) var coordinator: PairingCoordinator?
     private var joinerDeviceName: String = "New Device"
     private var joinerInboxId: String?
@@ -84,12 +88,14 @@ final class PairingSheetViewModel: Identifiable {
         timeoutInterval: TimeInterval = 120,
         mode: PairingSheetMode = .createInvite,
         appGroupIdentifier: String? = nil,
+        targetDeviceName: String? = nil,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.pairingService = pairingService
         self.appGroupIdentifier = appGroupIdentifier
         self.timeoutInterval = timeoutInterval
         self.mode = mode
+        self.targetDeviceName = targetDeviceName
         self.metrics = DevicePairingMetricsTracker(role: .initiator, coreActions: coreActions)
         self.secondsRemaining = Int(timeoutInterval)
         self.observers = PairingNotificationObservers()

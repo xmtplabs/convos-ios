@@ -27,6 +27,25 @@ struct PairedDevice: Identifiable, Equatable, Sendable {
 @MainActor
 final class DevicesViewModel {
     var devices: [PairedDevice] = []
+    /// Other identities' private keys found in the iCloud-synced keychain
+    /// backup - devices on the same iCloud account that are not paired to
+    /// the current account. Oldest first, so the account's original key
+    /// leads the section. Derived from the latest snapshot with any key
+    /// whose device name already appears in the paired section filtered
+    /// out (an abandoned old identity of a listed device must not show
+    /// the same device in both sections), and recomputed whenever either
+    /// the snapshot or the paired-devices list changes.
+    var iCloudDevices: [PairableDeviceBackup] {
+        let pairedNames = Set(devices.map(\.name))
+        return iCloudSnapshot.otherDevices(excludingDeviceNames: pairedNames)
+    }
+    /// The inboxId of the oldest key on the iCloud account - the "main"
+    /// device. Nil when ordering can't be established.
+    var mainDeviceInboxId: String? { iCloudSnapshot.mainDeviceInboxId }
+    /// Whether the current account holds the main (oldest) key, so the
+    /// current-device row carries the Main badge.
+    var currentDeviceIsMain: Bool { iCloudSnapshot.currentDeviceIsMain }
+    private var iCloudSnapshot: ICloudDeviceBackupsSnapshot = .init(currentDevice: nil, otherDevices: [])
     var isLoading: Bool = false
     var showPairingSheet: Bool = false
     var pairingViewModel: PairingSheetViewModel?
@@ -103,12 +122,61 @@ final class DevicesViewModel {
                     if role.isInitiator, let baseline {
                         await self.broadcastProfileSnapshotsAfterPair(baseline: baseline)
                     }
+                    // A completed pairing changes the iCloud picture (the
+                    // joined device's separate key is retired when it
+                    // adopts this account), so refresh the section too.
+                    await self.refreshICloudDevices()
                 }
             }
         }
         Task { @MainActor in
             await refreshInstallations(refreshFromNetwork: true)
         }
+        Task { @MainActor in
+            await refreshICloudDevices()
+        }
+    }
+
+    /// Loads the iCloud backup inventory for the "Other devices in
+    /// iCloud" section and the Main-device designation. Re-run alongside
+    /// installation refreshes so a completed pairing (which retires the
+    /// adopted identity's separate backup) updates the section.
+    func refreshICloudDevices() async {
+        guard let session else { return }
+        iCloudSnapshot = await session.iCloudDeviceBackupsSnapshot()
+        // Observability for the name-based filter's documented trade-off:
+        // when keys are hidden, record how many so over-filtering of
+        // same-named devices is visible in QA runs and logs.
+        let hiddenCount = iCloudSnapshot.otherDevices.count - iCloudDevices.count
+        if hiddenCount > 0 {
+            QAEvent.emit(.pairing, "devices_icloud_keys_filtered", ["count": "\(hiddenCount)"])
+        }
+    }
+
+    /// Starts the initiator pairing flow targeted at a specific iCloud
+    /// device: this account stays the main account, the sheet shows the
+    /// standard invite (QR/PIN), and the scan instruction names the
+    /// tapped device. The join itself happens from that device.
+    func pairICloudDevice(_ backup: PairableDeviceBackup) {
+        guard pairingViewModel == nil else { return }
+        let service = pairingServiceFactory()
+        let vm = PairingSheetViewModel(
+            pairingService: service,
+            appGroupIdentifier: appGroupIdentifier,
+            targetDeviceName: backup.deviceName ?? Self.shortICloudDeviceName(inboxId: backup.inboxId),
+            coreActions: coreActions
+        )
+        pairingViewModel = vm
+        showPairingSheet = true
+        QAEvent.emit(.pairing, "devices_icloud_pair_tapped", ["inboxId": backup.inboxId])
+    }
+
+    /// Display name for an iCloud backup row: the device name stamped on
+    /// the backup when the writer had one, otherwise a short
+    /// tail-fingerprint of the inboxId (mirrors `shortDeviceName`).
+    static func shortICloudDeviceName(inboxId: String) -> String {
+        let suffix = inboxId.suffix(6)
+        return "Device \(suffix)"
     }
 
     /// The inbox's currently-known installation IDs (cached, no network

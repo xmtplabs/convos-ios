@@ -100,6 +100,15 @@ struct ConversationAvatarView: View {
     @State private var cachedImage: UIImage?
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
+    init(conversation: Conversation, conversationImage: UIImage?, size: CGFloat? = nil) {
+        self.conversation = conversation
+        self.conversationImage = conversationImage
+        self.size = size
+        // Seed synchronously (like AvatarView) so the first frame after a cold
+        // launch shows the cached photo instead of flashing the fallback.
+        _cachedImage = State(initialValue: ImageCache.shared.image(for: conversation))
+    }
+
     private var hasForcedAgentStyle: Bool {
         forcedVerification?.isVerified == true
     }
@@ -246,6 +255,15 @@ struct MessageAvatarView: View {
     var agentVerification: AgentVerification = .unverified
 
     @State private var cachedImage: UIImage?
+
+    init(profile: Profile, size: CGFloat, agentVerification: AgentVerification = .unverified) {
+        self.profile = profile
+        self.size = size
+        self.agentVerification = agentVerification
+        // Seed synchronously (like AvatarView) so the first frame after a cold
+        // launch shows the cached photo instead of flashing the fallback.
+        _cachedImage = State(initialValue: ImageCache.shared.image(for: profile))
+    }
 
     var body: some View {
         Group {
