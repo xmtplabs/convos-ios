@@ -33,6 +33,12 @@ public protocol SyncingManagerProtocol: Actor {
     /// is the safety net (per-event handlers still pick up anything the batch
     /// missed).
     nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async
+
+    /// Message-side catch-up that ignores every cursor and re-ingests all
+    /// messages libxmtp holds locally. Run after a history-archive import
+    /// (post-pairing): imported messages predate the cursors and emit no
+    /// stream events, so the regular forward-only paths never see them.
+    nonisolated func runHistoryBackfill(client: AnyClientProvider) async
 }
 
 /// Wrapper for client and API client parameters used in state transitions
@@ -273,11 +279,26 @@ actor SyncingManager: SyncingManagerProtocol {
         await runInviteBatch(client: client, since: since)
     }
 
-    private nonisolated func runMessageBatch(client: AnyClientProvider, since: Date?) async {
+    nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
+        let result = await runMessageBatch(client: client, since: nil, fetchFromBeginning: true)
+        if let result {
+            QAEvent.emit(.pairing, "history_backfill_ran", [
+                "conversations": "\(result.conversationsProcessed)",
+                "messages": "\(result.messagesProcessed)"
+            ])
+        }
+    }
+
+    @discardableResult
+    private nonisolated func runMessageBatch(
+        client: AnyClientProvider,
+        since: Date?,
+        fetchFromBeginning: Bool = false
+    ) async -> BatchCatchUpResult? {
         do {
             guard let identity = try await identityStore.load() else {
                 Log.debug("catchup.batch.messages: no identity, skipping")
-                return
+                return nil
             }
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
@@ -291,14 +312,16 @@ actor SyncingManager: SyncingManagerProtocol {
                 messageWriter: messageWriter,
                 databaseWriter: databaseWriter
             )
-            _ = try await batch.run(
+            return try await batch.run(
                 client: client,
                 inboxId: identity.inboxId,
                 since: since,
-                activeConversationId: await activeConversationId
+                activeConversationId: await activeConversationId,
+                fetchFromBeginning: fetchFromBeginning
             )
         } catch {
             Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

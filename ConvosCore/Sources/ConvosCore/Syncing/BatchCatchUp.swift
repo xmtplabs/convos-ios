@@ -80,11 +80,20 @@ struct BatchCatchUp {
     /// cursor — typically the value persisted by the NSE in
     /// `lastWelcomeProcessed`. A `nil` cursor means "fetch everything
     /// available" (cold launch).
+    ///
+    /// `fetchFromBeginning` ignores the per-conversation catch-up cursors
+    /// and fetches every message libxmtp holds locally (`afterNs: 0`).
+    /// Needed after a history-archive import: imported messages carry
+    /// their original `sentAtNs`, which sits behind cursors stamped at
+    /// pairing time, and the import emits no stream events — a forward-
+    /// only fetch would never see them. Redelivery of already-persisted
+    /// rows is free (no-op diff short-circuit + primary-key upserts).
     func run(
         client: any XMTPClientProvider,
         inboxId: String,
         since: Date?,
-        activeConversationId: String?
+        activeConversationId: String?,
+        fetchFromBeginning: Bool = false
     ) async throws -> BatchCatchUpResult {
         let started = CFAbsoluteTimeGetCurrent()
         let cursorNs: Int64? = since.map { Int64($0.nanosecondsSince1970) }
@@ -106,7 +115,11 @@ struct BatchCatchUp {
         }
 
         // Phase 1: parallel prepare (network-bound, transaction-free).
-        let prepared = try await prepareAll(groups: groups, inboxId: inboxId)
+        let prepared = try await prepareAll(
+            groups: groups,
+            inboxId: inboxId,
+            fetchFromBeginning: fetchFromBeginning
+        )
 
         // Phase 2: single-transaction persist of conversations + regular
         // messages. `saveResults[i]` corresponds to `prepared[i]` — needed
@@ -311,7 +324,8 @@ struct BatchCatchUp {
 
     private func prepareAll(
         groups: [XMTPiOS.Group],
-        inboxId: String
+        inboxId: String,
+        fetchFromBeginning: Bool
     ) async throws -> [PreparedEntry] {
         try await withThrowingTaskGroup(of: PreparedEntry.self) { [conversationWriter, messageWriter, databaseWriter] taskGroup in
             for group in groups {
@@ -321,10 +335,15 @@ struct BatchCatchUp {
                         inboxId: inboxId
                     )
 
-                    let perConvCursorNs = try await Self.readCatchUpCursorNs(
-                        for: group.id,
-                        in: databaseWriter
-                    )
+                    let perConvCursorNs: Int64
+                    if fetchFromBeginning {
+                        perConvCursorNs = 0
+                    } else {
+                        perConvCursorNs = try await Self.readCatchUpCursorNs(
+                            for: group.id,
+                            in: databaseWriter
+                        )
+                    }
                     let allMessages = try await group.messages(afterNs: perConvCursorNs)
 
                     var regularMessages: [IncomingMessageWriter.PreparedIncomingMessage] = []

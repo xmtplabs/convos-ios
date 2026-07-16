@@ -208,6 +208,7 @@ $IDB ui tap $X $Y --udid $UDID
 - **CLI `explode` may return `[GroupError::Sync]`.** Transient; the conversation is still gone once the error clears on retry. Teardown explodes are marked `optional: true` in most YAMLs for this reason.
 - **`cxdb.sh log-error`'s 6th arg is `is_xmtp`** (1=XMTP, 0=app), despite RULES historically phrasing it as `is_app_error`. The script is authoritative; RULES has been reconciled.
 - **`idb` not on PATH.** Full path: `/Users/jarod/Library/Python/3.9/bin/idb`. Set `IDB=` once at session start.
+- **The Bash tool shell is zsh: unquoted `$VAR` does not word-split.** Passing `"$X $Y"` captured into one variable to `idb ui tap $COORDS` sends a single argument and fails with `invalid int value: '201 786'`. Capture x and y into separate variables (or use `${=VAR}`).
 - **`idb ui tap` rejects float coordinates.** Always `| floor` the x/y in jq, or use `$(( ))` in Bash to coerce.
 - **`xcrun simctl erase` fails on a booted simulator.** Shutdown first: `xcrun simctl shutdown $UDID; xcrun simctl erase $UDID; xcrun simctl boot $UDID`.
 - **Reaction picker emoji frames are sometimes null on first read.** Re-run `describe-all` once (~200ms later) and they populate.
