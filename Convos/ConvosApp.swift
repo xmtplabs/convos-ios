@@ -240,12 +240,20 @@ struct ConvosApp: App {
         // own process are invisible to this process's GRDB observation (it
         // only tracks in-process writes), so the conversation list and open
         // conversation would show them only after the next app-side write.
-        // Nudge every observation to re-read on foreground.
+        // Nudge every observation to re-read on foreground, then republish
+        // anything a dead process (share extension, force-quit app) staged
+        // but never got to publish.
         let databaseWriter = convos.databaseWriter
+        let drainSession = convos.session
         Task {
             try? await databaseWriter.write { db in
                 try db.notifyChanges(in: .fullDatabase)
             }
+            await OutgoingMessageDrain.drainStuckOutgoingMessages(
+                databaseWriter: databaseWriter,
+                messagingService: drainSession.messagingService(),
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
         }
 
         // Opportunistic agent-timezone republish (agent-timezone Channel B).

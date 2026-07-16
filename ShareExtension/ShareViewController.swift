@@ -194,10 +194,12 @@ final class ShareComposeModel {
         repository.startObserving()
     }
 
-    /// Sends the staged content and waits for the actual XMTP publish (the
-    /// writer's send only enqueues; the publish runs in a detached queue task,
-    /// so returning before the sentMessage emission would let completeRequest
-    /// kill the process mid-publish). Returns true when everything published.
+    /// Stages the content durably (message rows in the shared database plus
+    /// the photo file in the app-group cache), then waits a bounded moment
+    /// for the actual publish before letting the sheet dismiss. Staging alone
+    /// is enough for delivery: whatever this process doesn't finish, the main
+    /// app's foreground drain republishes from the staged rows. Returns false
+    /// only when staging itself fails - the content would otherwise be lost.
     func send() async -> Bool {
         guard !isSending, let client, let targetConversationId else {
             return false
@@ -208,6 +210,7 @@ final class ShareComposeModel {
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(pendingMediaAttachments.count)")
         let messagingService = client.session.messagingService()
+        var writers: [any OutgoingMessageWriterProtocol] = []
         do {
             // Attachments first, then text - matches the in-app send order.
             for attachment in pendingMediaAttachments {
@@ -219,56 +222,45 @@ final class ShareComposeModel {
                     for: targetConversationId,
                     backgroundUploadManager: ForegroundUploadManager()
                 )
-                try await Self.sendAndAwaitPublish(writer: imageWriter) {
-                    try await imageWriter.send(image: photo.image)
-                }
-                Log.info("image attachment published")
+                try await imageWriter.send(image: photo.image)
+                writers.append(imageWriter)
             }
-            if text.isEmpty {
-                Log.info("no text to send (composer text empty after trimming)")
-            } else {
-                Log.info("publishing text (\(text.count) chars)")
+            if !text.isEmpty {
                 let textWriter = messagingService.messageWriter(
                     for: targetConversationId,
                     backgroundUploadManager: UnavailableBackgroundUploadManager()
                 )
-                try await Self.sendAndAwaitPublish(writer: textWriter) {
-                    try await textWriter.send(text: text)
-                }
+                try await textWriter.send(text: text)
+                writers.append(textWriter)
             }
-            Log.info("published to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
-            return true
         } catch {
-            Log.error("send failed: \(error)")
-            // Spike diagnostics: surface the underlying error so on-device
-            // failures are actionable without pulling the app-group log.
-            sendError = "Sending failed: \(error.localizedDescription)"
+            Log.error("staging failed: \(error)")
+            sendError = "Could not queue the message: \(error.localizedDescription)"
             return false
         }
+        Log.info("staged to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
+        await Self.waitForPublishes(from: writers, upTo: Constant.opportunisticPublishWindow)
+        Log.info("closing share sheet; unfinished publishes drain on next app open")
+        return true
     }
 
-    private enum SendError: Error {
-        case publishTimedOut
-        case publishStreamEnded
-    }
-
-    /// Runs the enqueue operation and suspends until the writer's sentMessage
-    /// publisher confirms the publish (or times out). The subscription is
-    /// created eagerly before the operation so a fast publish cannot be missed.
-    private static func sendAndAwaitPublish(
-        writer: any OutgoingMessageWriterProtocol,
-        timeout: TimeInterval = 30,
-        operation: () async throws -> Void
-    ) async throws {
+    /// Waits until every writer confirms its publish, or the window elapses -
+    /// whichever comes first. The window keeps the fast path fast (a publish
+    /// takes about three seconds on a good connection, so most sends really
+    /// deliver before the sheet closes) without ever trapping the user.
+    private static func waitForPublishes(
+        from writers: [any OutgoingMessageWriterProtocol],
+        upTo window: TimeInterval
+    ) async {
+        guard !writers.isEmpty else { return }
         var cancellable: AnyCancellable?
-        let published = AsyncStream<Void> { continuation in
-            // The writer emits sentMessage from its background publish queue.
-            // This closure is implicitly MainActor-isolated (declared inside a
-            // MainActor type), so delivering on main is required - without it
-            // the runtime isolation check traps and kills the extension right
-            // after the first publish.
-            cancellable = writer.sentMessage
-                .first()
+        let allPublished = AsyncStream<Void> { continuation in
+            // Writers emit sentMessage from their background publish queues;
+            // deliver on main because this closure is implicitly
+            // MainActor-isolated (declared inside a MainActor type) and the
+            // runtime isolation check traps otherwise.
+            cancellable = Publishers.MergeMany(writers.map { $0.sentMessage.first() })
+                .collect(writers.count)
                 .receive(on: DispatchQueue.main)
                 .sink { _ in
                     continuation.yield(())
@@ -277,26 +269,17 @@ final class ShareComposeModel {
         }
         defer { cancellable?.cancel() }
 
-        try await operation()
-
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                for await _ in published {
+                for await _ in allPublished {
                     return
                 }
-                throw SendError.publishStreamEnded
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw SendError.publishTimedOut
+                try? await Task.sleep(nanoseconds: UInt64(window * 1_000_000_000))
             }
-            do {
-                try await group.next()
-                group.cancelAll()
-            } catch {
-                group.cancelAll()
-                throw error
-            }
+            await group.next()
+            group.cancelAll()
         }
     }
 
@@ -384,6 +367,10 @@ final class ShareComposeModel {
                 continuation.resume(returning: image)
             }
         }
+    }
+
+    private enum Constant {
+        static let opportunisticPublishWindow: TimeInterval = 3.0
     }
 }
 

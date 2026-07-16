@@ -457,6 +457,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let filename = photoService.generateFilename()
         let localCacheURL = try photoService.localCacheURL(for: filename)
 
+        // Persist the compressed photo at stage time, before any network
+        // work. If the sending process dies mid-pipeline (share extension
+        // suspended on dismissal, app force-quit), the message row plus this
+        // file are enough for retryFailedMessage to re-send later from
+        // another process.
+        _ = try photoService.saveLocally(image: image, filename: filename)
+
         ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString, storageTier: .persistent)
 
         // Save dimensions FIRST so they're available when the UI observes the message
