@@ -374,12 +374,33 @@ final class ShareComposeModel {
                 case let data as Data:
                     image = downsampledImage(from: data)
                 case let provided as UIImage:
-                    image = provided
+                    // A directly-provided image bypasses the data path, so
+                    // bound it here too - a full-resolution HDR photo held
+                    // raw blows the extension's 120 MB jetsam ceiling the
+                    // moment compression touches it.
+                    image = boundedSDRImage(from: provided)
                 default:
                     image = nil
                 }
                 continuation.resume(returning: image)
             }
+        }
+    }
+
+    /// Redraws an image into a standard-range bitmap capped at `maxPixel` on
+    /// the long edge. Strips HDR gain maps (their Metal conversion pipeline
+    /// allocates large transient buffers) and releases the full-resolution
+    /// backing after the draw.
+    private static func boundedSDRImage(from image: UIImage, maxPixel: CGFloat = 2048) -> UIImage {
+        let size = image.size
+        let longEdge = max(size.width, size.height)
+        let scale = min(1.0, maxPixel / max(longEdge, 1.0))
+        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.preferredRange = .standard
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
         }
     }
 

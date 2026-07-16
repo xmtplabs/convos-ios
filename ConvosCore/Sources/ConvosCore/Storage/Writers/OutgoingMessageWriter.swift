@@ -462,16 +462,22 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         // suspended on dismissal, app force-quit), the message row plus this
         // file are enough for retryFailedMessage to re-send later from
         // another process.
-        _ = try photoService.saveLocally(image: image, filename: filename)
+        let saved = try photoService.saveLocally(image: image, filename: filename)
 
-        ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString, storageTier: .persistent)
+        // Everything downstream holds the compressed JPEG (decoded lazily)
+        // rather than the full decoded original. Inside the share extension
+        // the retained decode is the difference between staying under the
+        // 120 MB jetsam ceiling and being killed mid-send.
+        let stagedImage: ImageType = ImageType(data: saved.compressedData) ?? image
+
+        ImageCacheContainer.shared.cacheImage(stagedImage, for: localCacheURL.absoluteString, storageTier: .persistent)
 
         // Save dimensions FIRST so they're available when the UI observes the message
         try await attachmentLocalStateWriter.saveWithDimensions(
             attachmentKey: localCacheURL.absoluteString,
             conversationId: conversationId,
-            width: Int(image.size.width),
-            height: Int(image.size.height)
+            width: Int(stagedImage.size.width),
+            height: Int(stagedImage.size.height)
         )
 
         // Now save to database - dimensions will already be available for initial render
@@ -479,7 +485,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let queued = QueuedPhotoMessage(
             clientMessageId: clientMessageId,
-            image: image,
+            image: stagedImage,
             localCacheURL: localCacheURL,
             filename: filename
         )
