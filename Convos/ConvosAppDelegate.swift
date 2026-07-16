@@ -9,8 +9,15 @@ import UserNotifications
 @MainActor
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
+    /// Republishes staged-but-unpublished outgoing messages; injected by
+    /// ConvosApp so the delegate can run it when a share-extension upload
+    /// wakes the app in the background.
+    var shareExtensionOutboxDrain: (@Sendable () async -> Void)?
     private var leftConversationObserver: Any?
     private var foregroundObserver: Any?
+    /// Reconstituted handle on the share extension's background upload
+    /// session, created on first wake so pending events have a delegate.
+    private var shareExtensionUploads: BackgroundUploadManager?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         PostHogConfiguration.configure()
@@ -79,11 +86,48 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping @Sendable () -> Void
     ) {
+        if identifier == BackgroundUploadManager.shareExtensionSessionIdentifier {
+            handleShareExtensionUploadEvents(application, completionHandler: completionHandler)
+            return
+        }
         Task {
             await BackgroundUploadManager.shared.handleEventsForBackgroundURLSession(
                 identifier: identifier,
                 completionHandler: completionHandler
             )
+        }
+    }
+
+    /// A share-extension upload finished after the extension died; iOS
+    /// launched us in the background to collect the session events. Adopt the
+    /// extension's session so those events drain, then republish whatever the
+    /// extension staged but never published, holding a background task
+    /// assertion so the publish gets its ~30 seconds of runtime.
+    private func handleShareExtensionUploadEvents(
+        _ application: UIApplication,
+        completionHandler: @escaping @Sendable () -> Void
+    ) {
+        if shareExtensionUploads == nil {
+            shareExtensionUploads = BackgroundUploadManager(
+                sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
+                sharedContainerIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+            )
+        }
+        guard let manager = shareExtensionUploads else { return }
+        let drain = shareExtensionOutboxDrain
+        var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+        backgroundTask = application.beginBackgroundTask(withName: "share-extension-outbox-drain") {
+            application.endBackgroundTask(backgroundTask)
+        }
+        Task {
+            await manager.handleEventsForBackgroundURLSession(
+                identifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
+                completionHandler: completionHandler
+            )
+            await drain?()
+            await MainActor.run {
+                application.endBackgroundTask(backgroundTask)
+            }
         }
     }
 

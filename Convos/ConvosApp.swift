@@ -144,6 +144,17 @@ struct ConvosApp: App {
         self.coreActions = coreMetrics.actions
         self.conversationsViewModel = .init(session: convos.session, coreActions: coreMetrics.actions)
         appDelegate.session = convos.session
+        // Runs when a share-extension upload wakes the app in the background:
+        // publish whatever the extension staged but never got to send.
+        let drainWriter = convos.databaseWriter
+        let drainSession = convos.session
+        appDelegate.shareExtensionOutboxDrain = {
+            await OutgoingMessageDrain.drainStuckOutgoingMessages(
+                databaseWriter: drainWriter,
+                messagingService: drainSession.messagingService(),
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
+        }
         // PushNotificationRegistrar.configure(...) ran inside `PlatformProviders.iOS`
         // above, so AppDelegate's APNS callback uses the static accessor directly
         // (see ConvosAppDelegate.didRegisterForRemoteNotificationsWithDeviceToken).

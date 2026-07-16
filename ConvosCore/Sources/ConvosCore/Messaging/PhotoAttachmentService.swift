@@ -214,6 +214,16 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     private func pendingUploadsDirectory() throws -> URL {
+        // Same shared-container rule as sentPhotosDirectory: the encrypted
+        // upload staging file must stay readable when the process that
+        // created it (share extension) dies before its background upload
+        // task finishes.
+        if let appGroup = Self.sharedContainerAppGroupIdentifier,
+           let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return container
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent("PendingUploads", isDirectory: true)
+        }
         guard let appSupportDir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

@@ -78,6 +78,11 @@ final class ShareComposeModel {
     private var targetConversationId: String?
     private var messagesListRepository: MessagesListRepository?
     private var messagesCancellable: AnyCancellable?
+    /// Background-session upload manager scoped to the extension's own
+    /// session identifier and the app-group container. Uploads handed to it
+    /// keep running after this process dies; on completion iOS launches the
+    /// containing app, which finishes the publish.
+    private var uploadManager: BackgroundUploadManager?
 
     var canSend: Bool {
         let hasText: Bool = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -107,6 +112,10 @@ final class ShareComposeModel {
             // preview, TestFlight) carry no pinned debug token, so its own
             // attestation only works in local developer builds.
             FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
+            uploadManager = BackgroundUploadManager(
+                sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
+                sharedContainerIdentifier: environment.appGroupIdentifier
+            )
             DeviceInfo.configure(IOSDeviceInfo())
             ImageCompression.configure(IOSImageCompression())
             PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
@@ -220,7 +229,7 @@ final class ShareComposeModel {
                 }
                 let imageWriter = messagingService.messageWriter(
                     for: targetConversationId,
-                    backgroundUploadManager: ForegroundUploadManager()
+                    backgroundUploadManager: uploadManager ?? ForegroundUploadManager()
                 )
                 try await imageWriter.send(image: photo.image)
                 writers.append(imageWriter)
