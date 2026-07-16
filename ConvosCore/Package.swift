@@ -27,7 +27,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.11.0-nightly.20260715.b951280"
+            revision: "ios-4.11.0-nightly.20260716.e444995"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
