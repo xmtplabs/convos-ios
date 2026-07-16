@@ -41,10 +41,14 @@ final class ShareViewController: UIViewController {
     }
 
     private func cancel() {
+        ConvosLog.flush()
         extensionContext?.cancelRequest(withError: NSError(domain: "ShareExtension", code: NSUserCancelledError))
     }
 
     private func complete() {
+        // completeRequest terminates the process; without a flush the tail of
+        // the send's log lines never reaches the shared log file.
+        ConvosLog.flush()
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 }
@@ -202,6 +206,7 @@ final class ShareComposeModel {
         defer { isSending = false }
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(pendingMediaAttachments.count)")
         let messagingService = client.session.messagingService()
         do {
             // Attachments first, then text - matches the in-app send order.
@@ -257,8 +262,14 @@ final class ShareComposeModel {
     ) async throws {
         var cancellable: AnyCancellable?
         let published = AsyncStream<Void> { continuation in
+            // The writer emits sentMessage from its background publish queue.
+            // This closure is implicitly MainActor-isolated (declared inside a
+            // MainActor type), so delivering on main is required - without it
+            // the runtime isolation check traps and kills the extension right
+            // after the first publish.
             cancellable = writer.sentMessage
                 .first()
+                .receive(on: DispatchQueue.main)
                 .sink { _ in
                     continuation.yield(())
                     continuation.finish()
