@@ -54,6 +54,10 @@ public enum DesignConstants {
         /// `DesignConstants` so the QR tile and share-link button can reference
         /// the token by name rather than the raw asset symbol.
         public static let fillSubtle: Color = .colorFillSubtle
+        /// Primary/secondary text tokens, exposed for extension targets that
+        /// consume the package but can't see its internal asset accessors.
+        public static let textPrimary: Color = .colorTextPrimary
+        public static let textSecondary: Color = .colorTextSecondary
     }
 
     public enum Fonts {

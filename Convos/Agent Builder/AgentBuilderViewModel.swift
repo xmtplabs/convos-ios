@@ -818,22 +818,17 @@ extension AgentBuilderViewModel {
         pendingDirectVariantId = nil
         let conversationId = conversation.id
         let photos: [PendingPhotoAttachment] = directBuildPhotos()
-        var attachmentInputs: [AgentBuildAttachmentInput] = []
-        var summaryAttachments: [AgentBuilderSummaryAttachment] = []
-        // Build the upload inputs and the summary chips together so a photo that
-        // fails compression is dropped from both -- otherwise its thumbnail would
-        // render on the card for an attachment that was never sent to the backend.
-        for photo in photos {
-            guard let data = ImageCompression.compressForPhotoAttachment(photo.image) else {
-                Log.error("AgentBuilder(direct): failed to compress photo \(photo.id); excluding from upload and summary")
-                continue
-            }
-            attachmentInputs.append(AgentBuildAttachmentInput(data: data, mimeType: "image/jpeg", filename: nil))
-            summaryAttachments.append(.photo(id: photo.id, thumbnailData: Self.thumbnailData(for: photo.image)))
-        }
+        // The flow pairs upload inputs with summary chips so a photo that
+        // fails compression is dropped from both -- otherwise its thumbnail
+        // would render on the card for an attachment that was never sent to
+        // the backend. Voice memos and connections are app-only inputs, so
+        // they are appended to the pair here.
+        var prepared: AgentCreationFlow.PreparedAttachments = AgentCreationFlow.prepareAttachments(
+            photos: photos.map { AgentCreationFlow.Photo(id: $0.id, image: $0.image) }
+        )
         if let memo = recordedVoiceMemo, let voiceInput = Self.voiceAttachmentInput(url: memo.url) {
-            attachmentInputs.append(voiceInput)
-            summaryAttachments.append(.voiceMemo(id: UUID(), duration: memo.duration, levels: voiceMemoAudioLevels))
+            prepared.inputs.append(voiceInput)
+            prepared.summaryAttachments.append(.voiceMemo(id: UUID(), duration: memo.duration, levels: voiceMemoAudioLevels))
         }
         // Generation awareness gets only the cloud service ids (device kinds
         // like Apple Health aren't catalog services and would 400). The summary
@@ -841,16 +836,12 @@ extension AgentBuilderViewModel {
         // `AgentBuilderConnectionGrantReplayer` fires the real grants post-join.
         let connectionServiceIds: [String] = enabledConnections.compactMap { $0.cloudServiceId }
         for connection in enabledConnections {
-            summaryAttachments.append(.connection(id: UUID(), identifier: connection.rawValue))
+            prepared.summaryAttachments.append(.connection(id: UUID(), identifier: connection.rawValue))
         }
         var cloudConnectionIds: [String: String] = [:]
         for (connection, cloudConnectionId) in capturedCloudConnectionIds {
             cloudConnectionIds[connection.rawValue] = cloudConnectionId
         }
-        // Pre-allocate the prompt's client message id so the creation-prompt
-        // card represents it (bundled by id) instead of a bare bubble, matching
-        // the legacy flow. nil for an attachment-only build (empty prompt).
-        let promptMessageId: String? = prompt.isEmpty ? nil : UUID().uuidString
         // Only an existing group has an audience for the attachments: a new
         // conversation has no other members during the build (and the joining
         // agent is excluded by publishing pre-join), and later-invited members
@@ -864,24 +855,36 @@ extension AgentBuilderViewModel {
         let voiceMemoSnapshot: BuilderVoiceMemoSnapshot? = recordedVoiceMemo.map {
             BuilderVoiceMemoSnapshot(url: $0.url, duration: $0.duration, levels: voiceMemoAudioLevels)
         }
-        session.agentTemplateRepository().startGeneration(
+        // The shared flow allocates the prompt's client message id (so the
+        // creation-prompt card represents the sent message instead of a bare
+        // bubble; nil for an attachment-only build), submits the generation,
+        // and persists the card. The summary lands on the inner VM
+        // synchronously for the home-flow morph / no first-frame flash; the
+        // persisted copy survives relaunch and reaches the existing-
+        // conversation on-screen VM via its summary publisher. Once the
+        // prompt message lands, `reconstructBuilderCards` anchors the card
+        // to it, so it persists past the 180s pending window.
+        let commit: AgentCreationFlow.Commit = AgentCreationFlow.makeCommit(
             prompt: prompt,
-            conversationId: conversationId,
-            slug: slug,
-            attachments: attachmentInputs,
-            connections: connectionServiceIds,
-            variantId: variantId
-        )
-        var bundledIds: Set<String> = []
-        if let promptMessageId { bundledIds.insert(promptMessageId) }
-        if let bundleMessageId { bundledIds.insert(bundleMessageId) }
-        persistCreationPromptCard(
-            prompt: prompt,
-            conversationId: conversationId,
-            attachments: summaryAttachments,
+            attachments: prepared.summaryAttachments,
             cloudConnectionIds: cloudConnectionIds,
-            bundledMessageIds: bundledIds
+            extraBundledMessageIds: bundleMessageId.map { Set([$0]) } ?? [],
+            existingConversation: targetsExistingConversation
         )
+        let promptMessageId: String? = commit.promptMessageId
+        newConversationViewModel.conversationViewModel?.agentBuilderSummary = commit.summary
+        let generationInputs: [AgentBuildAttachmentInput] = prepared.inputs
+        Task { [session] in
+            await AgentCreationFlow.start(
+                commit,
+                inputs: generationInputs,
+                session: session,
+                conversationId: conversationId,
+                slug: slug,
+                connections: connectionServiceIds,
+                variantId: variantId
+            )
+        }
         // We always publish pre-join (`awaitsAgentJoin: false`): the agent built
         // from the prompt + attachments via the generation API, so it must not
         // also receive them as chat messages (that lands them in an epoch the
@@ -948,56 +951,6 @@ extension AgentBuilderViewModel {
             return nil
         }
         return AgentBuildAttachmentInput(data: data, mimeType: "audio/m4a", filename: "voice.m4a")
-    }
-
-    /// Small JPEG thumbnail for the creation-prompt card chip, kept well under
-    /// the full upload size so the persisted summary row stays light.
-    private static func thumbnailData(for image: UIImage) -> Data? {
-        let maxDimension: CGFloat = 240
-        let longestSide: CGFloat = max(image.size.width, image.size.height)
-        let scale: CGFloat = longestSide > maxDimension ? maxDimension / longestSide : 1
-        let target: CGSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let renderer: UIGraphicsImageRenderer = UIGraphicsImageRenderer(size: target)
-        let scaled: UIImage = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
-        return scaled.jpegData(compressionQuality: 0.7)
-    }
-
-    /// Persist an `AgentBuilderSummary` so the existing summary-card rendering
-    /// shows the creator's prompt at the top of the chat while the agent
-    /// builds (reuses `MessagesListProcessor`'s pending-card path), and so the
-    /// `AgentBuilderConnectionGrantReplayer` can fire post-join grants from its
-    /// `.connection` attachments + `cloudConnectionIds`. `bundledMessageIds`
-    /// carries the prompt's client message id (when the prompt is non-empty) so
-    /// the card represents that sent message instead of a bare bubble, matching
-    /// the legacy flow; the attachments still ride the generation API, not XMTP.
-    /// Once the prompt message lands, `reconstructBuilderCards` anchors the card
-    /// to it, so it persists past the 180s pending window and across relaunch.
-    /// Set on the inner VM synchronously for the home-flow morph / no first-frame
-    /// flash, and persisted so it survives relaunch and reaches the
-    /// existing-conversation on-screen VM via its summary publisher.
-    private func persistCreationPromptCard(
-        prompt: String,
-        conversationId: String,
-        attachments: [AgentBuilderSummaryAttachment],
-        cloudConnectionIds: [String: String],
-        bundledMessageIds: Set<String>
-    ) {
-        let summary = AgentBuilderSummary(
-            prompt: prompt,
-            attachments: attachments,
-            cutoffDate: Date(),
-            bundledMessageIds: bundledMessageIds,
-            cloudConnectionIds: cloudConnectionIds,
-            existingConversation: targetsExistingConversation
-        )
-        newConversationViewModel.conversationViewModel?.agentBuilderSummary = summary
-        Task { [session] in
-            do {
-                try await session.agentBuilderSummaryWriter().save(summary, for: conversationId)
-            } catch {
-                Log.error("AgentBuilder(direct): failed to persist creation prompt summary: \(error.localizedDescription)")
-            }
-        }
     }
 
     private func emitBuiltAgentMetric(text: String, isSuccess: Bool) {

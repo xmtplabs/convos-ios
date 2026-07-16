@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import AVFoundation
 import ConvosCore
 import SwiftUI
@@ -163,3 +164,4 @@ struct VoiceMemoAttachmentChip: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 }
+#endif

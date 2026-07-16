@@ -126,7 +126,7 @@ final class ShareViewController: UIViewController {
 
 @MainActor
 @Observable
-final class ShareComposeModel {
+final class ShareComposeModel: AgentDraftComposing {
     var targetTitle: String = "Convo"
     /// The selected target conversation, for the top-bar pill. Nil until
     /// `prepare` resolves one; `targetTitle` stays as a fallback label.
@@ -167,6 +167,36 @@ final class ShareComposeModel {
         return isReady && !isSending && (!pendingMediaAttachments.isEmpty || hasText || pendingLinkPreview != nil)
     }
 
+    // MARK: AgentDraftComposing (the New Agent draft surface)
+
+    var composerTextBinding: Binding<String> {
+        Binding(
+            get: { [weak self] in self?.messageText ?? "" },
+            set: { [weak self] in self?.messageText = $0 }
+        )
+    }
+    var isRecordingVoiceMemo: Bool { false }
+    var recordedVoiceMemo: (url: URL, duration: TimeInterval)? { nil }
+    var voiceMemoAudioLevels: [Float] { [] }
+    let voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
+    var isMakeEnabled: Bool { canSend }
+    var isCommitting: Bool { isSending }
+    /// The extension's Info.plist carries no microphone usage description.
+    var supportsVoiceMemo: Bool { false }
+    /// The agent-builder handoff stages photos only.
+    var allowsVideoAttachments: Bool { false }
+
+    func addVideoAttachment(url: URL) {
+        Log.warning("agent-builder share stages photos only; ignoring video")
+    }
+
+    func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
+        Log.warning("agent-builder share stages photos only; ignoring file \(filename)")
+    }
+
+    func cancelRecordedVoiceMemo() {}
+    func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {}
+
     func start(extensionContext: NSExtensionContext?) {
         // Spike diagnostics: sample the footprint continuously so a jetsam
         // kill leaves a memory curve in the unified log right up to death.
@@ -182,6 +212,10 @@ final class ShareComposeModel {
     func appendPhoto(_ image: UIImage) {
         guard pendingMediaAttachments.count < maxPendingMediaAttachments else { return }
         pendingMediaAttachments.append(.photo(PendingPhotoAttachment(image: image)))
+    }
+
+    func addPhotoAttachment(_ image: UIImage) {
+        appendPhoto(image)
     }
 
     func removeAttachment(id: UUID) {
@@ -296,7 +330,7 @@ final class ShareComposeModel {
         let attachmentCount = pendingMediaAttachments.count
         Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) newAgent=\(isNewAgentTarget) \(MemoryProbe.snapshot)")
         if isNewAgentTarget {
-            return stageForAgentBuilder(text: text)
+            return await makeAgent(text: text, client: client)
         }
         guard let targetConversationId else {
             return false
@@ -357,37 +391,55 @@ final class ShareComposeModel {
         return true
     }
 
-    /// Stages a targetless share for the agent builder: photos go to the
-    /// shared sent-photos cache, the record to the app group. The app opens
-    /// the builder pre-seeded on its next foreground. No network, no
-    /// publish - staging is purely local, so the sheet closes immediately.
-    private func stageForAgentBuilder(text: String) -> Bool {
+    /// Runs the agent-builder commit for a targetless share through the same
+    /// `AgentCreationFlow` the in-app builder's Make uses: create the draft
+    /// conversation, submit the generation (attachments ride the generation
+    /// API), persist the creation-prompt card, and publish the prompt. The
+    /// generation row persists to the shared database, so if this process
+    /// dies mid-poll the app's session bootstrap resumes it
+    /// (`resumePendingGenerations`) - delivery is guaranteed, like a photo
+    /// send.
+    private func makeAgent(text: String, client: ConvosClient) async -> Bool {
         do {
-            let environment = try NotificationExtensionEnvironment.getEnvironment()
-            let photoService = PhotoAttachmentService()
-            var filenames: [String] = []
-            for attachment in pendingMediaAttachments {
-                guard case .photo(let photo) = attachment else { continue }
-                let filename = photoService.generateFilename()
-                _ = try photoService.saveLocally(image: photo.image, filename: filename)
-                filenames.append(filename)
-            }
-            // The builder composer is plain text; a shared link rides along
-            // as the prompt's first line.
             var promptText = text
             if let linkURL = pendingLinkPreview?.url {
                 promptText = promptText.isEmpty ? linkURL : "\(linkURL)\n\(promptText)"
             }
-            let share = PendingAgentBuilderShare(text: promptText, attachmentFilenames: filenames)
-            AgentBuilderShareHandoff.stage(share, appGroupIdentifier: environment.appGroupIdentifier)
-            Log.info("staged for agent builder: attachments=\(filenames.count) text=\(!promptText.isEmpty)")
+            Log.info("make agent: creating conversation \(MemoryProbe.snapshot)")
+            let session = client.session
+            let stateManager = session.messagingService().conversationStateManager()
+            try await stateManager.createConversation(startsUnused: false)
+            let conversationId = try await AgentCreationFlow.awaitReadyConversationId(stateManager: stateManager)
+            let slug = try await AgentCreationFlow.awaitInviteSlug(session: session, conversationId: conversationId)
+            let photos: [AgentCreationFlow.Photo] = pendingMediaAttachments.compactMap { attachment in
+                guard case .photo(let photo) = attachment else { return nil }
+                return AgentCreationFlow.Photo(id: photo.id, image: photo.image)
+            }
+            let prepared = AgentCreationFlow.prepareAttachments(photos: photos)
+            let commit = AgentCreationFlow.makeCommit(prompt: promptText, attachments: prepared.summaryAttachments)
+            await AgentCreationFlow.start(
+                commit,
+                inputs: prepared.inputs,
+                session: session,
+                conversationId: conversationId,
+                slug: slug
+            )
+            Log.info("make agent: generation submitted to \(conversationId) attachments=\(prepared.inputs.count)")
+            if let promptMessageId = commit.promptMessageId {
+                let writer = session.messagingService().messageWriter(
+                    for: conversationId,
+                    backgroundUploadManager: UnavailableBackgroundUploadManager()
+                )
+                try await writer.send(text: promptText, clientMessageId: promptMessageId)
+                Self.holdPublishRunway(writer: writer, count: 1)
+            }
             messageText = ""
             pendingMediaAttachments = []
             pendingLinkPreview = nil
             return true
         } catch {
-            Log.error("agent-builder staging failed: \(error)")
-            sendError = "Could not stage the share: \(error.localizedDescription)"
+            Log.error("make agent failed: \(error)")
+            sendError = "Could not make the agent: \(error.localizedDescription)"
             return false
         }
     }
@@ -636,13 +688,16 @@ struct ShareComposeView: View {
     @State private var presentingConversationSettings: Bool = false
     @State private var contextMenuState: MessageContextMenuState = MessageContextMenuState()
     @State private var bottomBarHeight: CGFloat = 0.0
+    @Namespace private var agentDraftNamespace: Namespace.ID
 
     var body: some View {
         NavigationStack {
             transcript
                 .ignoresSafeArea()
                 .safeAreaBar(edge: .bottom) {
-                    composerBar
+                    if !model.isNewAgentTarget {
+                        composerBar
+                    }
                 }
                 .toolbar { closeToolbarItem }
                 .toolbarTitleDisplayMode(.inline)
@@ -762,24 +817,65 @@ struct ShareComposeView: View {
         } else if let reason = model.unavailableReason {
             ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
         } else if model.isNewAgentTarget {
-            ContentUnavailableView(
-                "New agent",
-                systemImage: "sparkles",
-                description: Text("Send this to start building an agent with it. Convos opens the builder next time you're in the app.")
-            )
+            agentDraftStack
         } else {
             Spacer(minLength: 0)
         }
     }
 
-    private var newAgentPill: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "sparkles")
-            Text("New Agent")
-                .font(.headline)
+    /// The real agent-builder draft surface (shared from ConvosComposer),
+    /// hosted directly in the sheet. Make stages the content for the app,
+    /// which resumes the builder flow with its full auth and runway.
+    private var agentDraftStack: some View {
+        VStack(spacing: 0) {
+            AgentDraftComposer(
+                viewModel: model,
+                focusState: $focusState,
+                transitionNamespace: agentDraftNamespace,
+                onMakeTap: handleMakeTap
+            )
+            .frame(maxHeight: 375)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.top, 72)
+
+            Text("Start with a pic, screenshot, or note")
+                .font(.footnote)
+                .foregroundStyle(DesignConstants.Colors.textSecondary)
+                .padding(.top, DesignConstants.Spacing.step3x)
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .onAppear { focusState = .agentBuilder }
+    }
+
+    private func handleMakeTap() {
+        guard !model.isSending else { return }
+        Task { @MainActor in
+            if await model.send() {
+                onSend()
+            }
+        }
+    }
+
+    private var newAgentPill: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(Color.black)
+                .clipShape(.circle)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("New Agent")
+                    .font(.headline)
+                    .foregroundStyle(DesignConstants.Colors.textPrimary)
+                Text("Draft")
+                    .font(.subheadline)
+                    .foregroundStyle(DesignConstants.Colors.textSecondary)
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .clipShape(.capsule)
         .glassEffect(.regular, in: .capsule)
     }
