@@ -90,6 +90,14 @@ final class ShareComposeModel {
     }
 
     func start(extensionContext: NSExtensionContext?) {
+        // Spike diagnostics: sample the footprint continuously so a jetsam
+        // kill leaves a memory curve in the unified log right up to death.
+        Task {
+            while !Task.isCancelled {
+                Log.info("mem \(MemoryProbe.snapshot)")
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
         Task { await prepare(extensionContext: extensionContext) }
     }
 
@@ -113,6 +121,10 @@ final class ShareComposeModel {
             // preview, TestFlight) carry no pinned debug token, so its own
             // attestation only works in local developer builds.
             FirebaseHelperCore.sharedTokenAppGroupIdentifier = environment.appGroupIdentifier
+            // Every image the cache serves this process (avatars, cached
+            // photos) decodes at most 512px - a 2048px decode is ~22 MB and
+            // a few of them concurrently breach the extension memory limit.
+            BoundedImageDecode.processMaxPixelSize = 512
             uploadManager = BackgroundUploadManager(
                 sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,
                 sharedContainerIdentifier: environment.appGroupIdentifier
@@ -140,6 +152,7 @@ final class ShareComposeModel {
                 coreActions: NoOpCoreActions()
             )
             self.client = client
+            Log.info("client constructed \(MemoryProbe.snapshot)")
 
             let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
             let intent = extensionContext?.intent as? INSendMessageIntent
@@ -223,9 +236,18 @@ final class ShareComposeModel {
         defer { isSending = false }
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(pendingMediaAttachments.count) \(MemoryProbe.snapshot)")
+        let attachmentCount = pendingMediaAttachments.count
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) \(MemoryProbe.snapshot)")
         let messagingService = client.session.messagingService()
-        var writers: [any OutgoingMessageWriterProtocol] = []
+        // One writer for the whole send: its queue publishes strictly in
+        // order, so the text always reaches the network after the photos.
+        // Separate writers would race their independent queues and a fast
+        // text publish could arrive before a slow photo upload.
+        let writer = messagingService.messageWriter(
+            for: targetConversationId,
+            backgroundUploadManager: uploadManager ?? ForegroundUploadManager()
+        )
+        var stagedCount = 0
         do {
             // Attachments first, then text - matches the in-app send order.
             for attachment in pendingMediaAttachments {
@@ -233,54 +255,88 @@ final class ShareComposeModel {
                     Log.warning("share extension spike sends photos only; skipping \(attachment.id)")
                     continue
                 }
-                let imageWriter = messagingService.messageWriter(
-                    for: targetConversationId,
-                    backgroundUploadManager: uploadManager ?? ForegroundUploadManager()
-                )
-                try await imageWriter.send(image: photo.image)
-                writers.append(imageWriter)
+                try await writer.send(image: photo.image)
+                stagedCount += 1
+                // Drop each attachment as it stages: if a later item fails
+                // and the user retries, already-staged photos must not be
+                // staged and published a second time.
+                pendingMediaAttachments.removeAll { $0.id == attachment.id }
             }
             if !text.isEmpty {
-                let textWriter = messagingService.messageWriter(
-                    for: targetConversationId,
-                    backgroundUploadManager: UnavailableBackgroundUploadManager()
-                )
-                try await textWriter.send(text: text)
-                writers.append(textWriter)
+                try await writer.send(text: text)
+                stagedCount += 1
             }
         } catch {
             Log.error("staging failed: \(error)")
             sendError = "Could not queue the message: \(error.localizedDescription)"
             return false
         }
-        Log.info("staged to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty) \(MemoryProbe.snapshot)")
+        Log.info("staged to \(targetConversationId) attachments=\(attachmentCount) text=\(!text.isEmpty) \(MemoryProbe.snapshot)")
+        // Hold a system-granted expiring activity so the publish pipeline
+        // (auth -> presign -> upload handoff -> publish) can keep running
+        // after the sheet closes. Without it the process suspends before the
+        // upload is even handed to the background session, and delivery
+        // waits for the next app open.
+        Self.holdPublishRunway(writer: writer, count: stagedCount)
         // The content is staged and the optimistic bubbles are in the
         // transcript; clear the composer so the sheet doesn't sit on stale
         // input during the publish window.
         messageText = ""
         pendingMediaAttachments = []
-        await Self.waitForPublishes(from: writers, upTo: Constant.opportunisticPublishWindow)
+        await Self.waitForPublishes(from: writer, count: stagedCount, upTo: Constant.opportunisticPublishWindow)
         Log.info("closing share sheet; unfinished publishes drain on next app open")
         return true
     }
 
-    /// Waits until every writer confirms its publish, or the window elapses -
-    /// whichever comes first. The window keeps the fast path fast (a publish
-    /// takes about three seconds on a good connection, so most sends really
-    /// deliver before the sheet closes) without ever trapping the user.
+    /// Keeps the process alive past sheet dismissal on a system-granted
+    /// expiring activity until the writer confirms every publish, the grace
+    /// period lapses, or iOS calls time. Deliberately nonisolated: the sink
+    /// runs on the writer's queue and must carry no MainActor expectation.
+    private nonisolated static func holdPublishRunway(
+        writer: any OutgoingMessageWriterProtocol,
+        count: Int
+    ) {
+        guard count > 0 else { return }
+        let semaphore = DispatchSemaphore(value: 0)
+        var cancellable: AnyCancellable?
+        cancellable = writer.sentMessage
+            .prefix(count)
+            .collect(count)
+            .sink { _ in
+                semaphore.signal()
+            }
+        ProcessInfo.processInfo.performExpiringActivity(withReason: "share-extension-publish") { expired in
+            guard !expired else {
+                cancellable?.cancel()
+                return
+            }
+            let outcome = semaphore.wait(timeout: .now() + Constant.publishRunway)
+            Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out")) \(MemoryProbe.snapshot)")
+            ConvosLog.flush()
+            cancellable?.cancel()
+        }
+    }
+
+    /// Waits until the writer confirms `count` publishes, or the window
+    /// elapses - whichever comes first. The window keeps the fast path fast
+    /// (a publish takes about three seconds on a good connection, so most
+    /// sends really deliver before the sheet closes) without ever trapping
+    /// the user.
     private static func waitForPublishes(
-        from writers: [any OutgoingMessageWriterProtocol],
+        from writer: any OutgoingMessageWriterProtocol,
+        count: Int,
         upTo window: TimeInterval
     ) async {
-        guard !writers.isEmpty else { return }
+        guard count > 0 else { return }
         var cancellable: AnyCancellable?
         let allPublished = AsyncStream<Void> { continuation in
-            // Writers emit sentMessage from their background publish queues;
+            // The writer emits sentMessage from its background publish queue;
             // deliver on main because this closure is implicitly
             // MainActor-isolated (declared inside a MainActor type) and the
             // runtime isolation check traps otherwise.
-            cancellable = Publishers.MergeMany(writers.map { $0.sentMessage.first() })
-                .collect(writers.count)
+            cancellable = writer.sentMessage
+                .prefix(count)
+                .collect(count)
                 .receive(on: DispatchQueue.main)
                 .sink { _ in
                     continuation.yield(())
@@ -354,7 +410,8 @@ final class ShareComposeModel {
     /// Decodes image data capped at 2048px on the long edge; a full-camera
     /// share would otherwise decode tens of megapixels inside the appex
     /// memory budget.
-    private static func downsampledImage(from data: Data, maxPixel: CGFloat = 2048) -> UIImage? {
+    private static func downsampledImage(from data: Data, maxPixel: CGFloat = Constant.sharedImageMaxPixel) -> UIImage? {
+        Log.info("downsample begin bytes=\(data.count) \(MemoryProbe.snapshot)")
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary) else {
             return UIImage(data: data)
@@ -363,14 +420,14 @@ final class ShareComposeModel {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-            // HDR sources otherwise run a gain-map Metal conversion whose
-            // transient buffers count against the 120 MB extension ceiling.
-            kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
             return UIImage(data: data)
         }
-        return UIImage(cgImage: cgImage)
+        Log.info("downsample thumbnail done \(cgImage.width)x\(cgImage.height) \(MemoryProbe.snapshot)")
+        let image = UIImage(cgImage: cgImage)
+        Log.info("downsample image wrapped \(MemoryProbe.snapshot)")
+        return image
     }
 
     private static func loadImage(from provider: NSItemProvider) async -> UIImage? {
@@ -415,7 +472,7 @@ final class ShareComposeModel {
         }
     }
 
-    private static func downsampledProvidedImage(_ image: UIImage, maxPixel: CGFloat = 2048) -> UIImage {
+    private static func downsampledProvidedImage(_ image: UIImage, maxPixel: CGFloat = Constant.sharedImageMaxPixel) -> UIImage {
         let longEdge = max(image.size.width, image.size.height)
         guard longEdge > maxPixel else { return image }
         let scale = maxPixel / longEdge
@@ -428,7 +485,17 @@ final class ShareComposeModel {
 
     private enum Constant {
         static let opportunisticPublishWindow: TimeInterval = 3.0
+        /// How long the expiring activity holds the process for the publish
+        /// after the sheet closes. iOS may end it earlier via the expiry
+        /// callback; anything unfinished drains on the next app wake/open.
+        static let publishRunway: TimeInterval = 25.0
         static let transcriptMessageLimit: Int = 10
+        /// The send pipeline holds several simultaneous decoded copies of the
+        /// shared photo (original, compression pass, cache, transcript
+        /// bubble). At 2048px each copy is ~22 MB and the tap-send spike
+        /// crossed the 120 MB ceiling on device; 1280px cuts every copy to
+        /// ~9 MB.
+        static let sharedImageMaxPixel: CGFloat = 1280
     }
 }
 

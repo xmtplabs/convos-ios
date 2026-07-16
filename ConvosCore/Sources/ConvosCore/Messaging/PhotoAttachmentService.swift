@@ -78,6 +78,12 @@ public protocol PhotoAttachmentServiceProtocol: Sendable {
         filename: String
     ) async throws -> PreparedBackgroundUpload
 
+    func prepareForBackgroundUpload(
+        compressedData: Data,
+        apiClient: any ConvosAPIClientProtocol,
+        filename: String
+    ) async throws -> PreparedBackgroundUpload
+
     func generateFilename() -> String
     func localCacheURL(for filename: String) throws -> URL
 }
@@ -175,7 +181,23 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
         guard let compressedData = ImageCompression.compressForPhotoAttachment(image) else {
             throw PhotoAttachmentError.compressionFailed
         }
+        return try await prepareForBackgroundUpload(
+            compressedData: compressedData,
+            apiClient: apiClient,
+            filename: filename
+        )
+    }
 
+    /// Prepares an already-compressed JPEG for upload without touching the
+    /// image pipeline. Used when the send path staged the compressed bytes to
+    /// disk at enqueue time - re-compressing from the in-memory image would
+    /// repeat the most expensive allocation of the send, which the share
+    /// extension's 120 MB memory ceiling cannot afford.
+    public func prepareForBackgroundUpload(
+        compressedData: Data,
+        apiClient: any ConvosAPIClientProtocol,
+        filename: String
+    ) async throws -> PreparedBackgroundUpload {
         let attachment = Attachment(
             filename: filename,
             mimeType: "image/jpeg",

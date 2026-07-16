@@ -762,6 +762,7 @@ private struct AttachmentPlaceholder: View {
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @State private var loadedImage: UIImage?
+    @State private var isRemotePlaceholder: Bool = false
     @State private var isLoading: Bool = true
     @State private var loadError: Error?
     @State private var inlinePlayer: AVPlayer?
@@ -805,9 +806,26 @@ private struct AttachmentPlaceholder: View {
             loadedImageView(image: image)
         } else if isLoading {
             loadingPlaceholder
+        } else if isRemotePlaceholder {
+            remotePhotoPlaceholder
         } else {
             errorPlaceholder
         }
+    }
+
+    /// Neutral stand-in for remote photo history inside the share extension,
+    /// where attachment downloads are skipped for memory (this is a photo
+    /// that exists and loads fine in the app - not an error).
+    private var remotePhotoPlaceholder: some View {
+        Rectangle()
+            .fill(Color.gray.opacity(0.2))
+            .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+            .overlay {
+                Image(systemName: "photo")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            .modifier(MediaBoxLayout())
     }
 
     @ViewBuilder
@@ -952,6 +970,7 @@ private struct AttachmentPlaceholder: View {
         videoLoadFailed = false
         isLoading = true
         loadError = nil
+        isRemotePlaceholder = false
 
         if isVideo {
             await loadVideoAttachment()
@@ -1077,7 +1096,28 @@ private struct AttachmentPlaceholder: View {
     private func loadPhotoAttachment() async {
         let cacheKey = attachment.key
 
-        if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
+        // In an app extension, photos never download: each bubble's
+        // download-decrypt-decode pipeline holds ~10 MB in flight, and
+        // several loading concurrently breached the 120 MB jetsam ceiling.
+        // Photos this user sent still render from their staged file in the
+        // shared sent-photos cache (the remote key carries the filename);
+        // only photos received from others fall back to a placeholder.
+        if ComposerHostContext.isAppExtension, !cacheKey.hasPrefix("file://") {
+            if let localURL = await Self.localFile(forRemoteKey: cacheKey),
+               let image = BoundedImageDecode.image(contentsOf: localURL) {
+                loadedImage = image
+            } else {
+                isRemotePlaceholder = true
+            }
+            isLoading = false
+            return
+        }
+
+        // In an app extension also skip the cache read: entries cached by
+        // earlier runs hold full-size decodes, and the disk tier decodes at
+        // full attachment resolution on read.
+        if !ComposerHostContext.isAppExtension,
+           let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
             loadedImage = cachedImage
             isLoading = false
             if attachment.width == nil {
@@ -1089,7 +1129,7 @@ private struct AttachmentPlaceholder: View {
         do {
             let imageData = try await resolveImageData(for: attachment.key)
 
-            if let image = UIImage(data: imageData) {
+            if let image = Self.decodedBubbleImage(from: imageData) {
                 loadedImage = image
                 ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .persistent)
 
@@ -1105,6 +1145,50 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    /// Resolves a remote attachment key to a local file for photos this
+    /// device sent: the in-process publish registry first, then the shared
+    /// sent-photos cache by the filename embedded in the remote key (which
+    /// covers photos sent by earlier processes, including the main app).
+    private static func localFile(forRemoteKey key: String) async -> URL? {
+        if let registered = await OutgoingMediaLocalCache.shared.url(for: key),
+           FileManager.default.fileExists(atPath: registered.path) {
+            return registered
+        }
+        guard key.hasPrefix("{"),
+              let jsonData = key.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let filename = payload["filename"] as? String,
+              let stagedURL = try? PhotoAttachmentService().localCacheURL(for: filename),
+              FileManager.default.fileExists(atPath: stagedURL.path) else {
+            return nil
+        }
+        return stagedURL
+    }
+
+    /// Decodes attachment bytes for the bubble. Inside an app extension the
+    /// decode is bounded to roughly display size: several bubbles decoding
+    /// full 2048px attachments concurrently (~22 MB each) is what pushed the
+    /// share extension past its 120 MB jetsam ceiling while the transcript
+    /// filled in. The main app keeps full-size decodes for zoom quality.
+    private static func decodedBubbleImage(from data: Data) -> UIImage? {
+        guard ComposerHostContext.isAppExtension else {
+            return UIImage(data: data)
+        }
+        let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1024,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
     }
 
     private func resolveImageData(for key: String) async throws -> Data {

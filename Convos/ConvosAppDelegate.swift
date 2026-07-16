@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import os
 import UIKit
 import UserNotifications
 
@@ -107,6 +108,8 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         _ application: UIApplication,
         completionHandler: @escaping @Sendable () -> Void
     ) {
+        os.Logger(subsystem: "org.convos.drain", category: "wake")
+            .info("share-extension upload wake received")
         if shareExtensionUploads == nil {
             shareExtensionUploads = BackgroundUploadManager(
                 sessionIdentifier: BackgroundUploadManager.shareExtensionSessionIdentifier,

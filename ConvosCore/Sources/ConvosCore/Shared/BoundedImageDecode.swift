@@ -24,8 +24,15 @@ public enum BoundedImageDecode {
     /// other clients are clamped to a display-quality size.
     public static let defaultMaxPixelSize: Int = 2048
 
+    /// Process-wide decode cap, consulted by every call that doesn't pass an
+    /// explicit size. The main app keeps the full display-quality default;
+    /// app extensions lower it at bootstrap - inside the share extension's
+    /// 120 MB jetsam budget a handful of concurrent 2048px decodes (avatars,
+    /// cached photos) is fatal, while 512px versions cost ~1 MB each.
+    nonisolated(unsafe) public static var processMaxPixelSize: Int = defaultMaxPixelSize
+
     /// Decode encoded image bytes, clamped to `maxPixelSize` on the longest edge.
-    public static func image(from data: Data, maxPixelSize: Int = defaultMaxPixelSize) -> ImageType? {
+    public static func image(from data: Data, maxPixelSize: Int = BoundedImageDecode.processMaxPixelSize) -> ImageType? {
         let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else { return nil }
         return image(from: source, maxPixelSize: maxPixelSize)
@@ -34,7 +41,7 @@ public enum BoundedImageDecode {
     /// Decode an image file, clamped to `maxPixelSize` on the longest edge.
     /// Reads straight from the file, so the encoded bytes are never fully
     /// buffered in memory.
-    public static func image(contentsOf url: URL, maxPixelSize: Int = defaultMaxPixelSize) -> ImageType? {
+    public static func image(contentsOf url: URL, maxPixelSize: Int = BoundedImageDecode.processMaxPixelSize) -> ImageType? {
         let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else { return nil }
         return image(from: source, maxPixelSize: maxPixelSize)

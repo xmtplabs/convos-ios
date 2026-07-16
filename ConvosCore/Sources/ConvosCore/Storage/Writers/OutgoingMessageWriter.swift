@@ -2497,11 +2497,23 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let prepared: PreparedBackgroundUpload
         do {
-            prepared = try await photoService.prepareForBackgroundUpload(
-                image: queued.image,
-                apiClient: inboxReady.apiClient,
-                filename: queued.filename
-            )
+            // send(image:) staged the final compressed JPEG to disk; reuse
+            // those bytes instead of re-running the compression pipeline,
+            // which would repeat the send path's most expensive allocation.
+            if let stagedData = try? Data(contentsOf: queued.localCacheURL, options: .mappedIfSafe),
+               !stagedData.isEmpty {
+                prepared = try await photoService.prepareForBackgroundUpload(
+                    compressedData: stagedData,
+                    apiClient: inboxReady.apiClient,
+                    filename: queued.filename
+                )
+            } else {
+                prepared = try await photoService.prepareForBackgroundUpload(
+                    image: queued.image,
+                    apiClient: inboxReady.apiClient,
+                    filename: queued.filename
+                )
+            }
         } catch {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
