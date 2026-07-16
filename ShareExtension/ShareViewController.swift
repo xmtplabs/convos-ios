@@ -106,6 +106,7 @@ final class ShareComposeModel {
         do {
             let environment = try NotificationExtensionEnvironment.getEnvironment()
             ConvosLog.configure(environment: environment)
+            Log.info("extension open \(MemoryProbe.snapshot)")
             ConfigManager.configure(overrides: .empty)
             // Prefer the App Check token the main app mirrored into the app
             // group: the extension can't App Attest, and archive builds (PR
@@ -173,6 +174,7 @@ final class ShareComposeModel {
 
             if let image = await Self.loadSharedImage(extensionContext: extensionContext) {
                 appendPhoto(image)
+                Log.info("shared image loaded \(MemoryProbe.snapshot)")
             }
             if messageText.isEmpty, let sharedText = await Self.loadSharedText(extensionContext: extensionContext) {
                 messageText = sharedText
@@ -194,13 +196,17 @@ final class ShareComposeModel {
         )
         repository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepository = repository
-        messages = (try? repository.fetchInitial()) ?? []
+        // Cap the transcript: every photo bubble decodes its image into
+        // memory, and a long history of media messages pushes the extension's
+        // baseline toward the 120 MB jetsam ceiling before a send even starts.
+        messages = Array(((try? repository.fetchInitial()) ?? []).suffix(Constant.transcriptMessageLimit))
         messagesCancellable = repository.messagesListPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] items in
-                self?.messages = items
+                self?.messages = Array(items.suffix(Constant.transcriptMessageLimit))
             }
         repository.startObserving()
+        Log.info("transcript ready \(MemoryProbe.snapshot)")
     }
 
     /// Stages the content durably (message rows in the shared database plus
@@ -217,7 +223,7 @@ final class ShareComposeModel {
         defer { isSending = false }
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(pendingMediaAttachments.count)")
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(pendingMediaAttachments.count) \(MemoryProbe.snapshot)")
         let messagingService = client.session.messagingService()
         var writers: [any OutgoingMessageWriterProtocol] = []
         do {
@@ -247,7 +253,7 @@ final class ShareComposeModel {
             sendError = "Could not queue the message: \(error.localizedDescription)"
             return false
         }
-        Log.info("staged to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty)")
+        Log.info("staged to \(targetConversationId) attachments=\(pendingMediaAttachments.count) text=\(!text.isEmpty) \(MemoryProbe.snapshot)")
         // The content is staged and the optimistic bubbles are in the
         // transcript; clear the composer so the sheet doesn't sit on stale
         // input during the publish window.
@@ -357,6 +363,9 @@ final class ShareComposeModel {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            // HDR sources otherwise run a gain-map Metal conversion whose
+            // transient buffers count against the 120 MB extension ceiling.
+            kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
             return UIImage(data: data)
@@ -375,10 +384,12 @@ final class ShareComposeModel {
                     image = downsampledImage(from: data)
                 case let provided as UIImage:
                     // A directly-provided image bypasses the data path, so
-                    // bound it here too - a full-resolution HDR photo held
-                    // raw blows the extension's 120 MB jetsam ceiling the
-                    // moment compression touches it.
-                    image = boundedSDRImage(from: provided)
+                    // bound it here too. preparingThumbnail decodes at the
+                    // target size via ImageIO subsampling - redrawing the
+                    // image instead would transiently materialize the full
+                    // resolution bitmap, which is itself enough to blow the
+                    // extension's 120 MB jetsam ceiling for a large photo.
+                    image = downsampledProvidedImage(provided)
                 default:
                     image = nil
                 }
@@ -387,25 +398,20 @@ final class ShareComposeModel {
         }
     }
 
-    /// Redraws an image into a standard-range bitmap capped at `maxPixel` on
-    /// the long edge. Strips HDR gain maps (their Metal conversion pipeline
-    /// allocates large transient buffers) and releases the full-resolution
-    /// backing after the draw.
-    private static func boundedSDRImage(from image: UIImage, maxPixel: CGFloat = 2048) -> UIImage {
-        let size = image.size
-        let longEdge = max(size.width, size.height)
-        let scale = min(1.0, maxPixel / max(longEdge, 1.0))
-        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        format.preferredRange = .standard
-        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: target))
-        }
+    private static func downsampledProvidedImage(_ image: UIImage, maxPixel: CGFloat = 2048) -> UIImage {
+        let longEdge = max(image.size.width, image.size.height)
+        guard longEdge > maxPixel else { return image }
+        let scale = maxPixel / longEdge
+        let target = CGSize(
+            width: (image.size.width * scale).rounded(),
+            height: (image.size.height * scale).rounded()
+        )
+        return image.preparingThumbnail(of: target) ?? image
     }
 
     private enum Constant {
         static let opportunisticPublishWindow: TimeInterval = 3.0
+        static let transcriptMessageLimit: Int = 10
     }
 }
 
