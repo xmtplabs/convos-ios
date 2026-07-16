@@ -47,6 +47,70 @@ public enum AgentCreationFlow {
         case inviteUnavailable
     }
 
+    /// The conversation id and commit produced by `createAgent`. The prompt
+    /// is not yet sent when this returns - callers clear any durable staging
+    /// record first (the generation row now guarantees delivery), then call
+    /// `sendPrompt(for:)`.
+    public struct CreatedAgent {
+        public let conversationId: String
+        public let commit: Commit
+    }
+
+    /// Rebuilds attachments from staged JPEG bytes (the outbox drain path,
+    /// where the original images no longer exist as in-memory `ImageType`s).
+    /// The bytes go to the generation API as-is; card thumbnails are decoded
+    /// from them.
+    public static func prepareAttachments(storedPhotoJPEGs: [Data]) -> PreparedAttachments {
+        var prepared = PreparedAttachments(inputs: [], summaryAttachments: [])
+        for jpegData in storedPhotoJPEGs {
+            guard let image = ImageType(data: jpegData) else {
+                Log.error("AgentCreationFlow: staged photo bytes failed to decode; excluding from upload and summary")
+                continue
+            }
+            prepared.inputs.append(AgentBuildAttachmentInput(data: jpegData, mimeType: "image/jpeg", filename: nil))
+            prepared.summaryAttachments.append(.photo(id: UUID(), thumbnailData: thumbnailData(for: image)))
+        }
+        return prepared
+    }
+
+    /// The complete new-conversation Make: create the conversation, wait for
+    /// ready + invite slug, submit the generation, and persist the creation
+    /// card. Used by hosts without an existing draft conversation (the share
+    /// extension and the staged-build drain); the in-app builder owns its own
+    /// conversation lifecycle and calls `makeCommit`/`start` directly.
+    public static func createAgent(
+        prompt: String,
+        prepared: PreparedAttachments,
+        session: any SessionManagerProtocol
+    ) async throws -> CreatedAgent {
+        let stateManager = session.messagingService().conversationStateManager()
+        try await stateManager.createConversation(startsUnused: false)
+        let conversationId = try await awaitReadyConversationId(stateManager: stateManager)
+        let slug = try await awaitInviteSlug(session: session, conversationId: conversationId)
+        let commit = makeCommit(prompt: prompt, attachments: prepared.summaryAttachments)
+        await start(commit, inputs: prepared.inputs, session: session, conversationId: conversationId, slug: slug)
+        return CreatedAgent(conversationId: conversationId, commit: commit)
+    }
+
+    /// Publishes the prompt under the commit's pre-allocated message id so
+    /// the creation card bundles it. Returns the writer (nil for an
+    /// attachment-only build) so extension hosts can hold a publish runway
+    /// on it.
+    @discardableResult
+    public static func sendPrompt(
+        for created: CreatedAgent,
+        session: any SessionManagerProtocol,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol
+    ) async throws -> (any OutgoingMessageWriterProtocol)? {
+        guard let promptMessageId = created.commit.promptMessageId else { return nil }
+        let writer = session.messagingService().messageWriter(
+            for: created.conversationId,
+            backgroundUploadManager: backgroundUploadManager
+        )
+        try await writer.send(text: created.commit.summary.prompt, clientMessageId: promptMessageId)
+        return writer
+    }
+
     /// Compresses photos for the generation API and builds the matching
     /// creation-card chips.
     public static func prepareAttachments(photos: [Photo]) -> PreparedAttachments {

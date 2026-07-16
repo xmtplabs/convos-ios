@@ -405,32 +405,37 @@ final class ShareComposeModel: AgentDraftComposing {
             if let linkURL = pendingLinkPreview?.url {
                 promptText = promptText.isEmpty ? linkURL : "\(linkURL)\n\(promptText)"
             }
-            Log.info("make agent: creating conversation \(MemoryProbe.snapshot)")
             let session = client.session
-            let stateManager = session.messagingService().conversationStateManager()
-            try await stateManager.createConversation(startsUnused: false)
-            let conversationId = try await AgentCreationFlow.awaitReadyConversationId(stateManager: stateManager)
-            let slug = try await AgentCreationFlow.awaitInviteSlug(session: session, conversationId: conversationId)
             let photos: [AgentCreationFlow.Photo] = pendingMediaAttachments.compactMap { attachment in
                 guard case .photo(let photo) = attachment else { return nil }
                 return AgentCreationFlow.Photo(id: photo.id, image: photo.image)
             }
             let prepared = AgentCreationFlow.prepareAttachments(photos: photos)
-            let commit = AgentCreationFlow.makeCommit(prompt: promptText, attachments: prepared.summaryAttachments)
-            await AgentCreationFlow.start(
-                commit,
-                inputs: prepared.inputs,
-                session: session,
-                conversationId: conversationId,
-                slug: slug
+            // Stage durably before any network work: conversation creation is
+            // the window where jetsam kills have been observed (a reused
+            // extension process starts near the 120 MB ceiling), and unlike a
+            // photo send nothing else records the build yet. If this process
+            // dies anywhere past here, the app's foreground drain finishes
+            // the build from the staged record.
+            let stagedId = try AgentBuildOutbox.stage(
+                prompt: promptText,
+                photoJPEGs: prepared.inputs.map(\.data)
             )
-            Log.info("make agent: generation submitted to \(conversationId) attachments=\(prepared.inputs.count)")
-            if let promptMessageId = commit.promptMessageId {
-                let writer = session.messagingService().messageWriter(
-                    for: conversationId,
-                    backgroundUploadManager: UnavailableBackgroundUploadManager()
-                )
-                try await writer.send(text: promptText, clientMessageId: promptMessageId)
+            Log.info("make agent: staged \(stagedId); creating conversation \(MemoryProbe.snapshot)")
+            let created = try await AgentCreationFlow.createAgent(
+                prompt: promptText,
+                prepared: prepared,
+                session: session
+            )
+            // The persisted generation row now guarantees delivery; clear the
+            // staged record so the drain cannot build a duplicate agent.
+            AgentBuildOutbox.clear(id: stagedId)
+            Log.info("make agent: generation submitted to \(created.conversationId) attachments=\(prepared.inputs.count)")
+            if let writer = try await AgentCreationFlow.sendPrompt(
+                for: created,
+                session: session,
+                backgroundUploadManager: UnavailableBackgroundUploadManager()
+            ) {
                 Self.holdPublishRunway(writer: writer, count: 1)
             }
             messageText = ""

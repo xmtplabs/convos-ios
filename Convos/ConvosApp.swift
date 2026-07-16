@@ -154,6 +154,10 @@ struct ConvosApp: App {
                 messagingService: drainSession.messagingService(),
                 backgroundUploadManager: BackgroundUploadManager.shared
             )
+            await AgentBuildOutbox.drain(
+                session: drainSession,
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
         }
         // PushNotificationRegistrar.configure(...) ran inside `PlatformProviders.iOS`
         // above, so AppDelegate's APNS callback uses the static accessor directly
@@ -263,6 +267,10 @@ struct ConvosApp: App {
             await OutgoingMessageDrain.drainStuckOutgoingMessages(
                 databaseWriter: databaseWriter,
                 messagingService: drainSession.messagingService(),
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
+            await AgentBuildOutbox.drain(
+                session: drainSession,
                 backgroundUploadManager: BackgroundUploadManager.shared
             )
         }
