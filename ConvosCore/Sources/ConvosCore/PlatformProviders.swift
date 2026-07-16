@@ -52,6 +52,13 @@ public struct PlatformProviders: Sendable {
     /// CoreLocation / EventKit / etc. symbols into the binary.
     public let deviceConnections: DeviceConnectionsBundle
 
+    /// Whether authorized inboxes start the streaming/sync services
+    /// (message and conversation streams, catch-up sync, push-topic
+    /// reconciliation). The main app wants them; short-lived extension
+    /// processes (share extension, NSE) neither need them nor have the
+    /// memory budget for them.
+    public let startsStreamingServices: Bool
+
     public init(
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
@@ -59,7 +66,8 @@ public struct PlatformProviders: Sendable {
         notificationCenter: any UserNotificationCenterProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
         oauthSessionProvider: any OAuthSessionProvider = UnavailableOAuthSessionProvider(),
-        deviceConnections: DeviceConnectionsBundle = .none
+        deviceConnections: DeviceConnectionsBundle = .none,
+        startsStreamingServices: Bool = true
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
@@ -68,6 +76,7 @@ public struct PlatformProviders: Sendable {
         self.backgroundUploadManager = backgroundUploadManager
         self.oauthSessionProvider = oauthSessionProvider
         self.deviceConnections = deviceConnections
+        self.startsStreamingServices = startsStreamingServices
     }
 }
 

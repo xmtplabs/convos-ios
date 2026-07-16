@@ -46,9 +46,13 @@ extension ConvosClient {
         // refresh lands. Forced so the 15s TTL doesn't gate an empty cache.
         // Views default `@State` to `nil` and update via `CreditsRepository`'s
         // GRDB observation when the row is upserted, so the brief window
-        // before the refresh completes is acceptable.
-        Task {
-            await CreditsServices.shared.refresh(force: true)
+        // before the refresh completes is acceptable. Extension processes
+        // skip it: they don't render credits, and their device-scoped JWT
+        // gets a 403 from the account-gated endpoint anyway.
+        if platformProviders.startsStreamingServices {
+            Task {
+                await CreditsServices.shared.refresh(force: true)
+            }
         }
         let expiredConversationsWorker = ExpiredConversationsWorker(
             databaseReader: databaseReader,
