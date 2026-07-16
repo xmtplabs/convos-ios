@@ -22,6 +22,9 @@ public struct ConversationAvatarView: View {
         self.conversation = conversation
         self.conversationImage = conversationImage
         self.size = size
+        // Seed synchronously (like AvatarView) so the first frame after a cold
+        // launch shows the cached photo instead of flashing the fallback.
+        _cachedImage = State(initialValue: ImageCache.shared.image(for: conversation))
     }
 
     private var hasForcedAgentStyle: Bool {
@@ -177,6 +180,9 @@ public struct MessageAvatarView: View {
         self.profile = profile
         self.size = size
         self.agentVerification = agentVerification
+        // Seed synchronously (like AvatarView) so the first frame after a cold
+        // launch shows the cached photo instead of flashing the fallback.
+        _cachedImage = State(initialValue: ImageCache.shared.image(for: profile))
     }
 
     public var body: some View {
