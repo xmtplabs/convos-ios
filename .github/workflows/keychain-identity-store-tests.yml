@@ -24,7 +24,7 @@ concurrency:
 jobs:
   test:
     name: Run KeychainIdentityStore Tests
-    runs-on: macos-26
+    runs-on: warp-macos-26-arm64-6x
     # A warm-cache run finishes in ~9 minutes, but a Swift package cache
     # miss forces a cold dependency build that exceeds 15 - the job then
     # dies mid-compile without running a single test (observed repeatedly
