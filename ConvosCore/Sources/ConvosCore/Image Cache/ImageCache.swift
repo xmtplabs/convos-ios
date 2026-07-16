@@ -72,6 +72,12 @@ extension ImageCacheable {
 
 /// Container for the shared image cache instance
 public enum ImageCacheContainer {
+    /// Set at bootstrap by memory-capped processes (app extensions, whose
+    /// jetsam ceiling is ~120 MB against the main app's gigabytes). The
+    /// cache shrinks its in-memory budget accordingly, and hot-path writes
+    /// that exist purely to warm future renders are skipped.
+    nonisolated(unsafe) public static var isMemoryConstrainedProcess: Bool = false
+
     /// The shared image cache instance. Can be set to a mock for testing.
     nonisolated(unsafe) public static var shared: any ImageCacheProtocol = {
         #if canImport(UIKit)
@@ -97,6 +103,9 @@ private struct CacheConfiguration {
 
     /// Maximum total cost (in bytes) for memory cache (300MB)
     static let memoryCacheTotalCostLimit: Int = 300 * 1024 * 1024
+
+    /// In-memory budget for memory-constrained processes (app extensions).
+    static let constrainedMemoryCacheTotalCostLimit: Int = 16 * 1024 * 1024
 }
 
 // MARK: - Generic Image Cache
@@ -177,7 +186,11 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     init() {
         cache = NSCache<NSString, UIImage>()
         cache.countLimit = CacheConfiguration.memoryCacheCountLimit
-        cache.totalCostLimit = CacheConfiguration.memoryCacheTotalCostLimit
+        // A 300 MB in-memory budget is 2.5x an app extension's entire
+        // process allowance; constrained processes get a sliver.
+        cache.totalCostLimit = ImageCacheContainer.isMemoryConstrainedProcess
+            ? CacheConfiguration.constrainedMemoryCacheTotalCostLimit
+            : CacheConfiguration.memoryCacheTotalCostLimit
 
         fileManager = FileManager.default
         diskCacheQueue = DispatchQueue(label: "com.convos.imagecache.disk", qos: .utility)

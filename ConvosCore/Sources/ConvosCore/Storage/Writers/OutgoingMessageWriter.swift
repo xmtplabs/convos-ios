@@ -470,7 +470,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         // 120 MB jetsam ceiling and being killed mid-send.
         let stagedImage: ImageType = ImageType(data: saved.compressedData) ?? image
 
-        ImageCacheContainer.shared.cacheImage(stagedImage, for: localCacheURL.absoluteString, storageTier: .persistent)
+        // The cache write only warms future renders; constrained processes
+        // render sent photos from the staged file instead, and the write's
+        // decode-and-re-encode churn (per photo, concurrently) was breaching
+        // the extension's memory ceiling on multi-photo sends.
+        if !ImageCacheContainer.isMemoryConstrainedProcess {
+            ImageCacheContainer.shared.cacheImage(stagedImage, for: localCacheURL.absoluteString, storageTier: .persistent)
+        }
 
         // Save dimensions FIRST so they're available when the UI observes the message
         try await attachmentLocalStateWriter.saveWithDimensions(

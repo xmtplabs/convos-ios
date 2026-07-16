@@ -45,6 +45,7 @@ final class ExtensionRuntime {
         // decodes at most 512px - a 2048px decode is ~22 MB and a few of
         // them concurrently breach the extension memory limit.
         BoundedImageDecode.processMaxPixelSize = 512
+        ImageCacheContainer.isMemoryConstrainedProcess = true
         DeviceInfo.configure(IOSDeviceInfo())
         ImageCompression.configure(IOSImageCompression())
         PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
@@ -215,9 +216,12 @@ final class ShareComposeModel {
                 startObservingMessages(for: target, client: client)
             }
 
-            if let image = await Self.loadSharedImage(extensionContext: extensionContext) {
+            let images = await Self.loadSharedImages(extensionContext: extensionContext, limit: Constant.maxSharedImages)
+            for image in images {
                 appendPhoto(image)
-                Log.info("shared image loaded \(MemoryProbe.snapshot)")
+            }
+            if !images.isEmpty {
+                Log.info("shared images loaded count=\(images.count) \(MemoryProbe.snapshot)")
             }
             if messageText.isEmpty, let sharedText = await Self.loadSharedText(extensionContext: extensionContext) {
                 messageText = sharedText
@@ -389,18 +393,27 @@ final class ShareComposeModel {
         }
     }
 
-    private static func loadSharedImage(extensionContext: NSExtensionContext?) async -> UIImage? {
+    /// Loads every shared image sequentially (bounded decodes never overlap)
+    /// up to `limit` - the composer holds each decoded photo until it stages,
+    /// so the cap keeps a multi-photo share inside the extension's memory
+    /// budget.
+    private static func loadSharedImages(extensionContext: NSExtensionContext?, limit: Int) async -> [UIImage] {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            return nil
+            return []
         }
+        var images: [UIImage] = []
         for item in items {
             for provider in item.attachments ?? [] where provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                guard images.count < limit else {
+                    Log.warning("share limited to \(limit) images; ignoring the rest")
+                    return images
+                }
                 if let image = await loadImage(from: provider) {
-                    return image
+                    images.append(image)
                 }
             }
         }
-        return nil
+        return images
     }
 
     private static func loadSharedText(extensionContext: NSExtensionContext?) async -> String? {
@@ -520,6 +533,11 @@ final class ShareComposeModel {
         /// callback; anything unfinished drains on the next app wake/open.
         static let publishRunway: TimeInterval = 25.0
         static let transcriptMessageLimit: Int = 10
+        /// Mirrors NSExtensionActivationSupportsImageWithMaxCount in
+        /// Info.plist. Each pending photo holds a ~9 MB decoded bitmap until
+        /// it stages; six keeps a full multi-photo share inside the 120 MB
+        /// extension budget.
+        static let maxSharedImages: Int = 6
         /// The send pipeline holds several simultaneous decoded copies of the
         /// shared photo (original, compression pass, cache, transcript
         /// bubble). At 2048px each copy is ~22 MB and the tap-send spike

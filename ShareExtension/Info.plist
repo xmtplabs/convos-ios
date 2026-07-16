@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>APP_GROUP_IDENTIFIER</key>
+	<string>$(APP_GROUP_IDENTIFIER)</string>
+	<key>MAIN_BUNDLE_ID</key>
+	<string>$(MAIN_BUNDLE_ID)</string>
 	<key>NSExtension</key>
 	<dict>
-		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.share-services</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>IntentsSupported</key>
@@ -16,18 +16,18 @@
 			</array>
 			<key>NSExtensionActivationRule</key>
 			<dict>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>6</integer>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 				<integer>1</integer>
-				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
-				<integer>1</integer>
 			</dict>
 		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
-	<key>APP_GROUP_IDENTIFIER</key>
-	<string>$(APP_GROUP_IDENTIFIER)</string>
-	<key>MAIN_BUNDLE_ID</key>
-	<string>$(MAIN_BUNDLE_ID)</string>
 </dict>
 </plist>
