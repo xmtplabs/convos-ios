@@ -1,0 +1,94 @@
+# Stages an already-uploaded TestFlight RC's App Store Connect metadata once
+# its release/hotfix PR merges to main. Reusable job lives in convos-releases
+# (ios-appstore-promote.yml); this file just resolves the merged PR's
+# version/shas. workflow_dispatch re-promotes an already-merged version
+# (e.g. the original run failed or never fired).
+name: Promote Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version (X.Y.Z) of an already-merged release/hotfix PR to (re)promote
+        required: true
+        type: string
+
+jobs:
+  resolve:
+    runs-on: warp-ubuntu-latest-x64-8x
+    permissions:
+      pull-requests: read
+    outputs:
+      go: ${{ steps.pr.outputs.go }}
+      version: ${{ steps.pr.outputs.version }}
+      merge-sha: ${{ steps.pr.outputs.merge-sha }}
+      head-sha: ${{ steps.pr.outputs.head-sha }}
+      pr: ${{ steps.pr.outputs.pr }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Empty on push events; user input stays out of the script text.
+          DISPATCH_VERSION: ${{ inputs.version || '' }}
+        run: |
+          if [ -n "$DISPATCH_VERSION" ]; then
+            # Manual re-promote: shas are DERIVED from the merged PR, never
+            # taken as input — downstream guards (manifest RC entry, tree
+            # assert, tag ensure-state) bind the run to the real release.
+            if [[ ! "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version must be X.Y.Z, got '$DISPATCH_VERSION'"
+              exit 1
+            fi
+            pr=""
+            for prefix in release hotfix; do
+              pr=$(gh api "repos/${{ github.repository }}/pulls?state=closed&base=main&head=${{ github.repository_owner }}:${prefix}/${DISPATCH_VERSION}" \
+                --jq '[.[] | select(.merged_at != null)] | sort_by(.number) | last')
+              [ -n "$pr" ] && [ "$pr" != "null" ] && break
+            done
+            if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+              echo "::error::no merged release/${DISPATCH_VERSION} or hotfix/${DISPATCH_VERSION} PR on main"
+              exit 1
+            fi
+            {
+              echo "go=true"
+              echo "version=$DISPATCH_VERSION"
+              echo "merge-sha=$(echo "$pr" | jq -r .merge_commit_sha)"
+              echo "head-sha=$(echo "$pr" | jq -r .head.sha)"
+              echo "pr=$(echo "$pr" | jq -r .number)"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(.merge_commit_sha=="${{ github.sha }}") | select(.head.ref | test("^(release|hotfix)/"))][0]')
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "not a train merge"
+            exit 0
+          fi
+          {
+            echo "go=true"
+            echo "version=$(echo "$pr" | jq -r '.head.ref | sub("^(release|hotfix)/"; "")')"
+            echo "merge-sha=${{ github.sha }}"
+            echo "head-sha=$(echo "$pr" | jq -r .head.sha)"
+            echo "pr=$(echo "$pr" | jq -r .number)"
+          } >> "$GITHUB_OUTPUT"
+
+  promote:
+    needs: resolve
+    if: needs.resolve.outputs.go == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: xmtplabs/convos-releases/.github/workflows/ios-appstore-promote.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
+      version: ${{ needs.resolve.outputs.version }}
+      merge-sha: ${{ needs.resolve.outputs.merge-sha }}
+      head-sha: ${{ needs.resolve.outputs.head-sha }}
+      pr-number: ${{ needs.resolve.outputs.pr }}
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    secrets: inherit
