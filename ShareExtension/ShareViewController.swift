@@ -80,8 +80,14 @@ final class ExtensionRuntime {
 final class ShareViewController: UIViewController {
     private let model: ShareComposeModel = ShareComposeModel()
 
+    /// Number of share sheets currently alive in this process. Guards
+    /// process retirement: iOS can hand a new share to this process while a
+    /// previous share's publish runway is still winding down.
+    @MainActor static var activeSheetCount: Int = 0
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        Self.activeSheetCount += 1
         ComposerHostContext.isAppExtension = true
         // Before any view renders: the first avatar to draw constructs the
         // ImageCache singleton, which reads these at init. Setting them in
@@ -112,15 +118,51 @@ final class ShareViewController: UIViewController {
     }
 
     private func cancel() {
+        Self.activeSheetCount -= 1
         ConvosLog.flush()
         extensionContext?.cancelRequest(withError: NSError(domain: "ShareExtension", code: NSUserCancelledError))
+        ExtensionProcessRetirement.retireIfIdle(after: Constant.retireAfterCancelDelay, reason: "cancelled")
     }
 
     private func complete() {
+        Self.activeSheetCount -= 1
         // completeRequest terminates the process; without a flush the tail of
         // the send's log lines never reaches the shared log file.
         ConvosLog.flush()
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+        // Fallback retirement for completions that hold no publish runway
+        // (nothing staged); runway paths retire the moment the runway ends.
+        ExtensionProcessRetirement.retireIfIdle(after: Constant.retireFallbackDelay, reason: "completed")
+    }
+
+    private enum Constant {
+        /// Long enough for the host's dismissal animation and any lingering
+        /// XPC teardown after a cancel.
+        static let retireAfterCancelDelay: TimeInterval = 2.0
+        /// Past the opportunistic publish window and the expiring-activity
+        /// runway, so this only fires when the real signal never came.
+        static let retireFallbackDelay: TimeInterval = 35.0
+    }
+}
+
+/// iOS reuses share-extension processes, and each completed share leaves
+/// ~15 MB of client residue behind (observed baselines: 14 MB fresh, 58 MB
+/// after two shares against the 120 MB jetsam ceiling - the third share in
+/// one process died during photo load, before the user could even commit).
+/// Exiting once all work is done trades warm relaunch for a fresh 14 MB
+/// process on every share; the staged outbox already guarantees delivery of
+/// anything a dead process left behind, so exit is safe by construction.
+enum ExtensionProcessRetirement {
+    /// Exits the process if no sheet is active after `delay`. A share that
+    /// arrives in the window flips `activeSheetCount` and the exit is
+    /// skipped; that share schedules its own retirement when it finishes.
+    static nonisolated func retireIfIdle(after delay: TimeInterval, reason: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard ShareViewController.activeSheetCount == 0 else { return }
+            Log.info("retiring extension process (\(reason)) \(MemoryProbe.snapshot)")
+            ConvosLog.flush()
+            exit(0)
+        }
     }
 }
 
@@ -475,6 +517,7 @@ final class ShareComposeModel: AgentDraftComposing {
             Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out")) \(MemoryProbe.snapshot)")
             ConvosLog.flush()
             cancellable?.cancel()
+            ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "runway ended")
         }
     }
 
