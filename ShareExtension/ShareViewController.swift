@@ -129,6 +129,9 @@ final class ShareComposeModel {
     var targetConversation: Conversation?
     var messageText: String = ""
     var pendingMediaAttachments: [PendingMediaAttachment] = []
+    /// A shared URL rendered as the composer's link-preview chip (mirrors the
+    /// in-app pasted-link flow); sent as its own message ahead of typed text.
+    var pendingLinkPreview: LinkPreview?
     var isReady: Bool = false
     var isSending: Bool = false
     /// User-visible reason the share sheet cannot proceed (intent target gone,
@@ -153,7 +156,7 @@ final class ShareComposeModel {
 
     var canSend: Bool {
         let hasText: Bool = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return isReady && !isSending && (!pendingMediaAttachments.isEmpty || hasText)
+        return isReady && !isSending && (!pendingMediaAttachments.isEmpty || hasText || pendingLinkPreview != nil)
     }
 
     func start(extensionContext: NSExtensionContext?) {
@@ -224,7 +227,16 @@ final class ShareComposeModel {
                 Log.info("shared images loaded count=\(images.count) \(MemoryProbe.snapshot)")
             }
             if messageText.isEmpty, let sharedText = await Self.loadSharedText(extensionContext: extensionContext) {
-                messageText = sharedText
+                // A shared URL (Safari etc.) becomes the composer's
+                // link-preview chip, matching the in-app pasted-link flow;
+                // anything that doesn't parse as a link stays typed text.
+                if let preview = LinkPreview.from(text: sharedText) {
+                    pendingLinkPreview = preview
+                    Log.info("shared link parsed: \(preview.url)")
+                } else {
+                    messageText = sharedText
+                    Log.info("shared text loaded (no link parsed): \(sharedText.count) chars")
+                }
             }
             isReady = targetConversationId != nil
         } catch {
@@ -271,7 +283,7 @@ final class ShareComposeModel {
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachmentCount = pendingMediaAttachments.count
-        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) \(MemoryProbe.snapshot)")
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) \(MemoryProbe.snapshot)")
         let messagingService = client.session.messagingService()
         // One writer for the whole send: its queue publishes strictly in
         // order, so the text always reaches the network after the photos.
@@ -295,6 +307,12 @@ final class ShareComposeModel {
                 // and the user retries, already-staged photos must not be
                 // staged and published a second time.
                 pendingMediaAttachments.removeAll { $0.id == attachment.id }
+            }
+            // Link before typed text, matching the in-app send order.
+            if let linkURL = pendingLinkPreview?.url {
+                try await writer.send(text: linkURL)
+                stagedCount += 1
+                pendingLinkPreview = nil
             }
             if !text.isEmpty {
                 try await writer.send(text: text)
@@ -707,6 +725,7 @@ struct ShareComposeView: View {
             displayName: $displayName,
             messageText: $model.messageText,
             pendingMediaAttachments: model.pendingMediaAttachments,
+            composerLinkPreview: model.pendingLinkPreview,
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),
             sendButtonEnabled: model.canSend,
@@ -718,7 +737,7 @@ struct ShareComposeView: View {
             messagesTextFieldEnabled: model.isReady,
             onSendMessage: handleSend,
             onClearInvite: {},
-            onClearLinkPreview: {},
+            onClearLinkPreview: { model.pendingLinkPreview = nil },
             onClearMediaAttachment: { id in model.removeAttachment(id: id) },
             onDisplayNameEndedEditing: {},
             onPhotoSelected: { image in model.appendPhoto(image) },
