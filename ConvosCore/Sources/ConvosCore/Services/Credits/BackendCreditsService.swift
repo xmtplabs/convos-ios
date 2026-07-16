@@ -41,4 +41,9 @@ public final class BackendCreditsService: CreditsServiceProtocol {
     public func refresh(force: Bool) async {
         await writer.refresh(force: force)
     }
+
+    /// Account-deletion fence; see `CreditBalanceWriter.prepareForAccountWipe()`.
+    public func prepareForAccountWipe() async {
+        await writer.prepareForAccountWipe()
+    }
 }

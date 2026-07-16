@@ -67,6 +67,41 @@ struct CreditBalanceWriterTests {
         #expect(count == 2, "Forced refresh must always hit the network, ignoring the TTL")
     }
 
+    @Test("prepareForAccountWipe drops an in-flight refresh's write")
+    func testPrepareForAccountWipeDropsInFlightWrite() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient: StubCreditBalanceAPIClient = StubCreditBalanceAPIClient(
+            sleepNanoseconds: 300_000_000  // long enough for the wipe to land mid-fetch
+        )
+        let writer: CreditBalanceWriter = CreditBalanceWriter(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: apiClient
+        )
+
+        let refreshTask: Task<Void, Never> = Task { await writer.refresh(force: true) }
+        try await Task.sleep(nanoseconds: 100_000_000)  // let the refresh enter its network call
+        await writer.prepareForAccountWipe()
+        await refreshTask.value
+
+        let count = await apiClient.callCount
+        #expect(count == 1)
+        let row: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(row == nil, "A refresh spanning the account wipe must not write the stale balance")
+
+        await writer.refresh(force: false)
+        let countAfterWipe = await apiClient.callCount
+        #expect(
+            countAfterWipe == 2,
+            "The wipe must reset the TTL so the next account's first refresh is not debounced"
+        )
+        let rowAfterWipe: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterWipe != nil, "Post-wipe refreshes must write normally again")
+    }
+
     @Test("API failure does not advance the TTL window")
     func testFailureDoesNotAdvanceTTL() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

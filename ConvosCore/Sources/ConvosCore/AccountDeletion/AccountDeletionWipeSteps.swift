@@ -30,6 +30,10 @@ enum AccountDeletionWipeSteps {
     /// truncating checkpoint empties the WAL so deleted content doesn't
     /// linger in convos-single-inbox.sqlite-wal.
     static func wipeDatabaseRows(databaseWriter: any DatabaseWriter) async throws {
+        // Quiesce the credits writer first: a balance refresh suspended in
+        // its network call would otherwise re-insert the deleted account's
+        // `credit_balance` row after the wipe below removed it.
+        await CreditsServices.prepareForAccountWipe()
         try await databaseWriter.write { db in
             try SessionManager.wipeAccountScopedRows(db)
         }

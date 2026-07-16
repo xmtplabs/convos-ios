@@ -41,6 +41,14 @@ public enum CreditsServices {
         )
     }
 
+    /// Account-deletion fence; see `CreditBalanceWriter.prepareForAccountWipe()`.
+    /// Reaches the backend service directly rather than through `shared` so
+    /// the fence runs even when the debug toggle points `shared` at the mock
+    /// (the real writer is the only thing that writes `credit_balance`).
+    public static func prepareForAccountWipe() async {
+        await backendService?.prepareForAccountWipe()
+    }
+
     public static var useRealBackend: Bool {
         resolveUseRealBackend(
             environment: ConfigManager.shared.currentEnvironment,
