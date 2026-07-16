@@ -6,8 +6,6 @@ import GRDB
 /// only. All merge/precedence logic lives in `ProfilesRepository`, and reactive
 /// observation is done by the repository via GRDB `ValueObservation`, so this
 /// protocol exposes no change stream.
-///
-/// Not wired into the app yet; introduced ahead of `ProfilesRepository`.
 protocol ProfileStoreProtocol: Sendable {
     // Identity
     func saveIdentity(_ profile: DBProfile) async throws

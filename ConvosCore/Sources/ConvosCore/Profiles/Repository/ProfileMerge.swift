@@ -129,21 +129,32 @@ enum ProfileMerge {
             // than store an unencrypted slot or downgrade an existing encrypted
             // one to plaintext.
             guard let salt, let nonce, let key else {
+                Log.debug("ProfileMerge: ignoring avatar set missing crypto fields for \(inboxId) in \(conversationId)")
                 return existing
             }
             setFields = AvatarFields(url: url, salt: salt, nonce: nonce, key: key)
         }
 
-        // Avatars require a strictly newer event to replace at the same source:
-        // an equal `sentAt` is the same message re-applied (history catch-up
-        // replays every launch), and replay must be inert - a `>=` here rebuilt
-        // the slot each launch, wiping the asset-renewal stamp, and re-inserted
-        // dead URLs that `ExpiredAssetRecoveryHandler` had deliberately
-        // cleared. The cost is that a backfill-mirrored (`.contact`, floor)
-        // avatar no longer tracks a changed legacy row; a real avatar change
-        // always arrives as a ProfileUpdate, which wins at a higher source.
+        // Wire tiers require a strictly newer event to replace at the same
+        // source: an equal `sentAt` is the same message re-applied (history
+        // catch-up replays every launch), and replay must be inert - a `>=`
+        // here rebuilt the slot each launch, wiping the asset-renewal stamp,
+        // and re-inserted dead URLs that `ExpiredAssetRecoveryHandler` had
+        // deliberately cleared.
+        //
+        // The mirror tiers (`.contact` backfill, `.appData`) stamp a constant
+        // floor, so for them an equal-time event is a mirror re-run that must
+        // adopt a changed legacy/app-data avatar - except onto a tombstone:
+        // recovery clears a dead URL in place (keeping `updatedAt`), and the
+        // mirror re-offering its still-dirty copy of that URL must not
+        // resurrect it every sync. A tombstoned mirror slot fills again only
+        // via a higher source (a real ProfileUpdate). An unchanged re-offer is
+        // still inert: the rebuilt row carries the renewal stamp and digest,
+        // so it equals the stored one and callers skip the write.
+        let mirrorTier = source == .contact || source == .appData
+        let equalTimeWins = mirrorTier && existing?.url != nil
         let wins = existing.map {
-            winsOver(existingSource: $0.profileSource, existingUpdatedAt: $0.updatedAt, source: source, sentAt: sentAt, equalTimeWins: false)
+            winsOver(existingSource: $0.profileSource, existingUpdatedAt: $0.updatedAt, source: source, sentAt: sentAt, equalTimeWins: equalTimeWins)
         } ?? true
 
         if wins {

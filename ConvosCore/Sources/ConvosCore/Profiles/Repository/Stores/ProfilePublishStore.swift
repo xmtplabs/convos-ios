@@ -46,7 +46,11 @@ protocol ProfilePublishStoreProtocol: Sendable {
     func nextReadyJob(now: Date) async throws -> DBProfilePublishJob?
     /// Returns any `uploading` jobs to `pending`, e.g. after a drain was
     /// interrupted mid-flight, so they become eligible for retry.
-    func reclaimStalledJobs() async throws
+    /// Returns `uploading` jobs to `pending` so work stranded mid-flight (e.g.
+    /// by a crash) becomes ready again. `excluding` names jobs currently being
+    /// processed in this process - live, not stranded - which must keep their
+    /// claim or they would be processed twice.
+    func reclaimStalledJobs(excluding: Set<String>) async throws
     func activeJobs() async throws -> [DBProfilePublishJob]
     func jobs(conversationId: String) async throws -> [DBProfilePublishJob]
     func nextSeq() async throws -> Int64
@@ -153,10 +157,11 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
         }
     }
 
-    func reclaimStalledJobs() async throws {
+    func reclaimStalledJobs(excluding: Set<String>) async throws {
         try await databaseWriter.write { db in
             _ = try DBProfilePublishJob
                 .filter(DBProfilePublishJob.Columns.state == ProfilePublishJobState.uploading.rawValue)
+                .filter(!excluding.contains(DBProfilePublishJob.Columns.id))
                 .updateAll(db, DBProfilePublishJob.Columns.state.set(to: ProfilePublishJobState.pending.rawValue))
         }
     }
@@ -288,8 +293,8 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
             .min { $0.seq < $1.seq }
     }
 
-    func reclaimStalledJobs() {
-        for (id, job) in jobsById where job.state == .uploading {
+    func reclaimStalledJobs(excluding: Set<String>) {
+        for (id, job) in jobsById where job.state == .uploading && !excluding.contains(id) {
             var updated = job
             updated.state = .pending
             jobsById[id] = updated

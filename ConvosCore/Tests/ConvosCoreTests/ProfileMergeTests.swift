@@ -355,6 +355,59 @@ struct ProfileMergeAvatarTests {
         #expect(replayed?.url == nil)
     }
 
+    @Test("a mirror-tier re-run adopts a changed avatar at the constant floor")
+    func mirrorTierAdoptsChangedAvatar() {
+        // Backfill (.contact) and app-data mirrors always stamp the same floor
+        // timestamp, so a changed legacy/app-data avatar arrives at equal time
+        // and must still replace the stored slot.
+        let floor = Date(timeIntervalSince1970: 0)
+        for source in [ProfileSource.contact, .appData] {
+            let existing = DBProfileAvatar(
+                inboxId: "i", conversationId: "c", url: "old", salt: salt, nonce: nonce,
+                encryptionKey: key, profileSource: source, updatedAt: floor
+            )
+            let merged = ProfileMerge.mergeAvatar(
+                existing: existing, inboxId: "i", conversationId: "c", incoming: setAvatar("new"),
+                source: source, sentAt: floor
+            )
+            #expect(merged?.url == "new", "\(source) mirror must adopt the changed avatar")
+
+            // An unchanged re-offer stays inert: same row back, stamps intact.
+            let renewed = Date(timeIntervalSince1970: 150)
+            let renewedExisting = DBProfileAvatar(
+                inboxId: "i", conversationId: "c", url: "old", salt: salt, nonce: nonce,
+                encryptionKey: key, profileSource: source, updatedAt: floor, lastRenewed: renewed
+            )
+            let reoffered = ProfileMerge.mergeAvatar(
+                existing: renewedExisting, inboxId: "i", conversationId: "c", incoming: setAvatar("old"),
+                source: source, sentAt: floor
+            )
+            #expect(reoffered == renewedExisting, "\(source) unchanged re-offer must be inert")
+        }
+    }
+
+    @Test("a mirror-tier re-run cannot resurrect a recovery-cleared slot")
+    func mirrorTierCannotResurrectTombstone() {
+        // ExpiredAssetRecoveryHandler clears a dead URL in place, keeping the
+        // slot's floor updatedAt. The mirror still holds its dirty copy of that
+        // URL and re-offers it at the same floor every sync; adopting it would
+        // loop clear/re-add forever. The slot fills again only via a higher
+        // source (a real ProfileUpdate).
+        let floor = Date(timeIntervalSince1970: 0)
+        let tombstone = DBProfileAvatar(inboxId: "i", conversationId: "c", url: nil, profileSource: .contact, updatedAt: floor)
+        let reoffered = ProfileMerge.mergeAvatar(
+            existing: tombstone, inboxId: "i", conversationId: "c", incoming: setAvatar("dead-url"),
+            source: .contact, sentAt: floor
+        )
+        #expect(reoffered?.url == nil)
+
+        let realUpdate = ProfileMerge.mergeAvatar(
+            existing: tombstone, inboxId: "i", conversationId: "c", incoming: setAvatar("fresh"),
+            source: .profileUpdate, sentAt: Date(timeIntervalSince1970: 100)
+        )
+        #expect(realUpdate?.url == "fresh")
+    }
+
     @Test("a strictly newer set of the same URL carries the renewal stamp; a new URL resets it")
     func newerSetCarriesRenewalStampForSameURL() {
         let renewed = Date(timeIntervalSince1970: 150)

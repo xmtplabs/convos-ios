@@ -192,6 +192,14 @@ extension SharedDatabaseMigrator {
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
 
+        // Registration is append-only across releases: new migrations go here,
+        // after every already-shipped one. Inserting earlier (e.g. into
+        // registerTailMigrations) reorders the registered list relative to
+        // databases that already applied the later migrations, which the DEBUG
+        // eraseDatabaseOnSchemaChange replay treats as a schema change and
+        // erases an upgrading user's database.
+        migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
+
         return migrator
     }
 
@@ -303,7 +311,6 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
         Self.registerCatchUpCursorMigrations(on: &migrator)
         migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
-        migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
     }
 
     /// Additive, nullable column pinning the `myProfile.updatedAt` current when
@@ -311,8 +318,9 @@ extension SharedDatabaseMigrator {
     /// send-time one) into `conversationLocalState.publishedProfileUpdatedAt`
     /// after delivery, so an edit made between enqueue and send leaves the
     /// conversation stale and eligible for re-publish. Nil (pre-migration jobs)
-    /// skips the stamp, costing at most one duplicate publish. Guarded because
-    /// fresh installs already get the column from `createProfileTables`.
+    /// skips the stamp, costing at most one duplicate publish per conversation
+    /// that still has such a job queued. Guarded because fresh installs
+    /// already get the column from `createProfileTables`.
     static func addProfilePublishJobProfileUpdatedAt(_ db: Database) throws {
         let hasColumn = try db.columns(in: "profilePublishJob").contains { $0.name == "profileUpdatedAt" }
         guard !hasColumn else { return }

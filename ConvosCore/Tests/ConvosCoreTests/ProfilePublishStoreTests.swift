@@ -126,14 +126,18 @@ struct ProfilePublishStoreTests {
         #expect((fJob?.seq ?? 0) > 0)
 
         // reclaimStalledJobs returns an in-flight (uploading) job to pending so
-        // it is ready again; nextReadyJob excludes it while uploading.
+        // it is ready again; nextReadyJob excludes it while uploading, and an
+        // excluded (live) job keeps its claim.
         if var uploading = try await store.job(id: "F") {
             uploading.state = .uploading
             try await store.update(uploading)
         }
         let readyWhileUploading = try await store.nextReadyJob(now: now)
         #expect(readyWhileUploading == nil)
-        try await store.reclaimStalledJobs()
+        try await store.reclaimStalledJobs(excluding: ["F"])
+        let stillClaimed = try await store.nextReadyJob(now: now)
+        #expect(stillClaimed == nil)
+        try await store.reclaimStalledJobs(excluding: [])
         let readyAfterReclaim = try await store.nextReadyJob(now: now)
         #expect(readyAfterReclaim?.id == "F")
 

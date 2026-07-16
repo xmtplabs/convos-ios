@@ -207,6 +207,19 @@ struct InviteJoinRequestsManagerPersistenceTests {
             try DBProfileAvatar.fetchOne(db, inboxId: joinerInboxId, conversationId: conversationId)
         }
         #expect(slot == nil)
+
+        // Processing the same request again (retry/replay) is stable.
+        await manager.persistJoinerProfile(
+            joinerInboxId: joinerInboxId,
+            conversationId: conversationId,
+            profile: JoinRequestProfile(name: "Joiner Jane", imageURL: "https://img/plain.jpg", memberKind: nil),
+            metadata: ["team": "convos"]
+        )
+        let afterReplay = try await dbManager.dbReader.read { db in
+            try DBProfile.fetchOne(db, inboxId: joinerInboxId)
+        }
+        #expect(afterReplay?.name == "Joiner Jane")
+        #expect(afterReplay?.profileSource == .profileSnapshot)
     }
 
     @Test("A replayed join request cannot beat the joiner's own newer ProfileUpdate")

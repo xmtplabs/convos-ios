@@ -38,6 +38,11 @@ actor ProfilePublisher {
 
     private var session: (any ProfilePublishSession)?
     private var draining: Bool = false
+    private var redrainRequested: Bool = false
+    /// Jobs currently claimed by the inline publish or the drain loop, so a
+    /// concurrent drain's stalled-job reclaim never returns live work to the
+    /// ready pool and processes it twice.
+    private var inFlightJobIds: Set<String> = []
     private var cachedSelfInboxId: String?
     private var retryTimer: Task<Void, Never>?
 
@@ -118,6 +123,8 @@ actor ProfilePublisher {
             profileUpdatedAt: selfProfile?.updatedAt
         )
         if let session, let claimed = try? await publishStore.claimJob(id: job.id, updatedAt: now()) {
+            inFlightJobIds.insert(claimed.id)
+            defer { inFlightJobIds.remove(claimed.id) }
             await process(claimed, session: session, selfInboxId: selfInboxId)
         }
         kickBackgroundDrain()
@@ -130,12 +137,32 @@ actor ProfilePublisher {
     }
 
     func drainReadyJobs() async {
-        guard !draining, let session else { return }
+        // A drain requested while one is running must not be dropped: the
+        // running drain's job scan and timer snapshot may both predate the
+        // requester's enqueue, which would leave that job waiting for the next
+        // external trigger. Flag it and let the running drain loop once more.
+        if draining {
+            redrainRequested = true
+            return
+        }
+        guard session != nil else { return }
         draining = true
         defer { draining = false }
+        repeat {
+            redrainRequested = false
+            await drainPass()
+            await armRetryTimer()
+        } while redrainRequested
+    }
+
+    private func drainPass() async {
+        guard let session else { return }
         guard let selfInboxId = await resolveSelfInboxId() else { return }
-        // Return jobs a previous drain left mid-flight to the ready pool.
-        try? await publishStore.reclaimStalledJobs()
+        // Return jobs a previous process instance left mid-flight to the ready
+        // pool. Jobs currently being processed inline by publishConversation
+        // are alive, not stalled - reclaiming one mid-upload would let this
+        // drain claim and process it a second time.
+        try? await publishStore.reclaimStalledJobs(excluding: inFlightJobIds)
         while let job = try? await publishStore.nextReadyJob(now: now()) {
             // The atomic claim (pending -> uploading) is what keeps this loop
             // and the inline per-conversation path from double-processing a
@@ -151,9 +178,10 @@ actor ProfilePublisher {
                 break
             }
             guard let claimed else { continue }
+            inFlightJobIds.insert(claimed.id)
+            defer { inFlightJobIds.remove(claimed.id) }
             await process(claimed, session: session, selfInboxId: selfInboxId)
         }
-        await armRetryTimer()
     }
 
     /// Schedules the next drain for the earliest rescheduled job, so backoff
