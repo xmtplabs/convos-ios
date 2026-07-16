@@ -74,8 +74,11 @@ public struct AccountDeletionDependencies: Sendable {
     /// Deletes only the record-scoped slots (address-scoped SIWE JWT and
     /// account-id slots, the record identity's synced backup). Used when a
     /// record's identity was displaced (pairing) and the full manifest
-    /// must not run against the new identity.
-    public var sweepRecordScopedSlots: @Sendable (AccountDeletionRecord) async -> Void
+    /// must not run against the new identity. Throws so a failed delete
+    /// holds the record for a later retry instead of abandoning the slots;
+    /// the deletes are idempotent (a missing item is success), so a
+    /// partial sweep re-runs safely.
+    public var sweepRecordScopedSlots: @Sendable (AccountDeletionRecord) async throws -> Void
 
     public init(
         loadIdentity: @escaping @Sendable () throws -> KeychainIdentity?,
@@ -88,7 +91,7 @@ public struct AccountDeletionDependencies: Sendable {
         revokeInstallations: @escaping @Sendable (AccountDeletionRecord) async -> Void,
         stopServices: @escaping @Sendable () async -> Void,
         makeWipeExecutor: @escaping @Sendable () -> WipeManifestExecutor,
-        sweepRecordScopedSlots: @escaping @Sendable (AccountDeletionRecord) async -> Void
+        sweepRecordScopedSlots: @escaping @Sendable (AccountDeletionRecord) async throws -> Void
     ) {
         self.loadIdentity = loadIdentity
         self.deviceId = deviceId
@@ -664,7 +667,9 @@ public actor AccountDeletionService {
     /// Returns false without touching the slots or the record when
     /// confirmation fails or no token survives: the record is held so a
     /// later retry can still confirm, instead of permanently abandoning a
-    /// potentially live backend account.
+    /// potentially live backend account. Also returns false when the sweep
+    /// itself fails, so the record survives to retry the slot deletes (the
+    /// sweep is idempotent) instead of abandoning them.
     private func resolveDisplacedRecord(_ record: AccountDeletionRecord) async -> Bool {
         if record.phase == .requested {
             guard record.sendAttempted == true else {
@@ -704,7 +709,16 @@ public actor AccountDeletionService {
                 return false
             }
         }
-        await dependencies.sweepRecordScopedSlots(record)
+        do {
+            // The record clear below is gated on the sweep: a transient
+            // Keychain/iCloud failure here would otherwise permanently
+            // abandon the swept slots (including the deleted account's
+            // synced key backup) with no retry once the record is gone.
+            try await dependencies.sweepRecordScopedSlots(record)
+        } catch {
+            Log.error("AccountDeletion: displaced record slot sweep failed; keeping the record for a retry: \(error)")
+            return false
+        }
         do {
             try await store.clear()
         } catch {

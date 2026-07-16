@@ -166,12 +166,15 @@ extension SessionManager {
             },
             sweepRecordScopedSlots: { [identityStore] record in
                 // Only slots the record itself names: safe when the live
-                // identity is a different (displaced) one.
+                // identity is a different (displaced) one. Errors propagate
+                // so the record is held and the sweep retried; each delete
+                // treats a missing item as success, so a partial sweep
+                // re-runs cleanly.
                 let keychain = KeychainService()
-                try? keychain.delete(account: KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress))
-                try? keychain.delete(account: KeychainAccount.siweAccountId(deviceId: record.deviceId, address: record.ethAddress))
+                try keychain.delete(account: KeychainAccount.siweJwt(deviceId: record.deviceId, address: record.ethAddress))
+                try keychain.delete(account: KeychainAccount.siweAccountId(deviceId: record.deviceId, address: record.ethAddress))
                 if !record.inboxId.isEmpty {
-                    try? await identityStore.deleteSyncedBackup(inboxId: record.inboxId)
+                    try await identityStore.deleteSyncedBackup(inboxId: record.inboxId)
                 }
             }
         )

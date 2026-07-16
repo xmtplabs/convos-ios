@@ -32,6 +32,8 @@ struct AccountDeletionServiceTests {
 
     private struct KeychainReadFailure: Error {}
 
+    private struct SweepFailure: Error {}
+
     private struct Config {
         var identity: KeychainIdentity?
         /// When set, wins over `identity`: lets a test change the loadable
@@ -44,6 +46,7 @@ struct AccountDeletionServiceTests {
         var wipeHandler: (@Sendable (WipeManifestEntry) async throws -> Void)?
         var cachedToken: @Sendable (AccountDeletionRecord) -> String? = { _ in nil }
         var ethAddress: @Sendable (KeychainIdentity) -> String = { _ in "0xabc" }
+        var failSweep: Bool = false
     }
 
     private func makeStore() throws -> AccountDeletionStateStore {
@@ -114,8 +117,11 @@ struct AccountDeletionServiceTests {
                 }
                 return WipeManifestExecutor(handlers: handlers)
             },
-            sweepRecordScopedSlots: { record in
+            sweepRecordScopedSlots: { [failSweep = config.failSweep] record in
                 events.record("sweepRecordScopedSlots(\(record.inboxId))")
+                if failSweep {
+                    throw SweepFailure()
+                }
             }
         )
         return AccountDeletionService(store: store, dependencies: dependencies)
@@ -572,6 +578,33 @@ struct AccountDeletionServiceTests {
         #expect(!events.events.contains(where: { $0.hasPrefix("wipe(") }))
         #expect(!events.events.contains(where: { $0.hasPrefix("revoke(") }))
         #expect(events.contains("sweepRecordScopedSlots(inbox-A)"))
+        #expect(store.load().activeRecord == nil)
+    }
+
+    @Test("A displaced record whose slot sweep fails is held and resolves on a later retry")
+    func displacedRecordSweepFailureHoldsForRetry() async throws {
+        let store = try makeStore()
+        try await store.begin(AccountDeletionRecord(
+            operationId: UUID(), inboxId: "inbox-A", clientId: "client-A",
+            ethAddress: "0xaaa", deviceId: "device-1"
+        ))
+        try await store.advance(to: .backendConfirmed)
+
+        let events = EventLog()
+        var config = Config(identity: try makeIdentity())
+        config.failSweep = true
+        let service = makeService(store: store, events: events, config: config)
+
+        await service.recoverAtLaunch()
+        // The sweep ran and failed: the record must survive so the slot
+        // deletes (including the synced key backup) get a later retry,
+        // instead of clearing over abandoned artifacts.
+        #expect(events.contains("sweepRecordScopedSlots(inbox-A)"))
+        #expect(store.load().activeRecord?.inboxId == "inbox-A")
+
+        // The transient failure gone, the next launch resolves the record.
+        let retryService = makeService(store: store, events: events, config: Config(identity: try makeIdentity()))
+        await retryService.recoverAtLaunch()
         #expect(store.load().activeRecord == nil)
     }
 
