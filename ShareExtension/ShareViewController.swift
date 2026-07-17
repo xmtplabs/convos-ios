@@ -207,6 +207,11 @@ final class ShareComposeModel: AgentDraftComposing {
     /// keep running after this process dies; on completion iOS launches the
     /// containing app, which finishes the publish.
     private var uploadManager: BackgroundUploadManager?
+    /// Pre-creates the hidden draft conversation while the user composes,
+    /// the way the in-app builder does, so Make itself is instant instead
+    /// of freezing the sheet on a network round-trip. Kicked off as soon as
+    /// the share resolves to the New Agent target.
+    private var draftConversationTask: Task<AgentCreationFlow.PreparedConversation, Error>?
 
     var canSend: Bool {
         let hasText: Bool = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -295,6 +300,12 @@ final class ShareComposeModel: AgentDraftComposing {
                 // builder pre-seeded on its next foreground.
                 target = nil
                 isNewAgentTarget = true
+                let session = client.session
+                draftConversationTask = Task {
+                    let draft = try await AgentCreationFlow.prepareDraftConversation(session: session)
+                    Log.info("draft conversation ready \(draft.conversationId) \(MemoryProbe.snapshot)")
+                    return draft
+                }
             }
             targetConversationId = target?.id
             targetConversation = target
@@ -337,13 +348,12 @@ final class ShareComposeModel: AgentDraftComposing {
     }
 
     /// Swaps the draft composer for the new conversation's transcript so the
-    /// user sees the same post-Make surface the app shows (prompt message,
-    /// creation card, agent-join progress cell) while the sheet lingers for
-    /// a beat before closing.
-    private func revealCreatedConversation(id conversationId: String, client: ConvosClient) {
-        let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
-        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
-            Log.warning("make agent: created conversation \(conversationId) not readable for reveal; closing without transcript")
+    /// user sees the same post-Make surface the app shows: the creation-
+    /// prompt card (seeded synchronously, like the app's inner view model),
+    /// the "activating agent" progress card, and the prompt message.
+    private func revealCreatedConversation(_ created: AgentCreationFlow.CreatedAgent, client: ConvosClient) {
+        guard let conversation = try? client.session.conversationRepository(for: created.conversationId).fetchConversation() else {
+            Log.warning("make agent: created conversation \(created.conversationId) not readable for reveal; closing without transcript")
             return
         }
         if let myProfile = conversation.members.first(where: { $0.isCurrentUser })?.profile {
@@ -353,7 +363,24 @@ final class ShareComposeModel: AgentDraftComposing {
         targetConversation = conversation
         targetTitle = conversation.computedDisplayName(memberNameOverride: { _ in nil })
         startObservingMessages(for: conversation, client: client)
-        didMakeAgent = true
+        // Seed the cards the app's view model would provide: the processor
+        // renders the creation card from the summary without waiting for the
+        // prompt row to land, and the activating card supplies the join
+        // progress the user watches in-app. The generation has only just
+        // been submitted, so `.preparing` is the honest phase for the few
+        // seconds this sheet stays up.
+        messagesListRepository?.agentBuilderSummary = created.commit.summary
+        messagesListRepository?.agentActivating = AgentActivatingCardContent(
+            id: conversation.id,
+            phase: .preparing,
+            agentName: nil,
+            emoji: nil,
+            agentDescription: nil,
+            progressPhrases: []
+        )
+        withAnimation(.easeInOut(duration: 0.35)) {
+            didMakeAgent = true
+        }
     }
 
     private func startObservingMessages(for conversation: Conversation, client: ConvosClient) {
@@ -487,11 +514,16 @@ final class ShareComposeModel: AgentDraftComposing {
                 prompt: promptText,
                 photoJPEGs: prepared.inputs.map(\.data)
             )
-            Log.info("make agent: staged \(stagedId); creating conversation \(MemoryProbe.snapshot)")
+            // Usually already resolved (creation started when the sheet
+            // opened); nil after a pre-create failure, which falls back to
+            // creating at Make like before.
+            let draft = try? await draftConversationTask?.value
+            Log.info("make agent: staged \(stagedId); committing (draft=\(draft?.conversationId ?? "none")) \(MemoryProbe.snapshot)")
             let created = try await AgentCreationFlow.createAgent(
                 prompt: promptText,
                 prepared: prepared,
-                session: session
+                session: session,
+                preparedConversation: draft
             )
             // The persisted generation row now guarantees delivery; clear the
             // staged record so the drain cannot build a duplicate agent.
@@ -507,7 +539,7 @@ final class ShareComposeModel: AgentDraftComposing {
             messageText = ""
             pendingMediaAttachments = []
             pendingLinkPreview = nil
-            revealCreatedConversation(id: created.conversationId, client: client)
+            revealCreatedConversation(created, client: client)
             return true
         } catch {
             Log.error("make agent failed: \(error)")
@@ -849,8 +881,38 @@ struct ShareComposeView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if let conversation = model.targetConversation {
-            MessagesViewRepresentable(
+        if model.isNewAgentTarget {
+            newAgentStack
+        } else if let conversation = model.targetConversation {
+            conversationTranscript(for: conversation)
+        } else if let reason = model.unavailableReason {
+            ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+        } else {
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The new-agent surface: the transcript of the (pre-created, hidden)
+    /// conversation sits mounted beneath the draft composer, and Make
+    /// crossfades the composer away to reveal it - the extension's version
+    /// of the app's overlay-fade commit choreography.
+    private var newAgentStack: some View {
+        ZStack {
+            if let conversation = model.targetConversation {
+                conversationTranscript(for: conversation)
+            }
+            if !model.didMakeAgent {
+                agentDraftStack
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(uiColor: .systemBackground))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: model.didMakeAgent)
+    }
+
+    private func conversationTranscript(for conversation: Conversation) -> some View {
+        MessagesViewRepresentable(
                 conversation: conversation,
                 messages: model.messages,
                 invite: .empty,
@@ -887,13 +949,6 @@ struct ShareComposeView: View {
                 scrollToBottomTrigger: { _ in },
                 messageInputFocusTrigger: { _ in }
             )
-        } else if let reason = model.unavailableReason {
-            ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
-        } else if model.isNewAgentTarget {
-            agentDraftStack
-        } else {
-            Spacer(minLength: 0)
-        }
     }
 
     /// The real agent-builder draft surface (shared from ConvosComposer),

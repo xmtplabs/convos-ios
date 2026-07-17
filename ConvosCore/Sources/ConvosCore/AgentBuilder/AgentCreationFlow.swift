@@ -56,6 +56,35 @@ public enum AgentCreationFlow {
         public let commit: Commit
     }
 
+    /// A hidden draft conversation created ahead of Make (see
+    /// `prepareDraftConversation`), so the commit itself is instant.
+    public struct PreparedConversation: Sendable {
+        public let conversationId: String
+        public let slug: String
+
+        public init(conversationId: String, slug: String) {
+            self.conversationId = conversationId
+            self.slug = slug
+        }
+    }
+
+    /// Creates the draft conversation in the background while the user is
+    /// still composing, the way the in-app builder does - the row starts
+    /// hidden (`startsUnused`) so a discarded draft leaves nothing visible,
+    /// and `createAgent(preparedConversation:)` flips it visible at Make.
+    /// The claim registration keeps the unused-conversation cache from
+    /// handing the same row to another caller in this process.
+    public static func prepareDraftConversation(
+        session: any SessionManagerProtocol
+    ) async throws -> PreparedConversation {
+        let stateManager = session.messagingService().conversationStateManager()
+        try await stateManager.createConversation(startsUnused: true)
+        let conversationId = try await awaitReadyConversationId(stateManager: stateManager)
+        await session.registerClaimedConversation(id: conversationId)
+        let slug = try await awaitInviteSlug(session: session, conversationId: conversationId)
+        return PreparedConversation(conversationId: conversationId, slug: slug)
+    }
+
     /// Rebuilds attachments from staged JPEG bytes (the outbox drain path,
     /// where the original images no longer exist as in-memory `ImageType`s).
     /// The bytes go to the generation API as-is; card thumbnails are decoded
@@ -81,12 +110,23 @@ public enum AgentCreationFlow {
     public static func createAgent(
         prompt: String,
         prepared: PreparedAttachments,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        preparedConversation: PreparedConversation? = nil
     ) async throws -> CreatedAgent {
-        let stateManager = session.messagingService().conversationStateManager()
-        try await stateManager.createConversation(startsUnused: false)
-        let conversationId = try await awaitReadyConversationId(stateManager: stateManager)
-        let slug = try await awaitInviteSlug(session: session, conversationId: conversationId)
+        let conversationId: String
+        let slug: String
+        if let preparedConversation {
+            conversationId = preparedConversation.conversationId
+            slug = preparedConversation.slug
+            // The pre-created row is hidden; Make is the moment it becomes a
+            // real, visible conversation.
+            await session.commitClaimedConversation(id: conversationId)
+        } else {
+            let stateManager = session.messagingService().conversationStateManager()
+            try await stateManager.createConversation(startsUnused: false)
+            conversationId = try await awaitReadyConversationId(stateManager: stateManager)
+            slug = try await awaitInviteSlug(session: session, conversationId: conversationId)
+        }
         let commit = makeCommit(prompt: prompt, attachments: prepared.summaryAttachments)
         await start(commit, inputs: prepared.inputs, session: session, conversationId: conversationId, slug: slug)
         return CreatedAgent(conversationId: conversationId, commit: commit)
@@ -206,17 +246,19 @@ public enum AgentCreationFlow {
         throw FlowError.conversationNotReady
     }
 
-    /// Polls the conversations repository until the new conversation's invite
-    /// slug lands (the invite is written asynchronously after creation).
+    /// Polls the conversation row until its invite slug lands (the invite is
+    /// written asynchronously after creation). Uses the single-conversation
+    /// repository, which - unlike the list repository - also resolves rows
+    /// still hidden behind `startsUnused`.
     public static func awaitInviteSlug(
         session: any SessionManagerProtocol,
         conversationId: String,
         attempts: Int = Constant.pollAttempts,
         pollInterval: Duration = Constant.pollInterval
     ) async throws -> String {
+        let repository = session.conversationRepository(for: conversationId)
         for _ in 0..<attempts {
-            let conversations = (try? session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
-            if let slug = conversations.first(where: { $0.id == conversationId })?.invite?.urlSlug,
+            if let slug = (try? repository.fetchConversation())?.invite?.urlSlug,
                !slug.isEmpty {
                 return slug
             }
