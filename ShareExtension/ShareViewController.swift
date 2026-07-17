@@ -933,7 +933,6 @@ struct ShareComposeView: View {
     var body: some View {
         NavigationStack {
             transcript
-                .ignoresSafeArea()
                 .safeAreaBar(edge: .bottom) {
                     if !model.isNewAgentTarget && !model.isPickingTarget {
                         composerBar
@@ -1017,12 +1016,16 @@ struct ShareComposeView: View {
 
     @ViewBuilder
     private var transcript: some View {
+        // The messages surfaces run full-bleed under the top pill; the
+        // picker is a normal list and must respect the navigation bar.
         if model.isPickingTarget {
             conversationPicker
         } else if model.isNewAgentTarget {
             newAgentStack
+                .ignoresSafeArea()
         } else if let conversation = model.targetConversation {
             conversationTranscript(for: conversation)
+                .ignoresSafeArea()
         } else if let reason = model.unavailableReason {
             ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
         } else {
