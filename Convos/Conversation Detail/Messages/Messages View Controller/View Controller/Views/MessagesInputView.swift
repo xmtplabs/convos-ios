@@ -4,26 +4,40 @@ import SwiftUI
 import UIKit
 
 struct MessagesInputView: View {
-    let profile: Profile
-    @Binding var profileImage: UIImage?
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
-    @Binding var selectedAttachmentImage: UIImage?
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    /// True for a side-convo created via the Convos button (editable name /
+    /// image / explode). False for a pasted invite into an existing
+    /// conversation, which shows a read-only chip with just the invite info.
+    var pendingInviteIsEditable: Bool = true
+    var pendingInviteEmoji: String?
+    @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
+    var pendingInviteExplodeDuration: ExplodeDuration?
+    var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    /// Set when a pasted agent-share link is staged as a composer chip. Name /
+    /// emoji are nil until the resolver returns (chip shows its placeholder).
+    var pendingAgentShareName: String?
+    var pendingAgentShareEmoji: String?
+    var pendingAgentShareSummary: String?
+    var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
-    let animateAvatarForQuickname: Bool
     let messagesTextFieldEnabled: Bool
     private let focused: MessagesViewInputFocus = .message
-    let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    var onClearAgentShare: (() -> Void)?
     var onClearLinkPreview: (() -> Void)?
+    var onClearMediaAttachment: ((UUID) -> Void)?
 
     private let attachmentPreviewSize: CGFloat = 80.0
-    @State private var isPoofing: Bool = false
+    @State private var poofingAttachmentIds: Set<UUID> = []
     @State private var isPoofingInvite: Bool = false
 
     static var defaultHeight: CGFloat {
@@ -34,22 +48,56 @@ struct MessagesInputView: View {
         Self.defaultHeight
     }
 
-    @State private var avatarScale: CGFloat = 1.0
-
-    private func updateAnimation() {
-        if animateAvatarForQuickname {
-            withAnimation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                avatarScale = 1.2
-            }
-        } else {
-            withAnimation {
-                avatarScale = 1.0
-            }
-        }
+    private var hasAttachments: Bool {
+        !pendingMediaAttachments.isEmpty
+            || pendingInviteURL != nil
+            || isShowingAgentShareChip
+            || composerLinkPreview != nil
     }
 
-    private var hasAttachments: Bool {
-        selectedAttachmentImage != nil || pendingInviteURL != nil || composerLinkPreview != nil
+    private var sendButton: some View {
+        Button {
+            onSendMessage()
+        } label: {
+            Image(systemName: "arrow.up")
+                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
+                .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
+                .font(.callout.weight(.medium))
+        }
+        .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
+        .mask(Circle())
+        .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
+        .hoverEffect(.lift)
+        .hoverEffectDisabled(!sendButtonEnabled)
+        .disabled(!sendButtonEnabled)
+        .accessibilityLabel("Send message")
+        .accessibilityIdentifier("send-message-button")
+    }
+
+    private var messageTextField: some View {
+        Group {
+            TextField(
+                "Chat",
+                text: $messageText,
+                axis: .vertical
+            )
+            .focused($focusState, equals: focused)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .tint(.colorTextPrimary)
+            .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step3x)
+            .disabled(!messagesTextFieldEnabled)
+            .accessibilityLabel("Message input")
+            .accessibilityIdentifier("message-text-field")
+        }
+        .onSubmit {
+            onSendMessage()
+            focusState = .message
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     var body: some View {
@@ -59,65 +107,8 @@ struct MessagesInputView: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
-                Button {
-                    onProfilePhotoTap()
-                } label: {
-                    ProfileAvatarView(
-                        profile: profile,
-                        profileImage: profileImage,
-                        useSystemPlaceholder: animateAvatarForQuickname
-                    )
-                }
-                .frame(width: sendButtonSize, height: sendButtonSize)
-                .frame(alignment: .bottomLeading)
-                .scaleEffect(avatarScale)
-                .task(id: animateAvatarForQuickname) {
-                    updateAnimation()
-                }
-                .hoverEffect(.lift)
-                .accessibilityLabel("Edit your profile")
-                .accessibilityIdentifier("profile-avatar-button")
-
-                Group {
-                    TextField(
-                        "Chat as \(profile.displayName)",
-                        text: $messageText,
-                        axis: .vertical
-                    )
-                    .focused($focusState, equals: focused)
-                    .font(.callout)
-                    .foregroundStyle(.colorTextPrimary)
-                    .tint(.colorTextPrimary)
-                    .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-                    .padding(.trailing, DesignConstants.Spacing.step3x)
-                    .disabled(!messagesTextFieldEnabled)
-                    .accessibilityLabel("Message input")
-                    .accessibilityIdentifier("message-text-field")
-                }
-                .onSubmit {
-                    onSendMessage()
-                    focusState = .message
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-
-                Button {
-                    onSendMessage()
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                        .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
-                        .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
-                        .font(.callout.weight(.medium))
-                }
-                .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
-                .mask(Circle())
-                .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
-                .hoverEffect(.lift)
-                .hoverEffectDisabled(!sendButtonEnabled)
-                .disabled(!sendButtonEnabled)
-                .accessibilityLabel("Send message")
-                .accessibilityIdentifier("send-message-button")
+                messageTextField
+                sendButton
             }
         }
         .padding(DesignConstants.Spacing.step2x)
@@ -128,11 +119,19 @@ struct MessagesInputView: View {
     private var attachmentPreviewArea: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                if let image = selectedAttachmentImage {
-                    attachmentPreview(image: image)
+                ForEach(pendingMediaAttachments) { attachment in
+                    mediaAttachmentPreview(attachment)
                 }
                 if let pendingInviteURL {
                     inviteAttachmentPreview(url: pendingInviteURL)
+                }
+                if isShowingAgentShareChip {
+                    AgentContactCardChip(
+                        displayName: pendingAgentShareName ?? "Agent",
+                        emoji: pendingAgentShareEmoji,
+                        summary: pendingAgentShareSummary,
+                        onRemove: { onClearAgentShare?() }
+                    )
                 }
                 if let composerLinkPreview {
                     linkPreviewAttachment(preview: composerLinkPreview)
@@ -146,54 +145,169 @@ struct MessagesInputView: View {
     }
 
     @ViewBuilder
-    private func attachmentPreview(image: UIImage) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-                .scaleEffect(isPoofing ? 1.3 : 1.0)
-                .blur(radius: isPoofing ? 12.0 : 0.0)
-                .opacity(isPoofing ? 0.0 : 1.0)
-                .accessibilityLabel("Attachment preview")
-                .accessibilityIdentifier("attachment-preview-image")
-
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    isPoofing = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    selectedAttachmentImage = nil
-                    isPoofing = false
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10.0, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 20.0, height: 20.0)
-                    .background(.black)
-                    .clipShape(.circle)
-                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+    private func mediaAttachmentPreview(_ attachment: PendingMediaAttachment) -> some View {
+        switch attachment {
+        case .photo(let photo):
+            photoVideoPreview(image: photo.image, isVideo: false, attachmentId: attachment.id)
+        case .video(let video):
+            photoVideoPreview(image: video.thumbnail, isVideo: true, attachmentId: attachment.id)
+        case .file(let file):
+            if file.isHTMLFile {
+                htmlFilePreview(file: file)
+            } else {
+                filePreview(file: file)
             }
-            .opacity(isPoofing ? 0.0 : 1.0)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.trailing, DesignConstants.Spacing.step2x)
-            .accessibilityLabel("Remove attachment")
-            .accessibilityIdentifier("remove-attachment-button")
         }
+    }
+
+    @ViewBuilder
+    private func htmlFilePreview(file: PendingFileAttachment) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(file.id)
+        let scale: CGFloat = isPoof ? 1.3 : 1.0
+        let blur: CGFloat = isPoof ? 12.0 : 0.0
+        let opacity: Double = isPoof ? 0.0 : 1.0
+        ZStack(alignment: .topTrailing) {
+            ComposerHTMLThumbnail(
+                fileURL: file.url,
+                cacheKey: "composer-html-\(file.id.uuidString)"
+            )
+            .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(scale)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .accessibilityLabel("HTML attachment preview")
+            .accessibilityIdentifier("html-attachment-preview")
+
+            removeAttachmentButton(
+                attachmentId: file.id,
+                label: "Remove file attachment",
+                identifier: "remove-file-attachment-button"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func photoVideoPreview(image: UIImage?, isVideo: Bool, attachmentId: UUID) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(attachmentId)
+        let scale: CGFloat = isPoof ? 1.3 : 1.0
+        let blur: CGFloat = isPoof ? 12.0 : 0.0
+        let opacity: Double = isPoof ? 0.0 : 1.0
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Color.colorFillSubtle
+                }
+            }
+            .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(scale)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .accessibilityLabel(isVideo ? "Video attachment preview" : "Attachment preview")
+            .accessibilityIdentifier("attachment-preview-image")
+            .overlay(alignment: .bottomLeading) {
+                if isVideo {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 16.0, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                        .padding(.bottom, DesignConstants.Spacing.step2x)
+                        .padding(.leading, DesignConstants.Spacing.step2x)
+                        .accessibilityHidden(true)
+                }
+            }
+
+            removeAttachmentButton(
+                attachmentId: attachmentId,
+                label: "Remove attachment",
+                identifier: "remove-attachment-button"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func filePreview(file: PendingFileAttachment) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(file.id)
+        let scale: CGFloat = isPoof ? 1.3 : 1.0
+        let blur: CGFloat = isPoof ? 12.0 : 0.0
+        let opacity: Double = isPoof ? 0.0 : 1.0
+        ZStack(alignment: .topTrailing) {
+            FileAttachmentRow(
+                filename: file.filename,
+                mimeType: file.mimeType,
+                fileSize: file.fileSize
+            )
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: 240.0)
+            .background(.colorFillSubtle)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(scale)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("file-attachment-preview")
+
+            removeAttachmentButton(
+                attachmentId: file.id,
+                label: "Remove file attachment",
+                identifier: "remove-file-attachment-button"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func removeAttachmentButton(attachmentId: UUID, label: String, identifier: String) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(attachmentId)
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                _ = poofingAttachmentIds.insert(attachmentId)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                onClearMediaAttachment?(attachmentId)
+                poofingAttachmentIds.remove(attachmentId)
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 10.0, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20.0, height: 20.0)
+                .background(.black)
+                .clipShape(.circle)
+                .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+        }
+        .opacity(isPoof ? 0.0 : 1.0)
+        .padding(.top, DesignConstants.Spacing.step2x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder
     private func inviteAttachmentPreview(url: String) -> some View {
         ZStack(alignment: .topTrailing) {
-            ComposerInvitePreviewCard(inviteURL: url)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-                .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
-                .blur(radius: isPoofingInvite ? 12.0 : 0.0)
-                .opacity(isPoofingInvite ? 0.0 : 1.0)
-                .accessibilityLabel("Invite attachment preview")
-                .accessibilityIdentifier("invite-attachment-preview")
+            ComposerSideConvoCard(
+                inviteURL: url,
+                isEditable: pendingInviteIsEditable,
+                conversationEmoji: pendingInviteEmoji,
+                convoName: $pendingInviteConvoName,
+                convoImage: $pendingInviteImage,
+                explodeDuration: pendingInviteExplodeDuration,
+                focusState: $focusState,
+                onSetExplodeDuration: onSetInviteExplodeDuration,
+                onNameEditingEnded: onInviteConvoNameEditingEnded
+            )
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
+            .blur(radius: isPoofingInvite ? 12.0 : 0.0)
+            .opacity(isPoofingInvite ? 0.0 : 1.0)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("invite-attachment-preview")
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -380,139 +494,299 @@ private struct ComposerImageAreaModifier: ViewModifier {
     }
 }
 
-private struct ComposerInvitePreviewCard: View {
+private struct ComposerSideConvoCard: View {
     let inviteURL: String
+    /// True for a side-convo created via the Convos button. False for a pasted
+    /// invite into an existing conversation, which renders read-only: the
+    /// avatar / name / explode info come straight from the invite and the
+    /// editing controls are replaced with static labels.
+    var isEditable: Bool = true
+    var conversationEmoji: String?
+    @Binding var convoName: String
+    @Binding var convoImage: UIImage?
+    var explodeDuration: ExplodeDuration?
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onNameEditingEnded: ((String) -> Void)?
 
-    @State private var ogTitle: String?
-    @State private var cachedImage: UIImage?
-    @State private var imageAspectRatio: CGFloat?
-    @State private var hasFetchedMetadata: Bool = false
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
 
-    private let previewWidth: CGFloat = 200.0
+    private let cardWidth: CGFloat = 200.0
 
-    private var clampedAspectRatio: CGFloat {
-        let ratio = imageAspectRatio ?? 1.91
-        return min(max(ratio, 0.75), 2.0)
+    private var invite: MessageInvite? {
+        MessageInvite.from(text: inviteURL)
     }
 
-    private var displayTitle: String {
-        ogTitle ?? "Join this convo"
+    private var resolvedEmoji: String? {
+        if let emoji = invite?.emoji, !emoji.isEmpty { return emoji }
+        if let emoji = conversationEmoji, !emoji.isEmpty { return emoji }
+        return nil
+    }
+
+    private var explodeDurationLabel: String {
+        guard let explodeDuration else { return "Not exploding" }
+        return "Explodes in \(explodeDuration.shortLabel)"
+    }
+
+    private var readOnlyTitle: String {
+        if let name = invite?.conversationName, !name.isEmpty { return name }
+        return "New Convo"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 40, height: 40)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 80.0)
+            if isEditable {
+                editableContent
+            } else {
+                readOnlyContent
+            }
+        }
+        .frame(width: cardWidth)
+        .background(.colorFillSubtle)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("side-convo-card")
+    }
+
+    @ViewBuilder
+    private var editableContent: some View {
+        emojiArea
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            nameField
+            explodeButton
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+    }
+
+    @ViewBuilder
+    private var readOnlyContent: some View {
+        emojiAreaContent
+        readOnlyDetails
+    }
+
+    @ViewBuilder
+    private var readOnlyDetails: some View {
+        let expiresAt: Date? = invite?.conversationExpiresAt
+        let showsCountdown: Bool = (expiresAt ?? .distantPast) > Date()
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            Text(readOnlyTitle)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.colorTextPrimary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("side-convo-readonly-name")
+            if showsCountdown, let expiresAt {
+                ExplosionCountdownBadge(expiresAt: expiresAt)
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+    }
+
+    @ViewBuilder
+    private var emojiArea: some View {
+        emojiAreaContent
+            .onTapGesture {
+                isPhotoPickerPresented = true
+            }
+            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) {
+                guard let selectedPhotoItem else { return }
+                Task { @MainActor in
+                    guard let data = try? await selectedPhotoItem.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else { return }
+                    convoImage = image
+                    self.selectedPhotoItem = nil
                 }
             }
-            .frame(maxWidth: .infinity)
-            .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
-            .clipped()
-            .background(.colorBackgroundMedia)
+    }
 
-            VStack(alignment: .leading, spacing: 2.0) {
-                Text(displayTitle)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                Text("You're invited")
+    @ViewBuilder
+    private var emojiAreaContent: some View {
+        ZStack {
+            if let convoImage {
+                Image(uiImage: convoImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if let emoji = resolvedEmoji {
+                Text(emoji)
+                    .font(.system(size: 120))
+            } else {
+                Image("convosOrangeIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 48, height: 48)
+            }
+        }
+        .frame(width: cardWidth, height: cardWidth)
+        .clipped()
+        .background(.colorFillMinimal)
+        .accessibilityLabel(convoImage != nil ? "Side convo image" : (resolvedEmoji.map { "Side convo emoji \($0)" } ?? "Side convo placeholder"))
+        .accessibilityIdentifier("side-convo-avatar-preview")
+    }
+
+    @ViewBuilder
+    private var nameField: some View {
+        TextField("Convo name", text: $convoName)
+            .focused($focusState, equals: .sideConvoName)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .background(.colorFillMinimal)
+            .clipShape(Capsule())
+            .accessibilityIdentifier("side-convo-name-field")
+            .onSubmit {
+                onNameEditingEnded?(convoName)
+            }
+    }
+
+    @ViewBuilder
+    private var explodeButton: some View {
+        Menu {
+            Section("Explode messages and members") {
+                Button {
+                    onSetExplodeDuration?(nil)
+                } label: {
+                    Text("Never")
+                }
+                ForEach(ExplodeDuration.allCases, id: \.self) { duration in
+                    Button {
+                        onSetExplodeDuration?(duration)
+                    } label: {
+                        Text(duration.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Text(explodeDurationLabel)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .frame(width: previewWidth, alignment: .leading)
-            .background(.colorFillSubtle)
-        }
-        .frame(width: previewWidth)
-        .task {
-            await fetchMetadata()
-        }
-    }
-
-    private func fetchMetadata() async {
-        guard !hasFetchedMetadata else { return }
-        let metadata = await OpenGraphService.shared.fetchMetadata(for: inviteURL)
-        if let metadata {
-            ogTitle = metadata.title
-            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
-                imageAspectRatio = CGFloat(w) / CGFloat(h)
-            }
-            if let imageURLString = metadata.imageURL,
-               let imageURL = URL(string: imageURLString) {
-                await loadImage(from: imageURL)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
-        hasFetchedMetadata = true
-    }
-
-    private func loadImage(from url: URL) async {
-        let cacheKey = url.absoluteString
-        if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
-            cachedImage = cached
-            imageAspectRatio = cached.size.width / cached.size.height
-            return
-        }
-        if let image = await OpenGraphService.shared.loadImage(from: url) {
-            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-            cachedImage = image
-            imageAspectRatio = image.size.width / image.size.height
-        }
+        .accessibilityIdentifier("side-convo-explode-menu")
     }
 }
 
 #Preview {
-    @Previewable @State var profile: Profile = .mock()
     @Previewable @State var displayName: String = "Andrew"
     @Previewable @State var messageText: String = ""
     @Previewable @State var sendButtonEnabled: Bool = false
-    @Previewable @State var profileImage: UIImage?
-    @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
-    @Previewable @State var animateAvatarForQuickname: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
     VStack {
         Spacer()
-        Button {
-            withAnimation {
-                animateAvatarForQuickname.toggle()
-            }
-        } label: {
-            Text("Toggle Quickname Setup")
-        }
-        Spacer()
     }
     .safeAreaBar(edge: .bottom) {
         MessagesInputView(
-            profile: profile,
-            profileImage: $profileImage,
             displayName: $displayName,
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
-            selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
-            animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
-            onProfilePhotoTap: {},
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil }
         )
         .padding(DesignConstants.Spacing.step2x)
+    }
+}
+
+struct ExplodeCountdownBadge: View {
+    let duration: ExplodeDuration
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "burst")
+                .font(.system(size: 10, weight: .semibold))
+            Text(duration.label)
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.colorCaution)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.colorCaution.opacity(0.15), in: Capsule())
+    }
+}
+
+/// Square HTML thumbnail for a staged (not-yet-sent) file attachment in the
+/// composer. Renders the same `HTMLThumbnailRenderer` preview the in-chat
+/// `HTMLAttachmentBubble` uses, loaded from the local file URL, so a staged
+/// HTML file reads as a small page tile instead of the generic filename +
+/// "HTML" file chip. Keyed on a composer-local key (the staged attachment id),
+/// distinct from the content-addressed key the sent attachment later uses.
+private struct ComposerHTMLThumbnail: View {
+    let fileURL: URL
+    let cacheKey: String
+
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    @State private var renderedImage: UIImage?
+    @State private var hasLoadFailed: Bool = false
+
+    var body: some View {
+        Group {
+            if let renderedImage {
+                Image(uiImage: renderedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Color.colorFillSubtle
+                    if hasLoadFailed {
+                        Image(systemName: "globe")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                    }
+                }
+            }
+        }
+        .onAppear(perform: seedFromMemoryCache)
+        .task(id: AttachmentColorSchemeKey(key: cacheKey, scheme: colorScheme)) {
+            await loadThumbnail()
+        }
+    }
+
+    private func seedFromMemoryCache() {
+        guard renderedImage == nil else { return }
+        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: cacheKey,
+            appearance: colorScheme.uiUserInterfaceStyle
+        ) {
+            renderedImage = cached
+            hasLoadFailed = false
+        }
+    }
+
+    private func loadThumbnail() async {
+        let appearance = colorScheme.uiUserInterfaceStyle
+        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: cacheKey, appearance: appearance) {
+            renderedImage = cached
+            hasLoadFailed = false
+            return
+        }
+        let image = await HTMLThumbnailRenderer.shared.thumbnail(
+            for: cacheKey,
+            fileURL: fileURL,
+            appearance: appearance
+        )
+        if let image {
+            renderedImage = image
+            hasLoadFailed = false
+        } else if renderedImage == nil {
+            hasLoadFailed = true
+        }
     }
 }

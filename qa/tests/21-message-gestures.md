@@ -97,55 +97,50 @@ Verify all gesture-based interactions in the messages list: single tap, double t
 54. Verify the link opens — either Safari opens or an in-app browser/sheet appears with example.com.
 55. Navigate back to the conversation if needed.
 
-### Single tap — blurred incoming photo
+### Single tap — incoming photo (no action)
 
-56. Scroll to the incoming photo from the CLI. It should be blurred by default with a "Tap pic to reveal" overlay.
-57. Single-tap the blurred photo.
-58. Verify the photo is revealed (blur removed). If the "Reveal" education sheet appears, dismiss it with "Got it".
-
-### Single tap — revealed photo (no action)
-
-59. Single-tap the now-revealed photo again.
-60. Verify nothing happens — the photo stays revealed, no navigation or context menu appears. The single tap should be a no-op on a revealed photo.
+56. Scroll to the incoming photo from the CLI. It renders immediately as a full-width image, unblurred, with no "Tap pic to reveal" overlay.
+57. Single-tap the photo.
+58. Verify nothing happens — the photo stays as-is, no navigation or context menu appears. A single tap on a photo is a no-op.
 
 ### Long press — context menu on photo
 
-61. Long-press on the revealed incoming photo.
-62. Verify the context menu appears with "Reply", "Save", and "Blur".
-63. Dismiss the context menu by tapping the dimmed background (accessibility label: "Dismiss menu").
+59. Long-press on the incoming photo.
+60. Verify the context menu appears with "Reply", "Save", and "Share", and no "Blur" or "Reveal" action.
+61. Dismiss the context menu by tapping the dimmed background (accessibility label: "Dismiss menu").
 
 ### Long press — context menu on own outgoing message
 
-64. Long-press on the app's outgoing message "Hello from the app".
-65. Verify the context menu appears with "Reply" and "Copy".
-66. Dismiss the context menu.
+62. Long-press on the app's outgoing message "Hello from the app".
+63. Verify the context menu appears with "Reply" and "Copy".
+64. Dismiss the context menu.
 
 ### Avatar tap — incoming message sender
 
-67. Find the sender avatar at the bottom-left of a CLI message group (accessibility label: "View GestureBot's profile").
-68. Tap the avatar.
-69. Verify a profile view or sheet appears showing the sender's profile information.
-70. Dismiss the profile view.
+65. Find the sender avatar at the bottom-left of a CLI message group (accessibility label: "View GestureBot's profile").
+66. Tap the avatar.
+67. Verify a profile view or sheet appears showing the sender's profile information.
+68. Dismiss the profile view.
 
 ### Reaction indicator tap — opens reactions drawer
 
-71. Double-tap the CLI text "Hello from the CLI" to add a ❤️ reaction (if not already present).
-72. From the CLI, also add a reaction to the same message (e.g., 👍).
-73. Tap the reaction indicator pill below the message (accessibility label contains "reactions").
-74. Verify a reactions drawer/sheet opens showing all reactions with sender attribution.
-75. Dismiss the reactions drawer.
+69. Double-tap the CLI text "Hello from the CLI" to add a ❤️ reaction (if not already present).
+70. From the CLI, also add a reaction to the same message (e.g., 👍).
+71. Tap the reaction indicator pill below the message (accessibility label contains "reactions").
+72. Verify a reactions drawer/sheet opens showing all reactions with sender attribution.
+73. Dismiss the reactions drawer.
 
 ### Invite message — single tap opens join flow
 
-76. From the CLI, send a text message with an invite-like slug, or create a second conversation and send its invite as a message. Alternatively, if an invite QR code is visible in the conversation from the setup, tap on it.
-77. If an invite message is available, single-tap it.
-78. Verify the app opens the join flow or navigates to the invite handling screen.
-79. Dismiss or navigate back to the conversation.
+74. From the CLI, send a text message with an invite-like slug, or create a second conversation and send its invite as a message. Alternatively, if an invite QR code is visible in the conversation from the setup, tap on it.
+75. If an invite message is available, single-tap it.
+76. Verify the app opens the join flow or navigates to the invite handling screen.
+77. Dismiss or navigate back to the conversation.
 
 ### Press state — visual feedback
 
-80. Press and hold (without long-pressing to trigger the context menu — briefly touch) a photo message.
-81. Verify the photo shows a visual press effect (e.g., slightly increased blur or dimming). This is a visual-only check — take a screenshot during the press if possible.
+78. Press and hold (without long-pressing to trigger the context menu — briefly touch) a photo message.
+79. Verify the photo shows a visual press effect (e.g., slightly increased blur or dimming). This is a visual-only check — take a screenshot during the press if possible.
 
 ## Teardown
 
@@ -170,9 +165,8 @@ Explode the conversation via CLI to clean up.
 - [ ] Copy on emoji puts emoji on the pasteboard
 - [ ] Reply from context menu opens reply composer bar
 - [ ] Tapping a link in a text message opens the URL
-- [ ] Single tap on blurred incoming photo reveals it
-- [ ] Single tap on revealed photo is a no-op
-- [ ] Long press on photo opens context menu with Reply, Save, and Blur
+- [ ] Single tap on an incoming photo is a no-op
+- [ ] Long press on photo opens context menu with Reply, Save, and Share, and no Blur or Reveal action
 - [ ] Long press on own message opens context menu with Reply and Copy
 - [ ] Tapping sender avatar opens profile view
 - [ ] Tapping reaction indicator opens reactions drawer with sender attribution

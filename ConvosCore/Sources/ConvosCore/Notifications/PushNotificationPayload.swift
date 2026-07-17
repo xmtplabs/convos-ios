@@ -8,13 +8,15 @@ public struct DecodedNotificationContent: @unchecked Sendable {
     public let body: String
     public let conversationId: String?
     public let isDroppedMessage: Bool
+    public let isReaction: Bool
     public let userInfo: [AnyHashable: Any]
 
-    init(title: String?, body: String, conversationId: String?, userInfo: [AnyHashable: Any]) {
+    init(title: String?, body: String, conversationId: String?, isReaction: Bool = false, userInfo: [AnyHashable: Any]) {
         self.title = title
         self.body = body
         self.conversationId = conversationId
         self.isDroppedMessage = false
+        self.isReaction = isReaction
         self.userInfo = userInfo
     }
 
@@ -23,6 +25,7 @@ public struct DecodedNotificationContent: @unchecked Sendable {
         self.body = ""
         self.conversationId = nil
         self.isDroppedMessage = isDroppedMessage
+        self.isReaction = false
         self.userInfo = userInfo
     }
 
@@ -40,7 +43,6 @@ public final class PushNotificationPayload: @unchecked Sendable {
     public let apiJWT: String?
     public let userInfo: [AnyHashable: Any]
 
-    // Decoded content properties (mutable for NSE processing, internal setter)
     public internal(set) var decodedTitle: String?
     public internal(set) var decodedBody: String?
 
@@ -113,10 +115,8 @@ public extension PushNotificationPayload {
         "New message"
     }
 
-    /// Generates a display title for the notification with decoded content
-    /// - Returns: The display title with decoded content if available
+    /// Returns the decoded title if non-empty, otherwise falls back to the default display title.
     func displayTitleWithDecodedContent() -> String? {
-        // Use decoded title if available and non-empty, otherwise fall back to default
         guard let decodedTitle = decodedTitle else {
             return displayTitle
         }
@@ -125,10 +125,8 @@ public extension PushNotificationPayload {
         return trimmed.isEmpty ? displayTitle : trimmed
     }
 
-    /// Generates a display body for the notification with decoded content
-    /// - Returns: The display body with decoded content if available
+    /// Returns the decoded body if non-empty, otherwise falls back to the default display body.
     func displayBodyWithDecodedContent() -> String? {
-        // Use decoded body if available and non-empty, otherwise fall back to default
         guard let decodedBody = decodedBody else {
             return displayBody
         }
@@ -137,8 +135,7 @@ public extension PushNotificationPayload {
         return trimmed.isEmpty ? displayBody : trimmed
     }
 
-    /// Checks if the notification has valid data for processing
-    /// v2 notifications must have a clientId
+    /// Returns true when the payload carries a non-empty clientId required for processing.
     var isValid: Bool {
         guard let id = clientId else { return false }
         return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

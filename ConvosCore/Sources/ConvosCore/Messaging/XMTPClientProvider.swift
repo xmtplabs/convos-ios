@@ -2,50 +2,26 @@ import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Protocol for static XMTP operations that don't require a client instance
-public protocol XMTPStaticOperations {
-    /// Fetches the newest message metadata for the given conversation IDs
-    ///
-    /// This is a static operation that can be performed without waking up the inbox's XMTP client.
-    /// - Parameters:
-    ///   - groupIds: Array of conversation/group IDs to fetch metadata for
-    ///   - api: XMTP API options for the request
-    /// - Returns: Dictionary mapping conversation ID to its newest message metadata
-    static func getNewestMessageMetadata(
-        groupIds: [String],
-        api: ClientOptions.Api
-    ) async throws -> [String: MessageMetadata]
-}
-
-extension Client: XMTPStaticOperations {}
-
-/// Sendable wrapper for XMTPStaticOperations metatypes.
-///
-/// Metatypes are inherently thread-safe since they only contain type metadata,
-/// not mutable instance state. This wrapper allows passing metatypes across
-/// actor boundaries without triggering false positive Sendable warnings.
-public struct SendableXMTPOperations: Sendable {
-    // Using @unchecked because metatypes are inherently thread-safe
-    // (they're just references to type metadata, not mutable instances)
-    private nonisolated(unsafe) let metatype: any XMTPStaticOperations.Type
-
-    public init(_ metatype: any XMTPStaticOperations.Type) {
-        self.metatype = metatype
-    }
-
-    public func getNewestMessageMetadata(
-        groupIds: [String],
-        api: ClientOptions.Api
-    ) async throws -> [String: MessageMetadata] {
-        try await metatype.getNewestMessageMetadata(groupIds: groupIds, api: api)
-    }
-}
-
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
+    func sendTypingIndicator(isTyping: Bool) async throws
+    func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
+    func prepare(joinRequest: JoinRequestContent) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
+    /// Variants that stage the message in the local store without queueing a
+    /// libxmtp send intent (`prepareMessage(noSend: true)`). A queued intent
+    /// is flushed by any subsequent publish or group sync on the conversation
+    /// in queue order, which destroys a caller-controlled publish order;
+    /// these leave publication entirely to `publishMessage(messageId:)`. The
+    /// agent-builder bundle uses them so the manifest actually reaches the
+    /// network before the brief messages it hides.
+    func prepareForManualPublish(text: String) async throws -> String
+    func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
+    func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
@@ -109,6 +85,18 @@ public protocol ConversationsProvider {
 
     func findOrCreateDm(with peerInboxId: String) async throws -> Dm
 
+    /// Same as `findOrCreateDm(with:)` but applies the given disappearing-
+    /// messages settings on create (passed through to libxmtp's
+    /// `findOrCreateDm(with:disappearingMessageSettings:)`). Use the basic
+    /// overload by default; callers that need a TTL on the conversation
+    /// (e.g. pairing) reach for this one.
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> Dm
+
+    func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
+
     func sync() async throws
     func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary
     func streamAllMessages(
@@ -136,9 +124,28 @@ public protocol XMTPClientProvider: AnyObject {
     func conversation(with id: String) async throws -> XMTPiOS.Conversation?
     func inboxId(for ethereumAddress: String) async throws -> String?
     func update(consent: Consent, for conversationId: String) async throws
+    /// Writes consent records directly at the preferences layer, without
+    /// requiring the conversations to exist locally - records written
+    /// before a conversation's welcome arrives still apply to it. Used to
+    /// restore backed-up consent after a reinstall.
+    func setConsentStates(conversationIds: [String], consent: Consent) async throws
+    /// Requests preference (consent) sync from the inbox's other live
+    /// installations via the device-sync group. Used after a reinstall
+    /// when live peers exist: their replayed consent records carry the
+    /// original timestamps, so denies made while this device was
+    /// uninstalled are preserved instead of overridden.
+    func syncPreferences() async throws
+    /// Asks the inbox's other live installations (via the device-sync
+    /// group) to upload a history archive - conversations and messages
+    /// this installation has never seen. The device-sync worker on this
+    /// client downloads and imports the archive automatically once a
+    /// peer responds. Used by the joiner right after pairing, when the
+    /// initiator device is guaranteed online.
+    func requestHistorySync() async throws
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo]
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -171,6 +178,11 @@ extension XMTPiOS.Conversations: ConversationsProvider {
         try await findOrCreateDm(with: peerInboxId, disappearingMessageSettings: nil)
     }
 }
+
+// libxmtp's `findOrCreateDm(with:disappearingMessageSettings:)` is the
+// underlying API the no-arg overload calls. It already satisfies the
+// new protocol method via the same name + argument labels, so no
+// additional bridging shim is needed here.
 
 extension XMTPiOS.Client: XMTPClientProvider {
     public var conversationsProvider: any ConversationsProvider {
@@ -242,9 +254,41 @@ extension XMTPiOS.Client: XMTPClientProvider {
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
     }
+
+    public func setConsentStates(conversationIds: [String], consent: Consent) async throws {
+        guard !conversationIds.isEmpty else { return }
+        let entries = conversationIds.map { (conversationId: String) -> ConsentRecord in
+            ConsentRecord(
+                value: conversationId,
+                entryType: .conversation_id,
+                consentType: consent.consentState
+            )
+        }
+        try await preferences.setConsentState(entries: entries)
+    }
+
+    public func syncPreferences() async throws {
+        try await preferences.sync()
+    }
+
+    public func requestHistorySync() async throws {
+        try await sendSyncRequest()
+    }
+
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        let state = try await inboxState(refreshFromNetwork: refreshFromNetwork)
+        return state.installations.map { InstallationInfo(id: $0.id, createdAt: $0.createdAt) }
+    }
 }
 
 extension XMTPiOS.Conversation: MessageSender {
+    public func sendReadReceipt() async throws {
+        try await send(
+            content: ReadReceipt(),
+            options: .init(contentType: ReadReceiptCodec().contentType)
+        )
+    }
+
     public func sendExplode(expiresAt: Date) async throws {
         Log.info("Sending ExplodeSettings message with expiresAt: \(expiresAt) (\(expiresAt.timeIntervalSince1970))")
         let codec = ExplodeSettingsCodec()
@@ -266,18 +310,33 @@ extension XMTPiOS.Conversation: MessageSender {
         Log.info("InviteJoinError message sent successfully")
     }
 
-    public func sendAssistantJoinRequest(_ request: AssistantJoinRequest) async throws {
-        Log.info("Sending AssistantJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
-        let codec = AssistantJoinRequestCodec()
+    public func sendAgentJoinRequest(_ request: AgentJoinRequest) async throws {
+        Log.info("Sending AgentJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
+        let codec = AgentJoinRequestCodec()
         try await send(
             content: request,
             options: .init(contentType: codec.contentType)
         )
-        Log.info("AssistantJoinRequest message sent successfully")
+        Log.info("AgentJoinRequest message sent successfully")
+    }
+
+    public func sendTypingIndicator(isTyping: Bool) async throws {
+        let codec = TypingIndicatorCodec()
+        try await send(
+            content: TypingIndicatorContent(isTyping: isTyping),
+            options: .init(contentType: codec.contentType)
+        )
     }
 
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
+    }
+
+    public func prepare(joinRequest: JoinRequestContent) async throws -> String {
+        return try await prepareMessage(
+            content: joinRequest,
+            options: .init(contentType: JoinRequestCodec().contentType)
+        )
     }
 
     public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
@@ -287,10 +346,44 @@ extension XMTPiOS.Conversation: MessageSender {
         )
     }
 
+    public func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
+        )
+    }
+
     public func prepare(reply: Reply) async throws -> String {
         return try await prepareMessage(
             content: reply,
             options: .init(contentType: ContentTypeReply)
+        )
+    }
+
+    public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType)
+        )
+    }
+
+    public func prepareForManualPublish(text: String) async throws -> String {
+        return try await prepareMessage(content: text, noSend: true)
+    }
+
+    public func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
+            noSend: true
+        )
+    }
+
+    public func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType),
+            noSend: true
         )
     }
 

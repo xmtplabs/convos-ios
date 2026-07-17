@@ -1,9 +1,20 @@
+import ConvosMetrics
 import SwiftUI
 
 struct InviteAcceptedView: View {
     @State private var showingDescription: Bool = false
+    @State private var navState: InviteAcceptedNavigatorImpl = .init()
+    @State private var navigator: InviteAcceptedCollector?
 
     @Environment(\.openURL) private var openURL: OpenURLAction
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = InviteAcceptedCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         Button {
@@ -38,12 +49,17 @@ struct InviteAcceptedView: View {
         .accessibilityIdentifier("invite-accepted-view")
         .accessibilityLabel("Verifying. See and send messages after your access is verified.")
         .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
             DispatchQueue.main
                 .asyncAfter(deadline: .now() + ConversationOnboardingState.waitingForInviteAcceptanceDelay) {
                 withAnimation {
                     self.showingDescription = true
                 }
             }
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
         }
     }
 

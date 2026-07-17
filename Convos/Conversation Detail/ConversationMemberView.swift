@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationMemberView: View {
@@ -6,12 +7,15 @@ struct ConversationMemberView: View {
     let member: ConversationMember
 
     @State private var presentingBlockConfirmation: Bool = false
+    @State private var creditsBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var presentingPaywall: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         List {
             headerSection
+            outOfCreditsSection
 
             if member.isAgent {
                 agentSections
@@ -21,17 +25,90 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+            creditsBalance = newBalance
+        }
+        .task {
+            // Refresh credits when the contact sheet appears so the
+            // "out of credits" section + upgrade CTA reflect current
+            // backend state. TTL-debounced inside the service.
+            await CreditsServices.shared.refresh()
+        }
+        .sheet(isPresented: $presentingPaywall) {
+            let paywallViewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                paywallSource: .memberCard,
+                coreActions: viewModel.coreActions
+            )
+            PaywallView(viewModel: paywallViewModel)
+        }
         .alert(
             "Block \(member.profile.displayName) and leave convo?",
             isPresented: $presentingBlockConfirmation
         ) {
             let cancelAction = { presentingBlockConfirmation = false }
             Button("Cancel", role: .cancel, action: cancelAction)
-            let confirmAction = { viewModel.blockAndLeaveConvo() }
+            let confirmAction = { viewModel.blockAndLeaveConvo(inboxId: member.profile.inboxId) }
             Button("Confirm", role: .destructive, action: confirmAction)
         } message: {
             Text("They won't know they're blocked, and you'll leave this conversation so they can't reach you here.")
         }
+    }
+
+    @ViewBuilder
+    private var outOfCreditsSection: some View {
+        if shouldShowOutOfCredits {
+            Section {
+                outOfCreditsRow
+                upgradeButton
+            }
+            .listRowBackground(Color.colorBackgroundRaised)
+        }
+    }
+
+    private var shouldShowOutOfCredits: Bool {
+        // `creditsBalance.isDepleted` is the LOCAL viewer's wallet, so this
+        // "No power" row is only correct for agents the viewer OWNS. On a
+        // non-owned agent's card it would wrongly attribute depletion to that
+        // agent. Gate on ownership (same fix as the in-stream cell); non-owners
+        // see nothing until a backend per-agent power signal exists.
+        guard member.isAgent,
+              viewModel.conversation.creator.isCurrentUser,
+              !ConfigManager.shared.currentEnvironment.isProduction,
+              let creditsBalance else { return false }
+        return creditsBalance.isDepleted
+    }
+
+    @ViewBuilder
+    private var outOfCreditsRow: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "bolt.fill")
+                .font(.title3)
+                .foregroundStyle(.colorLava)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text("No power")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Your agents are in read-only mode until power is restored.")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+    }
+
+    @ViewBuilder
+    private var upgradeButton: some View {
+        let upgradeAction = { presentingPaywall = true }
+        Button(action: upgradeAction) {
+            Text("Upgrade")
+                .font(.body)
+                .foregroundStyle(.colorLava)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("upgrade-from-out-of-credits-button")
     }
 
     private var headerSection: some View {
@@ -39,8 +116,7 @@ struct ConversationMemberView: View {
             HStack {
                 Spacer()
                 VStack(spacing: DesignConstants.Spacing.step4x) {
-                    ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
-                        .frame(width: 160.0, height: 160.0)
+                    MessageAvatarView(profile: member.profile, size: 160.0, agentVerification: member.agentVerification)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
                         Text(member.profile.displayName)
@@ -70,24 +146,26 @@ struct ConversationMemberView: View {
 
     @ViewBuilder
     private var agentSections: some View {
-        Section {
-            let action = { openURL(Constant.getSkillsURL) }
-            Button(action: action) {
-                cardRow(title: "Get skills")
+        if member.agentVerification.isVerified {
+            Section {
+                let action = { openURL(Constant.getSkillsURL) }
+                Button(action: action) {
+                    cardRow(title: "Get skills")
+                }
+            } footer: {
+                Text("Browse 100+ curated capabilities")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Browse 100+ curated capabilities")
-                .foregroundStyle(.colorTextSecondary)
-        }
 
-        Section {
-            let action = { openURL(Constant.learnAboutAssistantsURL) }
-            Button(action: action) {
-                cardRow(title: "Learn about assistants")
+            Section {
+                let action = { openURL(Constant.learnAboutAgentsURL) }
+                Button(action: action) {
+                    cardRow(title: "Learn about agents")
+                }
+            } footer: {
+                Text("Capabilities, privacy and security")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Capabilities, privacy and security")
-                .foregroundStyle(.colorTextSecondary)
         }
 
         if viewModel.canRemoveMembers {
@@ -210,10 +288,15 @@ struct ConversationMemberView: View {
         // swiftlint:disable:next force_unwrapping
         static let getSkillsURL: URL = URL(string: "https://convos.org/assistants")!
         // swiftlint:disable:next force_unwrapping
-        static let learnAboutAssistantsURL: URL = URL(string: "https://learn.convos.org/assistants")!
+        static let learnAboutAgentsURL: URL = URL(string: "https://learn.convos.org/assistants")!
     }
 }
 
+@MainActor
+private func makeMemberPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    ConversationMemberView(viewModel: .mock, member: .mock())
+    ConversationMemberView(viewModel: makeMemberPreviewViewModel(), member: .mock())
 }

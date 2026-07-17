@@ -1,6 +1,5 @@
 @testable import ConvosCore
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 import Testing
@@ -13,6 +12,42 @@ private let _configureXMTPEndpoint: Void = {
     if let endpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
         XMTPEnvironment.customLocalAddress = endpoint
     }
+}()
+
+// Rust tracing only flows to os_log on iOS — gated by env var so CI can
+// capture libxmtp output to disk for artifact upload.
+private let _configureXMTPLogging: Void = {
+    let env = ProcessInfo.processInfo.environment
+    guard let levelString = env["CONVOS_TEST_XMTP_LOG_LEVEL"], !levelString.isEmpty else {
+        return
+    }
+
+    let logLevel: Client.LogLevel
+    switch levelString.lowercased() {
+    case "error": logLevel = .error
+    case "warn", "warning": logLevel = .warn
+    case "info": logLevel = .info
+    case "debug": logLevel = .debug
+    default:
+        print("Unknown CONVOS_TEST_XMTP_LOG_LEVEL '\(levelString)', skipping libxmtp log activation")
+        return
+    }
+
+    let directoryURL: URL = if let custom = env["CONVOS_TEST_XMTP_LOG_DIR"], !custom.isEmpty {
+        URL(fileURLWithPath: custom, isDirectory: true)
+    } else {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-xmtp-logs", isDirectory: true)
+    }
+
+    Client.activatePersistentLibXMTPLogWriter(
+        logLevel: logLevel,
+        rotationSchedule: .never,
+        maxFiles: 5,
+        customLogDirectory: directoryURL
+    )
+
+    print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
 }()
 
 /// Waits until a condition becomes true, polling at a specified interval
@@ -36,17 +71,15 @@ func waitUntil(
     throw TimeoutError()
 }
 
-/// Helper to wait for InboxStateMachine to reach a specific state with timeout
+/// Helper to wait for SessionStateMachine to reach a specific state with timeout
 func waitForState(
-    _ stateMachine: InboxStateMachine,
+    _ stateMachine: SessionStateMachine,
     timeout: TimeInterval = 30,
-    condition: @escaping @Sendable (InboxStateMachine.State) -> Bool
-) async throws -> InboxStateMachine.State {
+    condition: @escaping @Sendable (SessionStateMachine.State) -> Bool
+) async throws -> SessionStateMachine.State {
     try await withTimeout(seconds: timeout) {
-        for await state in await stateMachine.stateSequence {
-            if condition(state) {
-                return state
-            }
+        for await state in await stateMachine.stateSequence where condition(state) {
+            return state
         }
         throw TimeoutError()
     }
@@ -58,6 +91,16 @@ class TestFixtures {
     let identityStore: MockKeychainIdentityStore
     let keychainService: MockKeychainService
     let databaseManager: MockDatabaseManager
+
+    /// Unique per-fixture directory for libxmtp database files. In the
+    /// `.tests` environment `defaultDatabasesDirectory` is the shared
+    /// process temp directory, and production delete paths (for example
+    /// `SessionStateMachine.deleteDatabaseFiles`) sweep every `xmtp-*`
+    /// file in that directory. Suites run in parallel, so a delete-flow
+    /// test sweeping the shared directory destroys the live databases of
+    /// clients created by other suites mid-test. Giving each fixture its
+    /// own directory keeps those sweeps from reaching our clients.
+    let databasesDirectory: URL
 
     var clientA: (any XMTPClientProvider)?
     var clientB: (any XMTPClientProvider)?
@@ -72,6 +115,9 @@ class TestFixtures {
         self.identityStore = MockKeychainIdentityStore()
         self.keychainService = MockKeychainService()
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
+        self.databasesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-fixtures-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: databasesDirectory, withIntermediateDirectories: true)
 
         // Configure logging for tests
         ConvosLog.configure(environment: .tests)
@@ -83,26 +129,19 @@ class TestFixtures {
         PushNotificationRegistrar.resetForTesting()
         PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
 
-        // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
+        _ = _configureXMTPEndpoint
+        _ = _configureXMTPLogging
     }
 
-    /// Create a new XMTP client for testing
+    // Create a new XMTP client for testing
+    // swiftlint:disable:next large_tuple
     func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
-        // Check environment variables for CI configuration
-        let isSecure: Bool
-        if let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] {
-            isSecure = envSecure.lowercased() == "true" || envSecure == "1"
-        } else {
-            isSecure = false
-        }
-
         let clientOptions = ClientOptions(
             api: .init(
                 env: .local,
-                isSecure: isSecure,
                 appVersion: "convos-tests/1.0.0"
             ),
             codecs: [
@@ -115,17 +154,21 @@ class TestFixtures {
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
                 InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
-                JoinRequestCodec()
+                JoinRequestCodec(),
+                TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbDirectory: databasesDirectory.path
         )
 
         let client = try await Client.create(account: keys.signingKey, options: clientOptions)
 
-        // Save to mock identity store
+        // Save to mock identity store. In the single-inbox model there is only one
+        // slot; multi-client fixtures overwrite each other and the tests that rely
+        // on that coupling will be rewritten in C13.
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         return (client, clientId, keys)
@@ -157,8 +200,40 @@ class TestFixtures {
             try? client.deleteLocalDatabase()
         }
 
-        try await identityStore.deleteAll()
+        try await identityStore.delete()
         try databaseManager.erase()
+        try? FileManager.default.removeItem(at: databasesDirectory)
+    }
+
+    /// Builds a fresh MessagingService for tests that previously used
+    /// `UnusedConversationCache.consumeOrCreateMessagingService` as a
+    /// bootstrap. Registers a new XMTP identity for the fixture.
+    /// Defaults to `XMTPClientFactory.inMemory` so libxmtp's pool-management
+    /// surface is inert across parallel tests in the same process.
+    func makeFreshMessagingService(
+        platformProviders: PlatformProviders = .mock,
+        xmtpClientFactory: XMTPClientFactory = .inMemory
+    ) -> MessagingService {
+        let authorizationOperation = AuthorizeInboxOperation.register(
+            identityStore: identityStore,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            environment: environment,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: nil,
+            apiClient: nil,
+            xmtpClientFactory: xmtpClientFactory,
+            coreActions: NoOpCoreActions()
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            identityStore: identityStore,
+            environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
+        )
     }
 }
 
@@ -184,12 +259,13 @@ class MockInvitesRepository: InvitesRepositoryProtocol {
 
 /// Mock implementation of SyncingManagerProtocol for testing
 actor MockSyncingManager: SyncingManagerProtocol {
-    var isStarted = false
-    var isPaused = false
-    var startCallCount = 0
-    var stopCallCount = 0
-    var pauseCallCount = 0
-    var resumeCallCount = 0
+    var isStarted: Bool = false
+    var isPaused: Bool = false
+    var startCallCount: Int = 0
+    var stopCallCount: Int = 0
+    var pauseCallCount: Int = 0
+    var resumeCallCount: Int = 0
+    var runBatchCatchUpCallCount: Int = 0
 
     var isSyncReady: Bool {
         isStarted && !isPaused
@@ -220,7 +296,24 @@ actor MockSyncingManager: SyncingManagerProtocol {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
     }
 
+    func startAgentJoinRequestPolling() {
+    }
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+    }
+
     func requestDiscovery() async {
+    }
+
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
+        await incrementBatchCatchUpCount()
+    }
+
+    nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
+    }
+
+    private func incrementBatchCatchUpCount() {
+        runBatchCatchUpCallCount += 1
     }
 }
 

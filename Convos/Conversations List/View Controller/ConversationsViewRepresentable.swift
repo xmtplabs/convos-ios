@@ -8,8 +8,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let selectedConversationId: String?
     let isFilteredResultEmpty: Bool
     let filterEmptyMessage: String
-    let hasCreatedMoreThanOneConvo: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.memberContactOverride) private var memberContactOverride: @Sendable (String) -> Contact?
 
     // Callbacks
     var onSelectConversation: ((Conversation) -> Void)?
@@ -18,12 +18,14 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     var onToggleMute: ((Conversation) -> Void)?
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
-    var onStartConvo: (() -> Void)?
-    var onJoinConvo: (() -> Void)?
     var onShowAllFilter: (() -> Void)?
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var topChromeInset: CGFloat = 0
+    var bottomChromeInset: CGFloat = 0
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
         let viewController = ConversationsViewController()
+        viewController.memberContactOverride = memberContactOverride
         configureCallbacks(viewController)
         return viewController
     }
@@ -35,10 +37,12 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             selectedConversationId: selectedConversationId,
             isFilteredResultEmpty: isFilteredResultEmpty,
             filterEmptyMessage: filterEmptyMessage,
-            hasCreatedMoreThanOneConvo: hasCreatedMoreThanOneConvo,
             horizontalSizeClass: horizontalSizeClass
         )
+        viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
+        viewController.topChromeInset = topChromeInset
+        viewController.bottomChromeInset = bottomChromeInset
 
         // Update callbacks in case they changed
         configureCallbacks(viewController)
@@ -51,8 +55,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         viewController.onToggleMute = onToggleMute
         viewController.onToggleReadState = onToggleReadState
         viewController.onTogglePin = onTogglePin
-        viewController.onStartConvo = onStartConvo
-        viewController.onJoinConvo = onJoinConvo
         viewController.onShowAllFilter = onShowAllFilter
+        viewController.onScrollOffsetChange = onScrollOffsetChange
     }
 }

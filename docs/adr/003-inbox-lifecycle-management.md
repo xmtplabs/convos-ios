@@ -1,6 +1,27 @@
 # ADR 003: Inbox Lifecycle Management with LRU Eviction
 
-> **Status**: Accepted
+> **Status**: Superseded by [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md) (2026-04-20).
+>
+> The lifecycle manager existed to rotate a capacity-limited set of
+> per-conversation XMTP inboxes. ADR 011 replaced that model with one XMTP
+> inbox per user, which has no LRU, no wake/sleep state machine, no
+> pre-creation cache, and no pending-invite capacity tier — so the entire
+> subsystem (`InboxLifecycleManager`, `UnusedInboxCache`,
+> `SleepingInboxMessageChecker`, `InboxActivityRepository`) is gone.
+> `SessionManager` holds one `MessagingService` directly, guarded by a
+> single-slot `OSAllocatedUnfairLock<MessagingService?>`. The observations
+> below about resource cost and latency still hold for a hypothetical
+> multi-inbox world — they are the reason single-inbox is cheaper by
+> design, not a reason to reintroduce the lifecycle layer.
+>
+> **What to read instead**: [ADR 011](./011-single-inbox-identity-model.md)
+> for the current architecture, and `SessionManager.swift` +
+> `SessionStateMachine.swift` for the current session code.
+>
+> The document below is preserved as historical context for anyone tracing
+> a pre-refactor code path.
+
+---
 
 ## Context
 

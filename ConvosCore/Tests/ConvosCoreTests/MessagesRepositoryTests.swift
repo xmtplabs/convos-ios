@@ -48,7 +48,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -104,13 +104,14 @@ struct MessagesRepositoryTests {
                 .filter(DBConversationMember.Columns.inboxId == removedInboxId)
                 .deleteAll(db)
 
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                .filter(DBMemberProfile.Columns.inboxId == removedInboxId)
+            // Also drop the canonical identity: with neither a roster row nor a
+            // DBProfile, the sender falls through to the "Somebody" placeholder.
+            try DBProfile
+                .filter(DBProfile.Columns.inboxId == removedInboxId)
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -185,7 +186,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -260,7 +261,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 2)
@@ -277,7 +278,7 @@ struct MessagesRepositoryTests {
         }
     }
 
-    @Test("saveConversationToDatabase preserves memberProfile rows for removed members")
+    @Test("ConversationWriter.persist preserves memberProfile rows for removed members")
     func testSaveConversationPreservesHistoricalProfiles() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let conversationId = "conversation-1"
@@ -385,6 +386,86 @@ struct MessagesRepositoryTests {
         #expect(updatedProfile?.avatar == "new-avatar-url")
     }
 
+    @Test("MessageInvite exposes isConversationExpired from conversationExpiresAt")
+    func testMessageInviteIsConversationExpired() {
+        let expired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(-60)
+        )
+        #expect(expired.isConversationExpired)
+        #expect(!expired.isInviteExpired)
+
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(!live.isConversationExpired)
+
+        let noExpiry = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: nil
+        )
+        #expect(!noExpiry.isConversationExpired)
+    }
+
+    @Test("MessageInvite exposes isInviteExpired independently of conversationExpiresAt")
+    func testMessageInviteIsInviteExpired() {
+        let inviteExpired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(-60),
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(inviteExpired.isInviteExpired)
+        #expect(!inviteExpired.isConversationExpired)
+
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(3_600),
+            conversationExpiresAt: nil
+        )
+        #expect(!live.isInviteExpired)
+    }
+
+    @Test("MemberProfileCache resolves a left self participant from DBMyProfile")
+    func testCacheResolvesHistoricalSelfFromMyProfile() {
+        // Self is excluded from DBProfile, so a current user who left the roster
+        // but authored history must resolve from DBMyProfile, not fall to empty.
+        let cache = MemberProfileCache(
+            activeProfiles: [],
+            historicalProfiles: [],
+            historicalSelfProfile: DBMyProfile(inboxId: "me", name: "Ziggy", updatedAt: Date(timeIntervalSince1970: 1)),
+            historicalSelfAvatar: nil,
+            conversationId: "c1",
+            currentInboxId: "me"
+        )
+        let member = cache.member(for: "me")
+        #expect(member?.profile.name == "Ziggy")
+        #expect(member?.isCurrentUser == true)
+    }
+
     // MARK: - Helpers
 
     private func seedConversation(
@@ -394,17 +475,15 @@ struct MessagesRepositoryTests {
         otherInboxIds: [String],
         now: Date
     ) throws {
-        try DBMember(inboxId: currentInboxId).insert(db)
+        try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
         for inboxId in otherInboxIds {
-            try DBMember(inboxId: inboxId).insert(db)
+            try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
         }
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: "client-1",
-            clientConversationId: "client-conversation-1",
-            inviteTag: "invite-tag-1",
+            clientConversationId: "client-\(conversationId)",
+            inviteTag: "invite-tag-\(conversationId)",
             creatorId: currentInboxId,
             kind: .group,
             consent: .allowed,
@@ -420,8 +499,10 @@ struct MessagesRepositoryTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAgent: false,
         ).insert(db)
 
         try ConversationLocalState(
@@ -430,7 +511,12 @@ struct MessagesRepositoryTests {
             isUnread: false,
             isUnreadUpdatedAt: now,
             isMuted: false,
-            pinnedOrder: nil
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         try DBConversationMember(
@@ -442,12 +528,12 @@ struct MessagesRepositoryTests {
             invitedByInboxId: nil
         ).insert(db)
 
-        try DBMemberProfile(
-            conversationId: conversationId,
-            inboxId: currentInboxId,
-            name: "Current",
-            avatar: nil
-        ).insert(db)
+        // Seed both tables: canonical `DBProfile` is what the read path uses
+        // (and persists per-inbox after a member is removed), while the legacy
+        // per-conversation `DBMemberProfile` is still written defensively and has
+        // its own persistence assertions below.
+        try DBMemberProfile(conversationId: conversationId, inboxId: currentInboxId, name: "Current", avatar: nil).insert(db)
+        try DBProfile(inboxId: currentInboxId, name: "Current", profileSource: .profileUpdate, updatedAt: now).save(db)
 
         for inboxId in otherInboxIds {
             try DBConversationMember(
@@ -459,12 +545,8 @@ struct MessagesRepositoryTests {
                 invitedByInboxId: nil
             ).insert(db)
 
-            try DBMemberProfile(
-                conversationId: conversationId,
-                inboxId: inboxId,
-                name: "Removed",
-                avatar: nil
-            ).insert(db)
+            try DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: "Removed", avatar: nil).insert(db)
+            try DBProfile(inboxId: inboxId, name: "Removed", profileSource: .profileUpdate, updatedAt: now).save(db)
         }
     }
 }

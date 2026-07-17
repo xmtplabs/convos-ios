@@ -827,7 +827,17 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
             reloadedIndexes.insert(indexPathAfterUpdate)
             let oldHeight = item.frame.height
             let configuration = layoutRepresentation.configuration(for: .cell, at: indexPathAfterUpdate)
-            applyConfiguration(configuration, to: &item)
+            item.alignment = configuration.alignment
+            item.interItemSpacing = configuration.interItemSpacing
+            if let calculatedSize = configuration.calculatedSize {
+                item.calculatedSize = calculatedSize
+                item.calculatedOnce = true
+            } else {
+                // Reload means the cell's content has changed, so the previously
+                // self-sized height is stale. Swap in the new estimate and force
+                // another self-sizing pass.
+                item.resetSize(toPreferredSize: configuration.preferredSize)
+            }
             afterUpdateModel.replaceItem(item, at: indexPathAfterUpdate)
             visibleBoundsBeforeUpdate.offsettingBy(dx: 0, dy: item.frame.height - oldHeight)
         }
@@ -842,7 +852,19 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
 
             let oldHeight = item.frame.height
             let configuration = layoutRepresentation.configuration(for: .cell, at: indexPathAfterUpdate)
-            applyConfiguration(configuration, to: &item)
+            item.alignment = configuration.alignment
+            item.interItemSpacing = configuration.interItemSpacing
+            if let calculatedSize = configuration.calculatedSize {
+                item.calculatedSize = calculatedSize
+                item.calculatedOnce = true
+            }
+            // Keep the previously self-sized height for reconfigures. The
+            // reconfigure self-sizing block in `prepare(forCollectionViewUpdates:)`
+            // calls `preferredLayoutAttributesFitting` on each visible
+            // reconfigured cell and emits an invalidation only when the
+            // real fit differs from the model — so reconfigures that don't
+            // change height stay anchored, while ones that do still adjust
+            // through the normal compensation path.
             afterUpdateModel.replaceItem(item, at: indexPathAfterUpdate)
             visibleBoundsBeforeUpdate.offsettingBy(dx: 0, dy: item.frame.height - oldHeight)
         }

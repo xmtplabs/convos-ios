@@ -13,7 +13,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     let myProfilePublisher: AnyPublisher<Profile, Never>
 
     private let databaseReader: any DatabaseReader
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private var conversationId: String {
         conversationIdSubject.value
     }
@@ -29,12 +29,12 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     private var pendingProfile: Profile?
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseReader: any DatabaseReader,
         conversationId: String
     ) {
         self.databaseReader = databaseReader
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.conversationIdSubject = .init(conversationId)
 
         // Set up publisher that emits profiles when inbox state or conversation changes
@@ -42,19 +42,19 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .compactMap { $0 }
             .eraseToAnyPublisher()
 
-        stateObserver = inboxStateManager.observeState { [weak self] state in
+        stateObserver = sessionStateManager.observeState { [weak self] state in
             self?.handleInboxStateChange(state)
         }
     }
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseReader: any DatabaseReader,
         conversationId: String,
         conversationIdPublisher: AnyPublisher<String, Never>
     ) {
         self.databaseReader = databaseReader
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.conversationIdSubject = .init(conversationId)
 
         // Set up publisher that emits profiles when inbox state or conversation changes
@@ -62,7 +62,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .compactMap { $0 }
             .eraseToAnyPublisher()
 
-        stateObserver = inboxStateManager.observeState { [weak self] state in
+        stateObserver = sessionStateManager.observeState { [weak self] state in
             self?.handleInboxStateChange(state)
         }
 
@@ -71,7 +71,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             Log.info("Updating conversation id to \(conversationId)")
             self.conversationIdSubject.send(conversationId)
             // Re-observe profile for the new conversation
-            if case .ready(_, let result) = self.inboxStateManager.currentState {
+            if case .ready(let result) = self.sessionStateManager.currentState {
                 self.startObservingProfile(for: result.client.inboxId, conversationId: conversationId)
             }
         }
@@ -82,12 +82,12 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         conversationIdCancellable?.cancel()
     }
 
-    private func handleInboxStateChange(_ state: InboxStateMachine.State) {
+    private func handleInboxStateChange(_ state: SessionStateMachine.State) {
         switch state {
-        case .ready(_, let result):
+        case .ready(let result):
             let inboxId = result.client.inboxId
             startObservingProfile(for: inboxId, conversationId: conversationId)
-        case .idle, .stopping:
+        case .idle:
             profileSubject.send(nil)
         default:
             break
@@ -99,13 +99,20 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         cancellables.removeAll()
 
         let observation = ValueObservation
-            .tracking { db in
-                try DBMemberProfile
-                    .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                    .hydrateProfile() ?? .empty(inboxId: inboxId)
+            // Handle the fetch per-element so a transient error yields a default
+            // rather than failing the observation, which would complete the
+            // stream (via replaceError) and freeze the My Profile screen until a
+            // re-subscribe. The trailing replaceError remains only as the
+            // Error -> Never conversion for an unrecoverable database error.
+            .tracking { db -> Profile in
+                do {
+                    return try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
+                } catch {
+                    return .empty(inboxId: inboxId, conversationId: conversationId)
+                }
             }
             .publisher(in: databaseReader)
-            .replaceError(with: .empty(inboxId: inboxId))
+            .replaceError(with: .empty(inboxId: inboxId, conversationId: conversationId))
 
         observation
             .sink { [weak self] profile in
@@ -135,16 +142,47 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     }
 
     func fetch() throws -> Profile {
-        guard case .ready(_, let result) = inboxStateManager.currentState else {
+        guard case .ready(let result) = sessionStateManager.currentState else {
             throw MyProfileRepositoryError.inboxNotReady
         }
         let inboxId = result.client.inboxId
 
+        let conversationId = self.conversationId
         return try databaseReader.read { db in
-            try DBMemberProfile
-                .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                .hydrateProfile() ?? .empty(inboxId: inboxId)
+            try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
         }
+    }
+
+    /// Reads the current user's identity from the canonical `DBMyProfile` - the
+    /// single source of truth the "My Info" editor and every self-write path
+    /// (`publishMyProfile`, the settings editor) write, keyed per inbox - plus
+    /// the latest self avatar slot from `DBProfileAvatar`. The legacy
+    /// per-conversation `member_profile` row is not consulted. Reading the avatar
+    /// here (inside the tracked observation) means a self-avatar upload surfaces
+    /// on `fetch()` / `myProfilePublisher` instead of being dropped.
+    ///
+    /// Internal (not private) so the avatar-surfacing behavior can be unit-tested
+    /// against a seeded database.
+    static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
+        guard let selfRow = try DBMyProfile.filter(DBMyProfile.Columns.inboxId == inboxId).fetchOne(db) else {
+            return .empty(inboxId: inboxId, conversationId: conversationId)
+        }
+        // Newest slot for this inbox (matching the roster's newest-per-inbox
+        // resolution). Read the base table directly so the observation tracks it.
+        let avatar = try DBProfileAvatar
+            .filter(DBProfileAvatar.Columns.inboxId == inboxId)
+            .order(DBProfileAvatar.Columns.updatedAt.desc, DBProfileAvatar.Columns.conversationId.desc)
+            .fetchOne(db)
+        return Profile(
+            inboxId: inboxId,
+            conversationId: conversationId,
+            name: (selfRow.name?.isEmpty ?? true) ? nil : selfRow.name,
+            avatar: avatar?.url,
+            avatarSalt: avatar?.salt,
+            avatarNonce: avatar?.nonce,
+            avatarKey: avatar?.encryptionKey,
+            metadata: selfRow.metadata
+        )
     }
 }
 

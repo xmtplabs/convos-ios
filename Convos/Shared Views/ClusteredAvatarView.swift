@@ -3,45 +3,57 @@ import SwiftUI
 
 struct ClusteredAvatarView: View {
     let profiles: [Profile]
+    /// When set, the cluster lays out at this exact side length without a
+    /// `GeometryReader`. The cluster nests one sub-avatar per member, so the
+    /// self-sizing path otherwise stacks ~N+1 geometry-feedback passes per
+    /// cell during scroll. Nil keeps the self-sizing path.
+    var size: CGFloat?
 
     private let containerBase: CGFloat = 44.0
 
     var body: some View {
-        GeometryReader { geometry in
-            let side = min(geometry.size.width, geometry.size.height)
-            let scale = side / containerBase
-
-            ZStack {
-                switch profiles.count {
-                case 0:
-                    MonogramView(name: "")
-                case 1:
-                    singleAvatar(profile: profiles[0], size: side)
-                case 2:
-                    twoAvatarLayout(scale: scale)
-                case 3:
-                    threeAvatarLayout(scale: scale)
-                case 4:
-                    fourAvatarLayout(scale: scale)
-                case 5:
-                    fiveAvatarLayout(scale: scale)
-                case 6:
-                    sixAvatarLayout(scale: scale)
-                default:
-                    sevenAvatarLayout(scale: scale)
-                }
+        if let size {
+            clusterContent(side: size).accessibilityHidden(true)
+        } else {
+            GeometryReader { geometry in
+                clusterContent(side: min(geometry.size.width, geometry.size.height))
             }
-            .frame(width: side, height: side)
-            .background(.colorFillMinimal)
-            .clipShape(Circle())
+            .aspectRatio(1.0, contentMode: .fit)
+            .accessibilityHidden(true)
         }
-        .aspectRatio(1.0, contentMode: .fit)
-        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func clusterContent(side: CGFloat) -> some View {
+        let scale = side / containerBase
+        ZStack {
+            switch profiles.count {
+            case 0:
+                MonogramView(name: "", size: side)
+            case 1:
+                singleAvatar(profile: profiles[0], size: side)
+            case 2:
+                twoAvatarLayout(scale: scale)
+            case 3:
+                threeAvatarLayout(scale: scale)
+            case 4:
+                fourAvatarLayout(scale: scale)
+            case 5:
+                fiveAvatarLayout(scale: scale)
+            case 6:
+                sixAvatarLayout(scale: scale)
+            default:
+                sevenAvatarLayout(scale: scale)
+            }
+        }
+        .frame(width: side, height: side)
+        .background(.colorFillMinimal)
+        .clipShape(Circle())
     }
 
     @ViewBuilder
     private func singleAvatar(profile: Profile, size: CGFloat) -> some View {
-        ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false)
+        ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false, size: size)
             .frame(width: size, height: size)
     }
 
@@ -146,7 +158,7 @@ struct ClusteredAvatarView: View {
 
     @ViewBuilder
     private func avatarCircle(profile: Profile, size: CGFloat) -> some View {
-        ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false)
+        ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false, size: size)
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay {

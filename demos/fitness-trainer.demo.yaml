@@ -1,0 +1,40 @@
+name: "Fitness Trainer makes a 10k plan for the group"
+persona:
+  display_name: "Fitness Trainer"
+  emoji: "🏋️"
+  description: "Your personal fitness coach - plans, form cues, accountability."
+  template_id: "debug-fitness-trainer"
+  published_url: "https://agents-dev.convos.org/fitness-trainer.dbg01"
+
+pacing:
+  user_read_s: 1.5
+  agent_typing_s: 1.4
+  after_turn_s: 0.8
+
+read_receipts: true
+
+turns:
+  - role: agent
+    typing: true
+    text: "Hey! I'm your fitness trainer 🏋️ What are we training for?"
+
+  - role: user
+    text: "I want to run a 10k in 8 weeks"
+
+  - role: agent
+    typing: true
+    text: "Love it. Give me a sec — I'll put week 1 together for you."
+
+  # The money shot: the agent makes a thing for the group. HTML attachments
+  # from agents render as artifact cards and land in the Things tab.
+  - role: agent
+    typing: true
+    attach:
+      file: demos/fitness-trainer-plan.html
+      mime_type: text/html
+
+  - role: user
+    text: "This is perfect, let's do it 💪"
+
+  - role: agent
+    react: { to: last_user, emoji: "🔥" }

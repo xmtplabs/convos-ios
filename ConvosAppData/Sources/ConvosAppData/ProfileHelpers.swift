@@ -78,6 +78,41 @@ extension ConversationProfile {
     }
 }
 
+// MARK: - ConversationProfile + Merging
+
+extension ConversationProfile {
+    /// Returns this profile layered over an existing entry, preserving fields
+    /// the incoming side does not carry. A device whose local state is
+    /// incomplete (fresh pairing, mid-hydration) must never downgrade the
+    /// richer entry already in group metadata by replacing it wholesale.
+    ///
+    /// Semantics:
+    /// - `name`: incoming wins, including an explicit clear.
+    /// - image fields: when the incoming profile carries no avatar of either
+    ///   kind, the existing `encryptedImage`/legacy `image` are preserved.
+    ///   When it carries one, its own fields stand (the initializers already
+    ///   clear the variant they don't use). Removal is an explicit operation
+    ///   (`clearProfileAvatar`), never a side effect of empty local state.
+    /// - `connections`: preserved when absent on the incoming side - it lives
+    ///   only in remote metadata and is managed by its own update/clear APIs.
+    public func merged(over existing: ConversationProfile) -> ConversationProfile {
+        var result = self
+        let carriesImage = (hasEncryptedImage && encryptedImage.isValid) || hasImage
+        if !carriesImage {
+            if existing.hasEncryptedImage {
+                result.encryptedImage = existing.encryptedImage
+            }
+            if existing.hasImage {
+                result.image = existing.image
+            }
+        }
+        if !hasConnections, existing.hasConnections {
+            result.connections = existing.connections
+        }
+        return result
+    }
+}
+
 // MARK: - ConversationCustomMetadata + Profiles
 
 extension ConversationCustomMetadata {
@@ -89,6 +124,18 @@ extension ConversationCustomMetadata {
         } else {
             profiles.append(profile)
         }
+    }
+
+    /// Add or update a profile, preserving fields the incoming side does not
+    /// carry (see `ConversationProfile.merged(over:)`). Use this instead of
+    /// `upsertProfile` for writes built from local state, which may be poorer
+    /// than what the metadata already holds.
+    public mutating func mergeProfile(_ incoming: ConversationProfile) {
+        guard let existing = profiles.first(where: { $0.inboxID == incoming.inboxID }) else {
+            upsertProfile(incoming)
+            return
+        }
+        upsertProfile(incoming.merged(over: existing))
     }
 
     /// Remove a profile by inbox ID

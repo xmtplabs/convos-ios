@@ -10,7 +10,7 @@ private func makeBenchSenders(count: Int) -> [ConversationMember] {
     var senders: [ConversationMember] = [benchCurrentUser]
     for i in 1..<count {
         senders.append(ConversationMember(
-            profile: Profile(inboxId: "sender-\(i)", name: "User \(i)", avatar: nil),
+            profile: Profile(inboxId: "sender-\(i)", conversationId: "bench-conv", name: "User \(i)", avatar: nil),
             role: .member,
             isCurrentUser: false
         ))
@@ -37,7 +37,7 @@ private func seedMessages(
 
         if updateEvery > 0 && i > 0 && i % updateEvery == 0 {
             let addedMember = ConversationMember(
-                profile: Profile(inboxId: "added-\(i)", name: "Added \(i)", avatar: nil),
+                profile: Profile(inboxId: "added-\(i)", conversationId: "bench-conv", name: "Added \(i)", avatar: nil),
                 role: .member,
                 isCurrentUser: false
             )
@@ -333,7 +333,7 @@ struct MessagesListProcessorBenchmarkTests {
         var times: [Double] = []
         for _ in 0..<100 {
             let start = CFAbsoluteTimeGetCurrent()
-            let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+            let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1_000_000
             times.append(elapsed)
             #expect(!result.isEmpty)

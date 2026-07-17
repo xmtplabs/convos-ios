@@ -1,0 +1,7 @@
+# Custom runner labels (WarpBuild) so actionlint accepts them in runs-on.
+self-hosted-runner:
+  labels:
+    - warp-ubuntu-latest-x64-8x
+    - warp-macos-latest-arm64-12x
+    - warp-macos-26-arm64-6x
+    - warp-macos-26-arm64-12x

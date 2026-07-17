@@ -49,7 +49,10 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = ""
     static let GATEWAY_URL: String = ""
     static let SENTRY_DSN: String = ""
+    static let POSTHOG_API_KEY: String = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
+    static let GIT_COMMIT_SHA: String = ""
+    static let AGENT_DEBUG_JWKS: String = ""
 }
 
 MINIMAL_EOF
@@ -73,6 +76,8 @@ if [ "$1" = "--ensure-only" ]; then
     fi
     exit 0
 fi
+
+GIT_SHA=$(get_git_commit_sha)
 
 echo "🔍 Detecting configuration for Local development..."
 
@@ -146,7 +151,9 @@ ENV_BACKEND_URL=""
 ENV_XMTP_HOST=""
 ENV_GATEWAY_URL=""
 ENV_SENTRY_DSN=""
+ENV_POSTHOG_API_KEY=""
 ENV_FIREBASE_DEBUG_TOKEN=""
+ENV_AGENT_DEBUG_JWKS=""
 ENV_HAS_BACKEND_URL=false
 ENV_HAS_XMTP_HOST=false
 ENV_HAS_GATEWAY_URL=false
@@ -156,21 +163,30 @@ if [ -f ".env" ]; then
     # Check if keys exist in .env (even if empty)
     if grep -v '^#' ".env" | grep -q '^CONVOS_API_BASE_URL='; then
         ENV_HAS_BACKEND_URL=true
-        ENV_BACKEND_URL=$(grep -v '^#' ".env" | grep '^CONVOS_API_BASE_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_BACKEND_URL=$(grep -v '^#' ".env" | grep '^CONVOS_API_BASE_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^XMTP_CUSTOM_HOST='; then
         ENV_HAS_XMTP_HOST=true
-        ENV_XMTP_HOST=$(grep -v '^#' ".env" | grep '^XMTP_CUSTOM_HOST=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_XMTP_HOST=$(grep -v '^#' ".env" | grep '^XMTP_CUSTOM_HOST=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^GATEWAY_URL='; then
         ENV_HAS_GATEWAY_URL=true
-        ENV_GATEWAY_URL=$(grep -v '^#' ".env" | grep '^GATEWAY_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_GATEWAY_URL=$(grep -v '^#' ".env" | grep '^GATEWAY_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^SENTRY_DSN='; then
-        ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
+    fi
+    if grep -v '^#' ".env" | grep -q '^POSTHOG_API_KEY='; then
+        ENV_POSTHOG_API_KEY=$(grep -v '^#' ".env" | grep '^POSTHOG_API_KEY=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN='; then
-        ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
+    fi
+    # AGENT_DEBUG_JWKS holds JSON with embedded double quotes — strip surrounding
+    # single quotes only, leave double quotes intact. swift_escape handles escaping
+    # when emitting the Swift source.
+    if grep -v '^#' ".env" | grep -q '^AGENT_DEBUG_JWKS='; then
+        ENV_AGENT_DEBUG_JWKS=$(grep -v '^#' ".env" | grep '^AGENT_DEBUG_JWKS=' | tail -n1 | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
 fi
 
@@ -259,7 +275,10 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$(swift_escape "$FINAL_XMTP_HOST")"
     static let GATEWAY_URL: String = "$(swift_escape "$FINAL_GATEWAY_URL")"
     static let SENTRY_DSN: String = "$(swift_escape "$ENV_SENTRY_DSN")"
+    static let POSTHOG_API_KEY: String = "$(swift_escape "$ENV_POSTHOG_API_KEY")"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = "$(swift_escape "$ENV_FIREBASE_DEBUG_TOKEN")"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
+    static let AGENT_DEBUG_JWKS: String = "$(swift_escape "$ENV_AGENT_DEBUG_JWKS")"
 EOF
 
 # Check if .env file exists and add any additional secrets from it
@@ -277,7 +296,10 @@ if [ -f ".env" ]; then
         [[ "$key" == "XMTP_CUSTOM_HOST" ]] && continue
         [[ "$key" == "GATEWAY_URL" ]] && continue
         [[ "$key" == "SENTRY_DSN" ]] && continue
+        [[ "$key" == "POSTHOG_API_KEY" ]] && continue
         [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
+        [[ "$key" == "GIT_COMMIT_SHA" ]] && continue
+        [[ "$key" == "AGENT_DEBUG_JWKS" ]] && continue
 
         # Validate Swift identifier
         if ! is_valid_swift_identifier "$key"; then
@@ -285,8 +307,8 @@ if [ -f ".env" ]; then
             continue
         fi
 
-        # Remove any quotes from the value
-        value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//')
+        # Remove any quotes from the value and strip inline comments
+        value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//')
 
         # Escape the value to prevent injection
         escaped_value=$(swift_escape "$value")

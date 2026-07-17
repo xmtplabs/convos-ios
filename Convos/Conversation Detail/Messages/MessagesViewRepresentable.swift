@@ -8,36 +8,73 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let invite: Invite
     let onUserInteraction: () -> Void
     let hasLoadedAllMessages: Bool
-    let shouldBlurPhotos: Bool
     let focusCoordinator: FocusCoordinator
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
+    var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
+    /// Surfaces a pathological text bubble's "Read More" tap to the host so it
+    /// can present `MessageDetailView`. Nil for hosts that don't present a
+    /// message detail, which suppresses the bubble's "Read more" detail button.
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    /// Message ids with long-body inline expansion on (owned by the VM so it
+    /// survives cell reuse). Default empty for hosts that never expand.
+    var expandedMessageIds: Set<String> = []
+    /// Toggles a message id's long-body inline expansion on the host.
+    var onToggleMessageExpanded: (String) -> Void = { _ in }
     let contextMenuState: MessageContextMenuState
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
+    var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let onInviteAgent: () -> Void
+    let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
+    let profileSheetForMember: (ConversationMember) -> AnyView
+    let memberContactOverride: (String) -> Contact?
+    let isAgentJoinPending: Bool
+    var headerMode: MessagesHeaderMode = .standard
+    var agentBuilderSummary: AgentBuilderSummary?
+    var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
+    var onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)?
+    /// When true the index-0 `.invite` cell renders the full inline
+    /// Invite/Scan card (`InviteCodeBody`) for an active hosted session,
+    /// instead of the regular inviter QR + menu.
+    var showsInviteScanCard: Bool = false
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     let bottomBarHeight: CGFloat
-    let onBottomOverscrollChanged: (CGFloat) -> Void
-    let onBottomOverscrollReleased: (CGFloat) -> Void
+    /// Hosts that intentionally have no composer (the thinking detail sheet)
+    /// pass `false` so the controller doesn't wait for a non-existent bottom
+    /// bar measurement before applying its initial state.
+    var hasBottomBar: Bool = true
+    /// Top inset (in points) added to the controller's safe area for hosts
+    /// that float a bar over the collection view. See
+    /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
+    /// path on its existing layout.
+    var topContentInset: CGFloat = 0.0
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
+    let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
     class Coordinator {
         var scrollToBottomFunction: (() -> Void)?
+        var messageInputFocusFunction: (() -> Void)?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -50,39 +87,48 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         context.coordinator.scrollToBottomFunction = { [weak viewController] in
             viewController?.scrollToBottomForSend()
         }
+        context.coordinator.messageInputFocusFunction = { [weak viewController] in
+            viewController?.messageInputDidBecomeFocused()
+        }
         scrollToBottomTrigger { context.coordinator.scrollToBottomFunction?() }
+        messageInputFocusTrigger { context.coordinator.messageInputFocusFunction?() }
         return viewController
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
-        Log.debug("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
+        messagesViewController.hasBottomBar = hasBottomBar
+        messagesViewController.topContentInset = topContentInset
+        // Assign bottomBarHeight before state: its deferred inset update must be
+        // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.focusCoordinator = focusCoordinator
 
         messagesViewController.onTapAvatar = onTapAvatar
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
+        messagesViewController.onTapAgentShare = onTapAgentShare
+        messagesViewController.agentShareResolver = agentShareResolver
+        messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction
+        messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
+        messagesViewController.onTapReadReceipts = onTapReadReceipts
+        messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
-        messagesViewController.shouldBlurPhotos = shouldBlurPhotos
-        messagesViewController.onPhotoRevealed = { key in
-            Log.debug("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
-            self.onPhotoRevealed(key)
-        }
-        messagesViewController.onPhotoHidden = { key in
-            Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
-            self.onPhotoHidden(key)
-        }
-        messagesViewController.onBottomOverscrollChanged = onBottomOverscrollChanged
-        messagesViewController.onBottomOverscrollReleased = onBottomOverscrollReleased
+        messagesViewController.onOpenMessageDetail = onOpenMessageDetail
+        messagesViewController.onToggleMessageExpanded = onToggleMessageExpanded
+        messagesViewController.expandedMessageIds = expandedMessageIds
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
+        messagesViewController.creditsDepleted = creditsDepleted
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
+        }
+        messagesViewController.onTapCapabilityConnect = { prompt in
+            self.onTapCapabilityConnect(prompt)
         }
         messagesViewController.onRetryMessage = { message in
             self.onRetryMessage(message)
@@ -90,14 +136,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onDeleteMessage = { message in
             self.onDeleteMessage(message)
         }
-        messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
+        messagesViewController.onRetryAgentJoin = onRetryAgentJoin
         messagesViewController.onCopyInviteLink = onCopyInviteLink
         messagesViewController.onConvoCode = onConvoCode
-        messagesViewController.onInviteAssistant = onInviteAssistant
-        messagesViewController.hasAssistant = hasAssistant
-        messagesViewController.isAssistantJoinPending = isAssistantJoinPending
-        messagesViewController.isAssistantEnabled = isAssistantEnabled
-        let menuPresented = contextMenuState.isPresented
+        messagesViewController.onInviteAgent = onInviteAgent
+        messagesViewController.onRetryTranscript = onRetryTranscript
+        messagesViewController.profileSheetForMember = profileSheetForMember
+        messagesViewController.memberContactOverride = memberContactOverride
+        messagesViewController.isAgentJoinPending = isAgentJoinPending
+let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
         if menuPresented {
@@ -105,13 +152,23 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             messagesViewController.collectionView.panGestureRecognizer.isEnabled = true
         }
         if wasMenuPresented, !menuPresented {
-            messagesViewController.applyDeferredBottomInset()
+            messagesViewController.restoreBottomInsetAfterContextMenu()
         }
+        messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
+        messagesViewController.showsInviteScanCard = showsInviteScanCard
+        messagesViewController.inviteScanMode = inviteScanMode
+        messagesViewController.inviteScanInitialSegment = inviteScanInitialSegment
+        messagesViewController.onScannedInviteCode = onScannedInviteCode
+        messagesViewController.onInviteShareCompleted = onInviteShareCompleted
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
             invite: invite,
-            hasLoadedAllMessages: hasLoadedAllMessages
+            hasLoadedAllMessages: hasLoadedAllMessages,
+            headerMode: headerMode,
+            agentBuilderSummary: agentBuilderSummary,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace
         )
     }
 }
@@ -127,33 +184,34 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         invite: invite,
         onUserInteraction: {},
         hasLoadedAllMessages: false,
-        shouldBlurPhotos: true,
         focusCoordinator: FocusCoordinator(horizontalSizeClass: nil),
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},
         onTapInvite: { _ in },
         onReaction: { _, _ in },
+        onToggleReaction: { _, _ in },
         onTapReactions: { _ in },
+        onTapReadReceipts: { _ in },
+        onTapThinkingIndicator: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
-        onPhotoRevealed: { _ in },
-        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAgentOutOfCredits: {},
+        creditsDepleted: false,
         onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
-        onRetryAssistantJoin: {},
+        onRetryAgentJoin: {},
         onCopyInviteLink: {},
         onConvoCode: {},
-        onInviteAssistant: {},
-        hasAssistant: false,
-        isAssistantJoinPending: false,
-        isAssistantEnabled: true,
+        onInviteAgent: {},
+        onRetryTranscript: { _ in },
+        profileSheetForMember: { _ in AnyView(EmptyView()) },
+        memberContactOverride: { _ in nil },
+        isAgentJoinPending: false,
         bottomBarHeight: bottomBarHeight,
-        onBottomOverscrollChanged: { _ in },
-        onBottomOverscrollReleased: { _ in },
-        scrollToBottomTrigger: { _ in }
+        scrollToBottomTrigger: { _ in },
+        messageInputFocusTrigger: { _ in }
     )
     .ignoresSafeArea()
 }

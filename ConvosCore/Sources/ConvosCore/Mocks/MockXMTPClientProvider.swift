@@ -65,8 +65,31 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
+    /// Recorded for assertions: every batch passed to `setConsentStates`.
+    public private(set) var setConsentStatesCalls: [(conversationIds: [String], consent: Consent)] = []
+
+    public func setConsentStates(conversationIds: [String], consent: Consent) async throws {
+        setConsentStatesCalls.append((conversationIds: conversationIds, consent: consent))
+    }
+
+    public private(set) var syncPreferencesCallCount: Int = 0
+
+    public func syncPreferences() async throws {
+        syncPreferencesCallCount += 1
+    }
+
+    public private(set) var requestHistorySyncCallCount: Int = 0
+
+    public func requestHistorySync() async throws {
+        requestHistorySyncCallCount += 1
+    }
+
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
         // No-op for mock
+    }
+
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
     }
 
     public func deleteLocalDatabase() throws {
@@ -140,8 +163,19 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         fatalError("not implemented in mock")
     }
 
+    public func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in mock")
+    }
+
     public func sync() async throws {
         // No-op for mock
+    }
+
+    public func findMessage(messageId: String) throws -> DecodedMessage? {
+        nil
     }
 
     public func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary {

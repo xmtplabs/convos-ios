@@ -23,6 +23,11 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         try await send(text: text)
     }
 
+    public func send(text: String, clientMessageId: String) async throws {
+        sentMessages.append(text)
+        sentMessageSubject.send(clientMessageId)
+    }
+
     public func send(image: ImageType) async throws {
         sentImageCount += 1
         let mockURL = "https://example.com/photos/mock_photo_\(sentImageCount).jpg"
@@ -39,7 +44,56 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         sentMessageSubject.send(mockURL)
     }
 
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        UUID().uuidString
+    }
+
+    public func sendEagerVideo(trackingKey: String) async throws {
+        sentImageCount += 1
+        let mockURL = "https://example.com/videos/mock_video_\(sentImageCount).mp4"
+        sentMessageSubject.send(mockURL)
+    }
+
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await sendEagerVideo(trackingKey: trackingKey)
+    }
+
     public func cancelEagerUpload(trackingKey: String) async {}
+
+    public func awaitEagerUpload(trackingKey: String) async throws {}
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        sentImageCount += items.count
+        return UUID().uuidString
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        sentImageCount += items.count
+        return clientMessageId
+    }
+
+    public func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
+    ) async throws {
+        sentImageCount += bundleItems.count
+    }
+
+    public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
+        sentImageCount += 1
+        return UUID().uuidString
+    }
+
+    public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String {
+        return UUID().uuidString
+    }
+
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
+        return UUID().uuidString
+    }
 
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await send(text: text)
@@ -55,4 +109,13 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
 
     public func retryFailedMessage(id: String) async throws {}
     public func deleteFailedMessage(id: String) async throws {}
+
+    public func insertPendingInvite(text: String) async throws -> String {
+        sentMessages.append(text)
+        return UUID().uuidString
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        sentMessages.append(finalText)
+    }
 }

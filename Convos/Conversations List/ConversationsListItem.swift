@@ -3,11 +3,21 @@ import SwiftUI
 
 extension Conversation {
     var title: String {
+        title(memberNameOverride: { _ in nil })
+    }
+
+    /// Resolves the conversation list cell title with an inbox → contact-name
+    /// override applied to auto-generated DM/group titles. When the
+    /// conversation has an explicit `name`, that's returned verbatim — the
+    /// override only affects auto-generated titles built from member names.
+    /// See `Conversation.computedDisplayName(memberNameOverride:)`.
+    func title(memberNameOverride: (String) -> String?) -> String {
         switch kind {
         case .dm:
-            return otherMember?.profile.displayName ?? ""
+            guard let other = otherMember else { return "" }
+            return other.displayName(memberNameOverride: memberNameOverride)
         case .group:
-            return displayName
+            return computedDisplayName(memberNameOverride: memberNameOverride)
         }
     }
 }
@@ -69,8 +79,16 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 struct ConversationsListItem: View {
     let conversation: Conversation
 
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
+
     // Extract computed values to prevent unnecessary recalculations
-    private var title: String { conversation.title }
+    private var title: String {
+        let base: String = conversation.title(memberNameOverride: memberNameOverride)
+        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
+            return base
+        }
+        return "🧪 \(base)"
+    }
     private var isMuted: Bool { conversation.isMuted }
     private var isUnread: Bool { conversation.isUnread }
     private var lastMessage: MessagePreview? { conversation.lastMessage }

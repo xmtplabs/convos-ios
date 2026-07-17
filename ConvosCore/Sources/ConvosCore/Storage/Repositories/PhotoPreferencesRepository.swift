@@ -4,11 +4,11 @@ import GRDB
 
 public struct PhotoPreferences: Hashable, Sendable {
     public let conversationId: String
-    public let autoReveal: Bool
-    public let hasRevealedFirst: Bool
+    public let sendReadReceipts: Bool?
 
-    public var shouldBlurPhotos: Bool {
-        !hasRevealedFirst || !autoReveal
+    public init(conversationId: String, sendReadReceipts: Bool?) {
+        self.conversationId = conversationId
+        self.sendReadReceipts = sendReadReceipts
     }
 }
 
@@ -32,8 +32,7 @@ public final class PhotoPreferencesRepository: PhotoPreferencesRepositoryProtoco
                 .map { dbPrefs in
                     PhotoPreferences(
                         conversationId: dbPrefs.conversationId,
-                        autoReveal: dbPrefs.autoReveal,
-                        hasRevealedFirst: dbPrefs.hasRevealedFirst
+                        sendReadReceipts: dbPrefs.sendReadReceipts
                     )
                 }
         }
@@ -48,8 +47,7 @@ public final class PhotoPreferencesRepository: PhotoPreferencesRepositoryProtoco
                     .map { dbPrefs in
                         PhotoPreferences(
                             conversationId: dbPrefs.conversationId,
-                            autoReveal: dbPrefs.autoReveal,
-                            hasRevealedFirst: dbPrefs.hasRevealedFirst
+                            sendReadReceipts: dbPrefs.sendReadReceipts
                         )
                     }
             }

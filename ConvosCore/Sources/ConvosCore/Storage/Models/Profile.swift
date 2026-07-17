@@ -1,31 +1,43 @@
-import ConvosProfiles
 import Foundation
 
 public struct Profile: Codable, Identifiable, Hashable, Sendable {
-    public var id: String { inboxId }
+    public var id: String { "\(inboxId)@\(conversationId)" }
     public let inboxId: String
-    public let conversationId: String?
+    /// Always conversation-scoped — a member's display name, avatar, and
+    /// metadata are per-conversation (`DBMemberProfile` is keyed on
+    /// `(conversationId, inboxId)`). Carrying this on `Profile` itself
+    /// keeps the image cache key non-colliding and makes it impossible to
+    /// construct a profile that would be cached by bare `inboxId`.
+    public let conversationId: String
     public let name: String?
     public let avatar: String?
     public let avatarSalt: Data?
     public let avatarNonce: Data?
     public let avatarKey: Data?
     public let isAgent: Bool
+    /// When non-nil, the avatar was uploaded by activate-sync from the global profile and
+    /// this digest matches `DBMyProfile.imageContentDigest` at the time of upload. Callers
+    /// rendering the current user's avatar can compare this against the global digest to
+    /// decide whether the in-memory global image is the right thing to display (avoids the
+    /// flicker of the per-conversation cache transitioning during sync).
+    public let imageSourceContentDigest: String?
     public let metadata: ProfileMetadata?
 
     private enum CodingKeys: String, CodingKey {
-        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent, metadata
+        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent
+        case imageSourceContentDigest, metadata
     }
 
     public init(
         inboxId: String,
-        conversationId: String? = nil,
+        conversationId: String,
         name: String?,
         avatar: String?,
         avatarSalt: Data? = nil,
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         isAgent: Bool = false,
+        imageSourceContentDigest: String? = nil,
         metadata: ProfileMetadata? = nil
     ) {
         self.inboxId = inboxId
@@ -36,19 +48,21 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
         self.isAgent = isAgent
+        self.imageSourceContentDigest = imageSourceContentDigest
         self.metadata = metadata
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.inboxId = try container.decode(String.self, forKey: .inboxId)
-        self.conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        self.conversationId = try container.decode(String.self, forKey: .conversationId)
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
         self.avatarSalt = try container.decodeIfPresent(Data.self, forKey: .avatarSalt)
         self.avatarNonce = try container.decodeIfPresent(Data.self, forKey: .avatarNonce)
         self.avatarKey = try container.decodeIfPresent(Data.self, forKey: .avatarKey)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.imageSourceContentDigest = try container.decodeIfPresent(String.self, forKey: .imageSourceContentDigest)
         self.metadata = try container.decodeIfPresent(ProfileMetadata.self, forKey: .metadata)
     }
 
@@ -60,23 +74,96 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var isAvatarEncrypted: Bool {
-        avatarSalt?.count == 32 && avatarNonce?.count == 12
+        // All three of salt (32), nonce (12), and key (32) must be present
+        // for the cache's encrypted-fetch branch to actually decrypt the
+        // avatar. `ImageCache.fetchEncryptedImageInline` silently returns
+        // `nil` when the key is missing, so a partial state here would
+        // surface as a vanished avatar.
+        avatarSalt?.count == 32 && avatarNonce?.count == 12 && avatarKey?.count == 32
     }
 
     public var displayName: String {
-        name ?? "Somebody"
+        if let name, !name.isEmpty { return name }
+        return isAgent ? "Agent" : "Somebody"
     }
 
-    public var isOutOfCredits: Bool {
-        guard let credits = metadata?["credits"] else { return false }
-        switch credits {
-        case .number(let value):
-            return value <= 0
-        case .bool(let value):
-            return !value
-        case .string:
-            return false
+    public var profileEmoji: String? {
+        metadata?[Constant.emojiMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
+    }
+
+    /// Free-form description an agent agent writes into its own profile
+    /// metadata to describe what it's set up to do — surfaced on the
+    /// `AgentContactCard` once the agent has decided.
+    public var agentDescription: String? {
+        metadata?[Constant.agentDescriptionMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
+        guard isAgent else {
+            return .unverified
+        }
+        guard let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else {
+            let hasAttestation = metadata?["attestation"] != nil
+            let hasTs = metadata?["attestation_ts"] != nil
+            let hasKid = metadata?["attestation_kid"] != nil
+            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing fields — att: \(hasAttestation), ts: \(hasTs), kid: \(hasKid)")
+            return .unverified
+        }
+        Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
+        let result = await AgentAttestationVerifier.verify(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+        Log.info("[Attestation] agent \(inboxId.prefix(8)) result: \(result)")
+        return result
+    }
+
+    public func verifyCachedAgentAttestation(keyset: any AgentKeysetProviding) -> AgentVerification {
+        guard isAgent else {
+            return .unverified
+        }
+        guard let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else {
+            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata (cached path) — keys: \(metadata?.keys.sorted() ?? [])")
+            return .unverified
+        }
+        let result = AgentAttestationVerifier.verifyCached(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+        Log.debug("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
+        return result
+    }
+
+    public func verifyCachedAgentAttestation() -> AgentVerification {
+        guard let keyset = AgentKeysetStore.instance.shared else {
+            Log.info("[Attestation] no keyset configured")
+            return .unverified
+        }
+        return verifyCachedAgentAttestation(keyset: keyset)
     }
 
     public func with(inboxId: String) -> Profile {
@@ -89,24 +176,126 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             isAgent: isAgent,
+            imageSourceContentDigest: imageSourceContentDigest,
             metadata: metadata
         )
     }
 
-    public static func empty(inboxId: String = "") -> Profile {
+    public static func empty(inboxId: String = "", conversationId: String = "") -> Profile {
         .init(
             inboxId: inboxId,
+            conversationId: conversationId,
             name: nil,
             avatar: nil
         )
     }
 
-    public static func mock(inboxId: String = "", name: String = "Jane Doe") -> Profile {
+    public static func mock(
+        inboxId: String = "mock-inbox-id",
+        conversationId: String = "mock-conversation-id",
+        name: String = "Jane Doe"
+    ) -> Profile {
         .init(
             inboxId: inboxId,
+            conversationId: conversationId,
             name: name,
             avatar: "https://example.com/avatar.jpg"
         )
+    }
+
+    private enum Constant {
+        static let emojiMetadataKey: String = "emoji"
+        static let agentDescriptionMetadataKey: String = "description"
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+        static let instanceIdKey: String = "instanceId"
+        static let emailKey: String = "email"
+        static let variantKey: String = "variant"
+    }
+}
+
+// MARK: - Agent template metadata
+
+extension Profile {
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from, read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Chat action (spawn a fresh
+    /// instance of the same template). nil for human members and for
+    /// legacy agents that do not carry a template. The metadata key must
+    /// match the agent runtime's profile builder; see the matching
+    /// accessor on `DBMemberProfile`.
+    ///
+    /// Empty / whitespace-only values are coerced to nil so downstream
+    /// guards like `contact.agentTemplateId != nil` cannot pass for a
+    /// value the API would reject. Mirrors `profileEmoji` and
+    /// `agentDescription` above; the runtime occasionally writes an
+    /// empty string when its template lookup hasn't resolved yet.
+    public var agentTemplateId: String? {
+        metadata?[Constant.templateIdKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The shareable web URL for a template-backed agent (the backend's
+    /// `publishedUrl`), read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Share button. nil for human
+    /// members and for legacy agents that do not carry a template. The
+    /// metadata key must match the agent runtime's profile builder; see
+    /// the matching accessor on `DBMemberProfile`.
+    public var agentTemplatePublishedURL: String? {
+        metadata?[Constant.publishedURLKey]?.stringValue
+    }
+
+    /// The agent runtime's `instanceId` for this provisioned agent
+    /// (one templateId spawns N instances, each with its own inboxId).
+    /// Surfaced on the contact card behind an internal-build gate for
+    /// log correlation.
+    public var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
+    }
+
+    /// The agent's email address, read from the agent's per-conversation
+    /// profile metadata. The runtime assigns an address when the agent is
+    /// created; nil for human members and for older agents created before
+    /// addresses were assigned. Drives the contact card's Contact Info
+    /// section. Empty / whitespace-only values are coerced to nil, mirroring
+    /// `agentTemplateId` above.
+    public var agentEmail: String? {
+        metadata?[Constant.emailKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The Ed25519 attestation signature this agent published in its
+    /// per-conversation profile metadata. `nil` when the agent joined
+    /// without attaching attestation (it then reads as unverified). The
+    /// metadata key matches the verification guard in
+    /// `verifyCachedAgentAttestation`. Surfaced on the contact card behind a
+    /// debug-build gate for diagnosing agent verification.
+    public var agentAttestation: String? {
+        metadata?["attestation"]?.stringValue
+    }
+
+    /// The key id (`kid`) the attestation was signed with, matched against
+    /// the published agent keyset. `nil` when no attestation is present.
+    public var agentAttestationKid: String? {
+        metadata?["attestation_kid"]?.stringValue
+    }
+
+    /// The dev-only variant marker stamped onto a variant-built agent's profile
+    /// metadata by the assistants worker at join -- a JSON string of
+    /// `{ slug, label, whatToTest, prUrl }`. Drives the dev-only variant ribbon,
+    /// profile card, and name/header badges. nil for default agents and humans;
+    /// decoding is defensive so a malformed or partial stamp reads as nil rather
+    /// than throwing.
+    public var variant: AgentVariantStamp? {
+        guard let json = metadata?[Constant.variantKey]?.stringValue,
+              let data = json.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AgentVariantStamp.self, from: data)
     }
 }
 
@@ -114,19 +303,62 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
 public extension Array where Element == Profile {
     var formattedNamesString: String {
-        let namedProfiles = filter { $0.name != nil && $0.name?.isEmpty == false }
-            .map { $0.displayName }
-            .sorted()
-        let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
-        let totalCount = namedProfiles.count + anonymousCount
+        formattedNamesString(memberNameOverride: { _ in nil })
+    }
+
+    /// `formattedNamesString` with an inbox → contact-name override that
+    /// **wins** over the per-conversation profile name when present. The
+    /// contact name is the user's deliberate choice from the contacts list
+    /// and should appear consistently across every surface that renders a
+    /// member, regardless of what the per-conversation profile snapshot
+    /// happens to say. The per-conversation profile name is the next
+    /// fallback, and the "Agent / Agents" or "Somebody / Somebodies"
+    /// bucketing (keyed on `profile.isAgent`) remains the final fallback
+    /// for nameless members. Pass `{ _ in nil }` for the legacy behavior
+    /// (no override).
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        let resolved: [(name: String?, isAgent: Bool)] = map { profile in
+            if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+                return (overridden, profile.isAgent)
+            }
+            if let name = profile.name, !name.isEmpty {
+                return (name, profile.isAgent)
+            }
+            return (nil, profile.isAgent)
+        }
+        let namedProfiles: [String] = resolved.compactMap { $0.name }.sorted()
+        let anonymousAgentCount: Int = resolved.filter { $0.name == nil && $0.isAgent }.count
+        let anonymousHumanCount: Int = resolved.filter { $0.name == nil && !$0.isAgent }.count
+        let anonymousCount: Int = anonymousAgentCount + anonymousHumanCount
+        let totalCount: Int = namedProfiles.count + anonymousCount
+
+        // Anonymous bucket labels, agents before humans so "Agent & Somebody"
+        // reads naturally. Pluralized independently: a group with two unnamed
+        // agents and one unnamed human reads "Agents & Somebody".
+        var anonymousLabels: [String] = []
+        if anonymousAgentCount == 1 {
+            anonymousLabels.append("Agent")
+        } else if anonymousAgentCount > 1 {
+            anonymousLabels.append("Agents")
+        }
+        if anonymousHumanCount == 1 {
+            anonymousLabels.append("Somebody")
+        } else if anonymousHumanCount > 1 {
+            anonymousLabels.append("Somebodies")
+        }
 
         if namedProfiles.isEmpty {
-            if anonymousCount == 0 {
+            switch anonymousLabels.count {
+            case 0:
                 return ""
-            } else if anonymousCount == 1 {
-                return "Somebody"
-            } else {
-                return "Somebodies"
+            case 1:
+                return anonymousLabels[0]
+            case 2:
+                return anonymousLabels.joined(separator: " & ")
+            default:
+                return anonymousLabels.joined(separator: ", ")
             }
         }
 
@@ -134,11 +366,7 @@ public extension Array where Element == Profile {
 
         if totalCount <= maxNames {
             var allNames = namedProfiles
-            if anonymousCount > 1 {
-                allNames.append("Somebodies")
-            } else if anonymousCount == 1 {
-                allNames.append("Somebody")
-            }
+            allNames.append(contentsOf: anonymousLabels)
 
             switch allNames.count {
             case 1:
@@ -162,13 +390,13 @@ public extension Array where Element == Profile {
     }
 
     var hasAnyAvatar: Bool {
-        contains { $0.avatarURL != nil }
+        contains { $0.avatarURL != nil || $0.profileEmoji != nil }
     }
 
     func sortedForCluster() -> [Profile] {
         sorted { p1, p2 in
-            let p1HasAvatar = p1.avatarURL != nil
-            let p2HasAvatar = p2.avatarURL != nil
+            let p1HasAvatar = p1.avatarURL != nil || p1.profileEmoji != nil
+            let p2HasAvatar = p2.avatarURL != nil || p2.profileEmoji != nil
             if p1HasAvatar != p2HasAvatar { return p1HasAvatar }
 
             let p1HasName = p1.name != nil && !(p1.name ?? "").isEmpty

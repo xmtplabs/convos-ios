@@ -5,14 +5,15 @@ import XMTPiOS
 enum DebugLogExporter {
     static func exportAllLogs(
         environment: AppEnvironment,
-        conversationDebugInfo: URL? = nil
+        conversationDebugInfo: URL? = nil,
+        additionalInfo: String? = nil
     ) throws -> URL {
         pruneXMTPLogs(environment: environment, keepRecentHours: 48)
 
         let stagingDir = try createStagingDirectory()
         defer { try? FileManager.default.removeItem(at: stagingDir) }
 
-        stageAppLog(to: stagingDir, environment: environment)
+        stageAppLog(to: stagingDir, environment: environment, additionalInfo: additionalInfo)
         stageXMTPLogs(to: stagingDir, environment: environment)
 
         if let conversationDebugInfo {
@@ -86,7 +87,7 @@ enum DebugLogExporter {
         return deletedCount
     }
 
-    private static func stageAppLog(to directory: URL, environment: AppEnvironment) {
+    private static func stageAppLog(to directory: URL, environment: AppEnvironment, additionalInfo: String?) {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: environment.appGroupIdentifier
         ) else { return }
@@ -102,7 +103,7 @@ enum DebugLogExporter {
             }
         }
 
-        let info = """
+        var info = """
         Convos Debug Information
 
         Bundle ID: \(Bundle.main.bundleIdentifier ?? "Unknown")
@@ -111,6 +112,9 @@ enum DebugLogExporter {
         Environment: \(environment)
         Date: \(Date())
         """
+        if let additionalInfo {
+            info += "\n\n\(additionalInfo)"
+        }
         let infoURL = directory.appendingPathComponent("convos-info.txt")
         try? info.write(to: infoURL, atomically: true, encoding: .utf8)
     }

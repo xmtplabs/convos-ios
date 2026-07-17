@@ -1,0 +1,468 @@
+id: "44"
+name: "iCloud Pairing Prompt (Two Simulators)"
+description: >
+  Verify the first-install "Pair <device>?" prompt: a fresh install that
+  finds another device's identity in the iCloud-synced keychain backup slot
+  offers to pair with it. Covers Skip (decline persists across relaunch),
+  re-prompt after the decline flag is cleared, and the full Pair path where
+  the found inbox id becomes the main device: tapping Pair mints an invite
+  signed by the backed-up key and runs the standard joiner handshake with
+  join-request resend (PIN, emoji, identity adoption) - no QR scan on
+  either device. After adoption the joiner requests message history from
+  the initiator via the device-sync group, so a message sent on Device A
+  before the pair must appear on Device B afterwards. Requires TWO simulators; Device B is a clone of Device A
+  with the primary identity wiped via the CONVOS_QA_WIPE_PRIMARY_IDENTITY
+  launch hook (sim clones copy the whole keychain, which stands in for
+  iCloud Keychain sync that simulators don't have).
+tags: [pairing, multi-device, devices, icloud, keychain]
+depends_on: ["01"]
+estimated_duration_s: 840
+
+prerequisites:
+  two_simulators: true
+  app_installed_on_both: true
+  # Device A is fully onboarded; its app has mirrored its identity into
+  # the synced-backup keychain slot (happens automatically on registration
+  # or first authorize). Device B is created in setup.
+  device_a_onboarded: true
+  screen: conversations_list
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  found_device_name: null
+  pairing_pin: null
+
+setup:
+  - action: clone_device_a_as_device_b
+    save:
+      device_a_udid: "branch primary simulator"
+      device_b_udid: "from clone"
+    note: >
+      Unlike test 38 (which clones a pristine base sim), Device B must be a
+      clone of DEVICE A so its keychain contains A's synced-backup item:
+      `xcrun simctl shutdown $A`, `xcrun simctl clone $A convos-qa-icloud-b`,
+      boot both, relaunch the app on A. simctl clone requires the source to
+      be shut down - expect a brief Device A outage here.
+
+  - action: reset_device_b_to_new_device_state
+    note: >
+      On Device B simulate a brand-new device on the same iCloud account.
+      First `xcrun simctl uninstall $B org.convos.ios-preview` (clears the
+      app and app-group containers; the keychain survives uninstall),
+      reinstall the built Convos.app, then launch with the wipe hook:
+      `SIMCTL_CHILD_CONVOS_QA_WIPE_PRIMARY_IDENTITY=1 xcrun simctl launch
+      $B org.convos.ios-preview`. The hook (QALaunchHooks, non-production
+      builds only) deletes the device-local identity item before session
+      bootstrap; the iCloud-synced backup item survives. The app then
+      registers a fresh placeholder identity and discovers A's backup.
+      Handle the notifications permission dialog if it appears (allow).
+      Single-sim debugging shortcut: the same hook on the PRIMARY sim
+      (launch once normally, relaunch with the env var) reproduces steps
+      1-6 without any cloning - the prior identity's backup is still in
+      the slot and the relaunched app treats it as another device's.
+
+steps:
+  # ----------------------------------------------------------------------
+  # Seed verification + prompt
+  # ----------------------------------------------------------------------
+  - id: wipe_hook_fired
+    name: "Device B's launch hook wiped the primary identity"
+    device: B
+    actions:
+      - sim_log_events: { event_filter: "app.qa_wiped_primary_identity" }
+    verify:
+      - event_exists: { name: "app.qa_wiped_primary_identity" }
+    expect_event: "app.qa_wiped_primary_identity"
+    criteria: primary_identity_wiped
+    note: >
+      The event carries status=<OSStatus>; 0 (errSecSuccess) means an item
+      was deleted, -25300 (errSecItemNotFound) means the slot was already
+      empty - that usually indicates Device B was not cloned from Device A
+      and the rest of the test will fail at prompt_appears.
+
+  - id: prompt_appears
+    name: "Device B shows the Pair <device>? prompt"
+    device: B
+    actions:
+      - wait_for_element: { id: "pair-found-device-button", timeout: 45 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "was found in iCloud" }
+      - element_exists: { id: "pair-found-device-button" }
+      - element_exists: { id: "skip-found-device-pairing-button" }
+    expect_event: "pairing.found_device_prompt_shown"
+    criteria: prompt_appears
+    save:
+      found_device_name: "deviceName= param of pairing.found_device_prompt_shown (underscores stand in for spaces)"
+    note: >
+      The prompt must appear on this first launch, before silent
+      placeholder registration completes - a check that runs with no
+      primary identity yet treats every backup as pairable. If it only
+      appears after a relaunch, that is the first-launch suppression bug
+      (nil identity used to hide all backups), not a pass. The generous
+      timeout covers app startup plus the chats list appearing. Title
+      reads "Pair <name>?"
+      where <name> is the device name stamped on A's backup (for a sim
+      clone this is A's simulator name); subtitle: "Your <name> was found
+      in iCloud, if you have it nearby, you can pair it now". The only
+      suppressors are the hasDeclinedFoundDevicePairing flag and the
+      identity match after pairing - local "engagement" signals are
+      deliberately not consulted (fresh-install bootstrap pollutes them
+      without user interaction). A pairing.found_device_check event with
+      pairableCount=<n> fires on every launch's check.
+
+  # ----------------------------------------------------------------------
+  # Skip path: decline persists, clearing the flag re-prompts
+  # ----------------------------------------------------------------------
+  - id: skip_dismisses
+    name: "Skip dismisses the prompt"
+    device: B
+    actions:
+      - tap: { id: "skip-found-device-pairing-button" }
+      - wait_for_element: { id: "compose-button", timeout: 10 }
+    verify:
+      - element_not_exists: { id: "pair-found-device-button" }
+    expect_event: "pairing.found_device_prompt_skipped"
+    criteria: skip_dismisses
+
+  - id: skip_persists
+    name: "Skip persists across relaunch"
+    device: B
+    actions:
+      - terminate_app: {}
+      - launch_app: {}
+      - wait_for_element: { id: "compose-button", timeout: 30 }
+    verify:
+      - element_not_exists: { id: "pair-found-device-button" }
+    criteria: skip_persists
+    note: >
+      Relaunch WITHOUT the wipe env var. The prompt check runs once per
+      launch from the chats list onAppear; after compose-button is
+      interactive, poll find_elements for the sheet a few more times over
+      ~8s and require zero matches throughout (negative check - the
+      asynchronous keychain read can land a beat after the list renders).
+
+  - id: reprompt_after_clearing_decline
+    name: "Clearing the decline flag re-prompts on next launch"
+    device: B
+    actions:
+      - terminate_app: {}
+      - host_command: 'PREFS="$(xcrun simctl get_app_container $device_b_udid org.convos.ios-preview data)/Library/Preferences/org.convos.ios-preview"; xcrun simctl spawn $device_b_udid defaults delete "$PREFS" hasDeclinedFoundDevicePairing'
+      - launch_app: {}
+      - wait_for_element: { id: "pair-found-device-button", timeout: 45 }
+    verify:
+      - element_exists: { id: "pair-found-device-button" }
+    criteria: reprompt_after_clear
+    note: >
+      The flag lives in the app container's sandboxed preferences, so the
+      defaults domain must be the container plist PATH (without .plist) -
+      a bare "defaults delete org.convos.ios-preview" via simctl spawn
+      targets the simulator-global domain and silently misses it.
+      Terminate before editing so cfprefsd doesn't overwrite the deletion
+      from the app's cache. This proves the decline flag is the only
+      suppressor: the backup is still present, so the prompt returns.
+
+  # ----------------------------------------------------------------------
+  # Seed pre-pairing history on Device A
+  # ----------------------------------------------------------------------
+  - id: seed_history_on_a
+    name: "Device A sends a message before the pair (history probe)"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - type_in_field: { id: "message-text-field", text: "History probe 44" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "History probe 44", timeout: 15 }
+      - navigate_back_to_conversations_list: {}
+    verify:
+      - element_exists: { label_contains: "History probe 44" }
+    criteria: history_seeded
+    note: >
+      Compose commits a new conversation on Device A holding this message.
+      It must exist before Device B's installation registers (i.e. before
+      the pair handshake), because forward secrecy hides pre-registration
+      messages from a new installation - only the post-pair history sync
+      can deliver them. Leave Device A on the chats list afterwards so the
+      auto-surfaced PIN sheet in device_a_autosurfaces_request presents
+      over a known screen. Keyboard auto-capitalization applies to the
+      first letter; match on "istory probe 44" if a case-sensitive lookup
+      misses.
+
+  # ----------------------------------------------------------------------
+  # Pair path: joiner flow targets the found device, no QR scan
+  # ----------------------------------------------------------------------
+  - id: tap_pair
+    name: "Pair launches the joiner flow against the found device"
+    device: B
+    actions:
+      - tap: { id: "pair-found-device-button" }
+      - wait_for_element: { label_contains: "Request to pair", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Request to pair" }
+      - element_exists: { label_contains: "Open Convos on" }
+      - element_exists: { id: "pairing-countdown" }
+    expect_event: "pairing.found_device_invite_minted"
+    criteria: pair_launches_joiner_flow
+    note: >
+      The prompt dismisses first; the joiner sheet presents from the
+      prompt's onDismiss. Connecting copy is the instruction string ("To
+      pair, open Convos on \"<name>\" to continue pairing."), not the
+      deep-link flow's "is requesting to pair" copy. The joiner sends a
+      join request immediately and re-sends every 5s while connecting
+      (5-minute window) - Device A does not need to be listening yet.
+
+  - id: erase_guard_conditional
+    name: "Erase-and-pair guard (fires when B's builder draft committed)"
+    device: B
+    optional: true
+    actions:
+      - wait_for_element: { id: "hold-to-erase-and-pair-button", timeout: 8 }
+      - long_press: { id: "hold-to-erase-and-pair-button", duration: 3.2 }
+    verify:
+      - element_exists: { label_contains: "This device already has a Convos account" }
+    criteria: erase_guard_handled
+    note: >
+      Conditional, same control as test 38's destructive guard. The
+      relaunches in the Skip steps commit Device B's auto-created inline
+      builder draft to a visible conversation, so the joiner flow's
+      hasAnyUsedConversations check reports true and the "Hold to erase
+      and pair" guard fires before the join request is sent. Hold it
+      through (3s); the flow erases local data and re-enters connecting.
+      If the guard doesn't appear within ~8s the flow already went
+      straight to connecting - skip this step.
+
+  - id: device_a_autosurfaces_request
+    name: "Device A auto-presents the pairing request with the PIN"
+    device: A
+    actions:
+      - wait_for_element: { id: "pairing-pin-display", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Pair new device" }
+      - element_exists: { id: "pairing-pin-display" }
+    expect_event: "pairing.incoming_request_surfaced"
+    criteria: device_a_autosurfaces
+    save:
+      pairing_pin: "read the 6 digits from pairing-pin-display (strip the space separator)"
+    note: >
+      Core assertion of the feature: no navigation happens on Device A.
+      Its StreamProcessor verifies the join request's embedded slug
+      against A's own identity key (only a device holding the key - i.e.
+      sharing the iCloud keychain - can mint a valid one) and the app
+      presents the initiator sheet directly in the PIN state. Requires
+      A's app to be foregrounded; backgrounded, a local notification
+      ("<device> is requesting to pair") posts instead and the sheet
+      presents on the next activation. B re-sends every 5s, so allow
+      ~10-15s. Manual fallback for debugging: Settings > Devices > Add
+      new device still works exactly like test 38.
+
+  - id: enter_pin_on_b
+    name: "Device B enters the PIN and submits"
+    device: B
+    actions:
+      - wait_for_element: { id: "pin-entry-field", timeout: 30 }
+      - type_in_field: { id: "pin-entry-field", text: "$pairing_pin" }
+      - tap: { id: "submit-pin-button" }
+    verify:
+      - element_exists: { label_contains: "Enter the code" }
+    criteria: pin_entered
+    note: >
+      Same PIN-entry mechanics as test 38: 6-box masked field, submit
+      disabled until 6 digits.
+
+  - id: emoji_fingerprint_match
+    name: "Both devices show a matching 3-emoji fingerprint"
+    actions:
+      - device_a_wait: { id: "pairing-emoji-fingerprint", timeout: 30 }
+      - device_b_wait: { id: "pairing-emoji-fingerprint", timeout: 30 }
+      - device_a_screenshot: {}
+      - device_b_screenshot: {}
+    verify:
+      - device_a_has: { id: "pairing-emoji-fingerprint" }
+      - device_b_has: { id: "pairing-emoji-fingerprint" }
+      - visual_check: "the 3 emojis are identical on Device A and Device B"
+    criteria: emoji_fingerprint_matches
+
+  - id: device_a_confirms
+    name: "Device A confirms the emoji fingerprint"
+    device: A
+    actions:
+      - tap: { id: "confirm-emoji-button" }
+    verify:
+      - element_not_exists: { id: "confirm-emoji-button" }
+    criteria: emoji_confirmed_on_a
+
+  - id: pairing_completes
+    name: "Both devices reach the completed state"
+    actions:
+      - device_a_wait: { id: "got-it-button", timeout: 45 }
+      - device_b_wait: { id: "got-it-button", timeout: 45 }
+      - device_a_tap: { id: "got-it-button" }
+      - device_b_tap: { id: "got-it-button" }
+    verify:
+      - device_a_has: { label_contains: "Device added" }
+      - device_b_has: { label_contains: "Device paired" }
+    criteria: pairing_completed
+    note: >
+      Identical completion mechanics to test 38: A retitles to "Device
+      added", B to "Device paired", both with got-it-button. Run the
+      verify checks before tapping the buttons.
+
+  # ----------------------------------------------------------------------
+  # Post-pair checks
+  # ----------------------------------------------------------------------
+  - id: backend_account_converges
+    name: "Device B rebinds backend auth to the adopted identity"
+    device: B
+    actions:
+      - sim_log_events: { event_filter: "pairing.backend_reauth_after_pairing" }
+    verify:
+      - event_exists: { name: "pairing.backend_reauth_after_pairing" }
+    expect_event: "pairing.backend_reauth_after_pairing"
+    criteria: backend_account_converges
+    note: >
+      Right after adoption, refreshAfterPairingCompleted points the SIWE
+      signing context at the adopted key, drops the legacy device JWT,
+      and runs a fresh SIWE exchange - the event carries accountId=<uuid>.
+      The backend derives the accountId from the signing address, so this
+      value must EQUAL Device A's accountId: compare against the
+      "Successfully authenticated with backend (SIWE, address=...,
+      accountId=...)" line in Device A's app-group log. A mismatch, or
+      the event never firing within ~30s of pairing completion, means the
+      joiner is still acting as its pre-pairing placeholder account
+      (stale-auth window regression). Device B's own earlier SIWE line
+      (pre-pairing) is expected to show a different accountId - that is
+      the placeholder, not a failure.
+
+  - id: device_b_adopted_main_identity
+    name: "Device B mirrors Device A's history (adopted the found inbox id)"
+    device: B
+    optional: true
+    actions:
+      - wait_for_element: { id: "compose-button", timeout: 60 }
+    verify:
+      - element_exists: { id: "compose-button" }
+      - element_not_exists: { label_contains: "Add your name and pic" }
+    criteria: b_adopts_main_identity
+    note: >
+      After XMTP sync Device B's conversation list mirrors Device A's -
+      proof the FOUND inbox id (from the iCloud backup) became this
+      device's identity. Optional: full history sync timing varies on
+      simulators.
+
+  - id: history_sync_delivers
+    name: "Device B receives the pre-pairing message via history sync"
+    device: B
+    actions:
+      - sim_log_events: { event_filter: "pairing.history_sync_requested" }
+      - wait_for_element: { label_contains: "istory probe 44", timeout: 180 }
+      - screenshot: {}
+    verify:
+      - event_exists: { name: "pairing.history_sync_requested" }
+      - element_exists: { label_contains: "istory probe 44" }
+    expect_event: "pairing.history_sync_requested"
+    criteria: history_sync_delivers
+    note: >
+      The joiner fires pairing.history_sync_requested right after adoption
+      (SessionManager.requestHistorySyncAfterPairing): it asks Device A -
+      guaranteed online, it just confirmed the pair - to upload a history
+      archive through the device-sync group, and libxmtp imports it in the
+      background (observed ~3s end to end on simulators). The import writes
+      straight into libxmtp's database with no stream events, so the app
+      runs cursor-ignoring backfill passes at t+5/20/60/150s after the
+      request - each emits pairing.history_backfill_ran with
+      conversations/messages counts; the probe should surface on Device B
+      at the first pass after the import lands (typically t+5s). Poll the
+      chats list for the probe conversation; open it and confirm the
+      message body once the row appears. If nothing has arrived by ~90s,
+      check the backfill events: passes firing with messages=0 mean the
+      archive hasn't landed (Device A side); no events at all means the
+      backfill scheduling regressed. Device A must stay unlocked and
+      foregrounded - it is the only peer that can answer the request. The
+      label match drops the leading letter to sidestep keyboard
+      auto-capitalization.
+
+  - id: background_notification_optional
+    name: "Backgrounded Device A gets a local pairing notification"
+    device: A
+    optional: true
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: "notification banner '<device> is requesting to pair' on Device A"
+    criteria: background_notification
+    note: >
+      Requires a separate pair attempt with Device A's app freshly
+      backgrounded (press home on A, then tap Pair on B within ~10s -
+      iOS suspends the stream shortly after backgrounding, so timing is
+      tight by design). Foregrounding A afterwards presents the PIN sheet
+      from the stashed request. For a killed app the NSE handles the
+      welcome/message push, shows the same banner, and stashes via
+      PendingPairRequestStore - but simulators receive no remote APNS, so
+      the NSE path needs a real device. Optional and timing-sensitive -
+      run manually when validating the notification path.
+
+  - id: no_reprompt_after_pairing
+    name: "No re-prompt once the identities match"
+    device: B
+    optional: true
+    actions:
+      - terminate_app: {}
+      - launch_app: {}
+      - wait_for_element: { id: "compose-button", timeout: 30 }
+    verify:
+      - element_not_exists: { id: "pair-found-device-button" }
+    criteria: no_reprompt_when_paired
+    note: >
+      Device B now holds the same identity the backup describes, so
+      pairableDeviceBackups excludes it and the prompt stays away even
+      though the decline flag was cleared earlier. Same negative-check
+      technique as skip_persists.
+
+teardown:
+  - action: cleanup_device_b
+    optional: true
+    note: >
+      Shut down and delete the cloned simulator (xcrun simctl shutdown +
+      delete convos-qa-icloud-b). Do NOT delete Device A - it is the
+      branch primary. Note Device A's Devices list now contains Device
+      B's installation; optionally revoke it there (swipe row > Delete >
+      hold) to leave A in a single-device state for later tests.
+
+criteria:
+  primary_identity_wiped:
+    description: "CONVOS_QA_WIPE_PRIMARY_IDENTITY launch hook fires on Device B with status=0"
+  prompt_appears:
+    description: "Pair <device>? sheet appears on Device B with found-in-iCloud copy, Pair and Skip buttons"
+  skip_dismisses:
+    description: "Skip dismisses the sheet and emits found_device_prompt_skipped"
+  skip_persists:
+    description: "After relaunch the prompt does not reappear (decline flag persisted)"
+  reprompt_after_clear:
+    description: "Deleting hasDeclinedFoundDevicePairing re-prompts on next launch"
+  history_seeded:
+    description: "Device A commits a new conversation with the history probe message before the pair"
+  pair_launches_joiner_flow:
+    description: "Pair mints an invite from the backup and opens the joiner sheet with the open-Convos instruction copy"
+  erase_guard_handled:
+    description: "Erase-and-pair guard is held through when B's auto-created draft has committed (conditional)"
+  device_a_autosurfaces:
+    description: "Device A auto-presents the initiator PIN sheet from the verified join request - no navigation, no QR"
+  background_notification:
+    description: "Backgrounded Device A posts a local '<device> is requesting to pair' notification (optional, manual)"
+  pin_entered:
+    description: "Device B enters and submits the PIN"
+  emoji_fingerprint_matches:
+    description: "Both devices show an identical 3-emoji fingerprint"
+  emoji_confirmed_on_a:
+    description: "Device A confirms the emoji fingerprint"
+  pairing_completed:
+    description: "Both devices reach Device added / Device paired"
+  backend_account_converges:
+    description: "backend_reauth_after_pairing fires on Device B with an accountId equal to Device A's (joiner converges onto the initiator's backend account)"
+  b_adopts_main_identity:
+    description: "Device B mirrors A's history with no onboarding CTA (optional)"
+  history_sync_delivers:
+    description: "history_sync_requested fires on Device B and the pre-pairing probe message arrives via the device-sync archive"
+  no_reprompt_when_paired:
+    description: "No prompt after pairing even with the decline flag cleared (optional)"

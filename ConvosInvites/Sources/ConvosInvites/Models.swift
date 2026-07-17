@@ -78,6 +78,11 @@ public struct JoinRequest: Sendable {
     /// The message containing the join request
     public let messageId: String
 
+    /// When the join-request message was sent. Used to scope error-reply
+    /// deduplication to this attempt: only an error sent after this moment
+    /// counts as already answering it.
+    public let sentAt: Date?
+
     /// The joiner's profile (name, image) if provided
     public let profile: JoinRequestProfile?
 
@@ -89,6 +94,7 @@ public struct JoinRequest: Sendable {
         dmConversationId: String,
         signedInvite: SignedInvite,
         messageId: String,
+        sentAt: Date? = nil,
         profile: JoinRequestProfile? = nil,
         metadata: [String: String]? = nil
     ) {
@@ -96,6 +102,7 @@ public struct JoinRequest: Sendable {
         self.dmConversationId = dmConversationId
         self.signedInvite = signedInvite
         self.messageId = messageId
+        self.sentAt = sentAt
         self.profile = profile
         self.metadata = metadata
     }
@@ -135,6 +142,103 @@ public struct JoinResult: Sendable {
     }
 }
 
+/// Outcome of processing a candidate join-request message in a DM.
+///
+/// The cases drive both the user-visible result and the push-subscription
+/// policy on the host DM:
+///
+/// - `accepted`: Verified join succeeded; the joiner was added to the
+///   group. The DM stays subscribed for follow-up acceptance flows.
+/// - `benignFailure`: Local/transient failure (sync error, missing group,
+///   revoked tag, expired invite, etc). The DM stays subscribed because
+///   the request may legitimately retry from the same joiner — see
+///   `shouldKeepDMSubscribed`.
+/// - `malicious`: Signature verification failed in a way that indicates
+///   tampering. The DM is denied and the device unsubscribes from its
+///   topic so it can no longer wake the inbox.
+/// - `alreadyMember`: The request needs no re-add - either the joiner is
+///   already in the group, or this exact message already admitted them
+///   once (handled-request ledger) and they may have since been removed.
+///   Another processing path (stream vs batch vs poll) handled this
+///   request first. No re-add, no error DM; the DM stays subscribed like
+///   `accepted`. A `verified` context is carried when the request was
+///   validated against a known group (the joiner is currently a member), so
+///   the caller can still re-publish a complete profile snapshot and persist
+///   the joiner's own profile - a re-invite, or a dedup race where the accept
+///   that added the member ran in another pass (or on another installation),
+///   still needs the joiner to receive the roster and to appear in it. The
+///   context is nil on the handled-request ledger pre-check, which short
+///   circuits before the conversation is resolved.
+/// - `noJoinRequest`: The message was not a join-request candidate.
+public enum JoinRequestDMOutcome: Sendable {
+    case accepted(JoinResult, dmConversationId: String)
+    case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
+    case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case alreadyMember(dmConversationId: String, joinerInboxId: String, verified: AlreadyMemberContext?)
+    case noJoinRequest
+
+    public var joinResult: JoinResult? {
+        guard case .accepted(let result, dmConversationId: _) = self else { return nil }
+        return result
+    }
+
+    /// The verified context of an already-member outcome, or nil for any other
+    /// case (including a ledger-only already-member result).
+    public var alreadyMemberContext: AlreadyMemberContext? {
+        guard case .alreadyMember(_, _, let verified) = self else { return nil }
+        return verified
+    }
+
+    public var dmConversationId: String? {
+        switch self {
+        case .accepted(_, dmConversationId: let dmConversationId):
+            return dmConversationId
+        case .benignFailure(let dmConversationId, _, _):
+            return dmConversationId
+        case .malicious(let dmConversationId, _, _):
+            return dmConversationId
+        case .alreadyMember(let dmConversationId, _, _):
+            return dmConversationId
+        case .noJoinRequest:
+            return nil
+        }
+    }
+
+    public var shouldKeepDMSubscribed: Bool {
+        switch self {
+        case .accepted, .benignFailure, .alreadyMember:
+            return true
+        case .malicious, .noJoinRequest:
+            return false
+        }
+    }
+
+    public var isMalicious: Bool {
+        guard case .malicious = self else { return false }
+        return true
+    }
+}
+
+/// What a caller needs to finish a verified already-member result: the
+/// conversation to re-publish a roster snapshot for, plus the joiner's own
+/// profile (from the join request) so an installation that never processed the
+/// original accept can still persist it and include the joiner in the snapshot.
+public struct AlreadyMemberContext: Sendable {
+    public let conversationId: String
+    public let profile: JoinRequestProfile?
+    public let metadata: [String: String]?
+
+    public init(
+        conversationId: String,
+        profile: JoinRequestProfile?,
+        metadata: [String: String]?
+    ) {
+        self.conversationId = conversationId
+        self.profile = profile
+        self.metadata = metadata
+    }
+}
+
 // MARK: - Join Errors
 
 /// Errors that can occur when processing join requests
@@ -145,11 +249,14 @@ public enum JoinRequestError: Error, Sendable {
     /// The invite has expired
     case expired
 
-    /// The conversation has expired
+    /// The signed invite's `conversationExpiresAt` has passed
     case conversationExpired
 
-    /// The conversation was not found
+    /// `findConversation` returned nil — libxmtp doesn't have the group locally
     case conversationNotFound(String)
+
+    /// The conversation exists locally but its consent state is not `.allowed`
+    case consentNotAllowed(String, ConsentState)
 
     /// The message is not a valid join request format
     case invalidFormat
@@ -162,22 +269,38 @@ public enum JoinRequestError: Error, Sendable {
 
     /// Failed to add the member to the group
     case addMemberFailed
+
+    /// The request could not be processed because of a local/transient error
+    case processingFailed
 }
 
-/// Error types sent back to joiners when their request fails
+/// Error types sent back to joiners when their request fails.
+///
+/// Wire-format compatibility: any unrecognized rawValue (from a newer client we
+/// don't know about) decodes to `.conversationExpired` so older clients keep
+/// the existing "this conversation is no longer available" UX.
 public enum InviteJoinErrorType: Equatable, Sendable {
+    /// The signed invite's `conversationExpiresAt` has passed
     case conversationExpired
+
+    /// `findConversation` returned nil — libxmtp doesn't have the group locally
+    case conversationNotFound
+
+    /// The conversation exists locally but its consent state is not `.allowed`
+    case consentNotAllowed
+
     case genericFailure
-    case unknown(String)
 
     public var rawValue: String {
         switch self {
         case .conversationExpired:
             return "conversation_expired"
+        case .conversationNotFound:
+            return "conversation_not_found"
+        case .consentNotAllowed:
+            return "consent_not_allowed"
         case .genericFailure:
             return "generic_failure"
-        case .unknown(let value):
-            return value
         }
     }
 
@@ -185,10 +308,14 @@ public enum InviteJoinErrorType: Equatable, Sendable {
         switch rawValue {
         case "conversation_expired":
             self = .conversationExpired
+        case "conversation_not_found":
+            self = .conversationNotFound
+        case "consent_not_allowed":
+            self = .consentNotAllowed
         case "generic_failure":
             self = .genericFailure
         default:
-            self = .unknown(rawValue)
+            self = .conversationExpired
         }
     }
 }
@@ -206,23 +333,60 @@ extension InviteJoinErrorType: Codable {
     }
 }
 
+/// Marker the creator sends in the join DM after honoring a join request.
+///
+/// The local handled-request ledger only covers one device. Other
+/// installations of the creator's inbox (paired devices, reinstalls)
+/// revalidate the same DM history, and without a shared signal an
+/// already-honored request would look actionable to them again once the
+/// member is removed. The DM syncs to every installation, so the marker
+/// is checked the same way error replies are deduped: a request is
+/// handled when a creator-sent marker for the same invite tag exists at
+/// or after the request's send time. That retires the text copy of a
+/// typed+text pair too, while a fresh request after a removal (newer
+/// than any marker) stays actionable - removal is not a block.
+public struct InviteJoinHandled: Codable, Equatable, Sendable {
+    public let inviteTag: String
+
+    /// Message ID of the join request that was honored. Informational:
+    /// suppression compares invite tag and send order, not message IDs,
+    /// so duplicate copies of the same attempt are covered.
+    public let handledMessageId: String
+
+    public let timestamp: Date
+
+    public init(inviteTag: String, handledMessageId: String, timestamp: Date) {
+        self.inviteTag = inviteTag
+        self.handledMessageId = handledMessageId
+        self.timestamp = timestamp
+    }
+}
+
 /// Error feedback sent to a joiner when their request fails
 public struct InviteJoinError: Codable, Equatable, Sendable {
     public let errorType: InviteJoinErrorType
     public let inviteTag: String
     public let timestamp: Date
 
-    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date) {
+    /// Diagnostic detail about what actually failed (e.g. the underlying
+    /// error description, or which validation step rejected the request).
+    /// Not shown to users - joiner-side telemetry records it so failures
+    /// can be tracked down without access to the creator's device. Optional
+    /// on the wire: payloads from older clients decode with nil.
+    public let reason: String?
+
+    public init(errorType: InviteJoinErrorType, inviteTag: String, timestamp: Date, reason: String? = nil) {
         self.errorType = errorType
         self.inviteTag = inviteTag
         self.timestamp = timestamp
+        self.reason = reason
     }
 
     public var userFacingMessage: String {
         switch errorType {
-        case .conversationExpired:
+        case .conversationExpired, .conversationNotFound, .consentNotAllowed:
             return "This conversation is no longer available"
-        case .genericFailure, .unknown:
+        case .genericFailure:
             return "Failed to join conversation"
         }
     }

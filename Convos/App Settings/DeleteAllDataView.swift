@@ -1,17 +1,30 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct DeleteAllDataView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
     @Bindable var viewModel: AppSettingsViewModel
     let onComplete: () -> Void
+    @State private var navState: DeleteAllDataNavigatorImpl = .init()
+    @State private var navigator: DeleteAllDataCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = DeleteAllDataCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var title: String {
         "Delete everything?"
     }
 
     var subtitle: String {
-        "This will permanently delete all conversations on this device, as well as your Quickname."
+        let base = "This will permanently delete all conversations on this device, as well as your profile."
+        guard viewModel.currentDeviceIsMain else { return base }
+        return base + " This is your main device — the first one created for your account — and other devices pair through it."
     }
 
     var body: some View {
@@ -50,6 +63,16 @@ struct DeleteAllDataView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .task {
+            await viewModel.refreshMainDeviceStatus()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     private func deleteAllData() {

@@ -39,6 +39,321 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         self.databaseWriter = databaseWriter
     }
 
+    /// A `DBMessage` row plus the source metadata, prepared from a
+    /// `DecodedMessage` but not yet written. The `dbRepresentation()`
+    /// transform runs in `prepare(...)` so the upcoming batch catch-up
+    /// can build N prepared messages in parallel and persist them all
+    /// in one transaction.
+    ///
+    /// Only the regular-message path uses this — reactions still flow
+    /// through `handleReactionAddition` / `handleReactionRemoval`, each
+    /// of which has its own small transaction. A backlog of mostly
+    /// text messages with a few reactions still collapses 90%+ of the
+    /// observer fires via the batched persist; the reaction overhead
+    /// is bounded and was already neutralized by the no-op diff
+    /// short-circuit + image-prefetch dedup from #857.
+    struct PreparedIncomingMessage {
+        let source: DecodedMessage
+        let encodedContentType: ContentTypeID
+        let dbMessage: DBMessage
+    }
+
+    /// Async, transaction-free. Decodes the content type and builds the
+    /// `DBMessage` representation. Safe to call concurrently across
+    /// many messages.
+    func prepare(message: DecodedMessage) async throws -> PreparedIncomingMessage {
+        let encodedContentType = try message.encodedContent.type
+        let dbMessage = try message.dbRepresentation()
+        return PreparedIncomingMessage(
+            source: message,
+            encodedContentType: encodedContentType,
+            dbMessage: dbMessage
+        )
+    }
+
+    /// Synchronous, transaction-scoped. Returns `nil` when the message
+    /// is dropped intentionally (e.g. unverified-sender
+    /// ConnectionGrantRequest); the caller turns that into the
+    /// canonical "no-op" result.
+    func persist(
+        _ prepared: PreparedIncomingMessage,
+        conversation: DBConversation,
+        in db: Database
+    ) throws -> IncomingMessageWriterResult? {
+        let source = prepared.source
+        let encodedContentType = prepared.encodedContentType
+        let senderVerified = try Self.bootstrapSenderProfile(
+            db: db,
+            senderInboxId: source.senderInboxId
+        )
+
+        // Defense against unverified or spoofed CloudConnectionGrantRequest senders:
+        // only persist grant requests whose sender is a verified Convos agent
+        // in this conversation. Anything else gets dropped silently with a warning
+        // so the UI never has a chance to render the deep-link card.
+        if encodedContentType == ContentTypeCloudConnectionGrantRequest, !senderVerified {
+            Log.warning("Dropping CloudConnectionGrantRequest from unverified sender \(source.senderInboxId) in \(conversation.id)")
+            return nil
+        }
+
+        let message = prepared.dbMessage
+
+        let messageExistsInDB = try DBMessage.exists(db, key: message.id)
+        let localInboxId = try DBInbox.currentInboxId(db)
+        let wasRemovedFromConversation = Self.isRemovedFromConversation(
+            update: message.update,
+            localInboxId: localInboxId,
+            conversationConsent: conversation.consent
+        )
+
+        Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
+        if !message.attachmentUrls.isEmpty {
+            Log.debug("[IncomingMessageWriter] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+        }
+        // see if this message has a local version
+        if let localMessage = try DBMessage
+            .filter(DBMessage.Columns.id == message.id)
+            .filter(DBMessage.Columns.clientMessageId != message.id)
+            .fetchOne(db) {
+            // Keep using the same local clientMessageId, sortId, and attachmentUrls
+            // Preserving attachmentUrls is critical for maintaining AttachmentLocalState lookup
+            Log.debug("BRANCH 1: Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
+            let updatedMessage = message
+                .with(clientMessageId: localMessage.clientMessageId)
+                .with(sortId: localMessage.sortId)
+                .with(attachmentUrls: localMessage.attachmentUrls)
+            try updatedMessage.save(db)
+            Log.debug("BRANCH 1: Updated with clientMessageId=\(localMessage.clientMessageId), sortId=\(localMessage.sortId ?? -1)")
+        } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id),
+                  existingMessage.hasLocalAttachments {
+            // Message exists with local attachment URLs (outgoing photo) - preserve them and sortId
+            Log.debug("BRANCH 2: Preserving local attachments for message \(message.id)")
+            let updatedMessage = message
+                .with(attachmentUrls: existingMessage.attachmentUrls)
+                .with(sortId: existingMessage.sortId)
+            try updatedMessage.save(db)
+            Log.debug("BRANCH 2: Saved with local attachments, sortId=\(existingMessage.sortId ?? -1)")
+        } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id) {
+            // Message exists but BRANCH 1 and BRANCH 2 didn't match
+            // Keep clientMessageId, sortId, and attachmentUrls for stable UI identity
+            // Preserving attachmentUrls is critical: we've migrated AttachmentLocalState
+            // to match our local key, so using the incoming key would break the lookup
+            Log.debug("BRANCH 3: Found existing message \(message.id)")
+            if !existingMessage.attachmentUrls.isEmpty || !message.attachmentUrls.isEmpty {
+                Log.debug("[BRANCH 3] Existing attachmentUrls: \(existingMessage.attachmentUrls.map { $0.prefix(80) })")
+                Log.debug("[BRANCH 3] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+                let keysMatch = existingMessage.attachmentUrls == message.attachmentUrls
+                Log.debug("[BRANCH 3] Keys match: \(keysMatch), preserving existing")
+            }
+            let updatedMessage = message
+                .with(clientMessageId: existingMessage.clientMessageId)
+                .with(sortId: existingMessage.sortId)
+                .with(attachmentUrls: existingMessage.attachmentUrls)
+            try updatedMessage.save(db)
+            Log.debug("BRANCH 3: Saved with clientMessageId=\(existingMessage.clientMessageId), sortId=\(existingMessage.sortId ?? -1)")
+        } else {
+            // Truly new incoming message - assign sortId based on chronological position.
+            // Find the correct insertion point by dateNs so messages from the NSE
+            // and main app always end up in chronological order regardless of
+            // which process writes first.
+            let newSortId = try Self.chronologicalSortId(
+                for: message.dateNs,
+                messageId: message.id,
+                conversationId: conversation.id,
+                in: db
+            )
+            let messageWithSortId = message.with(sortId: newSortId)
+
+            do {
+                try messageWithSortId.save(db)
+                Log.debug("BRANCH 4 (new): Saved incoming message: \(message.id) with sortId=\(newSortId)")
+            } catch {
+                Log.error("Failed saving incoming message \(message.id): \(error)")
+                throw error
+            }
+        }
+
+        if let update = message.update, !update.addedInboxIds.isEmpty {
+            for addedInboxId in update.addedInboxIds {
+                try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == conversation.id)
+                    .filter(DBConversationMember.Columns.inboxId == addedInboxId)
+                    .filter(DBConversationMember.Columns.invitedByInboxId == nil)
+                    .updateAll(db, DBConversationMember.Columns.invitedByInboxId.set(to: update.initiatedByInboxId))
+            }
+            // A membership add supersedes any pending-leave marker the same
+            // inbox announced before it (rejoin after an earlier departure
+            // finalized). Bounded by the add's timestamp because backlog
+            // catch-up processes newest-first: an older add ingested late
+            // must not clear the marker of a leave that happened after it.
+            try Self.clearMemberDepartures(
+                conversationId: conversation.id,
+                inboxIds: update.addedInboxIds,
+                beforeNs: message.dateNs,
+                in: db
+            )
+        }
+
+        // Gated on first ingest: the message row and the departure write
+        // commit in the same transaction, so a re-encounter (NSE and main
+        // app share the database) means the departure was already applied.
+        // Re-applying would wrongly re-mark a member who has since rejoined.
+        if encodedContentType == ContentTypeLeaveRequest, !messageExistsInDB {
+            try Self.applyMemberDeparture(
+                conversationId: conversation.id,
+                inboxId: source.senderInboxId,
+                dateNs: message.dateNs,
+                in: db
+            )
+        }
+
+        if wasRemovedFromConversation {
+            try Self.persistRemovedMarker(conversationId: conversation.id, in: db)
+        }
+
+        return IncomingMessageWriterResult(
+            contentType: message.contentType,
+            wasRemovedFromConversation: wasRemovedFromConversation,
+            messageAlreadyExists: messageExistsInDB
+        )
+    }
+
+    /// True when the update removes the local user from the conversation, so
+    /// the removed marker and the live-hide notification must fire.
+    ///
+    /// A self-leave echo (leave-request the local user's inbox sent) names
+    /// the local inbox as both initiator and removed member. On the
+    /// installation that initiated the leave, the leave flow already hid the
+    /// conversation via the consent path, so the echo must not re-mark it.
+    /// A paired sibling installation of the same inbox receives the identical
+    /// echo but never ran the local leave flow, and the finalization commit
+    /// reports self-leaves via `leftInboxes`, which is deliberately not
+    /// mapped -- the echo is the only removal signal the sibling gets before
+    /// consent sync converges. The conversation's consent state is the
+    /// discriminator: the initiator is already denied when the echo lands,
+    /// while a sibling is still allowed and must process the removal.
+    static func isRemovedFromConversation(
+        update: DBMessage.Update?,
+        localInboxId: String?,
+        conversationConsent: Consent
+    ) -> Bool {
+        guard let localInboxId, let update else { return false }
+        guard update.removedInboxIds.contains(localInboxId) else { return false }
+        guard update.initiatedByInboxId == localInboxId else { return true }
+        return conversationConsent != .denied
+    }
+
+    /// Marks the conversation as removed-for-the-local-user. Idempotent and
+    /// deliberately independent of `messageAlreadyExists`: when the NSE saves
+    /// the removal `GroupUpdated` message first, the main app re-encounters it
+    /// as an existing row and must still converge on the persisted marker.
+    /// Cleared by `ConversationWriter.persist` when a synced member list
+    /// includes the local inbox again (re-add or rejoin).
+    static func persistRemovedMarker(conversationId: String, in db: Database) throws {
+        let current = try ConversationLocalState
+            .filter(ConversationLocalState.Columns.conversationId == conversationId)
+            .fetchOne(db)
+            ?? ConversationLocalState(
+                conversationId: conversationId,
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date.distantPast,
+                isMuted: false,
+                pinnedOrder: nil,
+                hidesInviteCard: false,
+                leftHostedInviteSession: false,
+                wasRemoved: false,
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
+            )
+        guard !current.wasRemoved else { return }
+        // Unpinning here frees the pin slot a hidden conversation would
+        // otherwise occupy invisibly (the pin limit and pinned count both
+        // read isPinned rows).
+        try current
+            .with(wasRemoved: true)
+            .with(isPinned: false)
+            .with(pinnedOrder: nil)
+            .save(db)
+    }
+
+    /// Records a member's announced departure and drops their member row so
+    /// every member-list surface loses the leaver promptly. The departure
+    /// marker keeps `ConversationWriter.persist` from re-adding the row while
+    /// the MLS roster still lists the leaver (the remove-commit is finalized
+    /// asynchronously by an authorized client). Idempotent: re-ingesting the
+    /// same leave-request (NSE + main app) upserts the same marker.
+    ///
+    /// Order-aware: backlog catch-up processes messages newest-first, so a
+    /// rejoin-add can already be stored when an older leave-request is first
+    /// ingested. Applying that stale leave would hide a current member behind
+    /// a marker no later event clears, so it is skipped when a newer
+    /// membership add for the same inbox exists.
+    static func applyMemberDeparture(
+        conversationId: String,
+        inboxId: String,
+        dateNs: Int64,
+        in db: Database
+    ) throws {
+        guard try !hasNewerMembershipAdd(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            afterNs: dateNs,
+            in: db
+        ) else {
+            Log.info("Skipping stale leave-request for \(inboxId) in \(conversationId): a newer membership add exists")
+            return
+        }
+        try DBMemberDeparture(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            dateNs: dateNs
+        ).save(db)
+        try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .filter(DBConversationMember.Columns.inboxId == inboxId)
+            .deleteAll(db)
+    }
+
+    /// Clears pending-leave markers for inboxes a membership change re-added.
+    /// Without this a member who left and later rejoined would stay filtered
+    /// out of the member list by their stale departure marker. Only markers
+    /// older than the add event (`beforeNs`) are cleared: with newest-first
+    /// backlog processing an older add can be ingested after a newer leave,
+    /// and it must not erase that leave's marker.
+    static func clearMemberDepartures(
+        conversationId: String,
+        inboxIds: [String],
+        beforeNs: Int64,
+        in db: Database
+    ) throws {
+        try DBMemberDeparture
+            .filter(DBMemberDeparture.Columns.conversationId == conversationId)
+            .filter(inboxIds.contains(DBMemberDeparture.Columns.inboxId))
+            .filter(DBMemberDeparture.Columns.dateNs < beforeNs)
+            .deleteAll(db)
+    }
+
+    /// True when a stored membership update newer than `afterNs` added the
+    /// inbox to the conversation -- the signal that a leave-request being
+    /// ingested is stale (the member has since rejoined). Scans stored
+    /// update-type messages because the `update` payload lives in a JSON
+    /// column; updates newer than a given message are rare, and the cost is
+    /// only paid on leave-request ingest.
+    private static func hasNewerMembershipAdd(
+        conversationId: String,
+        inboxId: String,
+        afterNs: Int64,
+        in db: Database
+    ) throws -> Bool {
+        let newerUpdates = try DBMessage
+            .filter(DBMessage.Columns.conversationId == conversationId)
+            .filter(DBMessage.Columns.contentType == MessageContentType.update.rawValue)
+            .filter(DBMessage.Columns.dateNs > afterNs)
+            .fetchAll(db)
+        return newerUpdates.contains { $0.update?.addedInboxIds.contains(inboxId) == true }
+    }
+
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
         let encodedContentType = try message.encodedContent.type
@@ -70,103 +385,19 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
         }
 
-        let result = try await databaseWriter.write { db in
-            let sender = DBMember(inboxId: message.senderInboxId)
-            try sender.save(db)
-            let senderProfile = DBMemberProfile(
-                conversationId: conversation.id,
-                inboxId: message.senderInboxId,
-                name: nil,
-                avatar: nil
-            )
-            try? senderProfile.insert(db)
-            let message = try message.dbRepresentation()
+        let prepared = try await prepare(message: message)
+        let result = try await databaseWriter.write { [self] db in
+            try persist(prepared, conversation: conversation, in: db)
+        }
 
-            let messageExistsInDB = try DBMessage.exists(db, key: message.id)
-            // @jarodl temporary, this should happen somewhere else more explicitly
-            let wasRemovedFromConversation = message.update?.removedInboxIds.contains(conversation.inboxId) ?? false
-
-            Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
-            if !message.attachmentUrls.isEmpty {
-                Log.debug("[IncomingMessageWriter] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
-            }
-            // see if this message has a local version
-            if let localMessage = try DBMessage
-                .filter(DBMessage.Columns.id == message.id)
-                .filter(DBMessage.Columns.clientMessageId != message.id)
-                .fetchOne(db) {
-                // Keep using the same local clientMessageId, sortId, and attachmentUrls
-                // Preserving attachmentUrls is critical for maintaining AttachmentLocalState lookup
-                Log.debug("BRANCH 1: Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
-                let updatedMessage = message
-                    .with(clientMessageId: localMessage.clientMessageId)
-                    .with(sortId: localMessage.sortId)
-                    .with(attachmentUrls: localMessage.attachmentUrls)
-                try updatedMessage.save(db)
-                Log.debug("BRANCH 1: Updated with clientMessageId=\(localMessage.clientMessageId), sortId=\(localMessage.sortId ?? -1)")
-            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id),
-                      existingMessage.hasLocalAttachments {
-                // Message exists with local attachment URLs (outgoing photo) - preserve them and sortId
-                Log.debug("BRANCH 2: Preserving local attachments for message \(message.id)")
-                let updatedMessage = message
-                    .with(attachmentUrls: existingMessage.attachmentUrls)
-                    .with(sortId: existingMessage.sortId)
-                try updatedMessage.save(db)
-                Log.debug("BRANCH 2: Saved with local attachments, sortId=\(existingMessage.sortId ?? -1)")
-            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id) {
-                // Message exists but BRANCH 1 and BRANCH 2 didn't match
-                // Keep clientMessageId, sortId, and attachmentUrls for stable UI identity
-                // Preserving attachmentUrls is critical: we've migrated AttachmentLocalState
-                // to match our local key, so using the incoming key would break the lookup
-                Log.debug("BRANCH 3: Found existing message \(message.id)")
-                if !existingMessage.attachmentUrls.isEmpty || !message.attachmentUrls.isEmpty {
-                    Log.debug("[BRANCH 3] Existing attachmentUrls: \(existingMessage.attachmentUrls.map { $0.prefix(80) })")
-                    Log.debug("[BRANCH 3] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
-                    let keysMatch = existingMessage.attachmentUrls == message.attachmentUrls
-                    Log.debug("[BRANCH 3] Keys match: \(keysMatch), preserving existing")
-                }
-                let updatedMessage = message
-                    .with(clientMessageId: existingMessage.clientMessageId)
-                    .with(sortId: existingMessage.sortId)
-                    .with(attachmentUrls: existingMessage.attachmentUrls)
-                try updatedMessage.save(db)
-                Log.debug("BRANCH 3: Saved with clientMessageId=\(existingMessage.clientMessageId), sortId=\(existingMessage.sortId ?? -1)")
-            } else {
-                // Truly new incoming message - assign sortId based on chronological position.
-                // Find the correct insertion point by dateNs so messages from the NSE
-                // and main app always end up in chronological order regardless of
-                // which process writes first.
-                let newSortId = try Self.chronologicalSortId(
-                    for: message.dateNs,
-                    messageId: message.id,
-                    conversationId: conversation.id,
-                    in: db
-                )
-                let messageWithSortId = message.with(sortId: newSortId)
-
-                do {
-                    try messageWithSortId.save(db)
-                    Log.debug("BRANCH 4 (new): Saved incoming message: \(message.id) with sortId=\(newSortId)")
-                } catch {
-                    Log.error("Failed saving incoming message \(message.id): \(error)")
-                    throw error
-                }
-            }
-
-            if let update = message.update, !update.addedInboxIds.isEmpty {
-                for addedInboxId in update.addedInboxIds {
-                    try DBConversationMember
-                        .filter(DBConversationMember.Columns.conversationId == conversation.id)
-                        .filter(DBConversationMember.Columns.inboxId == addedInboxId)
-                        .filter(DBConversationMember.Columns.invitedByInboxId == nil)
-                        .updateAll(db, DBConversationMember.Columns.invitedByInboxId.set(to: update.initiatedByInboxId))
-                }
-            }
-
+        // Dropped messages (e.g. unverified-sender ConnectionGrantRequests) return
+        // nil from persist so the rest of the ingest pipeline treats them
+        // as a no-op rather than a new message.
+        guard let result else {
             return IncomingMessageWriterResult(
-                contentType: message.contentType,
-                wasRemovedFromConversation: wasRemovedFromConversation,
-                messageAlreadyExists: messageExistsInDB
+                contentType: .connectionGrantRequest,
+                wasRemovedFromConversation: false,
+                messageAlreadyExists: true
             )
         }
 
@@ -179,8 +410,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             ])
         }
 
-        // Post notification after transaction commits
-        if result.wasRemovedFromConversation && !result.messageAlreadyExists {
+        // Post notification after transaction commits. Not gated on
+        // messageAlreadyExists: when the NSE saved the removal message first,
+        // the main app still needs the live-hide. The persisted wasRemoved
+        // marker (set in persist) is the restart-safe source of truth; this
+        // notification is the in-session UX fast path.
+        if result.wasRemovedFromConversation {
             conversation.postLeftConversationNotification()
         }
 
@@ -271,6 +506,21 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         }
 
         return explodeSettings
+    }
+
+    /// Ensures the sender has a row in `DBMember`. Returns true when the sender's
+    /// canonical profile is already marked as a verified Convos agent - used to
+    /// gate persisting sensitive content types whose rendering assumes the sender
+    /// is trusted. Verification is read from the per-inbox `profile` table, where
+    /// the inbound seam stores the resolved (attested) member kind.
+    static func bootstrapSenderProfile(
+        db: Database,
+        senderInboxId: String
+    ) throws -> Bool {
+        let sender = DBMember(inboxId: senderInboxId)
+        try sender.save(db)
+        let identity = try DBProfile.fetchOne(db, inboxId: senderInboxId)
+        return identity?.memberKind?.agentVerification.isConvosAgent ?? false
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.

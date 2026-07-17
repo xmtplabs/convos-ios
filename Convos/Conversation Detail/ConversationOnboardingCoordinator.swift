@@ -46,28 +46,19 @@ enum NotificationPermissionState {
 
 // MARK: - Conversation Onboarding State
 
-/// Represents the current state of the conversation onboarding flow
+/// Represents the current state of the conversation onboarding flow.
+/// Profile setup is owned by the launch Nametag sheet
+/// (`ProfileSetupSheet`); this flow only auto-applies an existing global
+/// profile to the conversation and runs the notifications step.
 enum ConversationOnboardingState: Equatable {
     /// Idle - no onboarding flow active
     case idle
 
     case started
 
-    /// Show "Tap to add your name for this convo" prompt
-    case setupQuickname
-
-    case settingUpQuickname
-
-    case quicknameLearnMore
-
-    /// Waiting to see if the user saves a quickname
-    case presentingProfileSettings
-
-    /// Autodismissed success state after saving first Quickname
-    case savedAsQuicknameSuccess
-
-    /// Show "Tap to chat as [Name]" with the user's quickname
-    case addQuickname(settings: QuicknameSettings, profileImage: UIImage?)
+    /// One-time paywall step shown after the first profile setup.
+    /// User must subscribe or claim the 7-day trial to proceed.
+    case presentingPaywall
 
     /// Ask user to allow notifications (undetermined state)
     case requestNotifications
@@ -78,8 +69,6 @@ enum ConversationOnboardingState: Equatable {
     /// Notifications denied, prompt to change in settings
     case notificationsDenied
 
-    static let addQuicknameViewDuration: CGFloat = 8.0
-    static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
     // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
@@ -87,10 +76,6 @@ enum ConversationOnboardingState: Equatable {
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
         switch self {
-        case .addQuickname:
-            return Self.addQuicknameViewDuration
-        case .savedAsQuicknameSuccess:
-            return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
             return Self.notificationsEnabledSuccessDuration
         default:
@@ -107,18 +92,7 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
-    private var quicknameViewModel: QuicknameSettingsViewModel = .shared
-
-    var isSettingUpQuickname: Bool {
-        switch state {
-        case .settingUpQuickname,
-                .quicknameLearnMore,
-                .presentingProfileSettings:
-            return true
-        default:
-            return false
-        }
-    }
+    private let profileSettingsViewModel: ProfileSettingsViewModel
 
     var showOnboardingView: Bool {
         inProgress || isWaitingForInviteAcceptance
@@ -135,37 +109,62 @@ final class ConversationOnboardingCoordinator {
 
     var isWaitingForInviteAcceptance: Bool = false
 
-    private var shouldShowQuicknameAfterNotifications: Bool = false
-    private var pendingClientId: String?
-    private var currentClientId: String?
+    private var shouldShowProfileSetupAfterNotifications: Bool = false
+    private var pendingConversationId: String?
+    private var currentConversationId: String?
     private var isConversationCreator: Bool = false
 
     // MARK: - Persistence
 
-    private static let hasShownQuicknameEditorKey: String = "hasShownQuicknameEditor"
+    private static let hasShownProfileEditorKey: String = "hasShownProfileEditor"
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
-    private static let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
-    private static let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
-    static func markQuicknameEditorShown() {
-        UserDefaults.standard.set(true, forKey: hasShownQuicknameEditorKey)
+    private static let hasSetProfilePrefix: String = "hasSetProfileForConversation_"
+    /// Prior name of `hasSetProfilePrefix` from the Quickname era. Read-only fallback
+    /// during the user's first launch on the renamed flow so users who already completed
+    /// setup before the rename don't get a redundant profile prompt.
+    private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
+    private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
+    private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+    /// Legacy shown-once latch for the launch profile sheet. The sheet now
+    /// gates purely on the global profile being unset (see
+    /// `ConversationsViewModel.presentFirstLaunchProfileSetupIfNeeded`);
+    /// the key is only kept so resets clear installs that wrote it.
+    private static let hasShownFirstLaunchProfileSheetKey: String = "hasShownFirstLaunchProfileSheet"
+
+    static func markProfileEditorShown() {
+        UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+    }
+
+    /// Marks the global onboarding flags as completed so the in-conversation
+    /// "set up your name / pic" prompts are skipped. Used by the pairing
+    /// flow on the joiner side — the joiner just adopted the initiator's
+    /// fully-onboarded identity, so they shouldn't be asked to set up a
+    /// profile again. Per-conversation flags (the `hasSetProfilePrefix`
+    /// keys) are intentionally left alone — those track whether the user
+    /// has chosen *what* profile to expose in a specific conversation,
+    /// which is a separate decision from "have I ever set a profile."
+    static func markCompletedForPairedDevice() {
+        UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
+        UserDefaults.standard.set(true, forKey: hasCompletedOnboardingKey)
+        UserDefaults.standard.set(true, forKey: hasSeenAddAsProfileKey)
     }
 
     static func resetUserDefaults() {
-        UserDefaults.standard.removeObject(forKey: hasShownQuicknameEditorKey)
+        UserDefaults.standard.removeObject(forKey: hasShownProfileEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
-        UserDefaults.standard.removeObject(forKey: hasSeenAddAsQuicknameKey)
+        UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
+        UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
+        UserDefaults.standard.removeObject(forKey: hasShownFirstLaunchProfileSheetKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) {
+        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
 
-    private(set) var shouldAnimateAvatarForQuicknameSetup: Bool = false
-
-    private var hasShownQuicknameEditor: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownQuicknameEditorKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownQuicknameEditorKey) }
+    private var hasShownProfileEditor: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownProfileEditorKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownProfileEditorKey) }
     }
 
     private var hasCompletedOnboarding: Bool {
@@ -173,31 +172,59 @@ final class ConversationOnboardingCoordinator {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedOnboardingKey) }
     }
 
-    private func hasSetQuickname(for clientId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasSetQuicknamePrefix + clientId)
+    private var hasShownNUXPaywall: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownNUXPaywallKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownNUXPaywallKey) }
     }
 
-    private func setHasSetQuickname(_ value: Bool, for clientId: String) {
-        UserDefaults.standard.set(value, forKey: Self.hasSetQuicknamePrefix + clientId)
+    private var shouldShowNUXPaywall: Bool {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+        return !hasShownNUXPaywall
     }
 
-    private var hasSeenAddAsQuickname: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasSeenAddAsQuicknameKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasSeenAddAsQuicknameKey) }
+    private func hasSetProfile(for conversationId: String) -> Bool {
+        let defaults = UserDefaults.standard
+        let key = Self.hasSetProfilePrefix + conversationId
+        if defaults.bool(forKey: key) { return true }
+        // Lazy migration: if the user completed setup under the legacy Quickname key,
+        // promote it to the new key on first read so subsequent calls hit the fast path
+        // and a single-key reset (e.g. account deletion) clears it cleanly.
+        let legacyKey = Self.legacyHasSetQuicknamePrefix + conversationId
+        if defaults.bool(forKey: legacyKey) {
+            defaults.set(true, forKey: key)
+            defaults.removeObject(forKey: legacyKey)
+            return true
+        }
+        return false
+    }
+
+    private func setHasSetProfile(_ value: Bool, for conversationId: String) {
+        UserDefaults.standard.set(value, forKey: Self.hasSetProfilePrefix + conversationId)
+    }
+
+    private var hasSeenAddAsProfile: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasSeenAddAsProfileKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasSeenAddAsProfileKey) }
     }
 
     func reset() {
         state = .idle
-        quicknameViewModel.delete()
-        hasSeenAddAsQuickname = false
+        profileSettingsViewModel.delete()
+        hasSeenAddAsProfile = false
         hasCompletedOnboarding = false
-        hasShownQuicknameEditor = false
+        hasShownProfileEditor = false
+        hasShownNUXPaywall = false
     }
 
     // MARK: - Dependencies
 
     private let notificationCenter: NotificationCenterProtocol
     private let autodismissDurationOverride: CGFloat?
+    /// How long `startProfileSetupFlow` waits for the global profile to load
+    /// before giving up. On timeout the coordinator goes quiet rather than
+    /// guess: prompting an already-onboarded user is worse than prompting a
+    /// new user one conversation-open late.
+    private let profileLoadTimeout: TimeInterval
     @ObservationIgnored
     private var appLifecycleTask: Task<Void, Never>?
     @ObservationIgnored
@@ -205,10 +232,14 @@ final class ConversationOnboardingCoordinator {
 
     init(
         notificationCenter: NotificationCenterProtocol = SystemNotificationCenter(),
-        autodismissDurationOverride: CGFloat? = nil
+        autodismissDurationOverride: CGFloat? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
+        profileLoadTimeout: TimeInterval = 10
     ) {
         self.notificationCenter = notificationCenter
         self.autodismissDurationOverride = autodismissDurationOverride
+        self.profileSettingsViewModel = profileSettingsViewModel
+        self.profileLoadTimeout = profileLoadTimeout
         observeAppLifecycle()
     }
 
@@ -261,15 +292,11 @@ final class ConversationOnboardingCoordinator {
 
             // Transition to next state based on current state
             switch state {
-            case .addQuickname:
-                await addQuicknameDidAutoDismiss()
-            case .savedAsQuicknameSuccess:
-                await transitionAfterQuickname()
             case .notificationsEnabled:
-                if shouldShowQuicknameAfterNotifications, let clientId = pendingClientId {
-                    await startQuicknameFlow(for: clientId)
-                    shouldShowQuicknameAfterNotifications = false
-                    pendingClientId = nil
+                if shouldShowProfileSetupAfterNotifications, let conversationId = pendingConversationId {
+                    await startProfileSetupFlow(for: conversationId)
+                    shouldShowProfileSetupAfterNotifications = false
+                    pendingConversationId = nil
                 } else {
                     await complete()
                 }
@@ -309,27 +336,27 @@ final class ConversationOnboardingCoordinator {
 
     // MARK: - State Transitions
 
-    func start(for clientId: String, isConversationCreator: Bool = false) async {
+    func start(for conversationId: String, isConversationCreator: Bool = false) async {
         guard case .idle = state else {
             return
         }
 
-        self.currentClientId = clientId
+        self.currentConversationId = conversationId
         self.isConversationCreator = isConversationCreator
 
         state = .started
 
         if isWaitingForInviteAcceptance {
-            await startNotificationFlow(for: clientId)
+            await startNotificationFlow(for: conversationId)
         } else {
-            await startQuicknameFlow(for: clientId)
+            await startProfileSetupFlow(for: conversationId)
         }
     }
 
     /// Start the notification flow (used when coming from invite acceptance)
-    private func startNotificationFlow(for clientId: String) async {
-        shouldShowQuicknameAfterNotifications = true
-        pendingClientId = clientId
+    private func startNotificationFlow(for conversationId: String) async {
+        shouldShowProfileSetupAfterNotifications = true
+        pendingConversationId = conversationId
 
         let authStatus = await notificationCenter.authorizationStatus()
 
@@ -342,49 +369,62 @@ final class ConversationOnboardingCoordinator {
             handleStateChange()
         case .authorized, .provisional, .ephemeral:
             if !isWaitingForInviteAcceptance {
-                await startQuicknameFlow(for: clientId)
+                await startProfileSetupFlow(for: conversationId)
             }
-            shouldShowQuicknameAfterNotifications = false
-            pendingClientId = nil
+            shouldShowProfileSetupAfterNotifications = false
+            pendingConversationId = nil
         @unknown default:
             if !isWaitingForInviteAcceptance {
-                await startQuicknameFlow(for: clientId)
+                await startProfileSetupFlow(for: conversationId)
             }
-            shouldShowQuicknameAfterNotifications = false
-            pendingClientId = nil
+            shouldShowProfileSetupAfterNotifications = false
+            pendingConversationId = nil
         }
     }
 
-    /// Start or continue the quickname onboarding flow
-    private func startQuicknameFlow(for clientId: String) async {
-        let hasSetQuicknameForConversation = hasSetQuickname(for: clientId)
-        setHasSetQuickname(true, for: clientId)
-
-        let quicknameSettings = quicknameViewModel.quicknameSettings
-
-        if !hasShownQuicknameEditor {
-            shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname
-            QAEvent.emit(.onboarding, "setup_quickname", ["reason": "first_time"])
+    /// Apply the global profile to this conversation (when one exists) and
+    /// continue to the notifications step. Profile setup itself is owned by
+    /// the launch Nametag sheet — this flow never prompts.
+    private func startProfileSetupFlow(for conversationId: String) async {
+        // Don't decide on an unloaded snapshot: at cold launch (and right
+        // after pairing adoption) the shared profile view model still holds
+        // default values even for a fully-onboarded user, because the global
+        // profile only arrives once the inbox is ready. `.started` renders
+        // nothing, so waiting here shows no UI either way.
+        let profileLoaded = await profileSettingsViewModel.waitForProfileLoad(timeout: profileLoadTimeout)
+        guard profileLoaded else {
+            QAEvent.emit(.onboarding, "profile_load_timeout")
+            state = .idle
             handleStateChange()
-        } else if quicknameSettings.isDefault && !hasSetQuicknameForConversation {
-            shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname
-            QAEvent.emit(.onboarding, "setup_quickname", ["reason": "no_quickname"])
-            handleStateChange()
-        } else if !hasSetQuicknameForConversation {
-            let profileImage = quicknameSettings.profileImage
-            state = .addQuickname(settings: quicknameSettings, profileImage: profileImage)
-            QAEvent.emit(.onboarding, "add_quickname", ["name": quicknameSettings.profile.displayName])
-            handleStateChange()
-        } else {
-            QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_set"])
-            await transitionAfterQuickname()
+            return
         }
+
+        let hasSetProfileForConversation = hasSetProfile(for: conversationId)
+
+        let profileSettings = profileSettingsViewModel.profileSettings
+
+        if !profileSettings.isDefault {
+            // A profile already exists — regardless of the device-local
+            // editor flag, which can lag the profile (e.g. it is set
+            // asynchronously on a freshly paired device). Backfill it so
+            // related gates (like the input bar's "Chat as Somebody") agree.
+            hasShownProfileEditor = true
+            if !hasSetProfileForConversation {
+                setHasSetProfile(true, for: conversationId)
+                QAEvent.emit(.onboarding, "profile_auto_applied", ["name": profileSettings.profile.displayName])
+            } else {
+                QAEvent.emit(.onboarding, "profile_skipped", ["reason": "already_set"])
+            }
+        } else {
+            // No profile set: the launch Nametag sheet re-offers until one
+            // exists, so the conversation flow proceeds without prompting.
+            QAEvent.emit(.onboarding, "profile_skipped", ["reason": "unset_owned_by_nametag"])
+        }
+        await transitionAfterProfileSetup()
     }
 
     /// Call this when the invite has been accepted
-    func inviteWasAccepted(for clientId: String) async {
+    func inviteWasAccepted(for conversationId: String) async {
         guard isWaitingForInviteAcceptance else {
             return
         }
@@ -392,68 +432,10 @@ final class ConversationOnboardingCoordinator {
 
         switch state {
         case .idle, .started:
-            await startNotificationFlow(for: clientId)
+            await startNotificationFlow(for: conversationId)
         default:
             break
         }
-    }
-
-    /// User tapped to set up their quickname (opens profile editor)
-    func didTapProfilePhoto() {
-        guard case .setupQuickname = state else {
-            skipAddQuickname()
-            return
-        }
-        hasShownQuicknameEditor = true
-        shouldAnimateAvatarForQuicknameSetup = false
-        state = .settingUpQuickname
-        handleStateChange()
-    }
-
-    func presentWhatIsQuickname() {
-        state = .quicknameLearnMore
-        handleStateChange()
-    }
-
-    func onContinueFromWhatIsQuickname() {
-        state = .savedAsQuicknameSuccess
-        handleStateChange()
-    }
-
-    func didSelectQuickname() async {
-        QAEvent.emit(.onboarding, "quickname_applied")
-        shouldAnimateAvatarForQuicknameSetup = false
-        await transitionAfterQuickname()
-    }
-
-    func skipAddQuickname() {
-        guard case .addQuickname = state else { return }
-        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "user"])
-        Task {
-            await transitionAfterQuickname()
-        }
-    }
-
-    private func addQuicknameDidAutoDismiss() async {
-        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "auto"])
-        await transitionAfterQuickname()
-    }
-
-    /// Handle when display name editing ends
-    /// - Parameters:
-    ///   - profile: The current profile
-    ///   - didChangeProfile: Whether the profile was actually changed
-    ///   - isSavingAsQuickname: Whether the user is saving this as their quickname
-    func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        let quicknameSettings = quicknameViewModel.quicknameSettings
-        guard state == .settingUpQuickname, quicknameSettings.isDefault else { return }
-
-        quicknameViewModel.editingDisplayName = displayName
-        quicknameViewModel.profileImage = profileImage
-        quicknameViewModel.save()
-        QAEvent.emit(.onboarding, "quickname_saved", ["name": displayName])
-        state = .quicknameLearnMore
-        handleStateChange()
     }
 
     /// Request notification permission from the user
@@ -464,13 +446,13 @@ final class ConversationOnboardingCoordinator {
             state = .notificationsEnabled
             handleStateChange()
 
-            // Check if we need to show quickname flow next (from invite acceptance)
-            if shouldShowQuicknameAfterNotifications,
+            // Check if we need to show profile flow next (from invite acceptance)
+            if shouldShowProfileSetupAfterNotifications,
                !isWaitingForInviteAcceptance,
-               let clientId = pendingClientId {
-                await startQuicknameFlow(for: clientId)
-                shouldShowQuicknameAfterNotifications = false
-                pendingClientId = nil
+               let conversationId = pendingConversationId {
+                await startProfileSetupFlow(for: conversationId)
+                shouldShowProfileSetupAfterNotifications = false
+                pendingConversationId = nil
             }
         } else {
             // Check if it was denied or just not determined
@@ -509,19 +491,29 @@ final class ConversationOnboardingCoordinator {
         await complete()
     }
 
-    private func transitionAfterQuickname() async {
+    private func transitionAfterProfileSetup() async {
+        await transitionToNotificationState()
+    }
+
+    /// Called by the NUX paywall view after the user either subscribes or
+    /// claims the 7-day trial. Idempotent — extra calls after the state
+    /// already moved on are no-ops.
+    func userDidCompleteNUXPaywall() async {
+        guard case .presentingPaywall = state else { return }
+        hasShownNUXPaywall = true
         await transitionToNotificationState()
     }
 
     /// Reset onboarding state (useful for testing)
     func reset(conversationId: String? = nil) {
         hasCompletedOnboarding = false
-        hasShownQuicknameEditor = false
+        hasShownProfileEditor = false
+        hasShownNUXPaywall = false
         state = .idle
 
-        // If conversationId provided, clear that specific conversation's quickname flag
+        // If conversationId provided, clear that specific conversation's profile flag
         if let conversationId = conversationId {
-            setHasSetQuickname(false, for: conversationId)
+            setHasSetProfile(false, for: conversationId)
         }
     }
 

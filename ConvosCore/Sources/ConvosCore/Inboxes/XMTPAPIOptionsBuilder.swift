@@ -3,8 +3,8 @@ import Foundation
 
 /// Builds XMTP API options for the given environment
 ///
-/// This extracts the API options construction from InboxStateMachine for reuse
-/// in static XMTP operations like `getNewestMessageMetadata`.
+/// This extracts the API options construction from SessionStateMachine so it
+/// can be reused anywhere XMTP API options are needed.
 public struct XMTPAPIOptionsBuilder {
     /// Builds ClientOptions.Api for the given environment
     ///
@@ -21,7 +21,6 @@ public struct XMTPAPIOptionsBuilder {
 
         return ClientOptions.Api(
             env: environment.xmtpEnv,
-            isSecure: environment.isSecure,
             appVersion: "convos/\(Bundle.appVersion)"
         )
     }
@@ -55,19 +54,5 @@ public extension AppEnvironment {
             return nil
         }
         return endpoint
-    }
-
-    /// Whether to use secure (TLS) connection
-    var isSecure: Bool {
-        switch self {
-        case .local, .tests:
-            // Support environment variable for CI
-            guard let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] else {
-                return false
-            }
-            return envSecure.lowercased() == "true" || envSecure == "1"
-        default:
-            return true
-        }
     }
 }

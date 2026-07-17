@@ -49,8 +49,8 @@ Use one shared encryption key per conversation group and store encrypted image r
 
 ## Related Files
 
-- `ConvosProfiles/Sources/ConvosProfiles/Proto/profile_messages.proto` — `EncryptedProfileImageRef` for profile avatars
-- `ConvosProfiles/Sources/ConvosProfiles/Crypto/ImageEncryption.swift` — AES-256-GCM encrypt/decrypt
+- `ConvosCore/Sources/ConvosCore/Profiles/Proto/profile_messages.proto` — `EncryptedProfileImageRef` for profile avatars
+- `ConvosCore/Sources/ConvosCore/Profiles/Crypto/ImageEncryption.swift` — AES-256-GCM encrypt/decrypt
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift` — encrypts and uploads profile avatars
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift` — group image encryption
 - `ConvosCore/Sources/ConvosCore/Crypto/EncryptedImageService.swift` — encrypted image loading

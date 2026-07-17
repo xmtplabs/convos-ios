@@ -25,6 +25,16 @@ jobs:
           rm -rf swiftlint swiftlint.zip
           swiftlint version
 
+      - name: Cache SwiftLint cache
+        uses: actions/cache@v4
+        with:
+          path: .swiftlint-cache
+          key: swiftlint-${{ env.SWIFTLINT_VERSION }}-${{ hashFiles('.swiftlint.yml') }}-${{ hashFiles('**/*.swift') }}
+          restore-keys: |
+            swiftlint-${{ env.SWIFTLINT_VERSION }}-${{ hashFiles('.swiftlint.yml') }}-
+
       - name: Run SwiftLint
-        # --strict makes warnings fail the job
-        run: swiftlint lint --strict
+        # --strict makes warnings fail the job. --cache-path makes re-runs
+        # on the same PR (e.g. after a force-push that touches a few files)
+        # only re-analyze what changed.
+        run: swiftlint lint --strict --cache-path .swiftlint-cache

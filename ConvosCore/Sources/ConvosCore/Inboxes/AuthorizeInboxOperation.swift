@@ -1,4 +1,5 @@
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 
@@ -14,7 +15,7 @@ protocol AuthorizeInboxOperationProtocol {
 /// Set is only modified during initialization. All task operations use `cancelAndReplaceTask`
 /// which acquires the lock before any mutation.
 final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
-    let stateMachine: InboxStateMachine
+    let stateMachine: SessionStateMachine
     private var cancellables: Set<AnyCancellable> = []
     private let taskLock: NSLock = NSLock()
     private var _task: Task<Void, Never>?
@@ -45,7 +46,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        xmtpClientFactory: XMTPClientFactory = .onDisk,
+        coreActions: any CoreActions
     ) -> AuthorizeInboxOperation {
         let operation = AuthorizeInboxOperation(
             clientId: clientId,
@@ -58,9 +61,11 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            xmtpClientFactory: xmtpClientFactory,
+            coreActions: coreActions
         )
-        operation.authorize(inboxId: inboxId, clientId: clientId)
+        operation.authorize(inboxId: inboxId)
         return operation
     }
 
@@ -72,7 +77,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         environment: AppEnvironment,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        xmtpClientFactory: XMTPClientFactory = .onDisk,
+        coreActions: any CoreActions
     ) -> AuthorizeInboxOperation {
         // Generate clientId before creating state machine
         let clientId = ClientId.generate().value
@@ -86,9 +93,11 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             startsStreamingServices: true,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            xmtpClientFactory: xmtpClientFactory,
+            coreActions: coreActions
         )
-        operation.register(clientId: clientId)
+        operation.register()
         return operation
     }
 
@@ -103,17 +112,21 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?,
-        apiClient: (any ConvosAPIClientProtocol)?
+        apiClient: (any ConvosAPIClientProtocol)?,
+        xmtpClientFactory: XMTPClientFactory,
+        coreActions: any CoreActions
     ) {
         let syncingManager = startsStreamingServices ? SyncingManager(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
-            notificationCenter: platformProviders.notificationCenter
+            notificationCenter: platformProviders.notificationCenter,
+            deviceConnections: platformProviders.deviceConnections,
+            coreActions: coreActions
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
-        stateMachine = InboxStateMachine(
+        stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: identityStore,
             invitesRepository: invitesRepository,
@@ -123,7 +136,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             environment: environment,
             appLifecycle: platformProviders.appLifecycle,
-            apiClient: apiClient
+            apiClient: apiClient,
+            xmtpClientFactory: xmtpClientFactory
         )
     }
 
@@ -139,18 +153,18 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         _task = newTask
     }
 
-    private func authorize(inboxId: String, clientId: String) {
+    private func authorize(inboxId: String) {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.authorize(inboxId: inboxId, clientId: clientId)
+            await stateMachine.authorize(inboxId: inboxId)
         }
         cancelAndReplaceTask(with: newTask)
     }
 
-    private func register(clientId: String) {
+    private func register() {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.register(clientId: clientId)
+            await stateMachine.register()
         }
         cancelAndReplaceTask(with: newTask)
     }

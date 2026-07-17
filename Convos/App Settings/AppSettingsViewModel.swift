@@ -10,40 +10,101 @@ final class AppSettingsViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var deletionProgress: InboxDeletionProgress?
     private(set) var deletionError: Error?
+    /// Whether this device holds the account's main (oldest) iCloud key.
+    /// Escalates the delete-all confirmation copy - wiping the main
+    /// device removes the key other devices pair through.
+    private(set) var currentDeviceIsMain: Bool = false
 
     // MARK: - Dependencies
 
     private let session: any SessionManagerProtocol
+    let connectionsListViewModel: ConnectionsListViewModel
 
     init(session: any SessionManagerProtocol) {
         self.session = session
+
+        let callbackScheme = ConfigManager.shared.appUrlScheme
+
+        let manager = session.cloudConnectionManager(
+            callbackURLScheme: callbackScheme
+        )
+        let repository = session.cloudConnectionRepository()
+
+        self.connectionsListViewModel = ConnectionsListViewModel(
+            cloudConnectionManager: manager,
+            cloudConnectionRepository: repository,
+            deviceConnectionAuthorizer: session.deviceConnectionAuthorizer()
+        )
     }
 
     // MARK: - Actions
 
+    /// Refreshes the main-device designation for the delete-all
+    /// confirmation. Best-effort - defaults to false on failure so the
+    /// escalated warning never blocks a legitimate delete.
+    func refreshMainDeviceStatus() async {
+        let snapshot = await session.iCloudDeviceBackupsSnapshot()
+        currentDeviceIsMain = snapshot.currentDeviceIsMain
+    }
+
     func deleteAllData(onComplete: @escaping () -> Void) {
         guard !isDeleting else { return }
+        prepareForDeletion()
+        Task { await runDeletion(onComplete: onComplete) }
+    }
+
+    private func prepareForDeletion() {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
+    }
 
-        QuicknameSettingsViewModel.shared.delete()
-        ConversationViewModel.resetUserDefaults()
-        ConversationsViewModel.resetUserDefaults()
-        ConversationOnboardingCoordinator.resetUserDefaults()
+    private func resetLocalState() {
+        Self.resetProfile(session: session)
+        Self.resetGlobalDefaults()
+        Self.resetConversationDefaults()
+        Self.resetConversationsDefaults()
+        Self.resetOnboardingDefaults()
+    }
+
+    // The profile singleton holds a writer bound to the old inbox. Delete-all
+    // registers a fresh inbox, so we rebind to point it at the new one;
+    // otherwise a later "My Info" save targets the dead inbox and never reaches
+    // new conversations. rebind also clears the editing fields
+    private static func resetProfile(session: any SessionManagerProtocol) {
+        ProfileSettingsViewModel.shared.rebind(session: session)
+    }
+
+    private static func resetGlobalDefaults() {
         GlobalConvoDefaults.shared.reset()
+    }
 
-        Task {
-            do {
-                for try await progress in session.deleteAllInboxesWithProgress() {
-                    deletionProgress = progress
-                }
-                isDeleting = false
-                onComplete()
-            } catch {
-                deletionError = error
-                isDeleting = false
+    private static func resetConversationDefaults() {
+        ConversationViewModel.resetUserDefaults()
+    }
+
+    private static func resetConversationsDefaults() {
+        ConversationsViewModel.resetUserDefaults()
+    }
+
+    private static func resetOnboardingDefaults() {
+        ConversationOnboardingCoordinator.resetUserDefaults()
+    }
+
+    private func runDeletion(onComplete: @escaping () -> Void) async {
+        do {
+            for try await progress in session.deleteAllInboxesWithProgress() {
+                deletionProgress = progress
             }
+            // Wipe local UI state only after the on-disk deletion succeeded — otherwise
+            // a failure mid-stream would leave settings appearing reset while the
+            // underlying inboxes are still on device.
+            resetLocalState()
+            isDeleting = false
+            onComplete()
+        } catch {
+            deletionError = error
+            isDeleting = false
         }
     }
 }

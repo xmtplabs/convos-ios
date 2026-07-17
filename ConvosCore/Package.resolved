@@ -1,5 +1,5 @@
 {
-  "originHash" : "71fc4f0a471170157f392192c900a8a7ad94ed62bd37ed05387c05a3a3b85a2e",
+  "originHash" : "1df5b4ee6fed5d5b871e1d15a8c8645e2c0b749f3301c7918d30ddcf35a967ad",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "8ff57dad962668357af2959fdd63868682f3053e",
         "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "convos-shared",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xmtplabs/convos-shared.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "8b5f741bb0368c1a4edea87f00c1ec0463b181bb"
       }
     },
     {
@@ -141,8 +150,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.9.0-dev.6ecd439",
-        "revision" : "297e684d07e78f87da617be80565359c315ba6f0"
+        "branch" : "ios-4.11.0-nightly.20260716.e444995",
+        "revision" : "c5f3be41d1fe6026745af27285db3de3ee5ce8b0"
       }
     },
     {
@@ -195,8 +204,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "5073617dac96330a486245e4c0179cb0a6fd2256",
+        "version" : "1.12.0"
       }
     },
     {

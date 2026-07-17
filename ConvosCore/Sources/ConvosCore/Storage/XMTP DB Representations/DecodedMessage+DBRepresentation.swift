@@ -1,6 +1,9 @@
 import ConvosAppData
+import ConvosConnections
+import ConvosConnectionsXMTP
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 import XMTPiOS
 
 extension Character {
@@ -27,7 +30,7 @@ extension String {
 
 extension XMTPiOS.DecodedMessage {
     enum DecodedMessageDBRepresentationError: Error {
-        case mismatchedContentType, unsupportedContentType
+        case mismatchedContentType, unsupportedContentType, untrustedSender
     }
 
     private struct DBMessageComponents {
@@ -62,11 +65,37 @@ extension XMTPiOS.DecodedMessage {
             components = try handleRemoteAttachmentContent()
         case ContentTypeGroupUpdated:
             components = try handleGroupUpdatedContent()
+        case ContentTypeLeaveRequest:
+            components = handleLeaveRequestContent()
         case ContentTypeExplodeSettings:
             components = try handleExplodeSettingsContent()
-        case ContentTypeAssistantJoinRequest:
-            components = try handleAssistantJoinRequestContent()
+        case ContentTypeAgentJoinRequest:
+            components = try handleAgentJoinRequestContent()
+        case ContentTypeCloudConnectionGrantRequest:
+            components = try handleConnectionGrantRequestContent()
+        case ContentTypeCapabilityRequest:
+            components = try handleCapabilityRequestContent()
+        case ContentTypeCapabilityRequestResult:
+            components = try handleCapabilityRequestResultContent()
+        case ContentTypeConnectionEvent:
+            components = try handleConnectionEventContent()
+        case ContentTypeConnectionInvocation:
+            components = try handleConnectionInvocationContent()
+        case ContentTypeConnectionInvocationResult:
+            components = try handleConnectionInvocationResultContent()
+        case ContentTypeConnectionPayload:
+            components = try handleConnectionPayloadContent()
+        case ContentTypeReadReceipt:
+            throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
+            // Read receipts are dropped silently above because of their volume;
+            // anything else without a registered codec gets a trace so unknown
+            // inbound traffic is visible in exported logs.
+            let version = "\(encodedContentType.versionMajor).\(encodedContentType.versionMinor)"
+            Log.warning(
+                "Dropping message \(id) (dateNs=\(sentAtNs)) in conversation \(conversationId) from \(senderInboxId): "
+                + "unsupported content type \(encodedContentType.authorityID)/\(encodedContentType.typeID) v\(version)"
+            )
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         }
 
@@ -105,6 +134,17 @@ extension XMTPiOS.DecodedMessage {
                 sourceMessageId: nil,
                 emoji: nil,
                 invite: invite,
+                attachmentUrls: [],
+                text: contentString,
+                update: nil
+            )
+        } else if !isContentEmoji, MessageAgentShare.from(text: contentString) != nil {
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .agentShare,
+                sourceMessageId: nil,
+                emoji: nil,
+                invite: nil,
                 attachmentUrls: [],
                 text: contentString,
                 update: nil
@@ -159,6 +199,18 @@ extension XMTPiOS.DecodedMessage {
                     update: nil
                 )
             }
+            if !isContentEmoji, MessageAgentShare.from(text: contentString) != nil {
+                return DBMessageComponents(
+                    messageType: .reply,
+                    contentType: .agentShare,
+                    sourceMessageId: sourceMessageId,
+                    emoji: nil,
+                    invite: nil,
+                    attachmentUrls: [],
+                    text: contentString,
+                    update: nil
+                )
+            }
             if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
                 return DBMessageComponents(
                     messageType: .reply,
@@ -185,9 +237,6 @@ extension XMTPiOS.DecodedMessage {
         case ContentTypeAttachment:
             guard let attachment = contentReply.content as? Attachment else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
-            }
-            guard attachment.mimeType.hasPrefix("image/") else {
-                throw DecodedMessageDBRepresentationError.unsupportedContentType
             }
             let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
             return DBMessageComponents(
@@ -256,9 +305,6 @@ extension XMTPiOS.DecodedMessage {
         guard let attachment = content as? Attachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
-        guard attachment.mimeType.hasPrefix("image/") else {
-            throw DecodedMessageDBRepresentationError.unsupportedContentType
-        }
         let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
         return DBMessageComponents(
             messageType: .original,
@@ -289,13 +335,19 @@ extension XMTPiOS.DecodedMessage {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         let storedAttachments = remoteAttachments.map { attachment in
+            let inferredMimeType: String? = attachment.filename.flatMap { filename in
+                let ext = (filename as NSString).pathExtension.lowercased()
+                guard !ext.isEmpty else { return nil }
+                return UTType(filenameExtension: ext)?.preferredMIMEType
+            }
             let stored = StoredRemoteAttachment(
                 url: attachment.url,
                 contentDigest: attachment.contentDigest,
                 secret: attachment.secret,
                 salt: attachment.salt,
                 nonce: attachment.nonce,
-                filename: attachment.filename
+                filename: attachment.filename,
+                mimeType: inferredMimeType
             )
             return (try? stored.toJSON()) ?? attachment.url
         }
@@ -315,13 +367,19 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachment = content as? RemoteAttachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let inferredMimeType: String? = remoteAttachment.filename.flatMap { filename in
+            let ext = (filename as NSString).pathExtension.lowercased()
+            guard !ext.isEmpty else { return nil }
+            return UTType(filenameExtension: ext)?.preferredMIMEType
+        }
         let stored = StoredRemoteAttachment(
             url: remoteAttachment.url,
             contentDigest: remoteAttachment.contentDigest,
             secret: remoteAttachment.secret,
             salt: remoteAttachment.salt,
             nonce: remoteAttachment.nonce,
-            filename: remoteAttachment.filename
+            filename: remoteAttachment.filename,
+            mimeType: inferredMimeType
         )
         let json = (try? stored.toJSON()) ?? remoteAttachment.url
         return DBMessageComponents(
@@ -421,6 +479,12 @@ extension XMTPiOS.DecodedMessage {
                     )
                 }
             }
+        // `groupUpdated.leftInboxes` (self-removals finalized by an authorized
+        // client) is deliberately not mapped: the leaver's earlier
+        // leave-request message already produced the visible "left" update
+        // (see `handleLeaveRequestContent`), so rendering the finalization
+        // commit too would duplicate the transcript row. `removedInboxes`
+        // only carries admin-initiated removals.
         let update = DBMessage.Update(
             initiatedByInboxId: groupUpdated.initiatedByInboxID,
             addedInboxIds: groupUpdated.addedInboxes.map { $0.inboxID },
@@ -439,9 +503,38 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleAssistantJoinRequestContent() throws -> DBMessageComponents {
+    /// A leave-request message is the sender announcing their own departure.
+    /// The MLS remove-commit that actually drops them from the roster is
+    /// finalized later by an authorized client, so this message is the prompt
+    /// signal remote devices key the "left" transcript row and member-list
+    /// drop off. Stored as a membership update where the sender both
+    /// initiated the change and is the removed member -- that identity is how
+    /// rendering distinguishes a self-leave from an admin removal. The later
+    /// finalization commit reports the leaver via `leftInboxes`, which is
+    /// deliberately not rendered (see `handleGroupUpdatedContent`), so the
+    /// transcript never shows the departure twice.
+    private func handleLeaveRequestContent() -> DBMessageComponents {
+        let update = DBMessage.Update(
+            initiatedByInboxId: senderInboxId,
+            addedInboxIds: [],
+            removedInboxIds: [senderInboxId],
+            metadataChanges: [],
+            expiresAt: nil
+        )
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .update,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: nil,
+            update: update
+        )
+    }
+
+    private func handleAgentJoinRequestContent() throws -> DBMessageComponents {
         let content = try content() as Any
-        guard let request = content as? AssistantJoinRequest else {
+        guard let request = content as? AgentJoinRequest else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         return DBMessageComponents(
@@ -451,6 +544,173 @@ extension XMTPiOS.DecodedMessage {
             emoji: nil,
             attachmentUrls: [],
             text: request.status.rawValue,
+            update: nil
+        )
+    }
+
+    private func handleConnectionGrantRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? CloudConnectionGrantRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        try Self.validateConnectionGrantRequest(
+            request,
+            senderInboxId: senderInboxId,
+            messageId: id
+        )
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionGrantRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    /// Validates a `CloudConnectionGrantRequest` against its actual sender. Throws
+    /// `untrustedSender` when the payload's `requestedByInboxId` does not match
+    /// the XMTP-attested sender — a hostile member could otherwise attribute
+    /// the request to the agent and trick the user into running a grant
+    /// flow for services the real agent never asked for.
+    static func validateConnectionGrantRequest(
+        _ request: CloudConnectionGrantRequest,
+        senderInboxId: String,
+        messageId: String
+    ) throws {
+        guard request.requestedByInboxId == senderInboxId else {
+            Log.warning(
+                "Dropping CloudConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
+            )
+            throw DecodedMessageDBRepresentationError.untrustedSender
+        }
+    }
+
+    private func handleCapabilityRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? CapabilityRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    /// Result rows are persisted verbatim; legitimacy is enforced at derivation
+    /// time by `CapabilityConnectPrompt.resolution`, which only lets a result
+    /// resolve a request when the row's XMTP-attested sender differs from the
+    /// request's asker. Unlike `CloudConnectionGrantRequest` (validated above
+    /// via `validateConnectionGrantRequest`), the result payload carries no
+    /// sender claim to cross-check here — and the matching request row may not
+    /// have synced yet, so the asker comparison can only happen at the join.
+    private func handleCapabilityRequestResultContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let result = content as? CapabilityRequestResult else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(result)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequestResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionEventContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let event = content as? ConnectionEvent else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.eventSummary(event)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionEvent,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionInvocationContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let invocation = content as? ConnectionInvocation else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.invocationSummary(invocation)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionInvocation,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionInvocationResultContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let result = content as? ConnectionInvocationResult else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.resultSummary(result)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionInvocationResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionPayloadContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let payload = content as? ConnectionPayload else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        // Sender display name is resolved at processor time — the formatter sets
+        // `actor: .messageSender` so the processor knows to prepend the underlying
+        // message's sender before rendering.
+        let summary = ConnectionMessageSummaryFormatter.payloadSummary(payload)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionPayload,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
             update: nil
         )
     }

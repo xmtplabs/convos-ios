@@ -1,7 +1,19 @@
+import ConvosMetrics
 import SwiftUI
 
 struct PhotosInfoSheet: View {
     @Environment(\.dismiss) var dismiss: DismissAction
+
+    @State private var navState: PhotosInfoNavigatorImpl = .init()
+    @State private var navigator: PhotosInfoCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = PhotosInfoCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var body: some View {
         FeatureInfoSheet(
@@ -16,6 +28,13 @@ struct PhotosInfoSheet: View {
             learnMoreURL: URL(string: "https://learn.convos.org/pics"),
             showDragIndicator: true
         )
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

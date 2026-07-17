@@ -47,7 +47,6 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let draftConversationRepository: any DraftConversationRepositoryProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
@@ -57,14 +56,12 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     public init(
         conversationId: String? = nil,
-        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
         draftConversationRepository: (any DraftConversationRepositoryProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
     ) {
         self.conversationIdSubject = .init(conversationId ?? "mock-conversation-\(UUID().uuidString)")
-        self.myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
         self.draftConversationRepository = draftConversationRepository ?? MockDraftConversationRepository()
         self.conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self.conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
@@ -79,20 +76,41 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
 
     // MARK: - DraftConversationWriterProtocol Methods
 
+    /// When false, `createConversation` / `joinConversation` emit only their
+    /// initial state and then suspend until cancelled, so tests can drive
+    /// every subsequent state deterministically through `setState` instead
+    /// of racing the automatic `.ready` transition.
+    public var autoCompletesActions: Bool = true
+
     public func createConversation() async throws {
         setState(.creating)
+        guard autoCompletesActions else {
+            try await suspendUntilCancelled()
+            return
+        }
         try await Task.sleep(nanoseconds: 100_000_000)
         setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .created)))
     }
 
     public func joinConversation(inviteCode: String) async throws {
         setState(.validating(inviteCode: inviteCode))
+        guard autoCompletesActions else {
+            try await suspendUntilCancelled()
+            return
+        }
         try await Task.sleep(nanoseconds: 100_000_000)
         setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .joined)))
     }
 
+    private func suspendUntilCancelled() async throws {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     public func send(text: String) async throws {}
     public func send(text: String, afterPhoto trackingKey: String?) async throws {}
+    public func send(text: String, clientMessageId: String) async throws {}
     public func send(image: ImageType) async throws {}
 
     public func startEagerUpload(image: ImageType) async throws -> String {
@@ -100,22 +118,32 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
     }
 
     public func sendEagerPhoto(trackingKey: String) async throws {}
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String { UUID().uuidString }
+    public func sendEagerVideo(trackingKey: String) async throws {}
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func cancelEagerUpload(trackingKey: String) async {}
+    public func awaitEagerUpload(trackingKey: String) async throws {}
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String { UUID().uuidString }
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String { clientMessageId }
+    public func sendBuilderBundle(text: String, bundleItems: [MultiAttachmentBundleItem], textClientMessageId: String, bundleClientMessageId: String, awaitsAgentJoin: Bool) async throws {}
+    public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String { UUID().uuidString }
+    public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String { UUID().uuidString }
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String { UUID().uuidString }
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func retryFailedMessage(id: String) async throws {}
     public func deleteFailedMessage(id: String) async throws {}
 
-    public func delete() async {
-        setState(.deleting)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        setState(.uninitialized)
-    }
-
     public func resetFromError() async {
         setState(.uninitialized)
     }
+
+    public func insertPendingInvite(text: String) async throws -> String {
+        UUID().uuidString
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {}
 
     // MARK: - Test Helpers
 

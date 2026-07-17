@@ -1,6 +1,6 @@
 # ConvosAppData
 
-A Swift package providing shared protobuf types and serialization helpers for XMTP group `appData` storage. This is the foundation layer used by [ConvosInvites](../ConvosInvites/) and [ConvosProfiles](../ConvosProfiles/).
+A Swift package providing shared protobuf types and serialization helpers for XMTP group `appData` storage. This is the foundation layer used by [ConvosInvites](../ConvosInvites/) and by the Profiles module inside [ConvosCore](../ConvosCore/) (at `Sources/ConvosCore/Profiles/`).
 
 ## Overview
 

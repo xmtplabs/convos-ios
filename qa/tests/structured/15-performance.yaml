@@ -4,7 +4,10 @@ description: >
   Measure and record performance metrics for critical user-facing operations.
   This test establishes baseline timings and detects regressions. Results
   are reported as a table — no hard pass/fail thresholds on first run.
-tags: [performance, baselines, special]
+  Single-inbox refactor (C4): LRU/capacity assertions removed; there is one
+  MessagingService singleton, so `inboxAcquired` is a cache hit after the
+  first launch. See docs/plans/single-inbox-identity-refactor.md.
+tags: [performance, baselines, special, single-inbox]
 depends_on: ["02"]
 estimated_duration_s: 300
 
@@ -72,7 +75,9 @@ steps:
     criteria: new_convo_timing
     note: >
       Extract inboxAcquired, creating, and ready timings.
-      Target: inboxAcquired < 500ms, ready < 1000ms.
+      Single-inbox model: inboxAcquired is a cache hit after first launch
+      (< 50ms). Cold-start target (fresh install, first identity creation)
+      is < 1500ms. Ready < 1000ms.
 
   - id: join_conversation
     name: "Join conversation via invite timing"

@@ -39,50 +39,59 @@ public struct InvitePayload: Sendable {
 
   /// optional conversation metadata
   public var name: String {
-    get {return _name ?? String()}
+    get {_name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {return self._name != nil}
+  public var hasName: Bool {self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
   public var description_p: String {
-    get {return _description_p ?? String()}
+    get {_description_p ?? String()}
     set {_description_p = newValue}
   }
   /// Returns true if `description_p` has been explicitly set.
-  public var hasDescription_p: Bool {return self._description_p != nil}
+  public var hasDescription_p: Bool {self._description_p != nil}
   /// Clears the value of `description_p`. Subsequent reads from it will return its default value.
   public mutating func clearDescription_p() {self._description_p = nil}
 
   public var imageURL: String {
-    get {return _imageURL ?? String()}
+    get {_imageURL ?? String()}
     set {_imageURL = newValue}
   }
   /// Returns true if `imageURL` has been explicitly set.
-  public var hasImageURL: Bool {return self._imageURL != nil}
+  public var hasImageURL: Bool {self._imageURL != nil}
   /// Clears the value of `imageURL`. Subsequent reads from it will return its default value.
   public mutating func clearImageURL() {self._imageURL = nil}
+
+  public var emoji: String {
+    get {_emoji ?? String()}
+    set {_emoji = newValue}
+  }
+  /// Returns true if `emoji` has been explicitly set.
+  public var hasEmoji: Bool {self._emoji != nil}
+  /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
+  public mutating func clearEmoji() {self._emoji = nil}
 
   /// Compact timestamp encoding: Unix timestamp in seconds (8 bytes fixed)
   /// More compact than google.protobuf.Timestamp which uses two varints
   public var conversationExpiresAtUnix: Int64 {
-    get {return _conversationExpiresAtUnix ?? 0}
+    get {_conversationExpiresAtUnix ?? 0}
     set {_conversationExpiresAtUnix = newValue}
   }
   /// Returns true if `conversationExpiresAtUnix` has been explicitly set.
-  public var hasConversationExpiresAtUnix: Bool {return self._conversationExpiresAtUnix != nil}
+  public var hasConversationExpiresAtUnix: Bool {self._conversationExpiresAtUnix != nil}
   /// Clears the value of `conversationExpiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearConversationExpiresAtUnix() {self._conversationExpiresAtUnix = nil}
 
   /// Compact invite expiration: Unix timestamp in seconds (8 bytes fixed)
   public var expiresAtUnix: Int64 {
-    get {return _expiresAtUnix ?? 0}
+    get {_expiresAtUnix ?? 0}
     set {_expiresAtUnix = newValue}
   }
   /// Returns true if `expiresAtUnix` has been explicitly set.
-  public var hasExpiresAtUnix: Bool {return self._expiresAtUnix != nil}
+  public var hasExpiresAtUnix: Bool {self._expiresAtUnix != nil}
   /// Clears the value of `expiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearExpiresAtUnix() {self._expiresAtUnix = nil}
 
@@ -96,6 +105,7 @@ public struct InvitePayload: Sendable {
   fileprivate var _name: String? = nil
   fileprivate var _description_p: String? = nil
   fileprivate var _imageURL: String? = nil
+  fileprivate var _emoji: String? = nil
   fileprivate var _conversationExpiresAtUnix: Int64? = nil
   fileprivate var _expiresAtUnix: Int64? = nil
 }
@@ -124,7 +134,7 @@ public struct SignedInvite: Sendable {
 
 extension InvitePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "InvitePayload"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}conversationToken\0\u{3}creator_inbox_id\0\u{1}tag\0\u{1}name\0\u{1}description\0\u{1}imageURL\0\u{1}conversationExpiresAtUnix\0\u{1}expiresAtUnix\0\u{1}expiresAfterUse\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}conversationToken\0\u{3}creator_inbox_id\0\u{1}tag\0\u{1}name\0\u{1}description\0\u{1}imageURL\0\u{1}conversationExpiresAtUnix\0\u{1}expiresAtUnix\0\u{1}expiresAfterUse\0\u{1}emoji\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -141,6 +151,7 @@ extension InvitePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 7: try { try decoder.decodeSingularSFixed64Field(value: &self._conversationExpiresAtUnix) }()
       case 8: try { try decoder.decodeSingularSFixed64Field(value: &self._expiresAtUnix) }()
       case 9: try { try decoder.decodeSingularBoolField(value: &self.expiresAfterUse) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
       default: break
       }
     }
@@ -178,6 +189,9 @@ extension InvitePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if self.expiresAfterUse != false {
       try visitor.visitSingularBoolField(value: self.expiresAfterUse, fieldNumber: 9)
     }
+    try { if let v = self._emoji {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 10)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -188,6 +202,7 @@ extension InvitePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._name != rhs._name {return false}
     if lhs._description_p != rhs._description_p {return false}
     if lhs._imageURL != rhs._imageURL {return false}
+    if lhs._emoji != rhs._emoji {return false}
     if lhs._conversationExpiresAtUnix != rhs._conversationExpiresAtUnix {return false}
     if lhs._expiresAtUnix != rhs._expiresAtUnix {return false}
     if lhs.expiresAfterUse != rhs.expiresAfterUse {return false}

@@ -10,9 +10,11 @@ import UIKit
 @MainActor
 public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
     private let _identifierForVendor: String?
+    private let _deviceName: String
 
     public init() {
         _identifierForVendor = UIDevice.current.identifierForVendor?.uuidString
+        _deviceName = DeviceModelName.userFacingDeviceName()
     }
 
     /// Returns the device's identifier for vendor (IDFV).
@@ -49,6 +51,13 @@ public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
         #else
         return "ios"
         #endif
+    }
+
+    /// User-visible device name (user-assigned when the entitlement allows
+    /// it, marketing model name otherwise - see `DeviceModelName`).
+    /// Captured at init time (main-actor) and exposed nonisolated.
+    public nonisolated var deviceName: String {
+        _deviceName
     }
 }
 #endif

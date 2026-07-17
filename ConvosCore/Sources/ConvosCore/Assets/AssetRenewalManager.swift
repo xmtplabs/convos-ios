@@ -144,13 +144,15 @@ public actor AssetRenewalManager {
             for asset in assets {
                 switch asset {
                 case let .profileAvatar(url, _, _, _):
-                    // Update ALL profiles with this avatar URL (same person may appear in multiple conversations)
-                    let profiles = try DBMemberProfile
-                        .filter(DBMemberProfile.Columns.avatar == url)
+                    // Stamp lastRenewed on all canonical avatar slots with this URL
+                    // (same person may appear in multiple conversations). updatedAt
+                    // is left untouched so renewal does not perturb merge recency.
+                    var avatars = try DBProfileAvatar
+                        .filter(DBProfileAvatar.Columns.url == url)
                         .fetchAll(db)
-                    for var profile in profiles {
-                        profile = profile.with(avatarLastRenewed: now)
-                        try profile.save(db)
+                    for i in avatars.indices {
+                        avatars[i].lastRenewed = now
+                        try avatars[i].save(db)
                     }
                 case let .groupImage(url, _, _):
                     // Update ALL conversations with this image URL (for consistency with ExpiredAssetRecoveryHandler)

@@ -1,0 +1,465 @@
+id: "38"
+name: "Pair a Second Device (Two Simulators)"
+description: >
+  Verify an onboarded user (Device A) can pair a fresh second device
+  (Device B) so both share one inbox: open the pairing sheet, exchange a
+  PIN, match the emoji fingerprint, transfer identity, and reach the
+  completed state. Then verify the revoke flow surfaces a "This device has
+  been removed" sheet on the revoked device within a couple seconds.
+  Requires TWO simulators - Device A (initiator) and Device B (joiner).
+  Device A is the production-TestFlight multi-device gate.
+tags: [pairing, multi-device, devices, core]
+depends_on: ["01"]
+estimated_duration_s: 600
+
+prerequisites:
+  two_simulators: true
+  app_installed_on_both: true
+  # Device A is fully onboarded (display name set) with >= 1 conversation.
+  # Device B is fresh-install / has never used a conversation, so the
+  # destructive "Hold to erase and pair" guard does NOT fire on the happy path.
+  device_a_onboarded: true
+  device_b_fresh: true
+  screen: conversations_list
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  pairing_url: null
+  pairing_pin: null
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: >
+      Device A = branch primary simulator, already onboarded with at least
+      one conversation in its list. Device B = a cloned simulator, freshly
+      booted with the app installed but NOT onboarded and with no used
+      conversations (so hasAnyUsedConversations == false). See RULES.md
+      "Multi-Simulator Tests" for cloning + install steps.
+
+steps:
+  # ----------------------------------------------------------------------
+  # Initiator: open the pairing sheet
+  # ----------------------------------------------------------------------
+  - id: open_devices_screen
+    name: "Device A opens the Devices screen"
+    device: A
+    actions:
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "devices-row", timeout: 10 }
+      - tap: { id: "devices-row" }
+      - wait_for_element: { id: "add-device-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "devices-view" }
+      - element_exists: { id: "add-device-button" }
+      - element_exists: { label_contains: "This device" }
+    criteria: devices_screen_reachable
+    note: >
+      Post-#910 nav: app settings open via the app-indicator-pill (top-leading),
+      NOT a settings tab/gear. Then tap devices-row. The current device row
+      shows its name plus a "This device" subtitle.
+
+  - id: open_pairing_sheet
+    name: "Device A opens the Pair new device sheet"
+    device: A
+    actions:
+      - tap: { id: "add-device-button" }
+      - wait_for_element: { id: "pairing-qr-code", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Pair new device" }
+      - element_exists: { id: "pairing-qr-code" }
+      - element_exists: { id: "hold-to-reveal-button" }
+      - element_exists: { id: "pairing-countdown" }
+    criteria: pairing_sheet_opens
+    note: >
+      The QR (id pairing-qr-code) renders blurred (radius 20) until held.
+      pairing-countdown is the ExpiryLabel showing "Expires in <N>s".
+      The spec called the QR "blurred QR code" with no id and the share
+      control a "share-pairing-link pill"; the real ids are pairing-qr-code
+      and share-pairing-link (a ShareLink labeled "Share").
+
+  - id: reveal_qr_optional
+    name: "Device A holds to reveal the QR (visual)"
+    device: A
+    optional: true
+    actions:
+      - long_press: { id: "hold-to-reveal-button", duration: 1.5 }
+      - screenshot: {}
+    verify:
+      - visual_check: "QR sharpens to full opacity while held, re-blurs on release"
+    criteria: qr_reveal_visual
+    note: >
+      Optional visual-only check. Holding hold-to-reveal-button drops the QR
+      blur to 0 and opacity to 1.0 with light sensory feedback. The pairing
+      URL is extracted from the QA event below, not by OCR-ing the QR.
+
+  - id: extract_pairing_url
+    name: "Extract pairing URL from Device A logs"
+    device: A
+    actions:
+      - sim_log_events: { event_filter: "pairing.pairing_url_created" }
+    verify:
+      - event_exists: { name: "pairing.pairing_url_created" }
+    expect_event: "pairing.pairing_url_created"
+    criteria: pairing_url_extractable
+    save:
+      pairing_url: "from pairing.pairing_url_created event (url= param)"
+    note: >
+      The sheet emits "[EVENT] pairing.pairing_url_created url=https://<domain>/pair/<slug>?expires=...&name=..."
+      once the URL is built. Pull the url= value from sim_log_events instead
+      of OCR-ing the QR. It is an HTTPS universal link on the dev associated
+      domain (dev.convos.org), not the convos-dev:// scheme.
+
+  # ----------------------------------------------------------------------
+  # Joiner: open the deep link
+  # ----------------------------------------------------------------------
+  - id: device_b_open_link
+    name: "Device B opens the pairing deep link"
+    device: B
+    actions:
+      - sim_open_url: { url: "$pairing_url" }
+      - wait_for_element: { label_contains: "Request to pair", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Request to pair" }
+      - element_exists: { label_contains: "is requesting to pair" }
+      - element_exists: { id: "pairing-countdown" }
+    criteria: joiner_sheet_opens
+    note: >
+      Device B presents JoinerPairingSheetView titled "Request to pair" with
+      copy '"<Device A name>" is requesting to pair. Paired devices sync all
+      conversations.' plus a progress spinner and countdown. On a fresh
+      install the destructive guard (next step) does NOT fire.
+
+  - id: destructive_guard_conditional
+    name: "Destructive erase-and-pair guard (only when B has used conversations)"
+    device: B
+    optional: true
+    actions:
+      - wait_for_element: { id: "hold-to-erase-and-pair-button", timeout: 8 }
+      - long_press: { id: "hold-to-erase-and-pair-button", duration: 3.2 }
+      - wait_for_element: { label_contains: "Enter the code", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "This device already has a Convos account" }
+      - element_exists: { id: "hold-to-erase-and-pair-button" }
+    criteria: destructive_guard
+    note: >
+      Conditional. Only fires when Device B's session reports
+      hasAnyUsedConversations == true. On a fresh-install Device B this step
+      is skipped (no element to find -> optional, not a failure). The button
+      id is hold-to-erase-and-pair-button (label "Hold to erase and pair",
+      3.0s hold, red .colorCaution); the spec's "hold-to-reset-device-button"
+      name does NOT exist for this control. Holding it wipes local data via
+      session.deleteAllInboxes() then the flow re-enters connecting and
+      continues to the PIN exchange. To exercise this deliberately, seed
+      Device B with a used conversation before opening the link.
+
+  # ----------------------------------------------------------------------
+  # PIN exchange
+  # ----------------------------------------------------------------------
+  - id: device_a_shows_pin
+    name: "Device A transitions to the 6-digit PIN display"
+    device: A
+    actions:
+      - wait_for_element: { id: "pairing-pin-display", timeout: 30 }
+    verify:
+      - element_exists: { id: "pairing-pin-display" }
+      - element_exists: { label_contains: "Share this code" }
+    criteria: pin_displayed_on_a
+    save:
+      pairing_pin: "read the 6 digits from pairing-pin-display (strip the space separator)"
+    note: >
+      Within ~10s Device A shows pairing-pin-display formatted as two groups
+      of 3 (PairingCoordinator.formatPin). Read the value from the element
+      label and strip any space before typing it on Device B.
+
+  - id: device_b_enters_pin
+    name: "Device B enters the PIN and submits"
+    device: B
+    actions:
+      - wait_for_element: { id: "pin-entry-field", timeout: 30 }
+      - type_in_field: { id: "pin-entry-field", text: "$pairing_pin" }
+      - wait_for_element: { id: "submit-pin-button", timeout: 10 }
+      - tap: { id: "submit-pin-button" }
+    verify:
+      - element_exists: { label_contains: "Enter the code" }
+    criteria: pin_entered_on_b
+    note: >
+      pin-entry-field is a 6-box masked field backed by a hidden numberPad
+      TextField; submit-pin-button stays disabled until 6 digits are entered.
+      Type the digits saved from Device A (no spaces).
+
+  # ----------------------------------------------------------------------
+  # Emoji fingerprint
+  # ----------------------------------------------------------------------
+  - id: emoji_fingerprint_match
+    name: "Both devices show a matching 3-emoji fingerprint"
+    actions:
+      - device_a_wait: { id: "pairing-emoji-fingerprint", timeout: 30 }
+      - device_b_wait: { id: "pairing-emoji-fingerprint", timeout: 30 }
+      - device_a_screenshot: {}
+      - device_b_screenshot: {}
+    verify:
+      - device_a_has: { id: "pairing-emoji-fingerprint" }
+      - device_b_has: { id: "pairing-emoji-fingerprint" }
+      - device_a_has: { label_contains: "Confirm pairing" }
+      - device_b_has: { label_contains: "Confirm pairing" }
+      - visual_check: "the 3 emojis are identical on Device A and Device B"
+    criteria: emoji_fingerprint_matches
+    note: >
+      Both sheets retitle to "Confirm pairing" and render pairing-emoji-fingerprint
+      (3 emojis). This is the MITM-resistance check - compare the two
+      screenshots and confirm the emojis match. Device A copy: "Make sure
+      these emoji match...before confirming." Device B copy: "Make sure these
+      emoji match..." followed by "Waiting for confirmation...".
+
+  - id: device_a_confirms_emoji
+    name: "Device A confirms the emoji fingerprint"
+    device: A
+    actions:
+      - tap: { id: "confirm-emoji-button" }
+    verify:
+      - element_not_exists: { id: "confirm-emoji-button" }
+    criteria: emoji_confirmed_on_a
+    note: >
+      confirm-emoji-button (label "Confirm") only exists on Device A. Device B
+      has no confirm button - it shows "Waiting for confirmation..." beneath
+      the emojis until A confirms.
+
+  # ----------------------------------------------------------------------
+  # Identity transfer -> completed
+  # ----------------------------------------------------------------------
+  - id: pairing_completes
+    name: "Both devices reach the completed state"
+    actions:
+      - device_a_wait: { id: "got-it-button", timeout: 45 }
+      - device_b_wait: { id: "got-it-button", timeout: 45 }
+    verify:
+      - device_a_has: { label_contains: "Device added" }
+      - device_a_has: { label_contains: "iphone.badge.checkmark" }
+      - device_b_has: { label_contains: "Device paired" }
+      - device_b_has: { label_contains: "Successfully paired" }
+      - device_a_has: { id: "got-it-button" }
+      - device_b_has: { id: "got-it-button" }
+    criteria: pairing_completed
+    note: >
+      During transfer both sheets show a rotating sync icon and are
+      non-dismissible (Device A: "Pairing device...", Device B: "Adopting
+      your identity..."). Within a couple seconds A retitles to "Device added"
+      and B to "Device paired", both with iphone.badge.checkmark and a
+      got-it-button.
+
+  - id: dismiss_completed
+    name: "Dismiss the completed sheet on both devices"
+    actions:
+      - device_a_tap: { id: "got-it-button" }
+      - device_b_tap: { id: "got-it-button" }
+      - device_a_wait: { id: "devices-view", timeout: 10 }
+    verify:
+      - device_a_has: { id: "devices-view" }
+    criteria: completed_sheet_dismissed
+    note: >
+      Tapping got-it-button dismisses each sheet. Device A returns to the
+      Devices screen.
+
+  # ----------------------------------------------------------------------
+  # Post-pair UI checks
+  # ----------------------------------------------------------------------
+  - id: device_a_shows_new_device_row
+    name: "Device A's Devices list shows Device B's row"
+    device: A
+    actions:
+      - wait_for_element: { pattern: "device-row-", timeout: 30 }
+    verify:
+      - element_count_gte: { pattern: "device-row-", min: 2 }
+    criteria: paired_device_row_appears
+    note: >
+      Optimistic insert shows Device B's UIDevice.current.name immediately;
+      the row reconciles to the real installation id within ~5-20s while the
+      cached name persists (PairedDeviceNameStore). Two device-row-* entries
+      means both devices are listed.
+
+  - id: device_b_history_no_onboarding_cta
+    name: "Device B reflects Device A history with no onboarding CTA"
+    device: B
+    optional: true
+    actions:
+      - wait_for_element: { id: "compose-button", timeout: 60 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "compose-button" }
+      - element_not_exists: { label_contains: "Add your name and pic" }
+    criteria: device_b_adopted_profile
+    note: >
+      After XMTP sync Device B's conversation list mirrors Device A. The
+      bottom-of-conversation "Add your name and pic" CTA must NOT appear -
+      pair adoption flips the onboarding flags (markCompletedForPairedDevice)
+      and rebinds ProfileSettingsViewModel.shared. Optional: timing of full
+      history sync can vary on the simulator.
+
+  # ----------------------------------------------------------------------
+  # Revoke flow (read-only safety net)
+  # ----------------------------------------------------------------------
+  - id: device_a_revoke_device_b
+    name: "Device A swipes Device B's row and deletes it"
+    device: A
+    actions:
+      - swipe: { id_pattern: "device-row-", direction: left, exclude_label: "This device" }
+      - tap: { label: "Delete" }
+      - wait_for_element: { id: "hold-to-delete-device-button", timeout: 10 }
+      - long_press: { id: "hold-to-delete-device-button", duration: 3.2 }
+    verify:
+      - element_exists: { label_contains: "Remove" }
+    criteria: revoke_initiated
+    note: >
+      Swipe Device B's row left (the current-device row has no swipe action)
+      and tap Delete to present RemoveDeviceSheetView ("Remove <name>?"). The
+      confirm control is hold-to-delete-device-button (label "Hold to delete",
+      3.0s hold, red .colorCaution); label flips to "Removing..." while
+      revokeInstallation runs. The spec's "stale-device-banner" /
+      "hold-to-reset-device-button" names do not exist - see the stale-device
+      step below for the real ids.
+
+  - id: device_b_stale_device_sheet
+    name: "Device B surfaces the stale-device sheet within seconds"
+    device: B
+    actions:
+      - wait_for_element: { id: "stale-device-sheet", timeout: 20 }
+    verify:
+      - element_exists: { id: "stale-device-sheet" }
+      - element_exists: { label_contains: "This device has been removed" }
+      - element_exists: { label_contains: "Another device removed this one" }
+      - element_exists: { id: "hold-to-delete-device-button" }
+    criteria: stale_device_surfaced
+    note: >
+      Without any foreground cycle or restart, Device B's StreamProcessor
+      receives the DeviceRemovedContent DM, the session enters
+      .error(DeviceReplacedError), and StaleDeviceObserver flips
+      isDeviceRemoved. The UI is a self-sizing SHEET (id stale-device-sheet),
+      not a banner: title "This device has been removed", body "Another device
+      removed this one from your account." + "Delete all data to start fresh
+      or pair again." The reset control is hold-to-delete-device-button
+      (label "Hold to delete"), reused from RemoveDeviceSheetView - the spec's
+      "stale-device-banner" / "hold-to-reset-device-button" ids do NOT exist.
+
+  - id: device_b_reset_stale_device
+    name: "Device B holds to delete and returns to a fresh state"
+    device: B
+    actions:
+      - long_press: { id: "hold-to-delete-device-button", duration: 3.2 }
+      - wait_for_element: { label_contains: "Convos", timeout: 30 }
+    verify:
+      - element_not_exists: { id: "stale-device-sheet" }
+    criteria: stale_device_reset
+    note: >
+      Holding the button runs resetForStaleDevice: the sheet dismisses
+      optimistically, deleteAllData runs, then the observer rebinds to the
+      freshly built session. Device B lands back in a fresh-install /
+      onboarding state. Match the onboarding/welcome screen rather than a
+      specific id since the app fully resets here.
+
+  # ----------------------------------------------------------------------
+  # Negative cases (optional - exercised on a re-paired pass)
+  # ----------------------------------------------------------------------
+  - id: negative_wrong_pin
+    name: "Wrong PIN fails the pairing on both sides"
+    optional: true
+    actions:
+      - device_b_type: { id: "pin-entry-field", text: "000000" }
+      - device_b_tap: { id: "submit-pin-button" }
+      - device_a_wait: { label_contains: "The confirmation code does not match", timeout: 30 }
+    verify:
+      - device_a_has: { label_contains: "The confirmation code does not match" }
+    criteria: wrong_pin_fails
+    note: >
+      Requires a fresh pairing session in the showingPin/pinEntry state
+      (re-run open_pairing_sheet..device_b_enters_pin first, entering
+      000000 instead of the real PIN). Device A transitions to .failed with
+      "The confirmation code does not match"; Device A also sends a
+      PairingMessageContent.error DM so Device B drops to the same failed
+      state. Optional because it needs a fresh session distinct from the
+      happy path.
+
+  - id: negative_expired_invite
+    name: "Leaving the QR open past the timeout expires the invite"
+    device: A
+    optional: true
+    actions:
+      - wait_for_element: { label_contains: "Pairing expired", timeout: 130 }
+    verify:
+      - element_exists: { label_contains: "Pairing expired. Please try again." }
+    criteria: invite_expires
+    note: >
+      Requires a fresh pairing sheet with NO device B scanning. The countdown
+      starts at 120s; after it elapses Device A transitions to .expired with
+      the clock.badge.xmark icon. Long timeout (~130s) is intentional - this
+      is the only step that legitimately waits out the full TTL. Optional and
+      slow; run in isolation.
+
+  - id: negative_cancel_mid_flow
+    name: "Cancel mid-flow notifies the other device"
+    optional: true
+    actions:
+      - device_a_tap: { id: "cancel-pairing" }
+      - device_b_wait: { label_contains: "Pairing was cancelled by the other device", timeout: 30 }
+    verify:
+      - device_b_has: { label_contains: "Pairing was cancelled by the other device" }
+    criteria: cancel_notifies_peer
+    note: >
+      Requires a fresh pairing session paused at showingPin or
+      waitingForEmoji. Tapping cancel-pairing on either side sends a
+      PairingMessageContent.error DM; the opposite side surfaces "Pairing was
+      cancelled by the other device". Optional because it needs a fresh
+      session distinct from the happy path.
+
+teardown:
+  - action: cleanup_device_b
+    optional: true
+    note: >
+      Shut down and delete the cloned Device B simulator (xcrun simctl
+      shutdown/delete). Do NOT delete Device A - it is the branch primary.
+      If the revoke flow ran, Device B is already wiped to a fresh state.
+
+criteria:
+  devices_screen_reachable:
+    description: "Device A reaches the Devices screen via app-indicator-pill -> devices-row"
+  pairing_sheet_opens:
+    description: "Add new device opens the pairing sheet with QR, hold-to-reveal, and countdown"
+  qr_reveal_visual:
+    description: "Holding hold-to-reveal-button sharpens the QR (visual, optional)"
+  pairing_url_extractable:
+    description: "Pairing URL is extractable from the pairing.pairing_url_created event"
+  joiner_sheet_opens:
+    description: "Device B opens the deep link and shows the Request to pair sheet"
+  destructive_guard:
+    description: "Erase-and-pair guard fires and is held through when B has used conversations (conditional)"
+  pin_displayed_on_a:
+    description: "Device A shows the 6-digit PIN display"
+  pin_entered_on_b:
+    description: "Device B enters the PIN and submits"
+  emoji_fingerprint_matches:
+    description: "Both devices show an identical 3-emoji fingerprint titled Confirm pairing"
+  emoji_confirmed_on_a:
+    description: "Device A confirms the emoji fingerprint (B has no confirm button)"
+  pairing_completed:
+    description: "Both devices reach Device added / Device paired completed state"
+  completed_sheet_dismissed:
+    description: "Got it dismisses the sheet and Device A returns to Devices"
+  paired_device_row_appears:
+    description: "Device A's Devices list shows two device rows after pairing"
+  device_b_adopted_profile:
+    description: "Device B reflects A's history with no Add-your-name CTA (optional)"
+  revoke_initiated:
+    description: "Device A swipes Device B's row, taps Delete, holds to delete"
+  stale_device_surfaced:
+    description: "Device B shows the stale-device sheet within seconds, no restart needed"
+  stale_device_reset:
+    description: "Holding Hold to delete resets Device B to a fresh state"
+  wrong_pin_fails:
+    description: "Wrong PIN drives both devices to the failed state (optional)"
+  invite_expires:
+    description: "Leaving the QR open past 120s expires the invite (optional, slow)"
+  cancel_notifies_peer:
+    description: "Cancelling mid-flow notifies the other device (optional)"

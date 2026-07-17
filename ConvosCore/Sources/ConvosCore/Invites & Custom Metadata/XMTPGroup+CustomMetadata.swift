@@ -1,5 +1,4 @@
 import ConvosAppData
-import ConvosProfiles
 import Foundation
 import XMTPiOS
 
@@ -50,12 +49,76 @@ extension XMTPiOS.Group {
         }
     }
 
+    public var conversationEmoji: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasEmoji, !metadata.emoji.isEmpty else { return nil }
+            return metadata.emoji
+        }
+    }
+
+    public func ensureConversationEmoji(seed: String) async throws -> String {
+        if let existingEmoji = try conversationEmoji {
+            return existingEmoji
+        }
+
+        let generatedEmoji = EmojiSelector.emoji(for: seed)
+        try await atomicUpdateMetadata(operation: "ensureConversationEmoji") { metadata in
+            if !metadata.hasEmoji || metadata.emoji.isEmpty {
+                metadata.emoji = generatedEmoji
+            }
+        } verify: { metadata in
+            metadata.hasEmoji && !metadata.emoji.isEmpty
+        }
+
+        return try conversationEmoji ?? generatedEmoji
+    }
+
     public func updateExpiresAt(date: Date) async throws {
         let expiresAtUnix = Int64(date.timeIntervalSince1970)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "updateExpiresAt") { metadata in
             metadata.expiresAtUnix = expiresAtUnix
         } verify: { metadata in
             metadata.hasExpiresAtUnix && metadata.expiresAtUnix == expiresAtUnix
+        }
+    }
+
+    // MARK: - Connections (per-sender-profile)
+
+    /// Returns the JSON grants payload stored on a specific sender's profile.
+    /// The runtime reads grants from `profile.metadata.connections` per sender,
+    /// so each member's grants live under their own profile entry.
+    public func senderConnections(forInboxId inboxId: String) throws -> String? {
+        let metadata = try currentCustomMetadata
+        guard let profile = metadata.findProfile(inboxId: inboxId),
+              profile.hasConnections,
+              !profile.connections.isEmpty else {
+            return nil
+        }
+        return profile.connections
+    }
+
+    public func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
+        guard let seedProfile = ConversationProfile(inboxIdString: senderInboxId) else {
+            throw ConversationCustomMetadataError.invalidInboxIdHex(senderInboxId)
+        }
+        try await atomicUpdateMetadata(operation: "updateSenderConnections") { metadata in
+            var profile = metadata.findProfile(inboxId: senderInboxId) ?? seedProfile
+            profile.connections = json
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            metadata.findProfile(inboxId: senderInboxId)?.connections == json
+        }
+    }
+
+    public func clearSenderConnections(senderInboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "clearSenderConnections") { metadata in
+            guard var profile = metadata.findProfile(inboxId: senderInboxId) else { return }
+            profile.clearConnections()
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            let profile = metadata.findProfile(inboxId: senderInboxId)
+            return profile == nil || !(profile?.hasConnections ?? false)
         }
     }
 
@@ -76,7 +139,7 @@ extension XMTPiOS.Group {
         }
 
         let newKey = try ImageEncryption.generateGroupKey()
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "ensureImageEncryptionKey") { metadata in
             if !metadata.hasImageEncryptionKey {
                 metadata.imageEncryptionKey = newKey
             }
@@ -102,7 +165,7 @@ extension XMTPiOS.Group {
     }
 
     public func updateEncryptedGroupImage(_ encryptedRef: EncryptedImageRef) async throws {
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "updateEncryptedGroupImage") { metadata in
             metadata.encryptedGroupImage = encryptedRef
         } verify: { metadata in
             metadata.hasEncryptedGroupImage &&
@@ -121,7 +184,7 @@ extension XMTPiOS.Group {
         guard existingTag.isEmpty else { return }
 
         let newTag = try generateSecureRandomString(length: 10)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "ensureInviteTag") { metadata in
             if metadata.tag.isEmpty {
                 metadata.tag = newTag
             }
@@ -135,7 +198,7 @@ extension XMTPiOS.Group {
     public func rotateInviteTag() async throws {
         let oldTag = try inviteTag
         let newTag = try generateSecureRandomString(length: 10)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "rotateInviteTag") { metadata in
             metadata.tag = newTag
         } verify: { metadata in
             metadata.tag != oldTag && !metadata.tag.isEmpty
@@ -213,10 +276,43 @@ extension XMTPiOS.Group {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
-        try await atomicUpdateMetadata { metadata in
-            metadata.upsertProfile(conversationProfile)
+        // Merge instead of replacing wholesale: a profile built from
+        // incomplete local state (fresh pairing, mid-hydration) must not drop
+        // avatar or connections fields that already exist in the metadata.
+        // The verify closure checks the merged invariant - exact equality
+        // would reject every preserved field and burn the retries.
+        try await atomicUpdateMetadata(operation: "updateProfile") { metadata in
+            metadata.mergeProfile(conversationProfile)
         } verify: { metadata in
-            metadata.findProfile(inboxId: profile.inboxId) == conversationProfile
+            // Verify only the fields this write actually sets: name and image.
+            // connections is deliberately excluded - it lives only in remote
+            // metadata and is never carried by a profile built from a local
+            // DBMemberProfile, so the merge preserves it untouched. Asserting
+            // on it here would verify a field this operation doesn't author and
+            // could fail (and burn retries) whenever connections legitimately
+            // differ from this device's empty view of them.
+            guard let final = metadata.findProfile(inboxId: profile.inboxId) else { return false }
+            let incomingName: String? = conversationProfile.hasName ? conversationProfile.name : nil
+            let finalName: String? = final.hasName ? final.name : nil
+            guard finalName == incomingName else { return false }
+            guard let incomingImageUrl = conversationProfile.effectiveImageUrl else { return true }
+            return final.effectiveImageUrl == incomingImageUrl
+        }
+    }
+
+    /// Explicitly removes the avatar fields from a member's profile entry.
+    /// `updateProfile` deliberately preserves existing image fields when the
+    /// incoming profile carries none, so removal has to be a named operation
+    /// rather than a side effect of writing an avatar-less profile.
+    func clearProfileAvatar(inboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "clearProfileAvatar") { metadata in
+            guard var profile = metadata.findProfile(inboxId: inboxId) else { return }
+            profile.clearEncryptedImage()
+            profile.clearImage()
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            let profile = metadata.findProfile(inboxId: inboxId)
+            return profile == nil || profile?.effectiveImageUrl == nil
         }
     }
 
@@ -241,17 +337,50 @@ extension XMTPiOS.Group {
     ///   - modify: Closure to modify the metadata
     ///   - verify: Closure to verify the modification persisted
     /// - Throws: `ConversationCustomMetadataError.metadataUpdateFailed` if all retries exhausted
+    public func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
+        guard !expectedTag.isEmpty else { return }
+        guard Self.isValidInviteTag(expectedTag) else {
+            throw ConversationCustomMetadataError.invalidInviteTag(expectedTag)
+        }
+        try await atomicUpdateMetadata(operation: "restoreInviteTagIfMissing") { metadata in
+            guard metadata.tag.isEmpty else { return }
+            metadata.tag = expectedTag
+        } verify: { metadata in
+            !metadata.tag.isEmpty
+        }
+    }
+
+    private static func isValidInviteTag(_ tag: String) -> Bool {
+        tag.range(of: "^[A-Za-z0-9]{10}$", options: .regularExpression) != nil
+    }
+
     private func atomicUpdateMetadata(
+        operation: String,
         maxRetries: Int = 3,
         modify: (inout ConversationCustomMetadata) -> Void,
         verify: (ConversationCustomMetadata) -> Bool
     ) async throws {
         for attempt in 0..<maxRetries {
-            var metadata = try currentCustomMetadata
+            let beforeAppData = try appData()
+            let beforeMetadata = ConversationCustomMetadata.parseAppData(beforeAppData)
+            var metadata = beforeMetadata
             modify(&metadata)
+
+            Log.info(
+                "[MetadataDebug] operation=\(operation) groupId=\(id) attempt=\(attempt + 1) beforeTag=\(beforeMetadata.tag) afterTag=\(metadata.tag) beforeBytes=\(beforeAppData.utf8.count)"
+            )
+            if !beforeMetadata.tag.isEmpty && metadata.tag.isEmpty {
+                Log.error("[MetadataDebug] operation=\(operation) cleared invite tag for groupId=\(id)")
+                throw ConversationCustomMetadataError.metadataUpdateFailed
+            }
+
             try await updateMetadata(metadata)
 
-            let finalMetadata = try currentCustomMetadata
+            let finalAppData = try appData()
+            let finalMetadata = ConversationCustomMetadata.parseAppData(finalAppData)
+            Log.info(
+                "[MetadataDebug] operation=\(operation) groupId=\(id) finalTag=\(finalMetadata.tag) finalBytes=\(finalAppData.utf8.count)"
+            )
             if verify(finalMetadata) {
                 return
             }
@@ -259,13 +388,20 @@ extension XMTPiOS.Group {
             if attempt < maxRetries - 1 {
                 let delayMs = UInt64(50_000_000 * (attempt + 1))
                 try await Task.sleep(nanoseconds: delayMs)
-                Log.warning("Metadata update verification failed, retrying (attempt \(attempt + 1)/\(maxRetries))")
+                Log.warning("Metadata update verification failed, retrying (operation=\(operation), attempt \(attempt + 1)/\(maxRetries))")
             }
         }
         throw ConversationCustomMetadataError.metadataUpdateFailed
     }
 
     func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
+        if let currentTag = try? inviteTag,
+           !currentTag.isEmpty,
+           metadata.tag.isEmpty {
+            Log.error("[MetadataDebug] updateMetadata refusing to clear invite tag for groupId=\(id)")
+            throw ConversationCustomMetadataError.metadataUpdateFailed
+        }
+
         let encodedMetadata = try metadata.toCompactString()
         let byteCount = encodedMetadata.lengthOfBytes(using: .utf8)
         guard byteCount <= Self.appDataByteLimit else {

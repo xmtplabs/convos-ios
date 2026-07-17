@@ -1,7 +1,8 @@
 import Combine
-import XCTest
-import ConvosCore
 @testable import Convos
+import ConvosConnections
+import ConvosCore
+import XCTest
 
 @MainActor
 final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
@@ -39,32 +40,6 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         )
 
         XCTAssertFalse(viewModel.includeInfoInPublicPreview)
-    }
-
-    func testRevealPreferenceSeededWhenConversationReadyAfterCreation() async throws {
-        GlobalConvoDefaults.shared.autoRevealPhotos = true
-
-        let stateManager = MockConversationStateManager(conversationId: "draft-seed-test")
-        let messagingService = MockMessagingService(conversationStateManager: stateManager)
-
-        let photoPreferencesRepository = MockPhotoPreferencesRepository(preferences: nil)
-        let photoPreferencesWriter = MockPhotoPreferencesWriter()
-        let session = TestSessionManager(
-            base: MockInboxesService(),
-            photoPreferencesRepository: photoPreferencesRepository,
-            photoPreferencesWriter: photoPreferencesWriter
-        )
-
-        let viewModel = NewConversationViewModel(
-            session: session,
-            messagingService: messagingService,
-            autoCreateConversation: true
-        )
-
-        try await Task.sleep(for: .milliseconds(150))
-
-        XCTAssertEqual(photoPreferencesWriter.autoRevealValues["draft-seed-test"], true)
-        withExtendedLifetime(viewModel) {}
     }
 
     func testIncludeInfoPersistedWhenDraftBecomesRealConversation() async throws {
@@ -130,145 +105,5 @@ private final class TestDraftConversationRepository: DraftConversationRepository
 
     func updateConversation(_ conversation: Conversation) {
         conversationSubject.send(conversation)
-    }
-}
-
-private final class TestSessionManager: SessionManagerProtocol, @unchecked Sendable {
-    private let base: MockInboxesService
-    private let customPhotoPreferencesRepository: MockPhotoPreferencesRepository
-    private let customPhotoPreferencesWriter: MockPhotoPreferencesWriter
-
-    init(
-        base: MockInboxesService,
-        photoPreferencesRepository: MockPhotoPreferencesRepository,
-        photoPreferencesWriter: MockPhotoPreferencesWriter
-    ) {
-        self.base = base
-        customPhotoPreferencesRepository = photoPreferencesRepository
-        customPhotoPreferencesWriter = photoPreferencesWriter
-    }
-
-    func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        await base.addInbox()
-    }
-
-    func addInboxOnly() async -> AnyMessagingService {
-        await base.addInboxOnly()
-    }
-
-    func deleteInbox(clientId: String, inboxId: String) async throws {
-        try await base.deleteInbox(clientId: clientId, inboxId: inboxId)
-    }
-
-    func deleteAllInboxes() async throws {
-        try await base.deleteAllInboxes()
-    }
-
-    func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error> {
-        base.deleteAllInboxesWithProgress()
-    }
-
-    func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
-        try await base.messagingService(for: clientId, inboxId: inboxId)
-    }
-
-    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
-        base.messagingServiceSync(for: clientId, inboxId: inboxId)
-    }
-
-    func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
-        base.inviteRepository(for: conversationId)
-    }
-
-    func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
-        try await base.conversationRepository(for: conversationId, inboxId: inboxId, clientId: clientId)
-    }
-
-    func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
-        base.messagesRepository(for: conversationId)
-    }
-
-    func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol {
-        customPhotoPreferencesRepository
-    }
-
-    func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol {
-        customPhotoPreferencesWriter
-    }
-
-    func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
-        base.attachmentLocalStateWriter()
-    }
-
-    func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
-        base.conversationsRepository(for: consent)
-    }
-
-    func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
-        base.conversationsCountRepo(for: consent, kinds: kinds)
-    }
-
-    func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol {
-        base.pinnedConversationsCountRepo()
-    }
-
-    func notifyChangesInDatabase() {
-        base.notifyChangesInDatabase()
-    }
-
-    func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        await base.shouldDisplayNotification(for: conversationId)
-    }
-
-    func setActiveClientId(_ clientId: String?) async {
-        await base.setActiveClientId(clientId)
-    }
-
-    func wakeInboxForNotification(clientId: String, inboxId: String) async {
-        await base.wakeInboxForNotification(clientId: clientId, inboxId: inboxId)
-    }
-
-    func wakeInboxForNotification(conversationId: String) async {
-        await base.wakeInboxForNotification(conversationId: conversationId)
-    }
-
-    func isInboxAwake(clientId: String) async -> Bool {
-        await base.isInboxAwake(clientId: clientId)
-    }
-
-    func isInboxSleeping(clientId: String) async -> Bool {
-        await base.isInboxSleeping(clientId: clientId)
-    }
-
-    func inboxId(for conversationId: String) async -> String? {
-        await base.inboxId(for: conversationId)
-    }
-
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
-    }
-
-    func redeemInviteCode(_ code: String) async throws {
-        try await base.redeemInviteCode(code)
-    }
-
-    func pendingInviteDetails() throws -> [PendingInviteDetail] {
-        try base.pendingInviteDetails()
-    }
-
-    func deleteExpiredPendingInvites() async throws -> Int {
-        try await base.deleteExpiredPendingInvites()
-    }
-
-    func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        try base.orphanedInboxDetails()
-    }
-
-    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
-        try await base.deleteOrphanedInbox(clientId: clientId, inboxId: inboxId)
-    }
-
-    func makeAssetRenewalManager() async -> AssetRenewalManager {
-        await base.makeAssetRenewalManager()
     }
 }

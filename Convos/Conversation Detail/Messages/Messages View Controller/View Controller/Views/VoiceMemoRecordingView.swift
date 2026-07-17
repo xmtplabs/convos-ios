@@ -1,0 +1,106 @@
+import ConvosCore
+import ConvosCoreiOS
+import SwiftUI
+
+struct VoiceMemoRecordingView: View {
+    @Bindable var recorder: VoiceMemoRecorder
+    /// When false, hide the inline stop button so the caller can render
+    /// its own stop affordance elsewhere (used by the Agent Builder,
+    /// which renders a large stop button beneath the composer rect).
+    var showsInlineStopButton: Bool = true
+
+    private let barWidth: CGFloat = 2
+    private let barSpacing: CGFloat = 1.5
+
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Canvas { context, size in
+                    let totalBarWidth = barWidth + barSpacing
+                    let visibleBarCount = max(Int(size.width / totalBarWidth), 1)
+                    let levels = recorder.audioLevels
+                    let placeholderHeight: CGFloat = 2
+                    let recordedCount = min(levels.count, visibleBarCount)
+                    let startIndex = max(levels.count - visibleBarCount, 0)
+
+                    for i in 0 ..< visibleBarCount {
+                        let x = CGFloat(i) * totalBarWidth
+
+                        let barIndex = i - (visibleBarCount - recordedCount)
+                        if barIndex >= 0, barIndex + startIndex < levels.count {
+                            let level = CGFloat(levels[startIndex + barIndex])
+                            let height = max(size.height * level, placeholderHeight)
+                            let y = (size.height - height) / 2
+                            let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                            context.fill(path, with: .color(.colorCaution))
+                        } else {
+                            let y = (size.height - placeholderHeight) / 2
+                            let rect = CGRect(x: x, y: y, width: barWidth, height: placeholderHeight)
+                            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                            context.fill(path, with: .color(Color.colorCaution.opacity(0.3)))
+                        }
+                    }
+                }
+                .frame(height: 24)
+
+                Text(formattedDuration(recorder.duration))
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+                    .frame(minWidth: 32, alignment: .trailing)
+            }
+
+            if showsInlineStopButton {
+                Button {
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        recorder.stopRecording()
+                    }
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.colorCaution)
+                        .frame(width: 32, height: 32)
+                        .background(Color.colorCaution.opacity(0.15), in: Circle())
+                }
+                .frame(width: 48, height: 48)
+                .accessibilityLabel("Stop recording")
+                .accessibilityIdentifier("voice-memo-stop-button")
+            }
+        }
+        .padding(.leading, DesignConstants.Spacing.step5x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+struct VoiceMemoKeyboardFocusKeeper: View {
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    @Binding var text: String
+
+    init(focusState: FocusState<MessagesViewInputFocus?>.Binding, text: Binding<String>) {
+        _focusState = focusState
+        _text = text
+    }
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focusState, equals: .voiceMemoRecording)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+#Preview {
+    @Previewable @FocusState var focusState: MessagesViewInputFocus?
+
+    VoiceMemoRecordingView(recorder: VoiceMemoRecorder())
+        .padding()
+}

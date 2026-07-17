@@ -43,24 +43,43 @@ public struct PlatformProviders: Sendable {
     /// Provider for background photo uploads
     public let backgroundUploadManager: any BackgroundUploadManagerProtocol
 
+    /// Provider for OAuth session presentation (e.g. ASWebAuthenticationSession on iOS)
+    public let oauthSessionProvider: any OAuthSessionProvider
+
+    /// Per-kind ConvosConnections DataSources/DataSinks the host has linked.
+    /// Defaults to `.none` so apps that don't link any device-kind products
+    /// (the v1 shipping configuration — cloud-only) don't pull HealthKit /
+    /// CoreLocation / EventKit / etc. symbols into the binary.
+    public let deviceConnections: DeviceConnectionsBundle
+
     public init(
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
         pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
         notificationCenter: any UserNotificationCenterProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        oauthSessionProvider: any OAuthSessionProvider = UnavailableOAuthSessionProvider(),
+        deviceConnections: DeviceConnectionsBundle = .none
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
         self.pushNotificationRegistrar = pushNotificationRegistrar
         self.notificationCenter = notificationCenter
         self.backgroundUploadManager = backgroundUploadManager
+        self.oauthSessionProvider = oauthSessionProvider
+        self.deviceConnections = deviceConnections
     }
 }
 
 // MARK: - Test/Mock Support
 
-/// Mock app lifecycle provider for testing
+/// Mock app lifecycle provider for testing.
+///
+/// Each instance defaults to a UUID-suffixed notification name so that
+/// `SessionStateMachine` instances observing on `NotificationCenter.default`
+/// only receive lifecycle events from their own provider. Sharing a fixed
+/// name across instances would let one test's background event wedge another
+/// test's libxmtp DB pool via `dropLocalDatabaseConnection`.
 public final class MockAppLifecycleProvider: AppLifecycleProviding, @unchecked Sendable {
     public let didEnterBackgroundNotification: Notification.Name
     public let willEnterForegroundNotification: Notification.Name
@@ -73,14 +92,18 @@ public final class MockAppLifecycleProvider: AppLifecycleProviding, @unchecked S
 
     public init(
         currentState: AppState = .active,
-        didEnterBackgroundNotification: Notification.Name = Notification.Name("MockDidEnterBackground"),
-        willEnterForegroundNotification: Notification.Name = Notification.Name("MockWillEnterForeground"),
-        didBecomeActiveNotification: Notification.Name = Notification.Name("MockDidBecomeActive")
+        didEnterBackgroundNotification: Notification.Name? = nil,
+        willEnterForegroundNotification: Notification.Name? = nil,
+        didBecomeActiveNotification: Notification.Name? = nil
     ) {
+        let suffix = UUID().uuidString
         self._currentState = currentState
         self.didEnterBackgroundNotification = didEnterBackgroundNotification
+            ?? Notification.Name("MockDidEnterBackground.\(suffix)")
         self.willEnterForegroundNotification = willEnterForegroundNotification
+            ?? Notification.Name("MockWillEnterForeground.\(suffix)")
         self.didBecomeActiveNotification = didBecomeActiveNotification
+            ?? Notification.Name("MockDidBecomeActive.\(suffix)")
     }
 
     public func setCurrentState(_ state: AppState) {
@@ -94,17 +117,20 @@ public final class MockDeviceInfoProvider: DeviceInfoProviding, Sendable {
     public let fallbackIdentifier: String
     public let deviceIdentifier: String
     public let osString: String
+    public let deviceName: String
 
     public init(
         identifierForVendor: String? = "mock-vendor-id",
         fallbackIdentifier: String = "mock-fallback-id",
         deviceIdentifier: String = "mock-device-id",
-        osString: String = "mock"
+        osString: String = "mock",
+        deviceName: String = "Mock Device"
     ) {
         self.identifierForVendor = identifierForVendor
         self.fallbackIdentifier = fallbackIdentifier
         self.deviceIdentifier = deviceIdentifier
         self.osString = osString
+        self.deviceName = deviceName
     }
 }
 

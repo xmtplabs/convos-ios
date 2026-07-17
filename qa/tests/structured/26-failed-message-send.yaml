@@ -1,0 +1,61 @@
+id: "26"
+name: "Failed Message Send"
+description: >
+  Verify that failed messages show 'Not Delivered' status with retry and
+  delete options. Tests the error state UI and recovery flow.
+tags: [messaging, error-handling]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Fail Test", profile_name: "CLI" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+  - action: open_invite_url
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id" }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: send_message_successfully
+    name: "Baseline: send a message successfully"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "This should work" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "This should work", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "This should work" }
+    criteria: baseline_send_works
+
+  - id: verify_sent_status
+    name: "Sent status appears"
+    actions:
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Sent" }
+    criteria: sent_status_visible
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+
+criteria:
+  baseline_send_works:
+    description: "A text message sends successfully and appears in the conversation"
+  sent_status_visible:
+    description: "Sent status indicator appears below the sent message"

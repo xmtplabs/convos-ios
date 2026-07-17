@@ -1,6 +1,7 @@
 import Combine
 import ConvosAppData
 import ConvosInvites
+import ConvosMetrics
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -14,6 +15,11 @@ public struct ConversationReadyResult: Sendable {
 
     public let conversationId: String
     public let origin: Origin
+
+    public init(conversationId: String, origin: Origin) {
+        self.conversationId = conversationId
+        self.origin = origin
+    }
 }
 
 /// State machine managing conversation creation and joining flows
@@ -29,13 +35,36 @@ public struct ConversationReadyResult: Sendable {
 ///
 /// The state machine maintains states from uninitialized → creating/validating → validated →
 /// joining → ready, with automatic message queuing and delivery once ready.
+/// Closure invoked by `handleCreate` / `handleUseExisting` between
+/// conversation publish/resume and the `.ready` transition. The contacts
+/// picker pre-populates this with `ConversationMetadataWriter
+/// .addMembers(_:to:)` so the conversation never reaches `.ready` until
+/// its initial members are actually in it.
+public typealias ConversationStateMachineAddMembersHook = @Sendable ([String], String) async throws -> Void
+
 public actor ConversationStateMachine {
     enum Action {
-        case create
-        case useExisting(conversationId: String)
+        /// `initialMemberInboxIds`: if non-empty, the create handler runs
+        /// the addMembers hook between XMTP publish and `.ready`. Hook
+        /// failure transitions to `.error(addMembersFailed(...))`, never
+        /// half-built `.ready`. Empty means no hook call (default behavior
+        /// for the "+" button flow).
+        /// `startsUnused`: when true, the created conversation's row is
+        /// written with `isUnused = true` before publish, keeping it hidden
+        /// from the chats list until a caller explicitly commits it (see
+        /// `SessionManagerProtocol.commitClaimedConversation`). Used by the
+        /// agent builder so its auto-created draft never surfaces as a
+        /// visible row before the user taps Make.
+        case create(initialMemberInboxIds: [String], startsUnused: Bool)
+        /// `initialMemberInboxIds`: same semantics as `.create`, but for
+        /// the warm-cached / resume-existing path. Required so the
+        /// contacts picker flow can route a pre-warmed conversation
+        /// through `useExisting` (instead of re-publishing) while still
+        /// adding members atomically before `.ready`. Empty preserves
+        /// the existing draft / invite-resume behavior.
+        case useExisting(conversationId: String, initialMemberInboxIds: [String])
         case validate(inviteCode: String)
         case join
-        case delete
         case stop
         case reset
     }
@@ -57,7 +86,6 @@ public actor ConversationStateMachine {
         case joining(invite: SignedInvite, placeholder: ConversationReadyResult)
         case joinFailed(inviteTag: String, error: InviteJoinError)
         case ready(ConversationReadyResult)
-        case deleting
         case error(Error)
 
         public var isReadyOrJoining: Bool {
@@ -73,21 +101,34 @@ public actor ConversationStateMachine {
     // MARK: - Properties
 
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseReader: any DatabaseReader
     private let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
     private let streamProcessor: any StreamProcessorProtocol
     private let clientConversationId: String
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
+    private let coreActions: any CoreActions
+    /// Injected at construction by `ConversationStateManager`, which wires
+    /// this to `ConversationMetadataWriter.addMembers(_:to:)`. Default is
+    /// a no-op so test fixtures and call sites that don't go through the
+    /// state manager continue to work without modification.
+    private let addMembersHook: ConversationStateMachineAddMembersHook
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
 
-    // Message stream for ordered message sending
-    // Tuple contains (text, afterPhotoTrackingKey)
-    private var messageStreamContinuation: AsyncStream<(String, String?)>.Continuation?
+    // Message stream for ordered message sending. The state machine queues
+    // text sends and processes them serially so they land in the order the
+    // user typed, even when the conversation hasn't reached `.ready` yet.
+    private struct QueuedTextSend: Sendable {
+        let text: String
+        let afterPhoto: String?
+        let clientMessageId: String?
+    }
+
+    private var messageStreamContinuation: AsyncStream<QueuedTextSend>.Continuation?
     private var messageProcessingTask: Task<Void, Never>?
     private var isMessageStreamSetup: Bool = false
 
@@ -146,26 +187,31 @@ public actor ConversationStateMachine {
     // MARK: - Init
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         clientConversationId: String,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        addMembersHook: @escaping ConversationStateMachineAddMembersHook = { _, _ in },
+        coreActions: any CoreActions
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
         self.clientConversationId = clientConversationId
         self.backgroundUploadManager = backgroundUploadManager
+        self.addMembersHook = addMembersHook
+        self.coreActions = coreActions
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: coreActions
         )
     }
 
@@ -181,7 +227,7 @@ public actor ConversationStateMachine {
         guard !isMessageStreamSetup else { return }
         isMessageStreamSetup = true
 
-        let stream = AsyncStream<(String, String?)> { continuation in
+        let stream = AsyncStream<QueuedTextSend> { continuation in
             self.messageStreamContinuation = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { [weak self] in
@@ -192,9 +238,9 @@ public actor ConversationStateMachine {
 
         // Start a single task that processes messages in order
         messageProcessingTask = Task { [weak self] in
-            for await (text, afterPhotoKey) in stream {
+            for await send in stream {
                 guard let self else { break }
-                await self.processMessage(text, afterPhoto: afterPhotoKey)
+                await self.processMessage(send.text, afterPhoto: send.afterPhoto, clientMessageId: send.clientMessageId)
             }
             // Stream ended, reset so it can be recreated if needed
             await self?.resetMessageStream()
@@ -214,22 +260,28 @@ public actor ConversationStateMachine {
 
         let result = try await waitForConversationReadyResult()
         let writer = OutgoingMessageWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             conversationId: result.conversationId,
             photoService: PhotoAttachmentService(),
             pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
             backgroundUploadManager: backgroundUploadManager,
-            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
+            contactSyncCoordinator: ContactSyncCoordinator(databaseWriter: databaseWriter, databaseReader: databaseReader),
+            coreActions: coreActions
         )
         cachedMessageWriter = writer
         return writer
     }
 
-    private func processMessage(_ text: String, afterPhoto trackingKey: String?) async {
+    private func processMessage(_ text: String, afterPhoto trackingKey: String?, clientMessageId: String? = nil) async {
         do {
             let messageWriter = try await getOrCreateMessageWriter()
-            try await messageWriter.send(text: text, afterPhoto: trackingKey)
+            if let clientMessageId {
+                try await messageWriter.send(text: text, clientMessageId: clientMessageId)
+            } else {
+                try await messageWriter.send(text: text, afterPhoto: trackingKey)
+            }
         } catch {
             Log.error("Error sending queued message: \(error.localizedDescription)")
         }
@@ -237,72 +289,16 @@ public actor ConversationStateMachine {
 
     // MARK: - Public Actions
 
-    func create() {
-        enqueueAction(.create)
+    func create(initialMemberInboxIds: [String] = [], startsUnused: Bool = false) {
+        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused))
     }
 
-    func useExisting(conversationId: String) {
-        enqueueAction(.useExisting(conversationId: conversationId))
+    func useExisting(conversationId: String, initialMemberInboxIds: [String] = []) {
+        enqueueAction(.useExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds))
     }
 
     func join(inviteCode: String) {
         enqueueAction(.validate(inviteCode: inviteCode))
-    }
-
-    func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
-        setupMessageStream()
-        messageStreamContinuation?.yield((text, trackingKey))
-    }
-
-    func sendPhoto(image: ImageType) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.send(image: image)
-    }
-
-    func startEagerUpload(image: ImageType) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.startEagerUpload(image: image)
-    }
-
-    func sendEagerPhoto(trackingKey: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerPhoto(trackingKey: trackingKey)
-    }
-
-    func cancelEagerUpload(trackingKey: String) async {
-        guard let writer = cachedMessageWriter else { return }
-        await writer.cancelEagerUpload(trackingKey: trackingKey)
-    }
-
-    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func retryFailedMessage(id: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.retryFailedMessage(id: id)
-    }
-
-    func deleteFailedMessage(id: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.deleteFailedMessage(id: id)
-    }
-
-    func delete() {
-        // Cancel current task immediately to unblock the action queue
-        currentTask?.cancel()
-        enqueueAction(.delete)
     }
 
     func reset() {
@@ -364,17 +360,19 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, .create), (.error, .create):
+            case (.uninitialized, let .create(initialMemberInboxIds, startsUnused)),
+                 (.error, let .create(initialMemberInboxIds, startsUnused)):
                 if case .error = _state {
                     await handleStop()
                 }
-                try await handleCreate()
+                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused)
 
-            case (.uninitialized, let .useExisting(conversationId)), (.error, let .useExisting(conversationId)):
+            case (.uninitialized, let .useExisting(conversationId, initialMemberInboxIds)),
+                 (.error, let .useExisting(conversationId, initialMemberInboxIds)):
                 if case .error = _state {
                     await handleStop()
                 }
-                handleUseExisting(conversationId: conversationId)
+                try await handleUseExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds)
 
             case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
                 if case .error = _state {
@@ -397,9 +395,6 @@ public actor ConversationStateMachine {
                     previousReadyResult: previousResult
                 )
 
-            case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
-                try await handleDelete()
-
             case (.error, .reset), (.joinFailed, .reset):
                 await handleReset()
 
@@ -421,10 +416,10 @@ public actor ConversationStateMachine {
 
     // MARK: - Action Handlers
 
-    private func handleCreate() async throws {
+    private func handleCreate(initialMemberInboxIds: [String], startsUnused: Bool = false) async throws {
         emitStateChange(.creating)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
         let client = inboxReady.client
@@ -435,8 +430,44 @@ public actor ConversationStateMachine {
         // stream that could overlap with other XMTP operations.
         nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
 
+        // Deferred-visibility creation: write the hidden row before publish
+        // so the conversation stream's echo of the new group preserves
+        // `isUnused = true` instead of inserting a fresh visible row. The
+        // row stays hidden until the owning flow commits it (agent builder's
+        // Make tap via `commitClaimedConversation`). The provisional invite
+        // tag satisfies the column's UNIQUE constraint until the stream
+        // processor's `ensureInviteTag` stores the real one. If publish
+        // below throws, the row stays - a thrown publish doesn't guarantee
+        // the group missed the network, and a hidden row is harmless (it is
+        // recycled as a future prewarm) while deleting it would let the
+        // stream echo re-insert it visible.
+        if startsUnused, let group = optimisticConversation as? XMTPiOS.Group {
+            let conversationId = group.id
+            let createdAt = group.createdAt
+            let inboxId = client.inboxId
+            let clientConversationId = self.clientConversationId
+            try await databaseWriter.write { db in
+                try UnusedConversationCache.writeUnusedConversationRow(
+                    db: db,
+                    conversationId: conversationId,
+                    clientConversationId: clientConversationId,
+                    inviteTag: UnusedConversationCache.provisionalInviteTag(for: conversationId),
+                    inboxId: inboxId,
+                    createdAt: createdAt
+                )
+            }
+        }
+
         // Publish the conversation
         try await optimisticConversation.publish()
+
+        do {
+            if let group = optimisticConversation as? XMTPiOS.Group {
+                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            }
+        } catch {
+            Log.warning("Failed to seed conversation emoji for new conversation: \(error)")
+        }
 
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed
@@ -448,6 +479,16 @@ public actor ConversationStateMachine {
             clientConversationId: clientConversationId
         )
 
+        // Run the addMembers hook before emitting `.ready` so downstream
+        // consumers (NewConversationView, contacts picker flow) can treat
+        // `.ready` as the strong guarantee "conversation exists and its
+        // initial members are in it". Empty ids is a no-op; matches the
+        // existing "+" button flow exactly.
+        try await runAddMembersIfNeeded(
+            initialMemberInboxIds: initialMemberInboxIds,
+            conversationId: optimisticConversation.id
+        )
+
         // Transition to ready state with the real XMTP group ID (used for querying)
         // The clientConversationId is stored on DBConversation for stable image caching
         QAEvent.emit(.conversation, "created", ["id": optimisticConversation.id])
@@ -457,8 +498,30 @@ public actor ConversationStateMachine {
         )))
     }
 
-    private func handleUseExisting(conversationId: String) {
+    private func handleUseExisting(conversationId: String, initialMemberInboxIds: [String]) async throws {
         Log.info("Using existing conversation: \(conversationId)")
+
+        do {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            if let conversation = try await inboxReady.client.conversationsProvider.findConversation(
+                conversationId: conversationId
+            ), case let .group(group) = conversation {
+                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            }
+        } catch {
+            Log.warning("Failed to seed conversation emoji for existing conversation: \(error)")
+        }
+
+        // Run the addMembers hook before emitting `.ready` so warm-cache
+        // + initial-members flows from the contacts picker reach `.ready`
+        // only after the picked contacts are in the conversation. Empty
+        // ids is a no-op; matches the existing draft / invite-resume
+        // behavior.
+        try await runAddMembersIfNeeded(
+            initialMemberInboxIds: initialMemberInboxIds,
+            conversationId: conversationId
+        )
+
         emitStateChange(.ready(ConversationReadyResult(
             conversationId: conversationId,
             origin: .existing
@@ -466,6 +529,26 @@ public actor ConversationStateMachine {
 
         if DBConversation.isDraft(id: conversationId) {
             startPendingInviteObservationIfNeeded(draftConversationId: conversationId)
+        }
+    }
+
+    /// Invokes the configured `addMembersHook` if there are inboxes to
+    /// add. Wraps the underlying error in
+    /// `ConversationStateMachineError.addMembersFailed` so downstream
+    /// consumers can distinguish member-add failures from XMTP-publish
+    /// failures in their error UX.
+    private func runAddMembersIfNeeded(
+        initialMemberInboxIds: [String],
+        conversationId: String
+    ) async throws {
+        guard !initialMemberInboxIds.isEmpty else { return }
+        Log.info("Adding \(initialMemberInboxIds.count) initial members to \(conversationId)")
+        do {
+            try await addMembersHook(initialMemberInboxIds, conversationId)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ConversationStateMachineError.addMembersFailed(underlying: error)
         }
     }
 
@@ -551,17 +634,20 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
         Log.debug("Recovered signer's public key: \(signerPublicKey.toHexString())")
+        let currentInboxId = (try? await identityStore.load()?.inboxId) ?? ""
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)
                 .detailedConversationQuery()
                 .fetchOne(db)?
-                .hydrateConversation()
+                .hydrateConversation(currentInboxId: currentInboxId)
         }
 
+        // Any local conversation for this invite tag belongs to the
+        // authorized identity by construction.
         let existingIdentity: KeychainIdentity?
-        if let existingConversation, let identity = try? await identityStore.identity(for: existingConversation.inboxId) {
-            existingIdentity = identity
+        if existingConversation != nil {
+            existingIdentity = try? await identityStore.load()
         } else {
             existingIdentity = nil
         }
@@ -577,12 +663,8 @@ public actor ConversationStateMachine {
 
         if let existingConversation, existingIdentity != nil {
             Log.debug("Found existing convo by invite tag...")
-            let prevInboxReady = try await inboxStateManager.waitForInboxReadyResult()
-            try await inboxStateManager.deleteInbox()
-            let inboxReady = try await inboxStateManager.reauthorize(
-                inboxId: existingConversation.inboxId,
-                clientId: existingConversation.clientId
-            )
+            let prevInboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            let inboxReady = prevInboxReady
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))
@@ -600,7 +682,8 @@ public actor ConversationStateMachine {
                     let conversationWriter = ConversationWriter(
                         identityStore: identityStore,
                         databaseWriter: databaseWriter,
-                        messageWriter: messageWriter
+                        messageWriter: messageWriter,
+                        coreActions: coreActions
                     )
                     _ = try await conversationWriter.createPlaceholderConversation(
                         draftConversationId: existingConversation.id,
@@ -619,12 +702,13 @@ public actor ConversationStateMachine {
         } else {
             Log.debug("Existing conversation not found. Creating placeholder...")
             Log.debug("Waiting for inbox ready result...")
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
                 identityStore: identityStore,
                 databaseWriter: databaseWriter,
-                messageWriter: messageWriter
+                messageWriter: messageWriter,
+                coreActions: coreActions
             )
             let conversationId = try await conversationWriter.createPlaceholderConversation(
                 draftConversationId: nil,
@@ -651,7 +735,7 @@ public actor ConversationStateMachine {
         emitStateChange(.joining(invite: invite, placeholder: placeholder))
 
         // Register ourselves as the error handler for invite join errors when app is active
-        await inboxStateManager.setInviteJoinErrorHandler(self)
+        await sessionStateManager.setInviteJoinErrorHandler(self)
 
         Log.info("Requesting to join conversation...")
 
@@ -665,9 +749,10 @@ public actor ConversationStateMachine {
         }
 
         let dm = try await client.newConversation(with: inviterInboxId)
-        let text = try invite.toURLSafeSlug()
-        _ = try await dm.prepare(text: text)
+        let joinRequest = JoinRequestContent(inviteSlug: try invite.toURLSafeSlug())
+        _ = try await dm.prepare(joinRequest: joinRequest)
         try await dm.publish()
+
         Log.info("[PERF] NewConversation.joinRequestSent")
         QAEvent.emit(.invite, "join_request_sent")
 
@@ -698,14 +783,14 @@ public actor ConversationStateMachine {
             // Trigger an immediate discovery before starting the polling loop,
             // in case the welcome arrived before we started observing.
             Log.info("Join flow: triggering initial discovery sync...")
-            await self?.inboxStateManager.requestDiscovery()
+            await self?.sessionStateManager.requestDiscovery()
 
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: interval)
                     try Task.checkCancellation()
                     Log.info("Join flow: triggering discovery sync...")
-                    await self?.inboxStateManager.requestDiscovery()
+                    await self?.sessionStateManager.requestDiscovery()
                 } catch {
                     break
                 }
@@ -788,43 +873,108 @@ public actor ConversationStateMachine {
     }
 }
 
+// MARK: - Outgoing Message Methods
+
+extension ConversationStateMachine {
+    func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
+        setupMessageStream()
+        messageStreamContinuation?.yield(QueuedTextSend(text: text, afterPhoto: trackingKey, clientMessageId: nil))
+    }
+
+    func sendMessage(text: String, clientMessageId: String) {
+        setupMessageStream()
+        messageStreamContinuation?.yield(QueuedTextSend(text: text, afterPhoto: nil, clientMessageId: clientMessageId))
+    }
+
+    func sendPhoto(image: ImageType) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.send(image: image)
+    }
+
+    func startEagerUpload(image: ImageType) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerUpload(image: image)
+    }
+
+    func sendEagerPhoto(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerVideoUpload(at: fileURL)
+    }
+
+    func sendEagerVideo(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func cancelEagerUpload(trackingKey: String) async {
+        guard let writer = cachedMessageWriter else { return }
+        await writer.cancelEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
+    }
+
+    func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
+    }
+
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func retryFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.retryFailedMessage(id: id)
+    }
+
+    func deleteFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.deleteFailedMessage(id: id)
+    }
+
+    func insertPendingInvite(text: String) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.insertPendingInvite(text: text)
+    }
+
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
+    }
+}
+
 // MARK: - Cleanup
 
 extension ConversationStateMachine {
-    private func handleDelete() async throws {
-        let conversationId: String? = switch _state {
-        case .ready(let result):
-            result.conversationId
-        default:
-            nil
-        }
-
-        emitStateChange(.deleting)
-
-        await clearInviteJoinErrorHandler()
-
-        messageStreamContinuation?.finish()
-        messageProcessingTask?.cancel()
-        observationTask?.cancel()
-        observationTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-
-        if let conversationId {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-
-            try await cleanUp(
-                conversationId: conversationId,
-                client: inboxReady.client,
-                apiClient: inboxReady.apiClient,
-            )
-
-            try await inboxStateManager.deleteInbox()
-        }
-
-        emitStateChange(.uninitialized)
-    }
-
     private func cleanUpPreviousConversationIfNeeded(
         previousResult: ConversationReadyResult?,
         newConversationId: String?,
@@ -836,10 +986,28 @@ extension ConversationStateMachine {
             return
         }
 
-        Log.debug("Cleaning up previous conversation: \(previousResult.conversationId)")
+        // An engaged previous conversation (customized metadata, chat
+        // messages, or a member now or ever) is user data, not a disposable
+        // pre-claimed draft: joining another conversation from inside it
+        // must not destroy it. The view-model layer's engagement-gated
+        // discard handles the cache-claim release for kept rows.
+        let previousConversationId = previousResult.conversationId
+        let isEngaged = (try? await databaseWriter.read { db in
+            try ConversationEngagement.isEngaged(
+                db,
+                conversationId: previousConversationId,
+                currentInboxId: DBInbox.currentInboxId(db)
+            )
+        }) ?? true
+        guard !isEngaged else {
+            Log.info("Keeping engaged previous conversation: \(previousConversationId)")
+            return
+        }
+
+        Log.debug("Cleaning up previous conversation: \(previousConversationId)")
         do {
             try await cleanUp(
-                conversationId: previousResult.conversationId,
+                conversationId: previousConversationId,
                 client: client,
                 apiClient: apiClient
             )
@@ -857,7 +1025,7 @@ extension ConversationStateMachine {
         let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)
 
-        if let identity = try? await identityStore.identity(for: client.inboxId) {
+        if let identity = try? await identityStore.load(), identity.inboxId == client.inboxId {
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])
@@ -922,7 +1090,7 @@ extension ConversationStateMachine {
     }
 
     private func clearInviteJoinErrorHandler() async {
-        await inboxStateManager.setInviteJoinErrorHandler(nil)
+        await sessionStateManager.setInviteJoinErrorHandler(nil)
     }
 }
 
@@ -932,8 +1100,7 @@ extension ConversationStateMachine.State: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case (.uninitialized, .uninitialized),
-             (.creating, .creating),
-             (.deleting, .deleting):
+             (.creating, .creating):
             return true
         case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
             return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken
@@ -978,6 +1145,17 @@ public enum ConversationStateMachineError: Error {
     case conversationExpired
     case invalidInviteCodeFormat(String)
     case timedOut
+    /// The conversation was successfully created (or resumed, for
+    /// warm-cache) but the configured addMembers hook threw before
+    /// `.ready` could be emitted. Surfaces in `NewConversationView`'s
+    /// standard error UI with a retry affordance via `.createConversation`.
+    case addMembersFailed(underlying: Error)
+    /// Caller invoked `send(text:)` before the new-conversation flow had
+    /// configured a `ConversationStateManager`. Surfaces in wrapping flows
+    /// (e.g. Agent Builder) that send through the unwrapped
+    /// `NewConversationViewModel`; without this, a `try await send` would
+    /// look like a successful no-op and the prompt would silently vanish.
+    case noConversationStateManager
 
     public enum NetworkErrorKind {
         case serviceUnavailable
@@ -1052,6 +1230,10 @@ extension ConversationStateMachineError: DisplayError {
             return "Invalid code"
         case .timedOut:
             return "Connection timed out"
+        case .addMembersFailed:
+            return "Couldn't add members"
+        case .noConversationStateManager:
+            return "Conversation isn't ready yet"
         }
     }
 
@@ -1074,6 +1256,10 @@ extension ConversationStateMachineError: DisplayError {
             return "This code is not valid."
         case .timedOut:
             return "The server took too long to respond. Try again in a moment."
+        case .addMembersFailed:
+            return "We couldn't add those contacts to the conversation. Please try again."
+        case .noConversationStateManager:
+            return "The conversation hasn't finished setting up. Wait a moment and try again."
         }
     }
 }
@@ -1135,5 +1321,39 @@ extension ConversationStateMachine: InviteJoinErrorHandler {
         }
 
         emitStateChange(.joinFailed(inviteTag: error.inviteTag, error: error))
+    }
+}
+
+extension ConversationStateMachine {
+    func awaitEagerUpload(trackingKey: String) async throws {
+        guard let writer = cachedMessageWriter else { return }
+        try await writer.awaitEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendMultiRemoteAttachment(items: items)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
+    }
+
+    func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
+    ) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendBuilderBundle(
+            text: text,
+            bundleItems: bundleItems,
+            textClientMessageId: textClientMessageId,
+            bundleClientMessageId: bundleClientMessageId,
+            awaitsAgentJoin: awaitsAgentJoin
+        )
     }
 }

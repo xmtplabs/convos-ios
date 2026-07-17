@@ -13,26 +13,54 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
-    var shouldBlurPhotos: Bool = true
+    var conversationId: String = ""
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
+    var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
+    var onTapAgentShare: ((MessageAgentShare) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
+    var onReaction: ((String, String) -> Void)?
+    var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
+    var onOpenMessageDetail: ((AnyMessage) -> Void)?
+    var expandedMessageIds: Set<String> = []
+    var onToggleMessageExpanded: ((String) -> Void)?
     var contextMenuState: MessageContextMenuState?
-    var onPhotoRevealed: ((String) -> Void)?
-    var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var creditsDepleted: Bool = false
     var onTapUpdateMember: ((ConversationMember) -> Void)?
+    var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
-    var onRetryAssistantJoin: (() -> Void)?
+    var onRetryAgentJoin: (() -> Void)?
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
-    var isAssistantEnabled: Bool = false
+    var onInviteAgent: (() -> Void)?
+    var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
+    var memberContactOverride: ((String) -> Contact?)?
+    var isAgentJoinPending: Bool = false
+    var headerMode: MessagesHeaderMode = .standard
+    var agentBuilderTransitionNamespace: Namespace.ID?
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
+    var hidesInviteCard: Bool = false
+    var showsInviteScanCard: Bool = false
+    var inviteScanConversation: Conversation?
+    var inviteScanMode: InviteCodeMode = .inConvo
+    var inviteScanInitialSegment: ScanInviteSegment = .invite
+    var onScannedInviteCode: ((String) -> Void)?
+    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
+
+    var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
+        sections.flatMap(\.cells).reduce(into: [:]) { result, item in
+            guard case .messages(let group) = item else { return }
+            result.merge(group.voiceMemoTranscripts) { _, new in new }
+        }
+    }
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -65,40 +93,66 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
         let config = CellConfig(
-            shouldBlurPhotos: shouldBlurPhotos,
+            conversationId: conversationId,
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
             },
+            inviteMembershipResolver: inviteMembershipResolver,
+            agentShareResolver: agentShareResolver,
+            onTapAgentShare: { [weak self] agentShare in
+                self?.onTapAgentShare?(agentShare)
+            },
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
+            },
+            onTapSender: { [weak self] member in
+                self?.onTapAvatar?(member)
             },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
             },
+            onTapReadReceipts: { [weak self] group in
+                self?.onTapReadReceipts?(group)
+            },
+            onTapThinkingIndicator: { [weak self] descriptor in
+                self?.onTapThinkingIndicator?(descriptor)
+            },
+            onReaction: { [weak self] emoji, messageId in
+                self?.onReaction?(emoji, messageId)
+            },
+            onToggleReaction: { [weak self] emoji, messageId in
+                self?.onToggleReaction?(emoji, messageId)
+            },
             onReply: { [weak self] message in
                 self?.onReply?(message)
             },
+            onOpenMessageDetail: onOpenMessageDetail.map { _ in
+                { [weak self] message in self?.onOpenMessageDetail?(message) }
+            },
+            expandedMessageIds: expandedMessageIds,
+            onToggleMessageExpanded: { [weak self] messageId in
+                self?.onToggleMessageExpanded?(messageId)
+            },
             contextMenuState: contextMenuState ?? .init(),
-            onPhotoRevealed: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoRevealed?(attachmentData)
-            },
-            onPhotoHidden: { [weak self] attachmentData in
-                Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
-                self?.onPhotoHidden?(attachmentData)
-            },
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },
-            onRetryAssistantJoin: { [weak self] in
-                self?.onRetryAssistantJoin?()
+            creditsDepleted: creditsDepleted,
+            onRetryAgentJoin: { [weak self] in
+                self?.onRetryAgentJoin?()
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
             },
             onTapUpdateMember: { [weak self] member in
                 self?.onTapUpdateMember?(member)
+            },
+            onTapCapabilityConnect: { [weak self] prompt in
+                self?.onTapCapabilityConnect?(prompt)
+            },
+            onOpenFile: { [weak self] attachment, message in
+                self?.onOpenFile?(attachment, message)
             },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)
@@ -112,12 +166,31 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onConvoCode: { [weak self] in
                 self?.onConvoCode?()
             },
-            onInviteAssistant: { [weak self] in
-                self?.onInviteAssistant?()
+            onInviteAgent: { [weak self] in
+                self?.onInviteAgent?()
             },
-            hasAssistant: hasAssistant,
-            isAssistantJoinPending: isAssistantJoinPending,
-            isAssistantEnabled: isAssistantEnabled
+            onRetryTranscript: { [weak self] item in
+                self?.onRetryTranscript?(item)
+            },
+            allVoiceMemoTranscripts: allVoiceMemoTranscripts,
+            isAgentJoinPending: isAgentJoinPending,
+            headerMode: headerMode,
+            hidesInviteCard: hidesInviteCard,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
+            htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
+            memberContactOverride: { [weak self] inboxId in
+                self?.memberContactOverride?(inboxId)
+            },
+            showsInviteScanCard: showsInviteScanCard,
+            inviteScanConversation: inviteScanConversation,
+            inviteScanMode: inviteScanMode,
+            inviteScanInitialSegment: inviteScanInitialSegment,
+            onScannedInviteCode: { [weak self] code in
+                self?.onScannedInviteCode?(code)
+            },
+            onInviteShareCompleted: { [weak self] activityType, completed, error in
+                self?.onInviteShareCompleted?(activityType, completed, error)
+            }
         )
         return CellFactory.createCell(
             in: collectionView,

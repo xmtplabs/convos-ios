@@ -7,6 +7,11 @@ public struct StoredRemoteAttachment: Codable, Hashable, Sendable {
     public let salt: Data
     public let nonce: Data
     public let filename: String?
+    public let mimeType: String?
+    public let mediaWidth: Int?
+    public let mediaHeight: Int?
+    public let mediaDuration: Double?
+    public let thumbnailDataBase64: String?
 
     public init(
         url: String,
@@ -14,7 +19,12 @@ public struct StoredRemoteAttachment: Codable, Hashable, Sendable {
         secret: Data,
         salt: Data,
         nonce: Data,
-        filename: String?
+        filename: String?,
+        mimeType: String? = nil,
+        mediaWidth: Int? = nil,
+        mediaHeight: Int? = nil,
+        mediaDuration: Double? = nil,
+        thumbnailDataBase64: String? = nil
     ) {
         self.url = url
         self.contentDigest = contentDigest
@@ -22,6 +32,11 @@ public struct StoredRemoteAttachment: Codable, Hashable, Sendable {
         self.salt = salt
         self.nonce = nonce
         self.filename = filename
+        self.mimeType = mimeType
+        self.mediaWidth = mediaWidth
+        self.mediaHeight = mediaHeight
+        self.mediaDuration = mediaDuration
+        self.thumbnailDataBase64 = thumbnailDataBase64
     }
 
     public func toJSON() throws -> String {

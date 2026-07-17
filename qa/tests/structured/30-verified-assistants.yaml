@@ -1,0 +1,103 @@
+id: "30"
+name: "Verified Assistants"
+description: >
+  Verify that verified Convos assistants show proper UI treatment (avatar badge,
+  Lava-colored sender label, 'See its skills' button) and that unverified agents
+  show distinct treatment (muted label, no skills button).
+tags: [assistants, verification, agents]
+depends_on: ["03"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  cli_conversation_id: null
+  app_conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Agent Test", profile_name: "CLI Bot" }
+    save:
+      cli_conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$cli_conversation_id" }
+    save:
+      cli_invite_url: result.url
+
+steps:
+  - id: join_cli_conversation
+    name: "Join conversation created by CLI (unverified agent)"
+    actions:
+      - cli_process_joins: { conversation: "$cli_conversation_id", watch: true }
+      - open_invite_url: { url: "$cli_invite_url" }
+      - wait_for_element: { label_contains: "Agent Test", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Agent is present" }
+      - element_not_exists: { label: "See its skills" }
+    criteria: unverified_agent_present_cell
+
+  - id: unverified_agent_profile
+    name: "Unverified agent profile has no skills buttons"
+    actions:
+      - tap: { label_contains: "Agent is present" }
+      - wait_for_element: { label_contains: "Block and leave", timeout: 5 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Block and leave" }
+      - element_not_exists: { label_contains: "Get skills" }
+      - element_not_exists: { label_contains: "Learn about assistants" }
+    criteria: unverified_profile_no_skills
+
+  - id: dismiss_profile
+    name: "Dismiss agent profile"
+    actions:
+      - key: { code: 41 }
+        note: "Press Escape to dismiss the profile sheet"
+      - navigate_to_conversations_list: {}
+
+  - id: create_app_conversation_with_assistant
+    name: "Create conversation and add verified assistant"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "add-to-conversation-button", timeout: 5 }
+      - tap: { id: "add-to-conversation-button" }
+      - tap: { id: "context-menu-add-assistant" }
+      - wait_for_element: { label_contains: "Assistant joined", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Assistant joined" }
+      - element_exists: { label: "See its skills" }
+    criteria: assistant_joined_with_skills
+    note: >
+      The assistant should join and show "Assistant joined · Invited by You"
+      with the "See its skills" button below.
+
+  - id: verified_sender_label
+    name: "Verified assistant messages have Lava-colored sender label"
+    actions:
+      - wait_for_element: { label_contains: "Assistant", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - visual_check: "Assistant sender label should be in Lava (orange-red) color"
+    criteria: verified_lava_label
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$cli_conversation_id" }
+  - action: navigate_to_conversations_list
+  - action: note
+    args: { text: "App conversation will be cleaned up by closing the sheet" }
+
+criteria:
+  unverified_agent_present_cell:
+    description: "'Agent is present' shows for unverified agents without skills button"
+  unverified_profile_no_skills:
+    description: "Unverified agent profile only shows 'Block and leave'"
+  assistant_joined_with_skills:
+    description: "Verified assistant shows 'Assistant joined' with 'See its skills' button"
+  verified_lava_label:
+    description: "Verified assistant sender label uses Lava color"

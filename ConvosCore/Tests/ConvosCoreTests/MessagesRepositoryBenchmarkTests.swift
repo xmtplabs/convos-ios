@@ -8,6 +8,7 @@ private struct MessageSenderOnly: Codable, FetchableRecord, Hashable {
     let messageSender: DBConversationMemberProfileWithRole
 }
 
+// swiftlint:disable:next type_body_length
 struct MessagesRepositoryBenchmarkTests {
     private func makeDatabase() throws -> DatabaseQueue {
         let dbQueue = try DatabaseQueue(configuration: {
@@ -19,6 +20,7 @@ struct MessagesRepositoryBenchmarkTests {
         return dbQueue
     }
 
+    // swiftlint:disable:next function_body_length function_parameter_count
     private func seedConversation(
         db: Database,
         conversationId: String,
@@ -43,8 +45,6 @@ struct MessagesRepositoryBenchmarkTests {
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: clientId,
             clientConversationId: "client-conv-\(conversationId)",
             inviteTag: "tag-\(conversationId)",
             creatorId: creatorInboxId,
@@ -62,8 +62,10 @@ struct MessagesRepositoryBenchmarkTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAgent: false,
         ).insert(db)
 
         try ConversationLocalState(
@@ -72,7 +74,12 @@ struct MessagesRepositoryBenchmarkTests {
             isUnread: false,
             isUnreadUpdatedAt: now,
             isMuted: false,
-            pinnedOrder: nil
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: false,
+            hasSharedInvite: false
         ).insert(db)
 
         for (i, inboxId) in memberInboxIds.enumerated() {
@@ -196,7 +203,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
 
@@ -206,13 +213,18 @@ struct MessagesRepositoryBenchmarkTests {
             let messages = try repo.fetchInitial()
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
             times.append(elapsed)
-            #expect(messages.count > 0, "Should have messages")
+            #expect(!messages.isEmpty, "Should have messages")
         }
 
         let avg = times.reduce(0, +) / Double(times.count)
         let min = times.min() ?? 0
         let max = times.max() ?? 0
-        print("[BENCHMARK] fetchInitial(50 msgs, 250 reactions, 3 replies, pageSize=50): avg=\(String(format: "%.1f", avg))ms min=\(String(format: "%.1f", min))ms max=\(String(format: "%.1f", max))ms")
+        print(
+            "[BENCHMARK] fetchInitial(50 msgs, 250 reactions, 3 replies, pageSize=50):"
+            + " avg=\(String(format: "%.1f", avg))ms"
+            + " min=\(String(format: "%.1f", min))ms"
+            + " max=\(String(format: "%.1f", max))ms"
+        )
     }
 
     @Test("Benchmark: fetchInitial with 150 messages, 5 reactions each, 5 members (pageSize=150)")
@@ -235,7 +247,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 150
         )
 
@@ -245,13 +257,18 @@ struct MessagesRepositoryBenchmarkTests {
             let messages = try repo.fetchInitial()
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
             times.append(elapsed)
-            #expect(messages.count > 0, "Should have messages")
+            #expect(!messages.isEmpty, "Should have messages")
         }
 
         let avg = times.reduce(0, +) / Double(times.count)
         let min = times.min() ?? 0
         let max = times.max() ?? 0
-        print("[BENCHMARK] fetchInitial(150 msgs, 750 reactions, 5 replies, pageSize=150): avg=\(String(format: "%.1f", avg))ms min=\(String(format: "%.1f", min))ms max=\(String(format: "%.1f", max))ms")
+        print(
+            "[BENCHMARK] fetchInitial(150 msgs, 750 reactions, 5 replies, pageSize=150):"
+            + " avg=\(String(format: "%.1f", avg))ms"
+            + " min=\(String(format: "%.1f", min))ms"
+            + " max=\(String(format: "%.1f", max))ms"
+        )
     }
 
     @Test("Benchmark: fetchInitial with 150 messages, 5 reactions each, 5 members (pageSize=50)")
@@ -274,7 +291,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
 
@@ -284,7 +301,7 @@ struct MessagesRepositoryBenchmarkTests {
             let messages = try repo.fetchInitial()
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
             times.append(elapsed)
-            #expect(messages.count > 0, "Should have messages")
+            #expect(!messages.isEmpty, "Should have messages")
         }
 
         let avg = times.reduce(0, +) / Double(times.count)
@@ -333,15 +350,29 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -351,8 +382,8 @@ struct MessagesRepositoryBenchmarkTests {
 
         let avgDetailed = detailedTimes.reduce(0, +) / Double(detailedTimes.count)
         let avgLightweight = lightweightTimes.reduce(0, +) / Double(lightweightTimes.count)
-        print("[BENCHMARK] ConvQuery detailed: avg=\(String(format: "%.1f", avgDetailed))ms min=\(String(format: "%.1f", detailedTimes.min()!))ms")
-        print("[BENCHMARK] ConvQuery lightweight: avg=\(String(format: "%.1f", avgLightweight))ms min=\(String(format: "%.1f", lightweightTimes.min()!))ms")
+        print("[BENCHMARK] ConvQuery detailed: avg=\(String(format: "%.1f", avgDetailed))ms min=\(String(format: "%.1f", detailedTimes.min() ?? 0))ms")
+        print("[BENCHMARK] ConvQuery lightweight: avg=\(String(format: "%.1f", avgLightweight))ms min=\(String(format: "%.1f", lightweightTimes.min() ?? 0))ms")
         print("[BENCHMARK] ConvQuery speedup: \(String(format: "%.1f", avgDetailed / avgLightweight))x")
     }
 
@@ -376,12 +407,12 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo50 = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
         let repo150 = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 150
         )
 
@@ -403,8 +434,8 @@ struct MessagesRepositoryBenchmarkTests {
         let avg50 = times50.reduce(0, +) / Double(times50.count)
         let avg150 = times150.reduce(0, +) / Double(times150.count)
         let speedup = avg150 / avg50
-        print("[BENCHMARK] Heavy pageSize=50: avg=\(String(format: "%.1f", avg50))ms min=\(String(format: "%.1f", times50.min()!))ms max=\(String(format: "%.1f", times50.max()!))ms")
-        print("[BENCHMARK] Heavy pageSize=150: avg=\(String(format: "%.1f", avg150))ms min=\(String(format: "%.1f", times150.min()!))ms max=\(String(format: "%.1f", times150.max()!))ms")
+        print("[BENCHMARK] Heavy pageSize=50: avg=\(String(format: "%.1f", avg50))ms min=\(String(format: "%.1f", times50.min() ?? 0))ms max=\(String(format: "%.1f", times50.max() ?? 0))ms")
+        print("[BENCHMARK] Heavy pageSize=150: avg=\(String(format: "%.1f", avg150))ms min=\(String(format: "%.1f", times150.min() ?? 0))ms max=\(String(format: "%.1f", times150.max() ?? 0))ms")
         print("[BENCHMARK] Heavy speedup: \(String(format: "%.1f", speedup))x faster with pageSize=50")
     }
 
@@ -428,7 +459,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId
+            conversationId: conversationId, currentInboxId: ""
         )
 
         var times: [Double] = []
@@ -441,7 +472,7 @@ struct MessagesRepositoryBenchmarkTests {
         }
 
         let avg = times.reduce(0, +) / Double(times.count)
-        print("[BENCHMARK] Default pageSize (200 msgs in DB): avg=\(String(format: "%.1f", avg))ms min=\(String(format: "%.1f", times.min()!))ms msgs=\(messageCount)")
+        print("[BENCHMARK] Default pageSize (200 msgs in DB): avg=\(String(format: "%.1f", avg))ms min=\(String(format: "%.1f", times.min() ?? 0))ms msgs=\(messageCount)")
         #expect(messageCount <= 50, "Default page should load at most 50 messages worth of content")
     }
 
@@ -477,8 +508,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
@@ -494,8 +532,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: MessageSenderOnly.self)
                     .fetchAll(db)
@@ -554,15 +599,29 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -570,8 +629,15 @@ struct MessagesRepositoryBenchmarkTests {
 
                 _ = try DBConversationMember
                     .filter(DBConversationMember.Columns.conversationId == conversationId)
-                    .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                    .including(required: DBConversationMember.memberProfile)
+                    .select([
+                        DBConversationMember.Columns.conversationId,
+                        DBConversationMember.Columns.inboxId,
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
+                    .including(optional: DBConversationMember.profile)
+                    .including(optional: DBConversationMember.avatarSlot)
+                    .including(optional: DBConversationMember.inviterProfileIdentity)
                     .asRequest(of: DBConversationMemberProfileWithRole.self)
                     .fetchAll(db)
                 let t2 = CFAbsoluteTimeGetCurrent()
@@ -584,8 +650,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(all: DBMessage.reactions)
                     .including(optional: DBMessage.sourceMessage)
@@ -602,8 +675,15 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
-                            .including(required: DBConversationMember.memberProfile)
+                            .select([
+                                DBConversationMember.Columns.conversationId,
+                                DBConversationMember.Columns.inboxId,
+                                DBConversationMember.Columns.role,
+                                DBConversationMember.Columns.createdAt,
+                            ])
+                            .including(optional: DBConversationMember.profile)
+                            .including(optional: DBConversationMember.avatarSlot)
+                            .including(optional: DBConversationMember.inviterProfileIdentity)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
@@ -620,7 +700,7 @@ struct MessagesRepositoryBenchmarkTests {
 
                 let totalNew = noAssocMs + batchReactMs
                 let totalOld = (t3 - t2) * 1000
-                print("[BENCHMARK] Breakdown: conv=\(String(format: "%.1f", (t1-t0)*1000))ms members=\(String(format: "%.1f", (t2-t1)*1000))ms")
+                print("[BENCHMARK] Breakdown: conv=\(String(format: "%.1f", (t1 - t0) * 1000))ms members=\(String(format: "%.1f", (t2 - t1) * 1000))ms")
                 print("[BENCHMARK] OLD msgs+reactions(including all): \(String(format: "%.1f", totalOld))ms")
                 print("[BENCHMARK] NEW msgs-no-assoc=\(String(format: "%.1f", noAssocMs))ms + batchReactions=\(String(format: "%.1f", batchReactMs))ms = \(String(format: "%.1f", totalNew))ms")
                 print("[BENCHMARK] Reactions speedup: \(String(format: "%.1f", totalOld / totalNew))x (fetched=\(msgsLite.count) reactions=\(allReactions.count))")
@@ -630,6 +710,7 @@ struct MessagesRepositoryBenchmarkTests {
 
     @Test("Benchmark: end-to-end message load times at various scales")
     func benchmarkEndToEnd() throws {
+        // swiftlint:disable:next large_tuple
         let scenarios: [(msgs: Int, reactions: Int, members: Int, label: String)] = [
             (20, 2, 3, "Light (20 msgs, 2 reactions/msg, 3 members)"),
             (50, 3, 5, "Medium (50 msgs, 3 reactions/msg, 5 members)"),
@@ -656,7 +737,7 @@ struct MessagesRepositoryBenchmarkTests {
 
             let repo = MessagesRepository(
                 dbReader: dbQueue,
-                conversationId: conversationId
+                conversationId: conversationId, currentInboxId: ""
             )
 
             var times: [Double] = []
@@ -695,7 +776,7 @@ struct MessagesRepositoryBenchmarkTests {
         var oldPathTimes: [Double] = []
         for _ in 0..<10 {
             let start = CFAbsoluteTimeGetCurrent()
-            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, pageSize: 150)
+            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, currentInboxId: "", pageSize: 150)
             _ = try repo.fetchInitial()
             try dbQueue.read { db in
                 _ = try DBConversation
@@ -709,7 +790,7 @@ struct MessagesRepositoryBenchmarkTests {
         var newPathTimes: [Double] = []
         for _ in 0..<10 {
             let start = CFAbsoluteTimeGetCurrent()
-            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, pageSize: 50)
+            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, currentInboxId: "", pageSize: 50)
             _ = try repo.fetchInitial()
             newPathTimes.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
         }
@@ -717,8 +798,8 @@ struct MessagesRepositoryBenchmarkTests {
         let avgOld = oldPathTimes.reduce(0, +) / Double(oldPathTimes.count)
         let avgNew = newPathTimes.reduce(0, +) / Double(newPathTimes.count)
         let speedup = avgOld / avgNew
-        print("[BENCHMARK] Full init OLD (pageSize=150 + detailedQuery): avg=\(String(format: "%.1f", avgOld))ms min=\(String(format: "%.1f", oldPathTimes.min()!))ms")
-        print("[BENCHMARK] Full init NEW (pageSize=50, no conv query): avg=\(String(format: "%.1f", avgNew))ms min=\(String(format: "%.1f", newPathTimes.min()!))ms")
+        print("[BENCHMARK] Full init OLD (pageSize=150 + detailedQuery): avg=\(String(format: "%.1f", avgOld))ms min=\(String(format: "%.1f", oldPathTimes.min() ?? 0))ms")
+        print("[BENCHMARK] Full init NEW (pageSize=50, no conv query): avg=\(String(format: "%.1f", avgNew))ms min=\(String(format: "%.1f", newPathTimes.min() ?? 0))ms")
         print("[BENCHMARK] Full init speedup: \(String(format: "%.1f", speedup))x")
     }
 }

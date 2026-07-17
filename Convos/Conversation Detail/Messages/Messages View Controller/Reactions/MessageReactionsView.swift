@@ -22,125 +22,119 @@ struct MessageReactionsView: View {
         }
     }
 
-    var body: some View {
-        Group {
-            GeometryReader { reader in
-                let contentHeight = max(reader.size.height - (Constant.padding * 2.0), 0.0)
-                ZStack(alignment: .leading) {
-                    reactionsScrollView(reader: reader, contentHeight: contentHeight)
-                    HStack(spacing: 0.0) {
-                        Spacer()
-                        selectedEmojiView(reader: reader)
-                        expandCollapseButton(contentHeight: contentHeight)
-                    }
-                }
-                .padding(0.0)
-                .animation(
-                    .spring(response: Constant.springResponse,
-                            dampingFraction: Constant.springDampingFractionPlus),
-                    value: viewModel.viewState
-                )
+    private var reactionsCapsule: some View {
+        GeometryReader { reader in
+            reactionsCapsuleContents(reader: reader)
+        }
+        .frame(width: containerWidth, height: Constant.height)
+        .background(.colorBackgroundSurfaceless)
+        .clipShape(Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 10.0, x: 0, y: 0)
+        .scaleEffect(viewModel.viewState.isMinimized ? 0.0 : 1.0)
+        .opacity(viewModel.viewState.isMinimized ? 0.0 : 1.0)
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: viewModel.viewState)
+        .onChange(of: viewModel.viewState) { lhs, _ in
+            handleViewStateChange(from: lhs)
+        }
+    }
+
+    private func reactionsCapsuleContents(reader: GeometryProxy) -> some View {
+        let contentHeight = max(reader.size.height - (Constant.padding * 2.0), 0.0)
+        return ZStack(alignment: .leading) {
+            reactionsScrollView(reader: reader, contentHeight: contentHeight)
+            HStack(spacing: 0.0) {
+                Spacer()
+                selectedEmojiView(reader: reader)
+                expandCollapseButton(contentHeight: contentHeight)
             }
-            .frame(width: containerWidth, height: Constant.height)
-            .background(.colorBackgroundSurfaceless)
-            .clipShape(Capsule())
-            .shadow(
-                color: Color.black.opacity(0.15),
-                radius: 10.0,
-                x: 0, y: 0
+        }
+        .padding(0.0)
+        .animation(
+            .spring(response: Constant.springResponse, dampingFraction: Constant.springDampingFractionPlus),
+            value: viewModel.viewState
+        )
+    }
+
+    private func handleViewStateChange(from previous: MessageReactionMenuViewModel.ViewState) {
+        guard previous == .minimized else { return }
+        if emojiAppeared.count != viewModel.reactions.count {
+            emojiAppeared = Array(repeating: false, count: viewModel.reactions.count)
+        }
+        let totalDelay = Constant.emojiAppearanceDelay
+            + (Constant.emojiAppearanceDelayStep * Double(viewModel.reactions.count))
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            withAnimation {
+                showMoreAppeared = true
+            }
+        }
+    }
+
+    var body: some View {
+        reactionsCapsule
+            .frame(maxWidth: .infinity, alignment: viewModel.alignment)
+            .background(.clear)
+            .emojiPicker(
+                isPresented: $viewModel.showingEmojiPicker,
+                onPick: { emoji in
+                    customEmoji = emoji
+                    viewModel.add(reaction: .init(emoji: emoji, isSelected: true))
+                },
+                onDelete: {
+                    customEmoji = nil
+                }
             )
-            .scaleEffect(viewModel.viewState.isMinimized ? 0.0 : 1.0)
-            .opacity(viewModel.viewState.isMinimized ? 0.0 : 1.0)
-            .animation(.spring(response: 0.6, dampingFraction: 0.8), value: viewModel.viewState)
-            .onChange(of: viewModel.viewState) { lhs, _ in
-                if lhs == .minimized {
-                    if emojiAppeared.count != viewModel.reactions.count {
-                        emojiAppeared = Array(repeating: false, count: viewModel.reactions.count)
-                    }
-                    let totalDelay = (Constant.emojiAppearanceDelay +
-                                      (Constant.emojiAppearanceDelayStep * Double(viewModel.reactions.count)))
-                    DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
-                        withAnimation {
-                            showMoreAppeared = true
-                        }
+    }
+
+    // MARK: - Subviews
+
+    private func reactionButtonLabel(emoji: String, didAppear: Bool, hidesContent: Bool) -> some View {
+        let blurAmount: CGFloat = hidesContent ? Constant.blurRadius : (didAppear ? 0.0 : Constant.blurRadius)
+        let scale: CGFloat = hidesContent ? Constant.collapsedScale : (didAppear ? Constant.popScaleNormal : Constant.collapsedScale)
+        let rotation: Double = didAppear ? 0 : Constant.emojiRotationCollapsed
+        let opacity: CGFloat = hidesContent ? Constant.hiddenOpacity : Constant.visibleOpacity
+        let spring: Animation = .spring(response: Constant.springResponse, dampingFraction: Constant.springDampingFractionCollapsed)
+        return Text(emoji)
+            .font(.system(size: Constant.emojiFontSize))
+            .padding(Constant.padding)
+            .blur(radius: blurAmount)
+            .scaleEffect(scale)
+            .rotationEffect(.degrees(rotation))
+            .opacity(opacity)
+            .animation(spring, value: hidesContent)
+            .animation(spring, value: didAppear)
+    }
+
+    @ViewBuilder
+    private func reactionButton(reaction: MessageReactionChoice, index: Int) -> some View {
+        let didAppear: Bool = emojiAppeared.indices.contains(index) && emojiAppeared[index]
+        let hidesContent: Bool = viewModel.viewState.hidesContent
+        let noSelection: Bool = viewModel.selectedEmoji == nil
+
+        Button {
+            viewModel.add(reaction: reaction)
+        } label: {
+            reactionButtonLabel(emoji: reaction.emoji, didAppear: didAppear, hidesContent: hidesContent)
+        }
+        .disabled(hidesContent)
+        .accessibilityLabel("React with \(reaction.emoji)")
+        .scaleEffect(noSelection ? Constant.popScaleNormal : Constant.collapsedScale)
+        .onChange(of: showMoreAppeared) {
+            if emojiAppeared.indices.contains(index) && !emojiAppeared[index] {
+                let delay: Double = Constant.emojiAppearanceDelayStep * Double(index)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation {
+                        emojiAppeared[index] = true
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: viewModel.alignment)
-        .background(.clear)
-        .emojiPicker(
-            isPresented: $viewModel.showingEmojiPicker,
-            onPick: { emoji in
-                customEmoji = emoji
-                viewModel.add(reaction: .init(emoji: emoji, isSelected: true))
-            },
-            onDelete: {
-                customEmoji = nil
-            }
-        )
     }
-
-    // MARK: - Subviews
 
     private func reactionsScrollView(reader: GeometryProxy, contentHeight: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0.0) {
                 ForEach(Array(viewModel.reactions.enumerated()), id: \.element.id) { index, reaction in
-                    Button {
-                        viewModel.add(reaction: reaction)
-                    } label: {
-                        Text(reaction.emoji)
-                            .font(.system(size: Constant.emojiFontSize))
-                            .padding(Constant.padding)
-                            .blur(
-                                radius: (viewModel.viewState.hidesContent ? Constant.blurRadius :
-                                            emojiAppeared.indices.contains(index)
-                                         && emojiAppeared[index] ? 0.0 : Constant.blurRadius)
-                            )
-                            .scaleEffect(
-                                viewModel.viewState.hidesContent ? Constant.collapsedScale :
-                                    (emojiAppeared.indices.contains(index) &&
-                                     emojiAppeared[index] ? Constant.popScaleNormal : Constant.collapsedScale)
-                            )
-                            .rotationEffect(
-                                .degrees(
-                                    emojiAppeared.indices.contains(index) && emojiAppeared[index] ? 0 :
-                                        Constant.emojiRotationCollapsed
-                                )
-                            )
-                            .opacity(
-                                viewModel.viewState.hidesContent ? Constant.hiddenOpacity : Constant.visibleOpacity
-                            )
-                            .animation(
-                                .spring(response: Constant.springResponse,
-                                        dampingFraction: Constant.springDampingFractionCollapsed),
-                                value: viewModel.viewState
-                            )
-                            .animation(
-                                .spring(response: Constant.springResponse,
-                                        dampingFraction: Constant.springDampingFractionCollapsed),
-                                value: emojiAppeared.indices.contains(index) ? emojiAppeared[index] : false
-                            )
-                    }
-                    .disabled(viewModel.viewState.hidesContent)
-                    .accessibilityLabel("React with \(reaction.emoji)")
-                    .scaleEffect(
-                        (viewModel.selectedEmoji == nil ? Constant.popScaleNormal : Constant.collapsedScale)
-                    )
-                    .onChange(of: showMoreAppeared) {
-                        // Staggered animation
-                        if emojiAppeared.indices.contains(index) && !emojiAppeared[index] {
-                            DispatchQueue.main.asyncAfter(
-                                deadline: (.now() +
-                                           (Constant.emojiAppearanceDelayStep * Double(index)))
-                            ) {
-                                withAnimation {
-                                    emojiAppeared[index] = true
-                                }
-                            }
-                        }
-                    }
+                    reactionButton(reaction: reaction, index: index)
                 }
             }
             .padding(.horizontal, Constant.padding)

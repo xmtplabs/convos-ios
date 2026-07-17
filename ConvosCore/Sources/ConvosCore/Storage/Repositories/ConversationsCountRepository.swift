@@ -39,11 +39,18 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
 }
 
 fileprivate extension Database {
+    // Mirrors the visible conversation list (ConversationsRepository): the
+    // required join on a `conversationLocalState` row with `wasRemoved == false`
+    // excludes conversations the local user was removed from, so the count never
+    // exceeds what's actually shown. Every persisted conversation has a
+    // localState row (ConversationWriter inserts one), so the required join does
+    // not drop live conversations.
     func composeConversationsCount(consent: [Consent], kinds: [ConversationKind]) throws -> Int {
         try DBConversation
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(kinds.contains(DBConversation.Columns.kind))
             .filter(consent.contains(DBConversation.Columns.consent))
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .fetchCount(self)
     }
 }

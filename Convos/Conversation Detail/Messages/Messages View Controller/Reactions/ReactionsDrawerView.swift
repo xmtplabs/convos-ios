@@ -1,13 +1,25 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ReactionsDrawerView: View {
     let message: AnyMessage
     let onRemoveReaction: ((MessageReaction) -> Void)?
 
+    @State private var navState: ReactionsNavigatorImpl = .init()
+    @State private var navigator: ReactionsCollector?
+
     init(message: AnyMessage, onRemoveReaction: ((MessageReaction) -> Void)? = nil) {
         self.message = message
         self.onRemoveReaction = onRemoveReaction
+    }
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = ReactionsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
     }
 
     private var sortedReactions: [MessageReaction] {
@@ -22,10 +34,6 @@ struct ReactionsDrawerView: View {
         }
     }
 
-    private var maxDrawerHeight: CGFloat {
-        UIScreen.main.bounds.height * 0.7
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Text("Reactions")
@@ -33,7 +41,7 @@ struct ReactionsDrawerView: View {
                 .fontWeight(.bold)
                 .padding(.bottom, DesignConstants.Spacing.step2x)
 
-            ScrollView {
+            BoundedScrollView(maxHeight: 600.0) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
                     ForEach(sortedReactions, id: \.id) { reaction in
                         ReactionRowView(
@@ -43,13 +51,16 @@ struct ReactionsDrawerView: View {
                     }
                 }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicatorsFlash(onAppear: true)
-            .scrollContentBackground(.hidden)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
-        .frame(minHeight: 160, maxHeight: maxDrawerHeight)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 
@@ -62,7 +73,8 @@ private struct ReactionRowView: View {
             ProfileAvatarView(
                 profile: reaction.sender.profile,
                 profileImage: nil,
-                useSystemPlaceholder: false
+                useSystemPlaceholder: false,
+                agentVerification: reaction.sender.agentVerification
             )
             .frame(width: 40.0, height: 40.0)
 

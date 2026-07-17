@@ -5,22 +5,17 @@ import Testing
 
 @Suite("AssetRenewalManager Tests", .serialized)
 struct AssetRenewalManagerTests {
+    private let avatarURL = "https://example.com/avatar.bin"
+
     @Test("performRenewalIfNeeded skips when no stale assets")
     func testSkipsWhenNoStaleAssets() async throws {
         let fixtures = try await makeTestFixtures()
         let recentDate = Date()
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: recentDate
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: recentDate)
         }
 
         await fixtures.manager.performRenewalIfNeeded()
@@ -34,16 +29,9 @@ struct AssetRenewalManagerTests {
         let oldDate = Date().addingTimeInterval(-20 * 24 * 60 * 60)
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: oldDate
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: oldDate)
         }
 
         await fixtures.manager.performRenewalIfNeeded()
@@ -56,16 +44,9 @@ struct AssetRenewalManagerTests {
         let fixtures = try await makeTestFixtures()
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         await fixtures.manager.performRenewalIfNeeded()
@@ -79,16 +60,9 @@ struct AssetRenewalManagerTests {
         let recentDate = Date()
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: recentDate
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: recentDate)
         }
 
         _ = await fixtures.manager.forceRenewal()
@@ -102,20 +76,13 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         let asset = RenewableAsset.profileAvatar(
-            url: "https://example.com/avatar.bin",
+            url: avatarURL,
             conversationId: "convo-1",
             inboxId: "inbox-1",
             lastRenewed: nil
@@ -125,10 +92,10 @@ struct AssetRenewalManagerTests {
 
         #expect(result?.renewed == 1)
 
-        let profile = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        let avatar = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "convo-1")
         }
-        #expect(profile?.avatarLastRenewed != nil)
+        #expect(avatar?.lastRenewed != nil)
     }
 
     @Test("renewSingleAsset does not record timestamp on failure")
@@ -137,20 +104,13 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 0, failed: 1, expiredKeys: [])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         let asset = RenewableAsset.profileAvatar(
-            url: "https://example.com/avatar.bin",
+            url: avatarURL,
             conversationId: "convo-1",
             inboxId: "inbox-1",
             lastRenewed: nil
@@ -158,10 +118,10 @@ struct AssetRenewalManagerTests {
 
         _ = await fixtures.manager.renewSingleAsset(asset)
 
-        let profile = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        let avatar = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "convo-1")
         }
-        #expect(profile?.avatarLastRenewed == nil)
+        #expect(avatar?.lastRenewed == nil)
     }
 
     @Test("renewSingleAsset handles expired asset by clearing URL")
@@ -170,19 +130,13 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 0, failed: 1, expiredKeys: ["avatar.bin"])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin"
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         let asset = RenewableAsset.profileAvatar(
-            url: "https://example.com/avatar.bin",
+            url: avatarURL,
             conversationId: "convo-1",
             inboxId: "inbox-1",
             lastRenewed: nil
@@ -192,10 +146,10 @@ struct AssetRenewalManagerTests {
 
         #expect(result?.expiredKeys.contains("avatar.bin") == true)
 
-        let profile = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        let avatar = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "convo-1")
         }
-        #expect(profile?.avatar == nil)
+        #expect(avatar?.url == nil)
     }
 
     @Test("renewSingleAsset returns nil for asset without key")
@@ -216,8 +170,7 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 2, failed: 0, expiredKeys: [])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
             try makeDBConversation(
                 id: "convo-2",
@@ -226,24 +179,18 @@ struct AssetRenewalManagerTests {
                 kind: .group,
                 imageURL: "https://example.com/group.bin"
             ).insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         _ = await fixtures.manager.forceRenewal()
 
-        let profile = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        let avatar = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "convo-1")
         }
         let conversation = try await fixtures.dbWriter.read { db in
             try DBConversation.fetchOne(db, key: "convo-2")
         }
-        #expect(profile?.avatarLastRenewed != nil)
+        #expect(avatar?.lastRenewed != nil)
         #expect(conversation?.imageLastRenewed != nil)
     }
 
@@ -253,8 +200,7 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 1, expiredKeys: ["avatar.bin"])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
             try makeDBConversation(
                 id: "convo-2",
@@ -263,24 +209,18 @@ struct AssetRenewalManagerTests {
                 kind: .group,
                 imageURL: "https://example.com/group.bin"
             ).insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         _ = await fixtures.manager.forceRenewal()
 
-        let profile = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        let avatar = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar.fetchOne(db, inboxId: "inbox-1", conversationId: "convo-1")
         }
         let conversation = try await fixtures.dbWriter.read { db in
             try DBConversation.fetchOne(db, key: "convo-2")
         }
-        #expect(profile?.avatarLastRenewed == nil)
+        #expect(avatar?.lastRenewed == nil)
         #expect(conversation?.imageLastRenewed != nil)
     }
 
@@ -292,16 +232,9 @@ struct AssetRenewalManagerTests {
         }
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         let result = await fixtures.manager.forceRenewal()
@@ -311,53 +244,34 @@ struct AssetRenewalManagerTests {
         #expect(result?.renewed == 0)
     }
 
-    @Test("Records renewal for all profiles with same URL")
+    @Test("Records renewal for all avatar slots with same URL")
     func testRecordsRenewalForAllProfilesWithSameURL() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
         let sharedAvatarURL = "https://example.com/shared-avatar.bin"
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
             try makeDBConversation(id: "convo-2", inboxId: "inbox-1", clientId: "client-1").insert(db)
             try makeDBConversation(id: "convo-3", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Me in convo 1",
-                avatar: sharedAvatarURL,
-                avatarLastRenewed: nil
-            ).insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-2",
-                inboxId: "inbox-1",
-                name: "Me in convo 2",
-                avatar: sharedAvatarURL,
-                avatarLastRenewed: nil
-            ).insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-3",
-                inboxId: "inbox-1",
-                name: "Me in convo 3",
-                avatar: sharedAvatarURL,
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: sharedAvatarURL, lastRenewed: nil)
+            try seedAvatar(db, conversationId: "convo-2", url: sharedAvatarURL, lastRenewed: nil)
+            try seedAvatar(db, conversationId: "convo-3", url: sharedAvatarURL, lastRenewed: nil)
         }
 
         _ = await fixtures.manager.forceRenewal()
 
         #expect(fixtures.mockAPI.renewCallCount == 1)
 
-        let profiles = try await fixtures.dbWriter.read { db in
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.avatar == sharedAvatarURL)
+        let avatars = try await fixtures.dbWriter.read { db in
+            try DBProfileAvatar
+                .filter(DBProfileAvatar.Columns.url == sharedAvatarURL)
                 .fetchAll(db)
         }
-        #expect(profiles.count == 3)
-        for profile in profiles {
-            #expect(profile.avatarLastRenewed != nil)
+        #expect(avatars.count == 3)
+        for avatar in avatars {
+            #expect(avatar.lastRenewed != nil)
         }
     }
 
@@ -367,16 +281,9 @@ struct AssetRenewalManagerTests {
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
 
         try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBMember(inboxId: "inbox-1").insert(db)
+            try seedInbox(db)
             try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
-            try DBMemberProfile(
-                conversationId: "convo-1",
-                inboxId: "inbox-1",
-                name: "Test",
-                avatar: "https://example.com/avatar.bin",
-                avatarLastRenewed: nil
-            ).insert(db)
+            try seedAvatar(db, conversationId: "convo-1", url: avatarURL, lastRenewed: nil)
         }
 
         async let renewal1: Void = fixtures.manager.performRenewalIfNeeded()
@@ -415,6 +322,22 @@ private extension AssetRenewalManagerTests {
         )
     }
 
+    func seedInbox(_ db: Database) throws {
+        try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+        try DBMember(inboxId: "inbox-1").insert(db)
+    }
+
+    func seedAvatar(_ db: Database, conversationId: String, url: String, lastRenewed: Date?) throws {
+        try DBProfileAvatar(
+            inboxId: "inbox-1",
+            conversationId: conversationId,
+            url: url,
+            profileSource: .profileUpdate,
+            updatedAt: Date(),
+            lastRenewed: lastRenewed
+        ).insert(db)
+    }
+
     func makeDBConversation(
         id: String,
         inboxId: String,
@@ -425,8 +348,6 @@ private extension AssetRenewalManagerTests {
     ) -> DBConversation {
         DBConversation(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: id,
             inviteTag: "invite-\(id)",
             creatorId: inboxId,
@@ -444,8 +365,10 @@ private extension AssetRenewalManagerTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
+            hasHadVerifiedAgent: false,
         )
     }
 }
@@ -464,11 +387,17 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String { "siwe-token" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
     func uploadAttachmentAndExecute(data: Data, filename: String, afterUpload: @escaping (String) async throws -> Void) async throws -> String { "" }
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
@@ -477,10 +406,19 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
+        .init(connectionRequestId: "", redirectUrl: "")
     }
+
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
+        .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
+    }
+
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
+
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

@@ -1,14 +1,12 @@
-# Test: Database Migration from Main
+# Test: Legacy-Wipe on Upgrade to Single-Inbox Build
 
-Verify that upgrading from the current production version (main branch) to the current branch preserves user data and that the app functions correctly after the upgrade.
+Verify that upgrading from the current production version (main branch) to the single-inbox refactor branch executes a clean legacy wipe: prior GRDB data, prior XMTP databases, and prior per-conversation identities are removed, and the app boots into a fresh single-inbox state without crashing.
 
-## Important: Debug Erase Behavior
+> **Expected to fail until the refactor is behaviorally complete.** The wipe itself lands in C2; full single-inbox identity creation and onboarding come online incrementally across C3 → C11. Until then, the "Phase 5" post-wipe functionality assertions will not all pass. That is expected — the Pass/Fail criteria below are annotated with the checkpoint that unblocks each one.
 
-The app's database migrator has `eraseDatabaseOnSchemaChange = true` in DEBUG builds. This means if the database schema changed between main and the current branch, the database will be automatically wiped on first launch of the new version. This is expected behavior in dev builds.
+## Why the test shape changed
 
-The migration test should detect and report this:
-- If data survives the upgrade, the schema did not change — report migration as successful.
-- If data is wiped after the upgrade, the schema changed and the debug erase triggered — report this clearly. This is not a test failure, but the test should verify the app still launches and functions correctly after the wipe.
+Previously `13-migration.md` verified that conversations and messages *survived* the upgrade, with a note that `eraseDatabaseOnSchemaChange = true` would wipe debug builds if the schema changed. The single-inbox refactor removes any notion of backwards-compatible data: per-conversation identities cannot be carried forward because the identity model itself has changed. The refactor plan documents this explicitly (see `docs/plans/single-inbox-identity-refactor.md`, sections "Non-Goals" and "Migration / Fresh-Start Strategy"). The test now verifies the *intentional* wipe rather than data preservation.
 
 ## Prerequisites
 
@@ -48,27 +46,30 @@ The migration test should detect and report this:
 
 8. Launch the app on the migration simulator.
 
-## Phase 2: Populate Data on the Main Branch Version
+## Phase 2: Populate Legacy Data on the Main Branch Version
 
 All simulator interactions in this phase must target the migration simulator UDID.
 
 9. Using the CLI, create three conversations with distinct names:
-   - "Migration Chat Alpha" with profile name "Alpha User"
-   - "Migration Chat Beta" with profile name "Beta User"
-   - "Migration Chat Gamma" with profile name "Gamma User"
+   - "Legacy Chat Alpha"
+   - "Legacy Chat Beta"
+   - "Legacy Chat Gamma"
 
-10. For each conversation, generate an invite and open it as a deep link in the migration simulator. Process join requests from the CLI side. Wait for the app to join each conversation.
+10. For each conversation, generate an invite and open it as a deep link in the migration simulator. Process join requests from the CLI side. Wait for the app to join each conversation. This creates three separate per-conversation inboxes in the legacy build.
 
 11. Populate each conversation with messages:
     - In "Alpha": send 3 text messages from the CLI.
-    - In "Beta": send 2 text messages and 1 emoji message from the CLI.
+    - In "Beta": send 2 text messages from the CLI.
     - In "Gamma": send 1 text message from the CLI, then send 1 message from the app.
 
-12. Take a screenshot and note the state of the conversations list. Record conversation names and message counts for later comparison.
+12. Note the legacy state for later comparison:
+    - Number of conversations in the list: 3
+    - Main screen screenshot shows conversations populated
+    - Keychain will carry three per-conversation identities (cannot be asserted from QA, but should be inferrable from app behavior)
 
 13. Terminate the app on the migration simulator.
 
-## Phase 3: Install the Current Branch Version
+## Phase 3: Install the Single-Inbox Branch
 
 14. Build the app from the current branch (the working directory), targeting the migration simulator:
     ```
@@ -87,53 +88,58 @@ All simulator interactions in this phase must target the migration simulator UDI
 
 16. Launch the app on the migration simulator.
 
-## Phase 4: Verify Migration
+## Phase 4: Verify the Legacy Wipe
 
 17. Wait for the app to launch and stabilize. Take a screenshot.
 
-18. Check if the conversations list shows the previously created conversations:
-    - If conversations are present: the database migrated successfully. Proceed to verify each conversation.
-    - If the conversations list is empty: the schema changed and `eraseDatabaseOnSchemaChange` wiped the database. Note this in the results and skip to Phase 5.
+18. Verify the conversations list is empty:
+    - No "Legacy Chat Alpha", "Legacy Chat Beta", or "Legacy Chat Gamma" visible.
+    - No residual unread counts from prior conversations.
+    - The empty state for a first-launch user appears.
 
-19. If conversations survived, verify:
-    - All three conversations appear in the list with their correct names.
-    - Open "Migration Chat Alpha" and verify messages are present.
-    - Navigate back and open "Migration Chat Beta" and verify messages are present.
-    - Navigate back and verify the conversations list is intact.
+19. Verify no crash occurred during the upgrade launch:
+    - Device logs / Console show no fatal errors on first launch.
+    - `LegacyDataWipe: detected legacy data` and `LegacyDataWipe: removed ...` log lines appear (confirms the wipe path executed, not a silent no-op).
 
-20. If conversations survived, verify that new messages still work:
-    - Open any conversation.
-    - Send a message from the CLI.
-    - Verify it appears in the app.
-    - Send a message from the app.
-    - Verify it appears via CLI.
+20. (Once identity creation is wired — **blocked until C3**) Verify a single fresh identity is created silently:
+    - No onboarding carousel, no recovery-phrase prompt, no "create an inbox" button.
+    - Settings / debug panel (if available) shows exactly one `clientId` and one `inboxId`.
+    - The shared app-group keychain carries exactly one `KeychainIdentityStore.v3` entry (replacement key for C3; exact key name TBD in the C3 commit).
 
-## Phase 5: Verify Post-Upgrade Functionality
+## Phase 5: Verify Post-Wipe Functionality
 
-Whether or not the database was preserved, verify that core functionality works on the new version:
+Whether or not identity creation is wired at the time of running, verify core lifecycle:
 
-21. Create a new conversation via the CLI with name "Post-Migration Test".
-22. Generate an invite and open it as a deep link in the migration simulator.
-23. Process the join request from the CLI.
-24. Verify the app enters the conversation.
-25. Exchange messages in both directions to confirm the app is fully functional.
+21. (**Blocked until C3/C4 onboarding lands**) Create a new conversation via the CLI with name "Post-Wipe Test".
+22. (**Blocked until C10**) Generate an invite and open it as a deep link in the migration simulator.
+23. (**Blocked until C10**) Process the join request from the CLI.
+24. (**Blocked until C10**) Verify the app enters the conversation using the single inbox.
+25. (**Blocked until C11**) Exchange messages in both directions to confirm the app is fully functional.
+
+## Phase 6: Idempotence
+
+26. Terminate and relaunch the app. The schema-generation marker in the app-group UserDefaults should be present; `LegacyDataWipe` should no-op this time:
+    - Device logs show **no** `LegacyDataWipe: detected legacy data` message.
+    - Conversations list state from the previous launch is preserved (whatever new data was added since Phase 4).
 
 ## Teardown
 
-26. Terminate the app on the migration simulator.
-27. Delete the migration simulator: `xcrun simctl delete <MIGRATION_UDID>`
-28. Remove the temporary main branch worktree: `git worktree remove /tmp/convos-migration-main --force`
-29. Explode any conversations created during the test via CLI.
+27. Terminate the app on the migration simulator.
+28. Delete the migration simulator: `xcrun simctl delete <MIGRATION_UDID>`
+29. Remove the temporary main branch worktree: `git worktree remove /tmp/convos-migration-main --force`
+30. Explode any conversations created during the test via CLI.
 
 ## Pass/Fail Criteria
 
 - [ ] Main branch app builds and installs successfully on the migration simulator
-- [ ] Conversations can be created and populated on the main branch version
-- [ ] Current branch app builds and installs on top of the main branch version
-- [ ] App launches without crashing after the upgrade
-- [ ] Data migration outcome is reported (preserved or wiped due to schema change)
-- [ ] If data preserved: conversations and messages are intact after upgrade
-- [ ] If data preserved: new messages can be sent and received in migrated conversations
-- [ ] Post-upgrade: a new conversation can be joined and used
-- [ ] Post-upgrade: messages can be exchanged in the new conversation
+- [ ] Legacy conversations and messages populate correctly on the main branch version
+- [ ] Single-inbox branch app builds and installs on top of the main branch version
+- [ ] App launches without crashing after the upgrade (C2)
+- [ ] Conversations list is empty on first post-upgrade launch (C2)
+- [ ] `LegacyDataWipe` log lines confirm the wipe path executed (C2)
+- [ ] On second launch, the wipe path does **not** run again (C2)
+- [ ] Identity is created silently on first post-wipe launch — no onboarding prompts (C3)
+- [ ] Exactly one identity is present in the keychain after the wipe (C3)
+- [ ] A new conversation can be created via invite flow using the single inbox (C10)
+- [ ] Messages can be exchanged in the new conversation (C11)
 - [ ] Cleanup completes (simulator deleted, worktree removed)

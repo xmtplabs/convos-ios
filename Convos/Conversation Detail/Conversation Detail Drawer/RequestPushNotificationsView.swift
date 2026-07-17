@@ -1,3 +1,4 @@
+import ConvosMetrics
 import SwiftUI
 
 struct RequestPushNotificationsView: View {
@@ -7,6 +8,16 @@ struct RequestPushNotificationsView: View {
     let openSettings: () -> Void
 
     @State private var showingButton: Bool = false
+    @State private var navState: RequestPushNotificationsNavigatorImpl = .init()
+    @State private var navigator: RequestPushNotificationsCollector?
+
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = RequestPushNotificationsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
+        )
+    }
 
     var label: some View {
         Group {
@@ -79,6 +90,13 @@ struct RequestPushNotificationsView: View {
         )
         .accessibilityIdentifier("notification-permission-button")
         .transition(.blurReplace)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 }
 

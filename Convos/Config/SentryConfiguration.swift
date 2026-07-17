@@ -4,52 +4,61 @@ import Sentry
 
 enum SentryConfiguration {
     static func configure() {
-        guard shouldEnableSentry() else {
-            Log.info("Sentry disabled: not a Convos (Dev) distribution build")
+        let environment = ConfigManager.shared.currentEnvironment
+        guard shouldEnableSentry(for: environment) else {
+            Log.info("Sentry disabled for environment: \(environment.name)")
             return
         }
 
         let dsn = Secrets.SENTRY_DSN
         guard !dsn.isEmpty else {
-            Log.error("Sentry DSN is empty, skipping initialization")
+            Log.warning("Sentry DSN is empty, skipping initialization")
             return
         }
 
-        let envName = ConfigManager.shared.currentEnvironment.name
+        let envName = environment.name
+        let isProduction = environment.isProduction
         Log.info("Initializing Sentry for environment: \(envName)")
 
         SentrySDK.start { options in
             options.dsn = dsn
-            options.debug = true
-            options.attachScreenshot = true
+            options.debug = !isProduction
             options.enableSigtermReporting = true
             options.attachStacktrace = true
-            options.attachViewHierarchy = true
 
-            // Enable PII for internal team debugging in dev builds
-            // This captures IP addresses, user IDs, and request data
-            // Safe because .dev builds are only distributed to internal team via TestFlight
-            options.sendDefaultPii = true
-
-            options.environment = "\(envName)-debug"
+            if isProduction {
+                // Crash and error reporting only. Screenshots, view hierarchy,
+                // and default PII can carry message content and user identifiers,
+                // so they never leave a production device.
+                options.attachScreenshot = false
+                options.attachViewHierarchy = false
+                options.sendDefaultPii = false
+                options.environment = envName
+            } else {
+                // Richer context (screenshots, view hierarchy, IP addresses,
+                // user IDs, request data) for internal team debugging.
+                // Safe because .dev builds are only distributed to the internal
+                // team via TestFlight.
+                options.attachScreenshot = true
+                options.attachViewHierarchy = true
+                options.sendDefaultPii = true
+                options.environment = "\(envName)-debug"
+            }
         }
 
         Log.info("Sentry initialized successfully")
     }
 
-    private static func shouldEnableSentry() -> Bool {
-        let environment = ConfigManager.shared.currentEnvironment
-
+    private static func shouldEnableSentry(for environment: AppEnvironment) -> Bool {
         switch environment {
-        case .local:
-            // Local builds never use Sentry
+        case .local, .tests:
+            // Local builds and test runs never report to Sentry
             return false
-        case .dev:
-            // Dev builds (TestFlight) use Sentry even with DEBUG flag
-            // This is intentional: Dev.xcconfig defines DEBUG for debugging Swift packages
+        case .dev, .production:
+            // Dev (TestFlight) and production builds report to Sentry.
+            // Dev stays enabled even with the DEBUG flag: Dev.xcconfig defines
+            // DEBUG for debugging Swift packages, and that is intentional.
             return true
-        case .production, .tests:
-            return false
         }
     }
 }

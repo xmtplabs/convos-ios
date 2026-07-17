@@ -1,0 +1,339 @@
+id: "32"
+name: "Voice Memo Transcription"
+description: >
+  Verify that received voice memos are transcribed on-device and that the
+  transcript surfaces inside the voice memo bubble. A received voice memo
+  shows a "Transcribing..." state while the on-device job runs, then a
+  "Transcript" header with the recognized text shown as a collapsed preview.
+  Tapping the completed preview opens a full transcript sheet. No transcript
+  appears under non-audio attachments (photos) or under outgoing voice memos.
+  The failure/retry path is best-effort and marked optional.
+tags: [messaging, voice-memo, transcription, attachments]
+depends_on: ["30"]
+estimated_duration_s: 360
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: false
+  screen: conversations_list
+
+note: >
+  Source implementation map (verified against app source, not the stale
+  spec assumptions in 32-voice-memo-transcription.md):
+
+  - The received-voice-memo transcript renders INLINE inside the voice memo
+    bubble via VoiceMemoBubbleContent.transcriptSection
+    (Convos/.../Messages List Items/VoiceMemoBubble.swift). It is NOT a
+    separate row beneath the bubble. The standalone VoiceMemoTranscriptRow
+    is only used for non-audio parent messages (it renders only when
+    `!isAudioAttachment` in MessagesGroupItemView.swift), so it does not
+    apply to this test's primary flow.
+  - Tapping a COMPLETED transcript preview opens a sheet
+    (VoiceMemoTranscriptSheet) when the text is truncated; it does NOT
+    expand inline and there is NO chevron-up/expanded inline state. There is
+    no persisted expand/collapse store in the codebase, so the spec's
+    "expand/collapse state survives relaunch" cannot be exercised as
+    written. This test instead verifies the transcript itself (and the
+    completed/preview state) survives terminate + relaunch.
+  - States, headers and icons (VoiceMemoTranscriptRow + VoiceMemoBubble):
+    pending -> "Transcribing..." (waveform / circular spinner),
+    completed -> "Transcript" header (text.bubble icon) + preview text,
+    notRequested -> "Tap to transcribe" / "View transcript" affordance.
+    The inline `.failed` and `.permanentlyFailed` cases render EmptyView();
+    "Transcript unavailable" only appears inside the opened sheet. There is
+    NO inline "Try again" capsule in the current build.
+  - No accessibility identifier exists on the transcript preview, the
+    transcript sheet, the voice memo bubble, or any retry control. This test
+    uses label_contains ("Transcribing", "Transcript") and visual_check as
+    fallbacks. The voice memo bubble itself is located via its play control
+    and waveform (also no id). See "Accessibility Improvements Needed" in
+    the .md.
+  - Outgoing voice memos are skipped from the transcript map entirely
+    (MessagesListRepository.synthesizeTranscriptItems guards
+    `!message.senderIsCurrentUser`), and transcripts only attach to
+    `primaryVoiceMemoAttachment`, so photos never get a transcript.
+  - There is no [EVENT] emitted for transcription. The positive signal is
+    the info log line "[VoiceMemoTranscription] Saved transcript for message
+    <id> (<n> chars)". Use sim_log_tail (level all/info) to confirm it.
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_reset
+    note: >
+      convos reset && convos init --env dev --force. Clears stale identities
+      so the conversation only has the app and this CLI participant.
+  - action: create_test_audio
+    note: >
+      Generate a short spoken English clip on disk. The transcript text does
+      not need to match exactly; only the presence of non-empty text matters.
+
+      say -v Samantha "Picking up coffee on the way home" \
+        -o /tmp/convos-qa-voice-memo.m4a --data-format=alac
+
+      If `say` is unavailable or produces an unreadable container, fall back
+      to any short audio/m4a clip with clearly spoken English.
+  - action: create_test_photo
+    note: >
+      Download a valid JPEG for the non-audio attachment check (do not
+      hand-generate image bytes).
+
+      curl -sL "https://picsum.photos/300/300" -o /tmp/convos-qa-photo.jpg
+  - action: cli_create_conversation
+    args: { name: "Voice Transcript Test", profile_name: "Agent" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.invite_url
+  - action: open_deep_link
+    args: { url: "$invite_url" }
+    note: >
+      App must open the invite FIRST so the join request exists before the
+      CLI processes it (see RULES.md "Processing Invites").
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+    note: Confirms the app has navigated into the shared conversation view.
+
+steps:
+  - id: receive_voice_memo
+    name: "Received voice memo bubble appears"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/convos-qa-voice-memo.m4a"
+          mime_type: "audio/m4a"
+          remote: true
+          note: >
+            Force --remote so the app exercises the remote attachment loader
+            path. CLI: convos conversation send-attachment $id \
+            /tmp/convos-qa-voice-memo.m4a --mime-type audio/m4a --remote --env dev
+      - wait_for_element: { label_contains: "00:0", timeout: 30 }
+        note: >
+          The voice memo bubble has no accessibility identifier. Locate it by
+          its duration label (formatted MM:SS, e.g. "00:03") rendered next to
+          the play button and waveform. If the duration label is not found,
+          fall back to a screenshot and confirm a play button + waveform
+          bubble is present.
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          An incoming voice memo bubble is visible: a circular play button on
+          the leading edge, a waveform, and a MM:SS duration label. Sender
+          avatar is shown (incoming, not current user).
+    criteria: voice_memo_received
+    note: >
+      First run on a fresh simulator may need to download the on-device
+      English speech model (AssetInventory). Allow extra time before the next
+      step.
+
+  - id: wait_for_transcript
+    name: "Transcript completes and shows non-empty text"
+    actions:
+      - find_elements: { pattern: "Transcribing" }
+        note: >
+          Optional intermediate state. On a warm machine the row often jumps
+          straight to the completed transcript, so a missing "Transcribing..."
+          label is not a failure. If present, it confirms the on-device job
+          started.
+      - wait_for_element: { label_contains: "Transcript", timeout: 90 }
+        note: >
+          Completed state shows a "Transcript" header (text.bubble icon) with
+          the recognized text as a 2-line preview inside the voice memo
+          bubble. Use 90s the first time to absorb a model download; ~5-15s on
+          subsequent runs. Confirm the recognized text is also present and
+          non-empty (e.g. a "coffee" / "home" substring from the spoken clip).
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Transcript" }
+      - visual_check: >
+          A "Transcript" header with a text.bubble icon appears inside the
+          voice memo bubble, followed by recognized text shown as a 2-line
+          collapsed preview. If the text is long enough to truncate, a small
+          trailing chevron is visible on the preview.
+    criteria: transcript_completes
+    note: >
+      No [EVENT] is emitted. As a positive signal, confirm the info log line
+      "[VoiceMemoTranscription] Saved transcript for message" via
+      sim_log_tail (level all or info) for the test marker.
+
+  - id: open_transcript_sheet
+    name: "Tapping the transcript preview opens the full sheet"
+    actions:
+      - tap: { label_contains: "Transcript" }
+        note: >
+          Tap the transcript preview region inside the voice memo bubble. The
+          preview is a plain Button with no accessibility identifier; target
+          it by the "Transcript" header label or by tapping the preview text.
+          The sheet opens only when the preview is truncated (otherwise the
+          full text already fits inline) -- if the clip is short enough that
+          the text is not truncated, this step is a no-op and the inline text
+          is already fully visible; record it as pass with a note.
+      - wait_for_element: { label_contains: "Transcript unavailable", timeout: 5, optional: true }
+        note: >
+          Best-effort: the sheet title is the sender display name (or
+          "Transcript") and the body is the full selectable text, or
+          "Transcript unavailable" only when the text is empty.
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          Either a transcript sheet is presented showing the full,
+          non-truncated recognized text (title = sender name or "Transcript",
+          drag indicator hidden, medium/large detents), or -- for a short
+          clip whose preview was not truncated -- the inline transcript text
+          is already fully visible with no chevron. Either outcome passes.
+    criteria: transcript_sheet_opens
+
+  - id: dismiss_transcript_sheet
+    name: "Dismiss the transcript sheet"
+    actions:
+      - swipe: { direction: "down", from: "center" }
+        note: >
+          The sheet has presentationDragIndicator(.hidden) but interactive
+          dismiss is enabled; swipe down to dismiss. If the sheet was never
+          presented (short non-truncated clip), this is a no-op.
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: transcript_sheet_dismissable
+
+  - id: transcript_persists_relaunch
+    name: "Transcript survives terminate and relaunch"
+    actions:
+      - terminate_app: {}
+        note: xcrun simctl terminate $UDID org.convos.ios-preview
+      - launch_app: {}
+        note: >
+          Relaunch, then reopen the same conversation if the app does not
+          restore it. Navigate Chats tab -> "Voice Transcript Test".
+      - wait_for_element: { id: "message-text-field", timeout: 20 }
+      - wait_for_element: { label_contains: "Transcript", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Transcript" }
+      - visual_check: >
+          After relaunch, the same voice memo still shows the completed
+          "Transcript" header and recognized text. The transcript is read from
+          the local store, not re-run.
+    criteria: transcript_persists
+    note: >
+      The .md spec asks to verify a persisted inline expand/collapse state.
+      The current build has no inline expanded state and no expansion store
+      (tapping opens a sheet instead), so this step verifies the transcript
+      content itself persists across relaunch.
+
+  - id: no_transcript_under_photo
+    name: "No transcript appears under a non-audio attachment"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/convos-qa-photo.jpg"
+          remote: true
+          note: >
+            convos conversation send-attachment $id /tmp/convos-qa-photo.jpg \
+              --remote --env dev
+      - wait_for_element: { label_contains: "Photo message", timeout: 30 }
+        note: >
+          Incoming photos render immediately as full-width images, unblurred.
+          MessagesGroupItemView sets the "Photo message" accessibility label
+          on the photo bubble. This locates the photo bubble.
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The photo bubble shows no "Transcript" / "Transcribing..." header
+          and no transcript preview beneath or within it. Transcripts attach
+          only to voice memo (audio) attachments.
+    criteria: no_transcript_for_photo
+    note: >
+      Backed by MessagesListRepository.synthesizeTranscriptItems, which only
+      builds entries for primaryVoiceMemoAttachment messages.
+
+  - id: no_transcript_under_outgoing_voice_memo
+    name: "No transcript appears under an outgoing voice memo"
+    actions:
+      - find_elements: { id: "media-buttons" }
+        note: >
+          Expand the media buttons bar if collapsed (tap the expand control),
+          then locate the voice memo button.
+      - tap: { id: "voice-memo-button" }
+        note: Start recording (grant the microphone permission dialog if shown).
+      - on_system_dialog: "allow"
+      - wait_for_element: { id: "voice-memo-stop-button", timeout: 10 }
+      - wait_for_element: { id: "voice-memo-send-button", timeout: 10 }
+        note: >
+          Record for at least ~2s before stopping so the recording is valid
+          (sub-1s recordings are discarded). Tap voice-memo-stop-button to
+          reach the review state, which exposes voice-memo-send-button.
+      - tap: { id: "voice-memo-send-button" }
+      - wait_for_element: { label_contains: "00:0", timeout: 20 }
+        note: Wait for the outgoing voice memo bubble (its own duration label).
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The outgoing (current-user / trailing-aligned) voice memo bubble is
+          present with play button, waveform and duration, and shows NO
+          "Transcript" / "Transcribing..." header and no transcript preview.
+          Transcription runs only for received voice memos.
+    criteria: no_transcript_for_outgoing
+    note: >
+      synthesizeTranscriptItems skips messages where senderIsCurrentUser, so
+      no transcript entry is created for outgoing voice memos.
+
+  - id: failure_retry_affordance
+    name: "Failed transcription shows unavailable state (best-effort)"
+    optional: true
+    known_issue: >
+      The current build renders EmptyView() for the inline .failed and
+      .permanentlyFailed states and has no inline "Try again" capsule. A
+      forced failure therefore yields no visible inline failure UI; the only
+      "Transcript unavailable" string lives inside the transcript sheet for
+      empty text. Inducing a deterministic failure on the simulator is also
+      environment dependent. Mark this section skipped rather than failed if a
+      failure cannot be induced or no failure UI is shown.
+    actions:
+      - screenshot: {}
+        note: >
+          If a failure can be induced (e.g. deny speech recognition
+          authorization in Settings, or send audio the model rejects),
+          capture the resulting state. Otherwise record this step as skipped.
+    verify:
+      - visual_check: >
+          If a failure was induced and the build exposes failure UI: a
+          "Transcript unavailable" header (exclamationmark.bubble) with an
+          optional error description and a "Try again" capsule appears, and
+          tapping "Try again" re-enters the "Transcribing..." state without
+          leaving the conversation. If no failure UI is shown, record as
+          skipped (see known_issue).
+    criteria: failure_retry_optional
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+  - action: remove_test_files
+    note: rm -f /tmp/convos-qa-voice-memo.m4a /tmp/convos-qa-photo.jpg
+    optional: true
+
+criteria:
+  voice_memo_received:
+    description: "A voice memo sent from CLI renders as an incoming bubble with play button, waveform, and duration"
+  transcript_completes:
+    description: "The received voice memo shows a completed 'Transcript' header with non-empty recognized text"
+  transcript_sheet_opens:
+    description: "Tapping a truncated transcript preview opens the full transcript sheet (or the short transcript is already fully visible inline)"
+  transcript_sheet_dismissable:
+    description: "The transcript sheet can be dismissed back to the conversation"
+  transcript_persists:
+    description: "The completed transcript and its text survive terminating and relaunching the app"
+  no_transcript_for_photo:
+    description: "No transcript header or preview appears under a non-audio (photo) attachment"
+  no_transcript_for_outgoing:
+    description: "No transcript header or preview appears under an outgoing (current-user) voice memo"
+  failure_retry_optional:
+    description: "(Optional) Failed transcription shows an unavailable state and retry, when a failure can be induced and the build exposes failure UI"

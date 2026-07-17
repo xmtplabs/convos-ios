@@ -1,3 +1,4 @@
+import ConvosCoreiOS
 import Foundation
 import Observation
 import SwiftUI
@@ -22,6 +23,17 @@ final class FocusCoordinator {
 
     /// The current focus state - synchronized with SwiftUI's @FocusState
     private(set) var currentFocus: MessagesViewInputFocus?
+
+    /// Bumped by `moveFocus(to:)` only when the requested focus already equals
+    /// `currentFocus`. Observers (`ConversationPresenter`, `MessagesBottomBar`)
+    /// re-assert SwiftUI's `@FocusState` on this change, because a same-value
+    /// `moveFocus` leaves `currentFocus` unchanged and the value-driven
+    /// `onChange(of: currentFocus)` syncs never fire. This happens when the
+    /// messages list dismisses the keyboard via its interactive drag gesture
+    /// without SwiftUI clearing `@FocusState`, leaving the stored focus and the
+    /// real first responder out of sync - so a reply or attachment that asks to
+    /// re-focus `.message` would otherwise never raise the keyboard again.
+    private(set) var refocusNonce: Int = 0
 
     /// The type of keyboard currently detected
     private(set) var keyboardType: KeyboardType = .unknown
@@ -92,40 +104,64 @@ final class FocusCoordinator {
     /// Determines the next focus after a field finishes editing
     func nextFocus(after current: MessagesViewInputFocus, context: FocusTransitionContext) -> MessagesViewInputFocus? {
         switch (current, context) {
-        case (.displayName, .onboardingQuickname):
+        case (.displayName, .onboardingProfile):
             // During onboarding, dismiss keyboard to show onboarding UI
             return nil
 
         case (.displayName, .quickEditor),
-            (.conversationName, .quickEditor):
+            (.conversationName, .quickEditor),
+            (.sideConvoName, .quickEditor):
             // In quickEditor context, return to whatever was focused before
             // If nothing was tracked, fall back to message field or default
             return previousFocus ?? defaultFocus ?? .message
 
         case (.displayName, .editProfile),
-            (.message, .editProfile):
+            (.message, .editProfile),
+            (.voiceMemoRecording, .editProfile):
             return .message
 
         case (.conversationName, .conversationSettings):
             // After editing conversation name in settings, move to message field (or default)
             return defaultFocus ?? .message
 
-        case (.message, .conversation):
+        case (.message, .conversation),
+            (.voiceMemoRecording, .conversation):
             // When sending a message, always re-focus the message field
             return .message
 
-        case (.message, _):
-            // Message field ends editing, go to default
+        case (.message, _),
+            (.voiceMemoRecording, _):
+            // Message field and voice memo keeper end editing, go to default
             return defaultFocus
+
+        case (.sideConvoName, _):
+            // Any non-quickEditor end of side-convo name editing falls through to default
+            return defaultFocus
+
+        case (.thingsSearchBar, _):
+            // Things search lives in a peer page of the pager, not the messages composer.
+            // Don't pull focus back to .message — just dismiss.
+            return nil
 
         default:
             return defaultFocus
         }
     }
 
-    /// Moves focus to `message` if we're currently focusing the displayName or conversationName
+    /// Dismisses the Things search field if it currently holds focus. Used when the
+    /// conversation pager pages away from the Things page or the conversation
+    /// itself disappears, so the keyboard doesn't stay associated with a field on
+    /// an off-screen page and bump the messages bottom bar with a phantom inset.
+    func dismissThingsSearchIfNeeded() {
+        guard currentFocus == .thingsSearchBar else { return }
+        moveFocus(to: nil)
+    }
+
+    /// Moves focus to `message` if we're currently focusing a quick-editor field
     func dismissQuickEditor() {
-        guard currentFocus == .displayName || currentFocus == .conversationName else {
+        guard currentFocus == .displayName
+            || currentFocus == .conversationName
+            || currentFocus == .sideConvoName else {
             return
         }
 
@@ -137,7 +173,18 @@ final class FocusCoordinator {
         Log.info("moveFocus called with: \(String(describing: focus)), saving previous: \(String(describing: currentFocus))")
         previousFocus = currentFocus
         beginProgrammaticTransition(to: focus)
-        currentFocus = focus
+        if currentFocus == focus {
+            // The stored value isn't changing, so the value-driven `@FocusState`
+            // syncs won't fire. Re-assert focus anyway: the real first responder
+            // may have been dropped (e.g. the messages list dismissed the
+            // keyboard via its interactive drag) without SwiftUI clearing
+            // `@FocusState`. The transition began above so the nil intermediate
+            // of the observers' re-assert is treated as an interrupted
+            // transition, not a manual dismissal.
+            refocusNonce &+= 1
+        } else {
+            currentFocus = focus
+        }
     }
 
     /// Called when a field finishes editing to determine next focus
@@ -164,6 +211,25 @@ final class FocusCoordinator {
 
         beginProgrammaticTransition(to: nextFocus)
         currentFocus = nextFocus
+    }
+
+    /// Runs `work` with the keyboard's pending input settled, so that `work`
+    /// can safely mutate the focused field's bound text programmatically.
+    ///
+    /// Use this around programmatic mutations of a focused field's bound text
+    /// (e.g. clearing the composer on send). Mutating the binding while the
+    /// keyboard still holds uncommitted input can lose the write entirely:
+    /// the backing text view keeps the old text and the keyboard's next
+    /// commit point syncs the stale text back into the binding.
+    ///
+    /// The settle strategies live in `KeyboardInputSettling` (ConvosCoreiOS).
+    /// Pass `endingInputSession: true` when dictation is believed active.
+    /// (Dictation is not detectable directly: on iOS 26.2 `textInputMode`
+    /// stays the regular language during dictation and no input-mode-change
+    /// notification fires, so callers infer it behaviorally - see
+    /// `ConversationViewModel`.)
+    func withSettledKeyboardInput(endingInputSession: Bool, _ work: () -> Void) {
+        KeyboardInputSettling.withSettledInput(endingInputSession: endingInputSession, work)
     }
 
     /// Called by the view when SwiftUI's @FocusState has updated
@@ -259,11 +325,19 @@ final class FocusCoordinator {
 
     /// Called when user manually dismisses keyboard - should return to default or stay nil
     func handleManualDismissal(viewIsAlreadyAt viewFocus: MessagesViewInputFocus? = nil) {
-        // Ignore if we're in the middle of ANY transition
+        // Ignore if we're in the middle of any transition
         // This prevents false positives when SwiftUI temporarily sets focus to nil
         // while transitioning between text fields
         guard !isProgrammaticTransition && !isSwiftUITransition else {
             Log.info("Ignoring manual dismissal during transition (programmatic: \(isProgrammaticTransition), swiftUI: \(isSwiftUITransition))")
+            return
+        }
+
+        // Don't treat a nil-sync as manual dismissal while actively editing a quick-editor field.
+        // SwiftUI can momentarily drive focus to nil while the composer re-renders around the
+        // inline card, and collapsing the bar would yank the user out of their edit.
+        if currentFocus == .sideConvoName {
+            Log.info("Ignoring manual dismissal while editing side convo name")
             return
         }
 
@@ -288,9 +362,9 @@ final class FocusCoordinator {
     }
 
     private func updateFocusForSizeClassChange() {
-        // Only auto-adjust if we're currently at nil or .message
-        // Don't interrupt active editing of displayName or conversationName
-        guard currentFocus == nil || currentFocus == .message else {
+        // Only auto-adjust if we're currently at nil, .message, or .voiceMemoRecording
+        // Don't interrupt active editing of displayName, conversationName, or sideConvoName
+        guard currentFocus == nil || currentFocus == .message || currentFocus == .voiceMemoRecording else {
             return
         }
 
@@ -405,7 +479,7 @@ final class FocusCoordinator {
 
         // If keyboard type changed, update current focus to match new default
         // Only do this if we're currently at nil
-        // Don't interrupt active editing of displayName or conversationName
+        // Don't interrupt active editing of displayName, conversationName, or sideConvoName
         guard currentFocus == nil else { return }
         let newDefault = defaultFocus
 
@@ -477,7 +551,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
 
 /// Context for focus transitions to make smart decisions about next focus
 enum FocusTransitionContext {
-    case onboardingQuickname
+    case onboardingProfile
     case quickEditor
     case editProfile
     case conversation

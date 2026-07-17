@@ -2,6 +2,7 @@
 @testable import ConvosInvitesCore
 import Foundation
 import Testing
+import XMTPiOS
 
 /// Tests for the join request validation logic used by InviteCoordinator.
 ///
@@ -306,20 +307,79 @@ struct JoinRequestProcessingTests {
 
     // MARK: - JoinRequestError
 
-    @Test("JoinRequestError cases")
-    func joinRequestErrorCases() {
-        let errors: [JoinRequestError] = [
-            .invalidSignature,
-            .expired,
-            .conversationExpired,
-            .conversationNotFound("conv-123"),
-            .invalidFormat,
-            .creatorMismatch,
-            .revoked,
-            .addMemberFailed,
-        ]
+    @Test("Join request DM outcome subscription policy")
+    func joinRequestDMOutcomeSubscriptionPolicy() {
+        let result = JoinResult(
+            conversationId: "group-123",
+            joinerInboxId: "joiner-123",
+            conversationName: "Group"
+        )
 
-        #expect(errors.count == 8)
+        let accepted = JoinRequestDMOutcome.accepted(result, dmConversationId: "dm-123")
+        let benignFailure = JoinRequestDMOutcome.benignFailure(
+            dmConversationId: "dm-123",
+            senderInboxId: "joiner-123",
+            error: .addMemberFailed
+        )
+        let malicious = JoinRequestDMOutcome.malicious(
+            dmConversationId: "dm-123",
+            senderInboxId: "joiner-123",
+            error: .invalidSignature
+        )
+        let alreadyMember = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: AlreadyMemberContext(conversationId: "group-123", profile: nil, metadata: nil)
+        )
+        let alreadyMemberLedger = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: nil
+        )
+
+        #expect(accepted.shouldKeepDMSubscribed)
+        #expect(accepted.dmConversationId == "dm-123")
+        #expect(accepted.joinResult?.conversationId == "group-123")
+        #expect(benignFailure.shouldKeepDMSubscribed)
+        #expect(!malicious.shouldKeepDMSubscribed)
+        #expect(malicious.isMalicious)
+        #expect(alreadyMember.shouldKeepDMSubscribed)
+        #expect(alreadyMember.dmConversationId == "dm-123")
+        #expect(alreadyMember.joinResult == nil)
+        #expect(!alreadyMember.isMalicious)
+
+        // A verified already-member result carries the conversation so the
+        // caller can re-publish a complete snapshot; the ledger pre-check does
+        // not resolve a conversation.
+        #expect(alreadyMember.alreadyMemberContext?.conversationId == "group-123")
+        #expect(alreadyMemberLedger.alreadyMemberContext == nil)
+    }
+
+    @Test("Outcome selection prefers a verified already-member over a ledger-only one")
+    func preferringVerifiedKeepsTheVerifiedOutcome() {
+        let ledger = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: nil
+        )
+        let verified = JoinRequestDMOutcome.alreadyMember(
+            dmConversationId: "dm-123",
+            joinerInboxId: "joiner-123",
+            verified: AlreadyMemberContext(conversationId: "group-123", profile: nil, metadata: nil)
+        )
+
+        // A verified outcome arriving after a ledger-only one upgrades it.
+        #expect(
+            InviteCoordinator.preferringVerified(ledger, over: verified).alreadyMemberContext?.conversationId == "group-123"
+        )
+        // A ledger-only outcome arriving after a verified one does not downgrade it.
+        #expect(
+            InviteCoordinator.preferringVerified(verified, over: ledger).alreadyMemberContext?.conversationId == "group-123"
+        )
+        // With nothing accumulated yet, the candidate is taken as-is.
+        #expect(
+            InviteCoordinator.preferringVerified(nil, over: ledger).alreadyMemberContext == nil
+        )
     }
 
     // MARK: - InviteJoinError Feedback
@@ -354,6 +414,69 @@ struct JoinRequestProcessingTests {
         )
 
         #expect(error.userFacingMessage == "Failed to join conversation")
+    }
+
+    @Test("InviteJoinError conversationNotFound round-trips through JSON")
+    func conversationNotFoundRoundTrip() throws {
+        let error = InviteJoinError(
+            errorType: .conversationNotFound,
+            inviteTag: "tag-nf",
+            timestamp: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(error)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InviteJoinError.self, from: data)
+
+        #expect(decoded.errorType == .conversationNotFound)
+        #expect(decoded.inviteTag == "tag-nf")
+        #expect(decoded.userFacingMessage == "This conversation is no longer available")
+    }
+
+    @Test("InviteJoinError consentNotAllowed round-trips through JSON")
+    func consentNotAllowedRoundTrip() throws {
+        let error = InviteJoinError(
+            errorType: .consentNotAllowed,
+            inviteTag: "tag-cn",
+            timestamp: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(error)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InviteJoinError.self, from: data)
+
+        #expect(decoded.errorType == .consentNotAllowed)
+        #expect(decoded.inviteTag == "tag-cn")
+        #expect(decoded.userFacingMessage == "This conversation is no longer available")
+    }
+
+    // MARK: - Consent Rejection Rule
+
+    @Test("Allowed consent does not reject a join")
+    func allowedConsentDoesNotReject() {
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .allowed))
+    }
+
+    @Test("Denied consent rejects a join")
+    func deniedConsentRejects() {
+        #expect(InviteCoordinator.shouldRejectJoin(for: .denied))
+    }
+
+    @Test("Unknown consent does not reject a join")
+    func unknownConsentDoesNotReject() {
+        // `.unknown` means this installation has no consent record for the
+        // group yet (secondary device, fresh reinstall), not that the
+        // creator denied the conversation. It must not trigger
+        // consent_not_allowed for an otherwise-valid invite.
+        #expect(!InviteCoordinator.shouldRejectJoin(for: .unknown))
     }
 
     // MARK: - Date Extension

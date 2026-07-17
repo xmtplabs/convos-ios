@@ -23,10 +23,7 @@ public final class IOSPushNotificationRegistrar: PushNotificationRegistrarProtoc
         _token
     }
 
-    /// Saves the push token in memory and notifies observers of the change.
-    /// Called by AppDelegate when APNS token is received.
-    /// Note: Token is intentionally not persisted per Apple guidelines -
-    /// APNs issues fresh tokens on restore, new device, or OS reinstall.
+    /// Saves the push token in memory and posts `.convosPushTokenDidChange`.
     public func save(token: String) {
         guard token != _token else { return }
         _token = token
@@ -39,7 +36,6 @@ public final class IOSPushNotificationRegistrar: PushNotificationRegistrarProtoc
         let settings = await UNUserNotificationCenter.current().notificationSettings()
 
         if settings.authorizationStatus == .authorized {
-            // Already authorized, just ensure we're registered for remote notifications
             await MainActor.run {
                 UIApplication.shared.registerForRemoteNotifications()
             }
@@ -49,7 +45,6 @@ public final class IOSPushNotificationRegistrar: PushNotificationRegistrarProtoc
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
             if granted {
-                // Authorization granted, register for remote notifications to get APNS token
                 await MainActor.run {
                     UIApplication.shared.registerForRemoteNotifications()
                 }

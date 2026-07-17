@@ -8,11 +8,12 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
     public let role: MemberRole
     public let isCurrentUser: Bool
     public let isAgent: Bool
+    public let agentVerification: AgentVerification
     public let invitedBy: Profile?
     public let joinedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case profile, role, isCurrentUser, isAgent, invitedBy, joinedAt
+        case profile, role, isCurrentUser, isAgent, agentVerification, invitedBy, joinedAt
     }
 
     public init(
@@ -20,6 +21,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         role: MemberRole,
         isCurrentUser: Bool,
         isAgent: Bool = false,
+        agentVerification: AgentVerification = .unverified,
         invitedBy: Profile? = nil,
         joinedAt: Date? = nil
     ) {
@@ -27,6 +29,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.role = role
         self.isCurrentUser = isCurrentUser
         self.isAgent = isAgent
+        self.agentVerification = agentVerification
         self.invitedBy = invitedBy
         self.joinedAt = joinedAt
     }
@@ -37,8 +40,68 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.role = try container.decode(MemberRole.self, forKey: .role)
         self.isCurrentUser = try container.decode(Bool.self, forKey: .isCurrentUser)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.agentVerification = try container.decodeIfPresent(AgentVerification.self, forKey: .agentVerification) ?? .unverified
         self.invitedBy = try container.decodeIfPresent(Profile.self, forKey: .invitedBy)
         self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
+    }
+
+    public var isVerifiedConvosAgent: Bool {
+        agentVerification.isConvosAgent
+    }
+
+    public var isVerifiedAgent: Bool {
+        agentVerification.isVerified
+    }
+
+    public var displayName: String {
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
+    }
+
+    /// Same shape as `displayName`, but the inbox → contact-name override
+    /// **wins** when present. The contact-list name is the user's
+    /// deliberate choice and should render consistently across every
+    /// surface that shows this member (system messages, member rows,
+    /// chat header, conversation list). Per-conversation profile name is
+    /// the next fallback, then the "Agent" fallback for unverified agents,
+    /// then `profile.displayName`. Pass `{ _ in nil }` for the legacy
+    /// behavior (no override).
+    public func displayName(memberNameOverride: (String) -> String?) -> String {
+        if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+            return overridden
+        }
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
+    }
+
+    /// Fallback-only contact resolution: the per-conversation profile name
+    /// **wins** when present, and the contact name is used only to fill an
+    /// empty name (in place of "Somebody"/"Agent"). Unlike
+    /// `displayName(memberNameOverride:)`, this can never replace a name that is
+    /// already rendering correctly - it can only turn a blank into a real name -
+    /// so it is the safe choice for message-derived surfaces. Pass
+    /// `{ _ in nil }` for the legacy behavior (no fallback).
+    public func displayName(contactNameFallback: (String) -> String?) -> String {
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if let fallback = contactNameFallback(profile.inboxId), !fallback.isEmpty {
+            return fallback
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
     }
 }
 
@@ -47,13 +110,20 @@ public extension Array where Element == ConversationMember {
         map { $0.profile }.formattedNamesString
     }
 
+    /// Variant that takes a contact-name override. See
+    /// `Array<Profile>.formattedNamesString(memberNameOverride:)` for the
+    /// precedence rules.
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        map { $0.profile }.formattedNamesString(memberNameOverride: memberNameOverride)
+    }
+
     func sortedByRole() -> [ConversationMember] {
         sorted { member1, member2 in
-            // Show current user first
             if member1.isCurrentUser { return true }
             if member2.isCurrentUser { return false }
 
-            // Sort by role hierarchy: superAdmin > admin > member
             let priority1 = member1.role.priority
             let priority2 = member2.role.priority
 
@@ -61,7 +131,6 @@ public extension Array where Element == ConversationMember {
                 return priority1 < priority2
             }
 
-            // Same role, sort alphabetically by name
             return member1.profile.displayName < member2.profile.displayName
         }
     }

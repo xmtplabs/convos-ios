@@ -15,6 +15,20 @@ public actor OpenGraphService {
         public let siteName: String?
         public let imageWidth: Int?
         public let imageHeight: Int?
+
+        public init(
+            title: String?,
+            imageURL: String?,
+            siteName: String?,
+            imageWidth: Int?,
+            imageHeight: Int?
+        ) {
+            self.title = title
+            self.imageURL = imageURL
+            self.siteName = siteName
+            self.imageWidth = imageWidth
+            self.imageHeight = imageHeight
+        }
     }
 
     private struct CacheEntry {
@@ -44,41 +58,21 @@ public actor OpenGraphService {
         let task = Task<OpenGraphMetadata?, Never> {
             guard let url = URL(string: urlString) else { return nil }
 
-            do {
-                var request = URLRequest(url: url)
-                request.httpMethod = "GET"
-                request.timeoutInterval = 8
-                request.setValue(
-                    "facebookexternalhit/1.1 (compatible; Convos/1.0)",
-                    forHTTPHeaderField: "User-Agent"
-                )
-                request.setValue("text/html", forHTTPHeaderField: "Accept")
+            let ogResult = await fetchOpenGraphTags(for: url, urlString: urlString)
+            if let ogResult {
+                return ogResult
+            }
 
-                let (data, response) = try await Self.safeSession.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200 ... 299).contains(httpResponse.statusCode) else {
-                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    Log.error("OpenGraph fetch failed for \(urlString): HTTP \(code)")
-                    return nil
-                }
-
-                let htmlData = data.prefix(Self.maxHTMLBytes)
-                guard let html = String(data: htmlData, encoding: .utf8)
-                        ?? String(data: htmlData, encoding: .ascii) else {
-                    Log.error("OpenGraph decode failed for \(urlString): not UTF-8/ASCII")
-                    return nil
-                }
-
-                let result = parseOpenGraphTags(from: html)
+            if let provider = RichLinkMetadata.provider {
+                Log.info("OpenGraph tags missing for \(urlString), falling back to LPMetadataProvider")
+                let result = await provider.fetchMetadata(for: url)
                 if result == nil {
-                    Log.warning("OpenGraph no tags found for \(urlString) (\(data.count) bytes)")
+                    Log.warning("RichLink fallback also returned nil for \(urlString)")
                 }
                 return result
-            } catch {
-                Log.error("OpenGraph fetch error for \(urlString): \(error.localizedDescription)")
-                return nil
             }
+
+            return nil
         }
 
         inFlightTasks[urlString] = task
@@ -90,6 +84,44 @@ public actor OpenGraphService {
         }
 
         return result
+    }
+
+    private func fetchOpenGraphTags(for url: URL, urlString: String) async -> OpenGraphMetadata? {
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+            request.setValue(
+                "facebookexternalhit/1.1 (compatible; Convos/1.0)",
+                forHTTPHeaderField: "User-Agent"
+            )
+            request.setValue("text/html", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await Self.safeSession.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200 ... 299).contains(httpResponse.statusCode) else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                Log.error("OpenGraph fetch failed for \(urlString): HTTP \(code)")
+                return nil
+            }
+
+            let htmlData = data.prefix(Self.maxHTMLBytes)
+            guard let html = String(data: htmlData, encoding: .utf8)
+                    ?? String(data: htmlData, encoding: .ascii) else {
+                Log.error("OpenGraph decode failed for \(urlString): not UTF-8/ASCII")
+                return nil
+            }
+
+            let result = parseOpenGraphTags(from: html)
+            if result == nil {
+                Log.warning("OpenGraph no tags found for \(urlString) (\(data.count) bytes)")
+            }
+            return result
+        } catch {
+            Log.error("OpenGraph fetch error for \(urlString): \(error)")
+            return nil
+        }
     }
 
     private func insertCacheEntry(_ key: String, metadata: OpenGraphMetadata) {

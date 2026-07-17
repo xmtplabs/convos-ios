@@ -1,15 +1,14 @@
 import ConvosCore
+import LinkPresentation
 import Photos
 import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
-    let shouldBlurPhotos: Bool
+    var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
-    let onPhotoRevealed: (String) -> Void
-    let onPhotoHidden: (String) -> Void
 
     @State private var appeared: Bool = false
     @State private var emojiAppeared: [Bool] = []
@@ -19,11 +18,12 @@ struct MessageContextMenuOverlay: View {
     @State private var customEmoji: String?
     @State private var selectedEmoji: String?
     @State private var popScale: CGFloat = 1.0
-    @State private var blurOverride: Bool?
     @State private var dragOffset: CGFloat = 0
     @State private var isDragDismissing: Bool = false
     @State private var isPoofDismissing: Bool = false
     @State private var keyboardHeight: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -74,91 +74,19 @@ struct MessageContextMenuOverlay: View {
         }
     }
 
-    private var shouldBlurPhoto: Bool {
-        if let blurOverride { return blurOverride }
-        guard let photoAttachment, let message else { return false }
-        if photoAttachment.isHiddenByOwner { return true }
-        if message.sender.isCurrentUser { return false }
-        return shouldBlurPhotos && !photoAttachment.isRevealed
-    }
-
-    private var windowSafeTop: CGFloat {
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0
-    }
+    private var windowSafeTop: CGFloat { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0 }
 
     var body: some View {
         if let message = state.presentedMessage {
-            GeometryReader { proxy in
-                let overlayOrigin = proxy.frame(in: .global).origin
-                let screenSize = proxy.size
-                let safeTop = max(proxy.safeAreaInsets.top, windowSafeTop)
-                let localBubble = CGRect(
-                    x: state.bubbleFrame.origin.x - overlayOrigin.x,
-                    y: state.bubbleFrame.origin.y - overlayOrigin.y,
-                    width: state.bubbleFrame.width,
-                    height: state.bubbleFrame.height
-                )
-                let isPhoto = photoAttachment != nil
-                let endBubble = endBubbleRect(
-                    source: localBubble,
-                    screenSize: screenSize,
-                    safeTop: safeTop,
-                    isPhoto: isPhoto && !state.isReplyParent
-                )
-                let activeBubble = appeared ? endBubble : localBubble
-                let keyboardTop = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
-                let bubbleBottom = activeBubble.maxY + C.sectionSpacing
-                let keyboardOverlap = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
-                let keyboardAdjustment = showingEmojiPicker ? keyboardOverlap : 0
+            overlayContent(message: message)
+        }
+    }
 
-                ZStack(alignment: .topLeading) {
-                    backgroundDimming
-
-                    reactionsBar(
-                        messageId: message.messageId,
-                        bubbleRect: activeBubble,
-                        sourceBubble: localBubble,
-                        keyboardAdjustment: keyboardAdjustment,
-                        minBarY: safeTop
-                    )
-                    .zIndex(1)
-
-                    actionMenu(
-                        message: message,
-                        bubbleRect: activeBubble
-                    )
-                    .zIndex(2)
-
-                    bubblePreview(
-                        message: message,
-                        sourceBubble: localBubble,
-                        endBubble: endBubble,
-                        keyboardAdjustment: keyboardAdjustment
-                    )
-                    .zIndex(3)
-                }
-            }
+    @ViewBuilder
+    private func overlayContent(message: AnyMessage) -> some View {
+        overlayGeometry(message: message)
             .ignoresSafeArea()
-            .onAppear {
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                    appeared = true
-                }
-                let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
-                DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
-                    withAnimation {
-                        showMoreAppeared = true
-                    }
-                }
-                for index in C.defaultReactions.indices {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
-                        withAnimation {
-                            emojiAppeared[index] = true
-                        }
-                    }
-                }
-            }
+            .onAppear { handleAppear() }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -169,6 +97,70 @@ struct MessageContextMenuOverlay: View {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     keyboardHeight = 0
                 }
+            }
+    }
+
+    @ViewBuilder
+    private func overlayGeometry(message: AnyMessage) -> some View {
+        GeometryReader { proxy in
+            let overlayOrigin = proxy.frame(in: .global).origin
+            let screenSize = proxy.size
+            let safeTop = max(proxy.safeAreaInsets.top, windowSafeTop)
+            let localBubble = CGRect(
+                x: state.bubbleFrame.origin.x - overlayOrigin.x,
+                y: state.bubbleFrame.origin.y - overlayOrigin.y,
+                width: state.bubbleFrame.width,
+                height: state.bubbleFrame.height
+            )
+            let isPhoto: Bool = photoAttachment != nil
+            // HTML tiles are fixed 160pt squares, not full-bleed photos; the
+            // photo layout would shrink and recenter them, so keep them on
+            // the text-bubble path where the tile holds its size and place.
+            let isHTMLTile: Bool = photoAttachment?.isHTMLFile == true
+            let usesPhotoLayout: Bool = isPhoto && !isHTMLTile && !state.isReplyParent
+            let menuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
+                ? C.photoMenuEstimatedHeight
+                : C.textMenuEstimatedHeight
+            let endBubble = endBubbleRect(
+                source: localBubble,
+                screenSize: screenSize,
+                safeTop: safeTop,
+                isPhoto: usesPhotoLayout,
+                menuHeight: menuEstimatedHeight
+            )
+            let activeBubble: CGRect = appeared ? endBubble : localBubble
+            let keyboardTop: CGFloat = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
+            let bubbleBottom: CGFloat = activeBubble.maxY + C.sectionSpacing
+            let keyboardOverlap: CGFloat = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
+            let keyboardAdjustment: CGFloat = showingEmojiPicker ? keyboardOverlap : 0
+
+            ZStack(alignment: .topLeading) {
+                backgroundDimming
+
+                if !isReadOnly {
+                    reactionsBar(
+                        messageId: message.messageId,
+                        bubbleRect: activeBubble,
+                        sourceBubble: localBubble,
+                        keyboardAdjustment: keyboardAdjustment,
+                        minBarY: safeTop
+                    )
+                    .zIndex(1)
+                }
+
+                actionMenu(
+                    message: message,
+                    bubbleRect: activeBubble
+                )
+                .zIndex(2)
+
+                bubblePreview(
+                    message: message,
+                    sourceBubble: localBubble,
+                    endBubble: endBubble,
+                    keyboardAdjustment: keyboardAdjustment
+                )
+                .zIndex(3)
             }
         }
     }
@@ -238,102 +230,50 @@ struct MessageContextMenuOverlay: View {
     }
 
     @ViewBuilder
+    private func emojiButton(emoji: String, index: Int, messageId: String) -> some View {
+        let didAppear: Bool = emojiAppeared.indices.contains(index) && emojiAppeared[index]
+        let action = {
+            selectReaction(emoji, messageId: messageId)
+        }
+        Button(action: action) {
+            Text(emoji)
+                .font(.system(size: C.emojiFontSize))
+                .padding(C.padding)
+                .blur(radius: !drawerExpanded ? C.blurRadius : (didAppear ? 0 : C.blurRadius))
+                .scaleEffect(!drawerExpanded ? 0 : (didAppear ? 1.0 : 0))
+                .rotationEffect(.degrees(didAppear && drawerExpanded ? 0 : C.emojiRotation))
+                .opacity(!drawerExpanded ? 0 : 1)
+                .animation(.spring(response: 0.29, dampingFraction: 0.6), value: didAppear)
+                .animation(.spring(response: 0.29, dampingFraction: 0.6), value: drawerExpanded)
+        }
+        .buttonStyle(.plain)
+        .disabled(!drawerExpanded)
+        .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+    }
+
+    @ViewBuilder
+    private func reactionsBarMask(readerHeight: CGFloat) -> some View {
+        let gradientWidth: CGFloat = readerHeight * 0.3
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: gradientWidth)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
     private func reactionsBarContent(messageId: String, width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
             ZStack(alignment: .leading) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
-                            let didAppear = emojiAppeared.indices.contains(index) && emojiAppeared[index]
-                            let action = {
-                                selectReaction(emoji, messageId: messageId)
-                            }
-                            Button(action: action) {
-                                Text(emoji)
-                                    .font(.system(size: C.emojiFontSize))
-                                    .padding(C.padding)
-                                    .blur(radius: !drawerExpanded ? C.blurRadius : (didAppear ? 0 : C.blurRadius))
-                                    .scaleEffect(!drawerExpanded ? 0 : (didAppear ? 1.0 : 0))
-                                    .rotationEffect(.degrees(didAppear && drawerExpanded ? 0 : C.emojiRotation))
-                                    .opacity(!drawerExpanded ? 0 : 1)
-                                    .animation(.spring(response: 0.29, dampingFraction: 0.6), value: didAppear)
-                                    .animation(.spring(response: 0.29, dampingFraction: 0.6), value: drawerExpanded)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!drawerExpanded)
-                            .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
-                        }
-                    }
-                    .padding(.horizontal, C.padding)
-                }
-                .frame(height: reader.size.height)
-                .scrollBounceBehavior(.basedOnSize)
-                .contentMargins(.trailing, readerHeight, for: .scrollContent)
-                .mask(
-                    HStack(spacing: 0) {
-                        Rectangle().fill(.black)
-                        LinearGradient(
-                            colors: [.black, .black.opacity(0)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: readerHeight * 0.3)
-                        Rectangle().fill(.clear)
-                            .frame(width: readerHeight)
-                    }
-                )
-
-                HStack(spacing: 0) {
-                    Spacer()
-
-                    ZStack {
-                        Text(selectedEmoji ?? customEmoji ?? "")
-                            .font(.system(size: C.selectedEmojiFontSize))
-                            .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
-                            .scaleEffect(
-                                popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
-                            )
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
-                            .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
-
-                        Image(systemName: "face.smiling")
-                            .font(.system(size: C.faceSmilingFontSize))
-                            .foregroundStyle(.colorTextSecondary)
-                            .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
-                            .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
-                            .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
-                    }
-                    .frame(width: reader.size.height, height: reader.size.height)
-
-                    let plusAction = {
-                        withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
-                            drawerExpanded.toggle()
-                            showingEmojiPicker = !drawerExpanded
-                        }
-                    }
-                    Button(action: plusAction) {
-                        Image(systemName: "plus")
-                            .font(.system(size: C.plusIconFontSize))
-                            .padding(C.padding)
-                            .tint(.colorTextSecondary)
-                            .offset(x: !showMoreAppeared ? 40 : 0)
-                            .opacity(!showMoreAppeared ? 0 : 1)
-                            .animation(
-                                .spring(response: 0.29, dampingFraction: 0.7),
-                                value: showMoreAppeared
-                            )
-                            .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .frame(minWidth: readerHeight, minHeight: readerHeight)
-                    .padding(.horizontal, C.plusHorizontalPadding)
-                    .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
-                }
+                reactionsScrollView(messageId: messageId, reader: reader, readerHeight: readerHeight)
+                reactionsTrailingControls(reader: reader, readerHeight: readerHeight)
             }
             .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         }
@@ -364,7 +304,8 @@ struct MessageContextMenuOverlay: View {
         source: CGRect,
         screenSize: CGSize,
         safeTop: CGFloat,
-        isPhoto: Bool = false
+        isPhoto: Bool = false,
+        menuHeight: CGFloat = C.textMenuEstimatedHeight
     ) -> CGRect {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
@@ -372,7 +313,6 @@ struct MessageContextMenuOverlay: View {
         var endWidth: CGFloat = source.width - (photoInset * 2)
         var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
 
-        let menuHeight: CGFloat = isPhoto ? C.photoMenuEstimatedHeight : C.textMenuEstimatedHeight
         let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.verticalBreathingRoom
         let maxContentHeight: CGFloat = screenSize.height - minY - bottomPadding - C.verticalBreathingRoom
 
@@ -403,6 +343,38 @@ struct MessageContextMenuOverlay: View {
 
     // MARK: - Bubble Preview
 
+    /// A text message split around an edge link presents only the pressed
+    /// cell: the stripped text bubble or the link card, never the full
+    /// original text.
+    @ViewBuilder
+    private func textSegmentPreview(text: String, message: AnyMessage) -> some View {
+        switch state.presentedSegment {
+        case .splitText(let strippedText):
+            MessageBubble(
+                style: state.bubbleStyle,
+                message: strippedText,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile,
+                isExpanded: state.isExpanded
+            )
+        case .splitLink(let preview, _):
+            LinkPreviewBubbleView(
+                preview: TransientLinkPreviewCache.enriched(preview),
+                style: state.bubbleStyle,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile
+            )
+        case .whole:
+            MessageBubble(
+                style: state.bubbleStyle,
+                message: text,
+                isOutgoing: state.isOutgoing,
+                profile: message.sender.profile,
+                isExpanded: state.isExpanded
+            )
+        }
+    }
+
     @ViewBuilder
     private func bubblePreview(
         message: AnyMessage,
@@ -418,12 +390,7 @@ struct MessageContextMenuOverlay: View {
         Group {
             switch message.content {
             case .text(let text):
-                MessageBubble(
-                    style: state.bubbleStyle,
-                    message: text,
-                    isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile
-                )
+                textSegmentPreview(text: text, message: message)
 
             case .emoji(let text):
                 EmojiBubble(
@@ -433,21 +400,11 @@ struct MessageContextMenuOverlay: View {
                 )
 
             case .attachment(let attachment):
-                ContextMenuPhotoPreview(
-                    attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                    cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                    showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                )
+                contextMenuAttachmentPreview(attachment)
 
             case .attachments(let attachments):
                 if let attachment = attachments.first {
-                    ContextMenuPhotoPreview(
-                        attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                        profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                        cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                        showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                    )
+                    contextMenuAttachmentPreview(attachment)
                 }
 
             case .invite(let invite):
@@ -459,6 +416,9 @@ struct MessageContextMenuOverlay: View {
                     onTapInvite: { _ in },
                     onTapAvatar: nil
                 )
+
+            case .agentShare(let agentShare):
+                AgentShareBubble(agentShare: agentShare)
 
             case .linkPreview(let preview):
                 LinkPreviewBubbleView(
@@ -530,14 +490,16 @@ struct MessageContextMenuOverlay: View {
                         .padding(.bottom, 8)
                 }
 
-                let replyAction = {
-                    let msg = message
-                    dismissMenu()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        onReply(msg)
+                if !isReadOnly {
+                    let replyAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            onReply(msg)
+                        }
                     }
+                    ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
                 }
-                ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
                     let copyAction = {
@@ -548,31 +510,21 @@ struct MessageContextMenuOverlay: View {
                 }
 
                 if let attachment = photoAttachment {
+                    if attachment.isHTMLFile {
+                        let senderName = message.sender.profile.displayName
+                        let appearance = colorScheme.uiUserInterfaceStyle
+                        let shareAction = {
+                            shareRenderedAttachment(attachment, fallbackTitle: senderName, appearance: appearance)
+                            dismissMenu()
+                        }
+                        ContextMenuRow(icon: "square.and.arrow.up", title: "Share", action: shareAction)
+                    }
+
                     let saveAction = {
-                        saveAttachmentToPhotoLibrary(key: attachment.key)
+                        saveAttachment(attachment)
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
-
-                    let isBlurred = shouldBlurPhoto
-                    let key = attachment.key
-                    let revealCallback = onPhotoRevealed
-                    let hideCallback = onPhotoHidden
-                    let toggleAction = {
-                        if isBlurred {
-                            blurOverride = false
-                            revealCallback(key)
-                        } else {
-                            blurOverride = true
-                            hideCallback(key)
-                        }
-                        dismissMenu(afterStateChange: true)
-                    }
-                    ContextMenuRow(
-                        icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Blur",
-                        action: toggleAction
-                    )
                 }
             }
             .padding(.vertical, 10)
@@ -624,7 +576,6 @@ struct MessageContextMenuOverlay: View {
         let delay: TimeInterval = afterStateChange ? 0.3 : (wasDragDismiss ? 0.28 : 0.2)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             state.dismiss()
-            blurOverride = nil
             isDragDismissing = false
             isPoofDismissing = false
         }
@@ -667,36 +618,169 @@ struct MessageContextMenuOverlay: View {
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
     // swiftlint:enable type_name
+    @ViewBuilder
+    private func contextMenuAttachmentPreview(_ attachment: HydratedAttachment) -> some View {
+        let profile = message?.sender.profile ?? Profile(inboxId: "", conversationId: "", name: nil, avatar: nil)
+        if attachment.mediaType == .audio, let message {
+            MessageContainer(style: state.bubbleStyle, isOutgoing: state.isOutgoing) {
+                VoiceMemoBubbleContent(
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: state.isOutgoing,
+                    player: .shared,
+                    isLoading: false
+                )
+            }
+        } else if attachment.isHTMLFile {
+            // The tile rests at its natural corner radius in the list, so
+            // keep it constant during the menu transition instead of
+            // animating from square; only reply-parent thumbnails shrink it.
+            let radius: CGFloat? = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : nil
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: profile,
+                agentVerification: message?.sender.agentVerification ?? .unverified,
+                cornerRadiusOverride: radius
+            )
+        } else if attachment.mediaType == .file {
+            FileAttachmentBubble(
+                attachment: attachment,
+                style: state.bubbleStyle,
+                isOutgoing: state.isOutgoing,
+                profile: profile
+            )
+        } else {
+            // Match the list's resting corner radius (rounded on regular
+            // width, full bleed on compact) so dismissal lands seamlessly.
+            let restingRadius: CGFloat = horizontalSizeClass == .regular ? DesignConstants.CornerRadius.medium : 0
+            let previewRadius: CGFloat = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : (appeared ? C.photoCornerRadius : restingRadius)
+            ContextMenuPhotoPreview(
+                attachmentKey: attachment.key,
+                cornerRadius: previewRadius,
+                isVideo: attachment.mediaType == .video,
+                isReplyParent: state.isReplyParent
+            )
+        }
+    }
+}
+
+// MARK: - Reactions Bar Subviews
+
+private extension MessageContextMenuOverlay {
+    @ViewBuilder
+    func reactionsScrollView(messageId: String, reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
+                    emojiButton(emoji: emoji, index: index, messageId: messageId)
+                }
+            }
+            .padding(.horizontal, C.padding)
+        }
+        .frame(height: reader.size.height)
+        .scrollBounceBehavior(.basedOnSize)
+        .contentMargins(.trailing, readerHeight, for: .scrollContent)
+        .mask(reactionsScrollMask(readerHeight: readerHeight))
+    }
+
+    func reactionsScrollMask(readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: readerHeight * 0.3)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
+    func reactionsTrailingControls(reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Spacer()
+            selectedEmojiPreview
+                .frame(width: reader.size.height, height: reader.size.height)
+            plusButton
+                .frame(minWidth: readerHeight, minHeight: readerHeight)
+                .padding(.horizontal, C.plusHorizontalPadding)
+                .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+                .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+        }
+    }
+
+    var selectedEmojiPreview: some View {
+        ZStack {
+            Text(selectedEmoji ?? customEmoji ?? "")
+                .font(.system(size: C.selectedEmojiFontSize))
+                .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
+                .scaleEffect(
+                    popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
+                )
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
+                .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
+
+            Image(systemName: "face.smiling")
+                .font(.system(size: C.faceSmilingFontSize))
+                .foregroundStyle(.colorTextSecondary)
+                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
+                .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
+                .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
+        }
+    }
+
+    var plusButton: some View {
+        let plusAction = {
+            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                drawerExpanded.toggle()
+                showingEmojiPicker = !drawerExpanded
+            }
+        }
+        return Button(action: plusAction) {
+            Image(systemName: "plus")
+                .font(.system(size: C.plusIconFontSize))
+                .padding(C.padding)
+                .tint(.colorTextSecondary)
+                .offset(x: !showMoreAppeared ? 40 : 0)
+                .opacity(!showMoreAppeared ? 0 : 1)
+                .animation(
+                    .spring(response: 0.29, dampingFraction: 0.7),
+                    value: showMoreAppeared
+                )
+                .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
 }
 
 // MARK: - Context Menu Photo Preview
 
 private struct ContextMenuPhotoPreview: View {
     let attachmentKey: String
-    let isOutgoing: Bool
-    let profile: Profile
-    let shouldBlur: Bool
     let cornerRadius: CGFloat
-    let showSenderLabel: Bool
+    let isVideo: Bool
     let isReplyParent: Bool
 
     @State private var loadedImage: UIImage?
 
     init(
         attachmentKey: String,
-        isOutgoing: Bool,
-        profile: Profile,
-        shouldBlur: Bool,
         cornerRadius: CGFloat = DesignConstants.CornerRadius.photo,
-        showSenderLabel: Bool = true,
+        isVideo: Bool = false,
         isReplyParent: Bool = false
     ) {
         self.attachmentKey = attachmentKey
-        self.isOutgoing = isOutgoing
-        self.profile = profile
-        self.shouldBlur = shouldBlur
         self.cornerRadius = cornerRadius
-        self.showSenderLabel = showSenderLabel
+        self.isVideo = isVideo
         self.isReplyParent = isReplyParent
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
@@ -704,21 +788,23 @@ private struct ContextMenuPhotoPreview: View {
     var body: some View {
         Group {
             if let image = loadedImage {
-                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: shouldBlur && !isReplyParent ? .fill : .fit)
-                        .scaleEffect(shouldBlur ? 1.65 : 1.0)
-                        .blur(radius: shouldBlur ? 96 : 0)
-                        .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
-
-                    if showSenderLabel {
-                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .overlay {
+                        if isVideo {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.primary)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.85))
+                                .clipShape(Circle())
+                        }
                     }
-                }
-                .clipped()
-                .compositingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                    .clipped()
+                    .compositingGroup()
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(.quaternary)
@@ -733,14 +819,250 @@ private struct ContextMenuPhotoPreview: View {
     }
 }
 
-// MARK: - Save Photo Helper
+// MARK: - Save Attachment Helper
+
+private func recoverInlineAttachmentData(fromPath path: String) async throws -> Data {
+    let fileURL = URL(fileURLWithPath: path)
+    let filename = fileURL.lastPathComponent
+    guard let underscoreIndex = filename.firstIndex(of: "_") else {
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+    let messageId = String(filename[filename.startIndex..<underscoreIndex])
+    return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+}
+
+private func saveAttachment(_ attachment: HydratedAttachment) {
+    switch attachment.mediaType {
+    case .image:
+        saveAttachmentToPhotoLibrary(key: attachment.key)
+    case .video:
+        saveVideoToPhotoLibrary(key: attachment.key)
+    case .file, .audio, .unknown:
+        saveFileToFiles(key: attachment.key, filename: attachment.filename)
+    }
+}
 
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
-    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-        guard status == .authorized || status == .limited else { return }
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: image)
+    PHPhotoLibrary.shared().performChanges {
+        PHAssetChangeRequest.creationRequestForAsset(from: image)
+    }
+}
+
+private func saveVideoToPhotoLibrary(key: String) {
+    Task {
+        do {
+            let videoURL: URL
+            var isTempFile = false
+            if key.hasPrefix("file://") {
+                let path = String(key.dropFirst("file://".count))
+                if FileManager.default.fileExists(atPath: path) {
+                    videoURL = URL(fileURLWithPath: path)
+                } else {
+                    let data = try await recoverInlineAttachmentData(fromPath: path)
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                    try data.write(to: tempURL)
+                    videoURL = tempURL
+                    isTempFile = true
+                }
+            } else {
+                let loader = RemoteAttachmentLoader()
+                let loaded = try await loader.loadAttachmentData(from: key)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                try loaded.data.write(to: tempURL)
+                videoURL = tempURL
+                isTempFile = true
+            }
+
+            defer {
+                if isTempFile {
+                    try? FileManager.default.removeItem(at: videoURL)
+                }
+            }
+
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            }
+        } catch {
+            Log.error("Failed to save video to photo library: \(error)")
+        }
+    }
+}
+
+// MARK: - File Save/Share Helpers
+
+private func loadFileToTempURL(key: String, filename: String?) async throws -> URL {
+    let name = filename ?? "attachment"
+
+    if key.hasPrefix("file://") {
+        let path = String(key.dropFirst("file://".count))
+        if FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        let fileURL = URL(fileURLWithPath: path)
+        let fullFilename = fileURL.lastPathComponent
+        if let underscoreIndex = fullFilename.firstIndex(of: "_") {
+            let messageId = String(fullFilename[fullFilename.startIndex..<underscoreIndex])
+            guard !messageId.isEmpty else { throw CocoaError(.fileReadNoSuchFile) }
+            let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
+            try data.write(to: tempURL)
+            return tempURL
+        }
+
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+
+    let loader = RemoteAttachmentLoader()
+    let loaded = try await loader.loadAttachmentData(from: key)
+    let tempURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
+    try loaded.data.write(to: tempURL)
+    return tempURL
+}
+
+private func saveFileToFiles(key: String, filename: String?) {
+    Task { @MainActor in
+        do {
+            let tempURL = try await loadFileToTempURL(key: key, filename: filename)
+            let picker = UIDocumentPickerViewController(forExporting: [tempURL])
+            picker.shouldShowFileExtensions = true
+            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let root = scene.keyWindow?.rootViewController else { return }
+            var presenter = root
+            while let presented = presenter.presentedViewController {
+                presenter = presented
+            }
+            presenter.present(picker, animated: true)
+        } catch {
+            Log.error("Failed to save file: \(error)")
+        }
+    }
+}
+
+/// Shares an HTML or Markdown attachment with the same payload as
+/// `AttachmentShareLink` (the share button on the attachment preview and
+/// thing detail screens): the full-page rendered image for HTML, titled
+/// after the artifact, with the square tile as the share sheet preview.
+private func shareRenderedAttachment(
+    _ attachment: HydratedAttachment,
+    fallbackTitle: String?,
+    appearance: UIUserInterfaceStyle
+) {
+    Task { @MainActor in
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            guard let payload = await AttachmentSharePayload.resolve(
+                attachment: attachment,
+                fileURL: fileURL,
+                appearance: appearance,
+                fallbackTitle: fallbackTitle
+            ) else {
+                Log.error("Share skipped: no share payload resolved for attachment")
+                return
+            }
+            presentShareSheet(for: payload)
+        } catch {
+            Log.error("Failed to share attachment: \(error)")
+        }
+    }
+}
+
+@MainActor
+private func presentShareSheet(for payload: AttachmentSharePayload) {
+    guard let primaryItem = payload.items.first else { return }
+    let itemSource = SharePayloadItemSource(
+        url: primaryItem,
+        title: payload.title,
+        previewImage: payload.previewImage
+    )
+    var activityItems: [Any] = [itemSource]
+    for item in payload.items.dropFirst() {
+        activityItems.append(item)
+    }
+    let activityVC = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+          let root = scene.keyWindow?.rootViewController else { return }
+    var presenter = root
+    while let presented = presenter.presentedViewController {
+        presenter = presented
+    }
+    activityVC.popoverPresentationController?.sourceView = presenter.view
+    activityVC.popoverPresentationController?.sourceRect = CGRect(
+        x: presenter.view.bounds.midX,
+        y: presenter.view.bounds.midY,
+        width: 0, height: 0
+    )
+    presenter.present(activityVC, animated: true)
+}
+
+/// Wraps the primary share URL so the activity sheet header shows the
+/// artifact title and tile thumbnail, matching `ShareLink`'s `SharePreview`
+/// in `AttachmentShareLink`.
+private final class SharePayloadItemSource: NSObject, UIActivityItemSource {
+    private let url: URL
+    private let title: String
+    private let previewImage: UIImage?
+
+    init(url: URL, title: String, previewImage: UIImage?) {
+        self.url = url
+        self.title = title
+        self.previewImage = previewImage
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        title
+    }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = title
+        metadata.originalURL = url
+        if let previewImage {
+            metadata.imageProvider = NSItemProvider(object: previewImage)
+        }
+        return metadata
+    }
+}
+
+private func shareFile(key: String, filename: String?) {
+    Task { @MainActor in
+        do {
+            let tempURL = try await loadFileToTempURL(key: key, filename: filename)
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let root = scene.keyWindow?.rootViewController else { return }
+            var presenter = root
+            while let presented = presenter.presentedViewController {
+                presenter = presented
+            }
+            activityVC.popoverPresentationController?.sourceView = presenter.view
+            activityVC.popoverPresentationController?.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.midY,
+                width: 0, height: 0
+            )
+            presenter.present(activityVC, animated: true)
+        } catch {
+            Log.error("Failed to share file: \(error)")
         }
     }
 }
@@ -765,6 +1087,31 @@ private struct ContextMenuRow: View {
             .padding(.horizontal, 28)
             .padding(.vertical, 11)
             .contentShape(Rectangle())
+        }
+    }
+}
+
+// MARK: - Appearance
+
+private extension MessageContextMenuOverlay {
+    func handleAppear() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            appeared = true
+        }
+        let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            withAnimation {
+                showMoreAppeared = true
+            }
+        }
+        for index in C.defaultReactions.indices {
+            DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
+                withAnimation {
+                    emojiAppeared[index] = true
+                }
+            }
         }
     }
 }

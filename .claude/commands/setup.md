@@ -31,13 +31,13 @@ Check for configuration in this order:
 
 ### Step 2: Run Project Setup
 
-Run `Scripts/setup.sh` with `CI=true` to install dependencies without modifying git hooks or Xcode defaults:
+Run `Scripts/setup.sh` with `CI=true CLAUDE_SETUP=1` — `CI` skips one-time machine setup (git hooks, Xcode defaults, brew installs of the GitHub CLI) and `CLAUDE_SETUP=1` re-enables the `.env` / Firebase debug token check so missing `.env` symlinks in worktrees surface as warnings:
 
 ```bash
-CI=true Scripts/setup.sh
+CI=true CLAUDE_SETUP=1 Scripts/setup.sh
 ```
 
-This ensures SwiftLint, SwiftFormat, and other dependencies are installed.
+This ensures SwiftLint, SwiftFormat, and other dependencies are installed, and surfaces any `.env` gap that would otherwise cause Firebase App Check failures at runtime.
 
 ### Step 3: Create Simulator if Needed
 
@@ -72,6 +72,23 @@ Inform the user:
 
 Ready to build! Use /build or /build --run
 ```
+
+## Teardown (when the task is done)
+
+The simulator created here is task-scoped. Delete it from disk once the task
+is done - PR merged or work abandoned, not merely session end:
+
+```bash
+xcrun simctl shutdown "$(cat .claude/.simulator_id)" 2>/dev/null
+xcrun simctl delete "$(cat .claude/.simulator_id)"
+rm -f .claude/.simulator_id
+```
+
+Each clone holds 1-6 GB of app data and the shared disk runs chronically
+near-full. `convos-task cleanup` already deletes its task's sim; every other
+creation path (worktree /setup, branch /setup, ad-hoc QA clones) must clean
+up after itself. To sweep accumulated orphans, run
+`.claude/scripts/cleanup-orphaned-sims` (dry run by default; add `--delete`).
 
 ## Example Flows
 

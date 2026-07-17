@@ -9,6 +9,16 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
 
     // swiftlint:disable:next implicitly_unwrapped_optional
     private var backgroundSession: URLSession!
+    /// Serial queue that owns `backgroundSession`. Creating a background
+    /// session blocks on a synchronous XPC handshake with nsurlsessiond,
+    /// which stalled the main thread at app launch when `init` ran inline
+    /// in `ConvosApp.init` (app-hang CONVOS-IOS-2Q). `init` schedules
+    /// creation onto this queue and `session()` rendezvouses via `sync`,
+    /// so the handshake never runs on the main thread.
+    private let sessionQueue: DispatchQueue = DispatchQueue(
+        label: "com.convos.backgroundUpload.session",
+        qos: .userInitiated
+    )
     private let lock: NSLock = NSLock()
 
     private var backgroundCompletionHandler: (@Sendable () -> Void)?
@@ -28,17 +38,30 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     private override init() {
         super.init()
 
-        let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
-        config.isDiscretionary = false
-        config.sessionSendsLaunchEvents = true
-        config.allowsCellularAccess = true
-        config.shouldUseExtendedBackgroundIdleMode = true
+        sessionQueue.async { [self] in
+            let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
+            config.isDiscretionary = false
+            config.sessionSendsLaunchEvents = true
+            config.allowsCellularAccess = true
+            config.shouldUseExtendedBackgroundIdleMode = true
 
-        backgroundSession = URLSession(
-            configuration: config,
-            delegate: self,
-            delegateQueue: nil
-        )
+            backgroundSession = URLSession(
+                configuration: config,
+                delegate: self,
+                delegateQueue: nil
+            )
+        }
+    }
+
+    /// The background session, waiting for the creation scheduled in `init`
+    /// if it hasn't finished yet. Creation starts at singleton init (app
+    /// launch), so by the time an upload or cancel needs the session the
+    /// rendezvous is normally a no-op.
+    ///
+    /// - Warning: Never call from a closure running on `sessionQueue`;
+    ///   the `sync` rendezvous would deadlock.
+    private func session() -> URLSession {
+        sessionQueue.sync { backgroundSession }
     }
 
     public func startUpload(
@@ -51,7 +74,7 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
         request.httpMethod = "PUT"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
 
-        let task = backgroundSession.uploadTask(with: request, fromFile: fileURL)
+        let task = session().uploadTask(with: request, fromFile: fileURL)
         task.taskDescription = taskId
         task.resume()
 
@@ -59,7 +82,7 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     }
 
     public func cancelUpload(taskId: String) async {
-        let tasks = await backgroundSession.allTasks
+        let tasks = await session().allTasks
         if let task = tasks.first(where: { $0.taskDescription == taskId }) {
             task.cancel()
             Log.debug("Cancelled upload task \(taskId)")

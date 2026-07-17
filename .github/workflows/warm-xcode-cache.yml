@@ -1,0 +1,51 @@
+# Warms the WarpBuilds cache scope for the default branch (dev) so that
+# subsequent PR runs hit on first try. Without this, GHA-style caches are
+# branch-scoped: a cache populated by a PR run is only visible to that PR.
+#
+# Runs:
+#   - On a daily schedule (cheap insurance against eviction).
+#   - When this workflow itself or the firebase-pr workflow changes (so
+#     cache-key drift on Xcode bumps gets re-warmed without waiting a day).
+#   - On manual dispatch.
+
+name: Warm Xcode Cache
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC daily
+  push:
+    # `dev` is the default branch; warming it makes the cache visible to
+    # every PR (and stacked PRs, which fall back to default-branch scope).
+    branches: [dev]
+    paths:
+      - .github/workflows/warm-xcode-cache.yml
+      - .github/workflows/firebase-pr.yml
+  workflow_dispatch:
+
+concurrency:
+  group: warm-xcode-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Pin Xcode and seed WarpBuilds cache
+    runs-on: warp-macos-latest-arm64-12x
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@v33
+        with:
+          nix_conf: |
+            experimental-features = nix-command flakes
+
+      # Keep these env values in sync with firebase-pr.yml.
+      - name: Pin Xcode into /nix/store
+        uses: xmtplabs/xmtp-cache-apple@v1
+        with:
+          xcode-path: /Applications/Xcode_26.3.app
+          xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app

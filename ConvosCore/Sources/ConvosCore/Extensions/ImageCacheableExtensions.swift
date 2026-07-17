@@ -1,6 +1,15 @@
 import Foundation
 
 extension Profile: ImageCacheable {
+    /// User-scoped cache key. The avatar is logically one image per user
+    /// even though each conversation stores its own encrypted copy
+    /// (separate `imageEncryptionKey`, salt, nonce, URL per conversation —
+    /// because we have no centralized profile-photo store yet). Keying by
+    /// `inboxId` lets a successful fetch in any conversation satisfy
+    /// every other conversation's render of the same user, and collapses
+    /// what was previously N per-conversation cache entries into one.
+    /// Display name and metadata are still per-conversation; only the
+    /// avatar bytes are shared.
     public var imageCacheIdentifier: String {
         inboxId
     }
@@ -51,9 +60,8 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return clientConversationId
-        case .profile(let profile):
-            // Fall back to clientConversationId if inboxId is empty to prevent cache key collisions
-            return profile.inboxId.isEmpty ? clientConversationId : profile.inboxId
+        case .profile(let profile, _):
+            return profile.imageCacheIdentifier
         default:
             return clientConversationId
         }
@@ -63,7 +71,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageURL
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarURL
         default:
             return nil
@@ -74,7 +82,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return true
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.isAvatarEncrypted
         default:
             return false
@@ -85,7 +93,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageSalt
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarSalt
         default:
             return nil
@@ -96,7 +104,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageNonce
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarNonce
         default:
             return nil
@@ -107,7 +115,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageEncryptionKey
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarKey
         default:
             return nil

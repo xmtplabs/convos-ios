@@ -37,7 +37,9 @@ When updating QA files, keep changes focused and minimal — fix the specific is
 
 ## Tools
 
-You have two categories of tools for QA testing:
+You have two categories of tools for QA testing.
+
+**Harness note:** the action vocabulary below (`sim_tap_id`, `sim_wait_for_element`, `sim_log_tail`, ...) is the pi-side naming and is the source of truth for the structured YAMLs. When running under **Claude Code**, translate each `sim_*` call into the equivalent MCP tool or Bash command using [`qa/TOOLS-CLAUDE.md`](TOOLS-CLAUDE.md). Keep writing tests against pi vocabulary — it stays stable across harnesses.
 
 ### iOS Simulator Tools
 
@@ -98,6 +100,64 @@ The CLI is the primary way to simulate "the other side" of a conversation — se
 - **Deep link domains:** `dev.convos.org`, `app-dev.convos.org`
 - **Deep link format:** `https://dev.convos.org/v2?i=<invite-slug>`
 - **Custom URL scheme:** `convos-dev://`
+
+## Home Shell & Navigation
+
+The home shell is a standard SwiftUI `TabView`. Some older QA steps assume
+the previous custom tab bar; use this section as the source of truth when a
+test's `screen` prerequisite or a navigation step doesn't match the screen.
+
+### Tabs
+
+- Three tabs in the system tab bar: **Convos**, **Things**, and
+  **Contacts**. Select a tab by tapping its label. Steps that reference a
+  "Chats" tab are stale - the conversations list lives in the Convos tab.
+- The **Search** tab was removed. Any step that taps a search tab or
+  `search-tab` is stale - there is no search entry point right now.
+- On iPhone the tab bar is at the bottom; on iPad it is at the top.
+- An empty Convos tab on a fresh account renders a full-screen
+  agent-marketing hero ("Make little agents"), not an empty list - don't
+  interpret it as a broken conversations list, but if conversations are
+  known to exist and the hero persists, suspect they're being filtered
+  out (e.g. consent=unknown rows never surface; see test 45).
+
+### Conversations list (Convos tab)
+
+- Verified by `compose-button` being present.
+- `compose-button` opens the new-conversation flow (`NewConversationView`).
+- The agent builder bar pins to the edge opposite the tab bar
+  (`agent-builder-bar-expanded` / `agent-builder-bar-collapsed`); once it is
+  scrolled away a compact `toolbar-add-agent-button` takes its place.
+
+### App settings
+
+- Opened by tapping the `app-indicator-pill` (the profile / plan pill,
+  top-leading on every tab) - not a settings tab or gear icon.
+- The old identifiers `app-settings-button`, `convos-settings-button`, and
+  `settings-view` no longer exist.
+- Settings sheet (`AppSettingsView`) rows: `my-info-row` (profile),
+  `devices-row` (paired devices), `contacts-row`, `connections-row`,
+  `subscription-row` (plan / credits), `delete-all-data-button`.
+- Dismiss the settings sheet with a swipe-down gesture (interactive dismiss
+  is enabled except mid-deletion). The old `close-app-settings` identifier
+  is gone.
+
+### Joining a conversation
+
+- Two ways in: scanning a QR code with the **device camera**, or opening a
+  **deep-link invite URL**.
+  - Camera QR scanning is not automatable on the simulator (no camera) -
+    treat it as manual / physical-device only.
+  - Deep-link join is the automatable path: `sim_open_url(url: "$invite_url")`.
+    See test 03 for the canonical flow.
+- The old bottom-toolbar `scan-button` / in-app paste-in-scanner entry was
+  removed in the home-shell rework (may return later). `compose-button`
+  opens the *create* flow, not a join/scan screen, so there is no in-app
+  "paste invite URL" entry point right now. `JoinConversationView` /
+  `paste-invite-button` still exist in code but are not reachable from the
+  home screen.
+- `scan-invite-button` (a viewfinder inside an open conversation) is a
+  separate scan-from-within-a-conversation control, not a primary join entry.
 
 ## Simulator Selection
 
@@ -169,8 +229,8 @@ Pass the correct UDID to every simulator tool call. The `udid` parameter on all 
 # Tap on Device A
 sim_tap_id(identifier="compose-button", udid=DEVICE_A_UDID)
 
-# Tap on Device B
-sim_tap_id(identifier="scan-button", udid=DEVICE_B_UDID)
+# Device B joins by opening the invite deep link (no in-app scan view)
+sim_open_url(url="$invite_url", udid=DEVICE_B_UDID)
 
 # Screenshot Device B
 sim_screenshot(udid=DEVICE_B_UDID)
@@ -234,7 +294,7 @@ $CXDB record-criterion "$TR" "cli_reaction_text_visible" "pass" "CLI reaction on
 $CXDB set-state "$RUN" "05" "conversation_id" "$CONV_ID"
 $CXDB set-state "$RUN" "_run" "shared_conversation_id" "$CONV_ID"  # run-level state
 
-# Log errors and findings:
+# Log errors and findings (6th arg is_xmtp: 1=xmtp, 0=app-level):
 $CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "0"
 $CXDB log-bug "$RUN" "05" "major" "Title" "Description"
 $CXDB log-a11y "$RUN" "05" "element purpose" "recommendation"
@@ -301,16 +361,16 @@ LOG_MARKER=<marker from sim_log_tail>
 Before calling `$CXDB finish-test`, complete these steps:
 
 1. **Final log check.** Call `sim_log_check_errors` with the test's log marker to catch any errors that occurred during the test but weren't caught by mid-test checks.
-2. **Log every error to CXDB.** For each error found (both from mid-test checks and the final check), call `$CXDB log-error`. Classify as XMTP (`is_app_error=0`) or app-level (`is_app_error=1`). Log every occurrence, even repeats from previous tests.
+2. **Log every error to CXDB.** For each error found (both from mid-test checks and the final check), call `$CXDB log-error`. The 6th arg is `is_xmtp` — pass `1` for XMTP-layer errors, `0` for app-level errors. The script derives `is_app_error` as the inverse. Log every occurrence, even repeats from previous tests.
 3. **Call `$CXDB finish-test`** with the final pass/fail status.
 
 ```bash
 # Final log sweep
 sim_log_check_errors(since_marker=LOG_MARKER)
 
-# Log any errors found (repeat for each error line)
-$CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "1"  # app error
-$CXDB log-error "$RUN" "05" "$TIMESTAMP" "XMTPiOS" "$ERROR_MSG" "0"    # XMTP error
+# Log any errors found (repeat for each error line; 6th arg is_xmtp: 1=xmtp, 0=app)
+$CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "0"  # app error
+$CXDB log-error "$RUN" "05" "$TIMESTAMP" "XMTPiOS" "$ERROR_MSG" "1"    # XMTP error
 
 # Finish
 $CXDB finish-test "$TR" "pass"
@@ -325,7 +385,7 @@ $CXDB finish-test "$TR" "pass"
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
 - **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
-- **SwiftUI bottom toolbar items are auto-probed.** Buttons inside `.toolbar { ToolbarItem(placement: .bottomBar) }` (e.g., `compose-button`, `scan-button`) have correct accessibility identifiers but `idb ui describe-all` does not enumerate them. The `sim_tap_id`, `sim_find_elements`, and `sim_wait_for_element` tools handle this automatically by probing the bottom toolbar area with hit-testing when the tree search fails. No special workaround is needed — use these tools normally with the element's identifier or label.
+- **SwiftUI toolbar items are auto-probed.** Toolbar buttons (e.g., `compose-button`, `toolbar-add-agent-button`) have correct accessibility identifiers but `idb ui describe-all` does not always enumerate them. The `sim_tap_id`, `sim_find_elements`, and `sim_wait_for_element` tools handle this automatically by probing the toolbar area with hit-testing when the tree search fails. No special workaround is needed — use these tools normally with the element's identifier or label.
 
 ### Verifying Behavior via App Events
 
@@ -456,33 +516,17 @@ The fields are: `[timestamp] [level] [source file:line] [namespace] message`
 
 ### Ephemeral / Auto-Dismissing UI
 
-Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding pills, quickname pills, success confirmations). These require fast detection:
+Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding success confirmations). These require fast detection:
 
-- **Start polling BEFORE the trigger completes.** Many ephemeral elements appear during an async operation (e.g., the quickname pill appears while `process-join-requests` is still running). If you wait for the CLI command to finish before polling, the pill may already be gone. Run the CLI command **in the background** (append `&` in bash) and start tapping **immediately** — do not wait for the background command to complete.
+- **Start polling BEFORE the trigger completes.** If you wait for an async operation (CLI command, network request, animation) to finish before polling, the element may already be gone. Run the trigger in the background (append `&` in bash) and start polling **immediately**.
 - **Use `sim_tap_id` with `retries` to find-and-tap in one atomic operation.** Do not use `sim_wait_for_element` followed by a separate `sim_tap_id` — the element can auto-dismiss between the two calls. `sim_tap_id` with retries polls and taps the instant it finds the element.
-- **Search by label text, not accessibility identifier.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views. Use a substring of the label instead (e.g., `"Tap to chat"` for the quickname pill).
+- **Search by label text when the identifier is unreliable.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views — use a substring of the label instead.
 - **Use `sim_find_elements` as a fallback** if `sim_tap_id` exhausts retries — to check whether the element appeared and dismissed between polls.
-- If a test step says "look for" an ephemeral element, the sequence should be: start the trigger in the background → immediately call `sim_tap_id` with retries → then screenshot to verify the result after tapping.
-
-**Example pattern for invite + quickname pill:**
-```
-# 1. Open invite in app
-sim_open_url ...
-sleep 3
-
-# 2. Start join processing in background AND tap simultaneously
-# These two calls must be made in the SAME function_calls block so they run in parallel:
-bash: convos conversations process-join-requests --conversation <id> &
-sim_tap_id: identifier="Tap to chat", retries=30
-
-# 3. Screenshot to verify the result
-sim_screenshot
-```
 
 Known ephemeral elements:
-- **Quickname pill**: appears above the composer when entering a new conversation with a quickname set. Search using label substring `"Tap to chat"` (full label is like `"UQ, Tap to chat as Updated QN"`). Accessibility identifier is `add-quickname-button` but may not be found reliably — prefer label search. Auto-dismisses after ~8 seconds.
-- **Setup quickname prompt**: appears during first-conversation onboarding. Search using label `"Add your name for this convo"` or identifier `setup-quickname-button`. Does not auto-dismiss (requires interaction).
-- **Saved/success confirmations**: brief confirmations that auto-dismiss after ~3 seconds.
+- **Setup profile prompt**: appears during first-conversation onboarding for users who have not set a global profile yet. Search using label `"Add your name and pic"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
+- **"Profile saved" pill**: appears briefly above the composer after the user saves the global profile from the onboarding setup flow. Auto-dismisses after ~3 seconds. Do not gate the rest of the onboarding flow on tapping it — there is no Continue button; the flow advances automatically.
+- Older docs referenced a "Profile pill" / "Tap to chat as X" pill (identifier `add-profile-button`/`add-quickname-button`) that auto-dismissed after ~8 seconds. **That pill no longer exists.** The global profile auto-applies on every new conversation without prompting; if a test expects to tap that pill, the test needs updating (see `qa/tests/14-profile.md` for the current model).
 
 ### Verifying Results
 
@@ -515,7 +559,7 @@ When a test requires fresh CLI state:
 
 When the app launches for the first time (or after a reset), the conversation creation flow includes an onboarding sequence:
 
-1. After creating a conversation, a "setup quickname" prompt appears at the bottom of the conversation.
+1. After creating a conversation, a "setup profile" prompt appears at the bottom of the conversation.
 2. The onboarding also includes a notification permission request.
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
@@ -583,11 +627,11 @@ The invite flow is multi-step and requires coordination between the inviting sid
 3. Wait 2-3 seconds for the app to process the deep link and send the join request.
 4. **Then** run `process-join-requests` from the CLI.
 
-**Always use `--watch` with `--timeout`** when running `process-join-requests`. The join request may take a moment to arrive over the network. Example:
+**Always use `--watch`** when running `process-join-requests`, and bound it externally — the CLI has no `--timeout` flag. The join request may take a moment to arrive over the network. The correct command form (validated against convos CLI 0.10.x; the old `convos conversation ... <convo-id>` positional form is not a valid command):
 ```bash
-convos conversation process-join-requests <convo-id> --watch --timeout 30
+timeout 45 convos conversations process-join-requests --conversation <convo-id> --watch
 ```
-Never run `process-join-requests` without `--timeout` — it can hang indefinitely with `--watch`, or miss the request without `--watch`. A 30-second timeout is a safe default.
+Do not kill the watcher as soon as it prints its "Adding ..." line — that consumes the join request without completing the add-member commit and the joiner never lands. Wait for the "Sent ProfileSnapshot" line before stopping it. Running without `--watch` can miss a request that hasn't arrived yet and silently succeed.
 
 ### Test Results
 
@@ -598,7 +642,7 @@ After completing a test, report results clearly:
 - Note any unexpected behavior even if the test passed.
 - If the test failed due to infrastructure issues (simulator crash, network timeout), note that separately from app bugs.
 - Include any warnings from the log monitoring, noting whether they seem expected or concerning.
-- **Log every error to CXDB every time it appears** — even if you've seen the same error in previous runs. Use `$CXDB log-error` for each error line. Recurrence frequency is valuable data; dismissing repeat errors hides patterns. Mark XMTP-layer errors with `is_app_error=0` and app-level errors with `is_app_error=1`.
+- **Log every error to CXDB every time it appears** — even if you've seen the same error in previous runs. Use `$CXDB log-error` for each error line (6th arg is `is_xmtp`: pass `1` for XMTP-layer errors, `0` for app-level errors). Recurrence frequency is valuable data; dismissing repeat errors hides patterns.
 - **XMTP errors:** List all XMTP-layer errors observed during the test in a dedicated section, even if the test passed. Note whether each error appeared to affect the app's behavior or was transient/innocuous. This helps track XMTP SDK issues over time without conflating them with app bugs.
 
 **When a test fails (either from pass/fail criteria or from a log error), include a failure report:**

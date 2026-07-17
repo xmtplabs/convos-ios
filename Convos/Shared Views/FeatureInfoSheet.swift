@@ -7,6 +7,10 @@ struct FeatureInfoSheet: View {
     let paragraphs: [FeatureInfoParagraph]
     let primaryButtonTitle: String
     let primaryButtonAction: () -> Void
+    let primaryButtonAccessibilityIdentifier: String?
+    let secondaryButtonTitle: String?
+    let secondaryButtonAction: (() -> Void)?
+    let secondaryButtonAccessibilityIdentifier: String?
     let learnMoreTitle: String
     let learnMoreURL: URL?
     let showDragIndicator: Bool
@@ -20,6 +24,10 @@ struct FeatureInfoSheet: View {
         paragraphs: [FeatureInfoParagraph] = [],
         primaryButtonTitle: String = "Got it",
         primaryButtonAction: @escaping () -> Void,
+        primaryButtonAccessibilityIdentifier: String? = nil,
+        secondaryButtonTitle: String? = nil,
+        secondaryButtonAction: (() -> Void)? = nil,
+        secondaryButtonAccessibilityIdentifier: String? = nil,
         learnMoreTitle: String = "Learn more",
         learnMoreURL: URL? = nil,
         showDragIndicator: Bool = false
@@ -30,6 +38,10 @@ struct FeatureInfoSheet: View {
         self.paragraphs = paragraphs
         self.primaryButtonTitle = primaryButtonTitle
         self.primaryButtonAction = primaryButtonAction
+        self.primaryButtonAccessibilityIdentifier = primaryButtonAccessibilityIdentifier
+        self.secondaryButtonTitle = secondaryButtonTitle
+        self.secondaryButtonAction = secondaryButtonAction
+        self.secondaryButtonAccessibilityIdentifier = secondaryButtonAccessibilityIdentifier
         self.learnMoreTitle = learnMoreTitle
         self.learnMoreURL = learnMoreURL
         self.showDragIndicator = showDragIndicator
@@ -63,6 +75,17 @@ struct FeatureInfoSheet: View {
                     Text(primaryButtonTitle)
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier(primaryButtonAccessibilityIdentifier ?? "")
+
+                if let secondaryButtonTitle, let secondaryButtonAction {
+                    let secondaryAction = { secondaryButtonAction() }
+                    Button(action: secondaryAction) {
+                        Text(secondaryButtonTitle)
+                    }
+                    .convosButtonStyle(.text)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier(secondaryButtonAccessibilityIdentifier ?? "")
+                }
 
                 if let learnMoreURL {
                     let learnMoreAction = { openURL(learnMoreURL) }
@@ -109,6 +132,8 @@ struct TightLineHeightText: UIViewRepresentable {
     let text: String
     let fontSize: CGFloat
     let lineHeight: CGFloat
+    var weight: UIFont.Weight = .bold
+    var textAlignment: NSTextAlignment = .natural
 
     func makeUIView(context: Context) -> SelfSizingLabel {
         let label = SelfSizingLabel()
@@ -126,13 +151,14 @@ struct TightLineHeightText: UIViewRepresentable {
     }
 
     private func configureLabel(_ label: SelfSizingLabel) {
-        let font: UIFont = .systemFont(ofSize: fontSize, weight: .bold)
+        let font: UIFont = .systemFont(ofSize: fontSize, weight: weight)
         let overflow: CGFloat = max(0, font.lineHeight - lineHeight)
         label.clipsToBounds = false
         label.descenderPadding = overflow
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.minimumLineHeight = lineHeight
         paragraphStyle.maximumLineHeight = lineHeight
+        paragraphStyle.alignment = textAlignment
         label.attributedText = NSAttributedString(
             string: text,
             attributes: [
@@ -184,12 +210,6 @@ struct FeatureInfoParagraph: Identifiable {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) { PhotosInfoSheet().padding(.top, 20) }
-}
-
-#Preview("Reveal") {
-    @Previewable @State var isPresented: Bool = true
-    VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { RevealMediaInfoSheet().padding(.top, 20) }
 }
 
 #Preview("Explode") {

@@ -57,4 +57,4 @@ If you accidentally try to push to main or dev, STOP and create a feature branch
 | `/build` | Build the app |
 | `/build --run` | Build and launch in simulator |
 | `/test` | Run tests |
-| `/firebase-token` | Get Firebase debug token from logs |
+| `/firebase-token` | Sync/rotate the shared Firebase debug token (from 1Password) |

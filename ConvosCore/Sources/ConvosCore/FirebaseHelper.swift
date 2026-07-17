@@ -12,11 +12,13 @@ public enum FirebaseHelperCore {
     public static func configure(with optionsURL: URL, debugToken: String? = nil) {
         guard let options = FirebaseOptions(contentsOfFile: optionsURL.path) else { return }
         #if targetEnvironment(simulator)
-            // Set fixed debug token if provided (prevents auto-generation each simulator run)
-            // Firebase checks the FIRAAppCheckDebugToken environment variable
+            // Pin the App Check debug token in UserDefaults so every simulator run uses the
+            // same registered token instead of the random UUID that AppCheckCore generates
+            // and persists on first launch. Setting the FIRAAppCheckDebugToken env var with
+            // `setenv` at this point doesn't work — AppCheckCore reads NSProcessInfo.environment,
+            // which is a snapshot taken at process start and is unaffected by later setenv calls.
             if let token = debugToken, !token.isEmpty {
-                setenv("FIRAAppCheckDebugToken", token, 1)
-                Log.debug("Set fixed App Check debug token env var: \(token.prefix(8))...")
+                UserDefaults.standard.set(token, forKey: "GACAppCheckDebugToken")
             }
             AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
         #else

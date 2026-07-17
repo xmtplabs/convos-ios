@@ -88,13 +88,6 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         using: senderForeignKey
     )
 
-    static let senderProfile: HasOneThroughAssociation<DBMessage, DBMemberProfile> = hasOne(
-        DBMemberProfile.self,
-        through: sender,
-        using: DBConversationMember.memberProfile,
-        key: "messageSenderProfile"
-    )
-
     static let replies: HasManyAssociation<DBMessage, DBMessage> = hasMany(
         DBMessage.self,
         key: "messageReplies",
@@ -281,6 +274,28 @@ extension DBMessage {
             status: status,
             messageType: messageType,
             contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            linkPreview: linkPreview,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    func with(text: String, invite: MessageInvite?) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: invite != nil ? .invite : contentType,
             text: text,
             emoji: emoji,
             invite: invite,

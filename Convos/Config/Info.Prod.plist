@@ -13,5 +13,7 @@
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Convos uses your photo library when an agent asks to read recent photos for a conversation.</string>
 </dict>
 </plist>

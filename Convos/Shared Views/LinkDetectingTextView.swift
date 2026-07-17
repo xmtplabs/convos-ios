@@ -1,6 +1,33 @@
 import SwiftUI
 import UIKit
 
+/// Link-presence check so message bubbles can render the common no-link case
+/// as a plain SwiftUI `Text` instead of a TextKit-backed `UITextView` (whose
+/// allocation, data detection, and `sizeThatFits` dominate the cost of
+/// building message cells). Results are cached per string; a cheap pre-scan
+/// skips the detector entirely for text that cannot contain a link or email
+/// address.
+enum TextLinkPresence {
+    private static let detector: NSDataDetector? = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+    // NSCache is documented thread-safe; the annotation only silences the
+    // Sendable diagnostic.
+    private nonisolated(unsafe) static let cache: NSCache<NSString, NSNumber> = .init()
+
+    static func containsLinks(_ text: String) -> Bool {
+        guard text.contains(".") || text.contains("@") else { return false }
+        let key = text as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached.boolValue
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        let found = detector?.firstMatch(in: text, options: [], range: range) != nil
+        cache.setObject(NSNumber(value: found), forKey: key)
+        return found
+    }
+}
+
 struct LinkDetectingTextView: View {
     private let text: String
     private let linkColor: Color?
@@ -84,12 +111,13 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         func textView(
             _ textView: UITextView,
-            shouldInteractWith url: URL,
-            in characterRange: NSRange,
-            interaction: UITextItemInteraction
-        ) -> Bool {
-            UIApplication.shared.open(url)
-            return false
+            primaryActionFor textItem: UITextItem,
+            defaultAction: UIAction
+        ) -> UIAction? {
+            guard case .link(let url) = textItem.content else { return defaultAction }
+            return UIAction { _ in
+                InAppBrowser.open(url)
+            }
         }
     }
 }
@@ -125,7 +153,7 @@ final class LinkTextView: UITextView, LinkHitTestable {
     private func urlAtPoint(_ point: CGPoint) -> URL? {
         guard let position = closestPosition(to: point) else { return nil }
         let charIndex = offset(from: beginningOfDocument, to: position)
-        guard let attributed = attributedText as? NSAttributedString,
+        guard let attributed = attributedText,
               charIndex >= 0, charIndex < attributed.length else {
             return nil
         }

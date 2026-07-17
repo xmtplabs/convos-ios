@@ -25,28 +25,32 @@ setup:
 
 steps:
   - id: set_profile_photo
-    name: "Set profile photo via quick-edit"
+    name: "Set profile photo via the Nametag sheet"
     actions:
-      - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "quick-edit-image-picker", timeout: 10 }
-      - tap: { id: "quick-edit-image-picker" }
+      - navigate_to_conversations_list: {}
+      - tap: { id: "app-indicator-pill" }
+      - wait_for_element: { id: "my-info-row", timeout: 10 }
+      - tap: { id: "my-info-row" }
+      - wait_for_element: { id: "profile-setup-photo-button", timeout: 10 }
+      - tap: { id: "profile-setup-photo-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
       - tap_photo_thumbnail: { index: 1 }
-      - wait_for_element: { id: "quick-edit-done-button", timeout: 10 }
-      - tap: { id: "quick-edit-done-button" }
-      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - wait_for_element: { id: "profile-setup-save-button", timeout: 10 }
+      - tap: { id: "profile-setup-save-button" }
+      - swipe: { x_start: 200, y_start: 180, x_end: 200, y_end: 780, gesture: "dismiss the settings sheet" }
     verify:
       - element_exists: { id: "message-text-field" }
     criteria: profile_photo_set
     note: >
-      Quick-edit bar elements:
-      - quick-edit-image-picker (label="Choose photo")
-      - quick-edit-display-name-field (editable text)
-      - quick-edit-settings-button (label="Profile settings", trash icon)
-      - quick-edit-done-button (label="Done editing")
-      After selecting a photo, the quick-edit image picker shows a round
-      thumbnail of the selected photo. Profile photo appears on sent
-      message avatars and the composer bar avatar.
+      The inline quick-edit flow was removed; profile photos are set via
+      the "Hello / My name is" Nametag sheet (my-info-row in settings, or
+      your own member row in a conversation). profile-setup-avatar or
+      profile-setup-photo-button opens the photo library;
+      profile-setup-camera-button opens the camera, which now includes the
+      system move-and-scale crop step. Once a photo is set, tapping the
+      avatar (profile-setup-avatar) shows a Change photo / Remove photo
+      menu. Save with profile-setup-save-button. Profile photo appears on
+      sent message avatars and the composer bar avatar.
 
   - id: profile_photo_syncs
     name: "Profile photo syncs to other participants"
@@ -107,7 +111,7 @@ teardown: []
 
 criteria:
   profile_photo_set:
-    description: "Profile photo can be set via quick-edit image picker"
+    description: "Profile photo can be set via the Nametag sheet"
   profile_photo_syncs:
     description: "Profile photo changes sync to other participants via group_updated"
   group_photo_set:

@@ -1,4 +1,5 @@
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -11,17 +12,28 @@ import GRDB
 /// provides factory methods for creating writers and repositories scoped to this inbox.
 /// The service handles authorization, streaming, and push notification registration.
 ///
-/// @unchecked Sendable: All stored properties are immutable references (`let`) to Sendable
-/// protocol types. The `cancellables` Set is only modified during init and deinit.
-/// Methods create new instances rather than sharing mutable state.
+/// @unchecked Sendable: All stored properties are immutable references (`let`) to
+/// Sendable protocol types, except `cancellables` (only modified during init and
+/// deinit). Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
-    let inboxStateManager: any InboxStateManagerProtocol
+    let sessionStateManager: any SessionStateManagerProtocol
+    /// Captured at construction for the topic-subscription APIs that
+    /// require the backend clientId; empty string on the failed-keychain
+    /// path, which is structurally unreachable (every caller goes through
+    /// `waitForInboxReadyResult()` first, which throws the keychain error).
+    private let clientId: String
     internal let identityStore: any KeychainIdentityStoreProtocol
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
-    private let environment: AppEnvironment
+    internal let deviceInfoProvider: any DeviceInfoProviding
+    let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
+    internal let coreActions: any CoreActions
+    /// Single shared instance so render-path resolvers (`contact(for:)`)
+    /// hit one warm in-memory contacts cache instead of constructing a
+    /// fresh repository per SwiftUI body evaluation.
+    private let sharedContactsRepository: ContactsRepository
     private var cancellables: Set<AnyCancellable> = []
 
     // swiftlint:disable:next function_parameter_count
@@ -36,7 +48,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        xmtpClientFactory: XMTPClientFactory = .onDisk,
+        coreActions: any CoreActions
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.authorize(
             inboxId: inboxId,
@@ -49,7 +63,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            xmtpClientFactory: xmtpClientFactory,
+            coreActions: coreActions
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,
@@ -57,7 +73,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             databaseReader: databaseReader,
             identityStore: identityStore,
             environment: environment,
-            backgroundUploadManager: platformProviders.backgroundUploadManager
+            deviceInfoProvider: platformProviders.deviceInfo,
+            backgroundUploadManager: platformProviders.backgroundUploadManager,
+            coreActions: coreActions
         )
     }
 
@@ -66,14 +84,52 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   databaseReader: any DatabaseReader,
                   identityStore: any KeychainIdentityStoreProtocol,
                   environment: AppEnvironment,
-                  backgroundUploadManager: any BackgroundUploadManagerProtocol) {
+                  deviceInfoProvider: any DeviceInfoProviding,
+                  backgroundUploadManager: any BackgroundUploadManagerProtocol,
+                  coreActions: any CoreActions = NoOpCoreActions()) {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
-        self.inboxStateManager = authorizationOperation.stateMachine
+        self.sessionStateManager = authorizationOperation.stateMachine
+        self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
+        self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
+        self.coreActions = coreActions
+        // Both the app and the NSE construct a MessagingService, so this
+        // is the one bootstrap point common to every process that can
+        // verify a pairing join request.
+        PairingNonceLedger.shared.configure(appGroup: environment.appGroupIdentifier)
+    }
+
+    /// Constructs a MessagingService that represents the failed-keychain-read
+    /// branch of `SessionManager.loadOrCreateService`. No authorization is
+    /// attempted; `sessionStateManager.currentState` returns `.error` with
+    /// the real keychain error. Used so downstream code can surface a
+    /// "keychain unreadable — retry" affordance without the cost of spinning
+    /// up a real state machine + authorization task for every retry.
+    internal init(identityReadFailure error: any Error,
+                  databaseWriter: any DatabaseWriter,
+                  databaseReader: any DatabaseReader,
+                  identityStore: any KeychainIdentityStoreProtocol,
+                  environment: AppEnvironment,
+                  deviceInfoProvider: any DeviceInfoProviding,
+                  backgroundUploadManager: any BackgroundUploadManagerProtocol,
+                  coreActions: any CoreActions = NoOpCoreActions()) {
+        let operation = FailedIdentityLoadOperation(error: error)
+        self.identityStore = identityStore
+        self.authorizationOperation = operation
+        self.sessionStateManager = operation.stateMachine
+        self.clientId = ""
+        self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
+        self.deviceInfoProvider = deviceInfoProvider
+        self.environment = environment
+        self.backgroundUploadManager = backgroundUploadManager
+        self.coreActions = coreActions
     }
 
     deinit {
@@ -99,39 +155,143 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func waitForDeletionComplete() async {
-        await inboxStateManager.waitForDeletionComplete()
+        await sessionStateManager.waitForDeletionComplete()
     }
 
     // MARK: My Profile
 
-    func myProfileWriter() -> any MyProfileWriterProtocol {
-        MyProfileWriter(inboxStateManager: inboxStateManager, databaseWriter: databaseWriter)
+    func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
+        MyGlobalProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
+    }
+
+    func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
+        MyGlobalProfileRepository(sessionStateManager: sessionStateManager, databaseReader: databaseReader)
+    }
+
+    // MARK: Profiles (canonical Profile table, transition)
+
+    private lazy var profileStore: any ProfileStoreProtocol = GRDBProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var selfProfileStore: any SelfProfileStoreProtocol = GRDBSelfProfileStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader,
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    private lazy var profilePublishStore: any ProfilePublishStoreProtocol = GRDBProfilePublishStore(
+        databaseWriter: databaseWriter,
+        databaseReader: databaseReader
+    )
+
+    private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
+        profileStore: profileStore,
+        selfProfileStore: selfProfileStore,
+        publishStore: profilePublishStore,
+        databaseReader: databaseReader,
+        conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: databaseWriter),
+        selfInboxIdProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
+        }
+    )
+
+    /// Canonical identity source. Inbound writes land here directly via
+    /// `ProfileInboundApplier`; reads are flipped onto it at the cutover.
+    func profilesRepository() -> ProfilesRepository {
+        sharedProfilesRepository
+    }
+
+    /// One-time backfill of the canonical stores from any legacy `memberProfile`
+    /// rows that predate the direct inbound seam, then warms the repository cache
+    /// and attaches the durable publish session. Self-guards on inbox-ready, so
+    /// it is safe to call early.
+    func startProfileServices() async {
+        if let selfInboxId = (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId {
+            do {
+                try await ProfileBackfill(
+                    databaseReader: databaseReader,
+                    profileStore: profileStore,
+                    selfInboxId: selfInboxId
+                ).run()
+            } catch {
+                Log.error("Profile backfill failed: \(error)")
+            }
+        }
+        await sharedProfilesRepository.warmUp()
+        // Carry an upgraded user's existing global avatar into the publisher's
+        // source so it keeps propagating to conversations after the transition.
+        await sharedProfilesRepository.seedSelfAvatarSourceIfNeeded()
+        await sharedProfilesRepository.bind(
+            session: MessagingProfilePublishSession(
+                sessionStateManager: sessionStateManager
+            )
+        )
+    }
+
+    func stopProfileServices() async {
+        await sharedProfilesRepository.unbind()
     }
 
     // MARK: New Conversation
 
+    /// Seeds a newly-ready conversation with the current user's global profile
+    /// through the shared repository's durable publisher. Handed to
+    /// `ConversationStateManager` so it does not depend on the repository.
+    private var profileConversationSeeder: @Sendable (String) async -> Void {
+        { [sharedProfilesRepository] conversationId in
+            do {
+                try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+            } catch {
+                Log.warning("Failed to seed profile to conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
     func conversationStateManager() -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
-            inboxStateManager: inboxStateManager,
+        conversationStateManager(initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            backgroundUploadManager: backgroundUploadManager
+            initialMemberInboxIds: initialMemberInboxIds,
+            backgroundUploadManager: backgroundUploadManager,
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
     // MARK: Existing Conversation
 
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
-            inboxStateManager: inboxStateManager,
+        conversationStateManager(for: conversationId, initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             conversationId: conversationId,
-            backgroundUploadManager: backgroundUploadManager
+            initialMemberInboxIds: initialMemberInboxIds,
+            backgroundUploadManager: backgroundUploadManager,
+            coreActions: coreActions,
+            profileConversationSeeder: profileConversationSeeder
         )
     }
 
@@ -139,8 +299,12 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
         ConversationConsentWriter(
-            inboxStateManager: inboxStateManager,
-            databaseWriter: databaseWriter
+            sessionStateManager: sessionStateManager,
+            databaseWriter: databaseWriter,
+            pushTopicSubscriptionManager: PushTopicSubscriptionManager(
+                identityStore: identityStore,
+                deviceInfoProvider: deviceInfoProvider
+            )
         )
     }
 
@@ -155,23 +319,54 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         backgroundUploadManager: any BackgroundUploadManagerProtocol
     ) -> any OutgoingMessageWriterProtocol {
         OutgoingMessageWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             conversationId: conversationId,
             photoService: PhotoAttachmentService(),
             pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
             backgroundUploadManager: backgroundUploadManager,
-            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
+            contactSyncCoordinator: contactSyncCoordinator(),
+            coreActions: coreActions,
+            ensureProfilePublished: { [sharedProfilesRepository] in
+                do {
+                    try await sharedProfilesRepository.publishMyProfileToConversation(conversationId)
+                } catch {
+                    Log.warning("Failed to publish profile before send to \(conversationId): \(error.localizedDescription)")
+                }
+            }
+        )
+    }
+
+    // MARK: Contacts
+
+    func contactsRepository() -> any ContactsRepositoryProtocol {
+        sharedContactsRepository
+    }
+
+    func contactsWriter() -> any ContactsWriterProtocol {
+        ContactsWriter(databaseWriter: databaseWriter, sessionStateManager: sessionStateManager)
+    }
+
+    func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
+        ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
         )
     }
 
     func reactionWriter() -> any ReactionWriterProtocol {
-        ReactionWriter(inboxStateManager: inboxStateManager,
+        ReactionWriter(sessionStateManager: sessionStateManager,
                        databaseWriter: databaseWriter)
     }
 
+    func readReceiptWriter() -> any ReadReceiptWriterProtocol {
+        ReadReceiptWriter(sessionStateManager: sessionStateManager,
+                          databaseWriter: databaseWriter)
+    }
+
     func replyWriter() -> any ReplyMessageWriterProtocol {
-        ReplyMessageWriter(inboxStateManager: inboxStateManager,
+        ReplyMessageWriter(sessionStateManager: sessionStateManager,
                            databaseWriter: databaseWriter)
     }
 
@@ -179,26 +374,90 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {
         ConversationMetadataWriter(
-            inboxStateManager: inboxStateManager,
-            inviteWriter: InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter),
-            databaseWriter: databaseWriter
+            sessionStateManager: sessionStateManager,
+            inviteWriter: InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter, coreActions: coreActions),
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator()
         )
     }
 
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
         ConversationExplosionWriter(
-            inboxStateManager: inboxStateManager,
+            operations: XMTPExplodeGroupOperations(sessionStateManager: sessionStateManager),
             metadataWriter: conversationMetadataWriter()
         )
     }
 
+    func conversationLeaveWriter() -> any ConversationLeaveWriterProtocol {
+        ConversationLeaveWriter(
+            operations: XMTPLeaveGroupOperations(sessionStateManager: sessionStateManager),
+            consentWriter: conversationConsentWriter(),
+            databaseReader: databaseReader
+        )
+    }
+
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {
-        ConversationPermissionsRepository(inboxStateManager: inboxStateManager,
+        ConversationPermissionsRepository(sessionStateManager: sessionStateManager,
                                           databaseReader: databaseReader)
     }
 
+    /// One store per service instance so every grant writer (and the picker)
+    /// shares a single TTL'd catalog cache; `connectionGrantWriter()` returns
+    /// a fresh writer per call, so the cache can't live there.
+    private lazy var servicesStore: ConnectionServicesStore = ConnectionServicesStore(
+        fetchServices: { [sessionStateManager] in
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            return try await inboxReady.apiClient.getConnectionServices()
+        }
+    )
+
+    func connectionServicesStore() -> any ConnectionServicesStoreProtocol {
+        servicesStore
+    }
+
+    /// One shared serialization choke point for every per-sender
+    /// `ProfileUpdate.metadata` write (connections, timezone, ...). The shared
+    /// instance is what lets a connections write and a timezone write queue
+    /// behind each other instead of clobbering the per-sender metadata map.
+    private lazy var sharedProfileMetadataWriter: ProfileMetadataWriter = ProfileMetadataWriter(
+        profilesRepository: { [sharedProfilesRepository] in sharedProfilesRepository },
+        databaseReader: databaseReader
+    )
+
+    func profileMetadataWriter() -> any ProfileMetadataWriterProtocol {
+        sharedProfileMetadataWriter
+    }
+
+    func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
+        CloudConnectionGrantWriter(
+            sessionStateManager: sessionStateManager,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            profileMetadataWriter: sharedProfileMetadataWriter,
+            servicesStore: servicesStore
+        )
+    }
+
+    func agentTimezonePublisher() async throws -> any AgentTimezonePublishing {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        return AgentTimezonePublisher(
+            profileMetadataWriter: sharedProfileMetadataWriter,
+            databaseReader: databaseReader,
+            myInboxId: inboxReady.client.inboxId,
+            appGroupIdentifier: environment.appGroupIdentifier
+        )
+    }
+
+    func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        ConnectionEventWriter(sessionStateManager: sessionStateManager)
+    }
+
+    func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        CapabilityRequestResultWriter(sessionStateManager: sessionStateManager)
+    }
+
     func uploadImage(data: Data, filename: String) async throws -> String {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachment(
             data: data,
             filename: filename,
@@ -212,7 +471,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachmentAndExecute(
             data: data,
             filename: filename,
@@ -221,7 +480,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         let topic = conversationId.xmtpGroupTopicFormat
         let localStateWriter = conversationLocalStateWriter()
 
@@ -240,5 +499,276 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
 
         try await localStateWriter.setMuted(!enabled, for: conversationId)
+    }
+
+    func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else {
+            return
+        }
+        try await sender.sendTypingIndicator(isTyping: isTyping)
+    }
+
+    func initiatorPairingService() async throws -> any PairingServiceProtocol {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxId = result.client.inboxId
+        let myProfile = try? await databaseReader.read { db in
+            try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+        }
+        return LivePairingService(
+            role: .initiator(
+                client: result.client,
+                identityStore: identityStore,
+                environment: environment,
+                initiatorProfile: myProfile.map { profile in
+                    LivePairingService.InitiatorProfile(
+                        displayName: profile.name,
+                        imageAssetIdentifier: profile.imageAssetIdentifier
+                    )
+                }
+            )
+        )
+    }
+
+    /// Sends a fresh `ProfileSnapshot` (containing the current profile
+    /// metadata for every member) to every group the local user is in.
+    /// Used by the post-pair broadcaster so a newly-paired installation
+    /// has each conversation's member profiles populated locally without
+    /// having to rely on history sync — every group gets one snapshot
+    /// from the initiator immediately after the joiner's installation
+    /// becomes active.
+    ///
+    /// Best-effort per group: a single group's failure is logged and
+    /// skipped so a transient send error doesn't abort the fan-out.
+    /// Returns the count of groups a snapshot was successfully sent to
+    /// (0 when the inbox wasn't ready or the conversation list failed),
+    /// so callers can tell whether the fan-out actually happened.
+    @discardableResult
+    func broadcastProfileSnapshotsToAllGroups() async -> Int {
+        let result: InboxReadyResult
+        do {
+            result = try await sessionStateManager.waitForInboxReadyResult()
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups skipped, inbox not ready: \(error)")
+            return 0
+        }
+        let conversations: [XMTPiOS.Conversation]
+        do {
+            conversations = try await result.client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: nil,
+                consentStates: [.allowed],
+                orderBy: .createdAt
+            )
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups list failed: \(error)")
+            return 0
+        }
+        // Sent sequentially rather than via a task group: `XMTPiOS.Group`
+        // is not `Sendable`, so fanning these into concurrent tasks would
+        // trip strict-concurrency errors. Post-pair is a one-time event,
+        // so the sequential cost is acceptable.
+        var sent: Int = 0
+        for conversation in conversations {
+            guard case let .group(group) = conversation else { continue }
+            do {
+                try await ProfileSnapshotBuilder.sendSnapshot(
+                    group: group,
+                    databaseReader: databaseReader
+                )
+                sent += 1
+            } catch {
+                Log.warning("MessagingService: ProfileSnapshot send failed for group \(group.id): \(error.localizedDescription)")
+            }
+        }
+        Log.info("MessagingService: broadcasted ProfileSnapshot to \(sent) group(s) after pairing")
+        return sent
+    }
+
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)
+        return InstallationsSnapshot(
+            inboxId: result.client.inboxId,
+            currentInstallationId: result.client.installationId,
+            installations: installations.sorted { lhs, rhs in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case let (l?, r?): return l < r
+                case (nil, _?): return false
+                case (_?, nil): return true
+                case (nil, nil): return lhs.id < rhs.id
+                }
+            }
+        )
+    }
+
+    func revokeOtherInstallations() async throws -> [String] {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+        let installations = try await result.client.listInstallations(refreshFromNetwork: true)
+        let currentId = result.client.installationId
+        let others = installations.map(\.id).filter { $0 != currentId }
+        guard !others.isEmpty else { return [] }
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: others
+        )
+        return others
+    }
+
+    func revokeInstallation(installationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard installationId != result.client.installationId else {
+            throw MessagingServiceError.cannotRevokeCurrentDevice
+        }
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+
+        // Best-effort: notify the target installation BEFORE the revoke API
+        // call so it can transition to `.error(DeviceReplacedError)` and
+        // surface the `StaleDeviceBanner` in real time. libxmtp refuses
+        // `findOrCreateDm(with: ownInboxId)` (GroupError.memberCannotBeSelf),
+        // so instead we send the `DeviceRemovedContent` into the most
+        // recent existing conversation the inbox is in — both
+        // installations under the inbox are members of every such
+        // conversation, so the target receives the message via its
+        // shared message stream. Other inboxes in the conversation
+        // ignore the codec (it's a no-op for them).
+        //
+        // Falls through silently if the inbox has no conversations yet
+        // (rare edge case); the receiver still picks up the change on
+        // next session bootstrap or foreground entry.
+        await sendDeviceRemovedSignal(installationId: installationId, client: result.client)
+
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: [installationId]
+        )
+    }
+
+    func requestHistorySync() async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        try await result.client.requestHistorySync()
+        scheduleHistorySyncBackfill()
+    }
+
+    /// The archive a peer sends back is imported straight into libxmtp's
+    /// local database - no stream events, and the messages carry their
+    /// original timestamps, which sit behind every catch-up cursor this
+    /// fresh installation has already stamped. Without an explicit
+    /// cursor-ignoring re-ingest they never reach the app database. The
+    /// app can't observe when the import lands (observed ~3s after the
+    /// request on simulators; slower on real networks), so run a few
+    /// spaced passes - re-ingesting already-persisted rows is a no-op.
+    private func scheduleHistorySyncBackfill() {
+        let stateManager = sessionStateManager
+        Task.detached(priority: .utility) {
+            var elapsedSeconds: Double = 0
+            for fireAtSeconds in [5.0, 20.0, 60.0, 150.0] {
+                try? await Task.sleep(for: .seconds(fireAtSeconds - elapsedSeconds))
+                elapsedSeconds = fireAtSeconds
+                if Task.isCancelled { return }
+                await stateManager.runHistorySyncBackfill()
+                Log.info("MessagingService: history sync backfill pass ran (t+\(Int(fireAtSeconds))s)")
+            }
+        }
+    }
+}
+
+enum MessagingServiceError: Error {
+    case noIdentity
+    case cannotRevokeCurrentDevice
+}
+
+private extension MessagingService {
+    /// Sends a `DeviceRemovedContent` so the target installation sees
+    /// `StaleDeviceBanner` in real time. Best-effort — any failure is
+    /// logged and swallowed so the caller's revoke flow still proceeds.
+    ///
+    /// Channel-selection strategy (in priority order):
+    ///   1. The user's pre-warmed unused conversation (`DBConversation`
+    ///      with `isUnused == true`). It exists from silent identity
+    ///      creation, has only the user's own inbox as a member, and is
+    ///      hidden from the UI — so other users never see the codec and
+    ///      no peer logs a decode failure. This is the right channel
+    ///      99% of the time.
+    ///   2. Fallback: any real, allowed, non-unused conversation. We pay
+    ///      the price of a stray codec arriving at peers (they log a
+    ///      decode warning) only when no unused conversation exists.
+    ///   3. If neither exists, log + return; the revoked installation
+    ///      catches up via `assertInstallationActive` on its next
+    ///      foreground entry or auth bootstrap.
+    func sendDeviceRemovedSignal(installationId: String, client: any XMTPClientProvider) async {
+        if let conversationId = try? await findUnusedConversationId(),
+           let conversation = try? await client.conversationsProvider.findConversation(
+               conversationId: conversationId
+           ) {
+            do {
+                try await conversation.send(
+                    content: DeviceRemovedContent(revokedInstallationId: installationId),
+                    options: SendOptions(contentType: ContentTypeDeviceRemoved)
+                )
+                Log.info("MessagingService: sent DeviceRemoved for \(installationId) into hidden unused conversation \(conversationId)")
+                return
+            } catch {
+                Log.warning("MessagingService: send into unused conversation failed (\(error)), falling back to allowed conversation")
+            }
+        }
+
+        do {
+            let conversations = try await client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: 5,
+                consentStates: [.allowed],
+                orderBy: .createdAt
+            )
+            // Filter out unused conversations (they'd have been caught
+            // above; this is defensive in case the DB-level lookup
+            // returned nil but libxmtp still has the row).
+            let unusedIds = (try? await findAllUnusedConversationIds()) ?? []
+            guard let target = conversations.first(where: { !unusedIds.contains($0.id) }) else {
+                Log.warning("MessagingService: no usable conversation to send DeviceRemoved into — receiver will catch up on next foreground")
+                return
+            }
+            try await target.send(
+                content: DeviceRemovedContent(revokedInstallationId: installationId),
+                options: SendOptions(contentType: ContentTypeDeviceRemoved)
+            )
+            Log.info("MessagingService: sent DeviceRemoved for \(installationId) into fallback conversation \(target.id)")
+        } catch {
+            Log.warning("MessagingService: failed to send DeviceRemoved signal (proceeding with revoke): \(error)")
+        }
+    }
+
+    func findUnusedConversationId() async throws -> String? {
+        try await databaseReader.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .order(DBConversation.Columns.createdAt.desc)
+                .fetchOne(db)?
+                .id
+        }
+    }
+
+    func findAllUnusedConversationIds() async throws -> Set<String> {
+        try await databaseReader.read { db in
+            Set(
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchAll(db)
+                    .map(\.id)
+            )
+        }
     }
 }

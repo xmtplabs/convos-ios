@@ -5,23 +5,10 @@ import Observation
 final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 
-    var autoRevealPhotos: Bool {
-        get {
-            access(keyPath: \.autoRevealPhotos)
-            // Default false means photos are not auto-revealed (blur incoming pics is on).
-            return UserDefaults.standard.object(forKey: Constant.autoRevealPhotosKey) as? Bool ?? false
-        }
-        set {
-            withMutation(keyPath: \.autoRevealPhotos) {
-                UserDefaults.standard.set(newValue, forKey: Constant.autoRevealPhotosKey)
-            }
-        }
-    }
-
     var includeInfoWithInvites: Bool {
         get {
             access(keyPath: \.includeInfoWithInvites)
-            return UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? false
+            return UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.includeInfoWithInvites) {
@@ -30,50 +17,32 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         }
     }
 
-    var assistantsEnabled: Bool {
+    var sendReadReceipts: Bool {
         get {
-            access(keyPath: \.assistantsEnabled)
-            guard assistantCodeUnlocked else { return false }
-            return UserDefaults.standard.object(forKey: Constant.assistantsEnabledKey) as? Bool ?? true
+            access(keyPath: \.sendReadReceipts)
+            return UserDefaults.standard.object(forKey: Constant.sendReadReceiptsKey) as? Bool ?? true
         }
         set {
-            withMutation(keyPath: \.assistantsEnabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.assistantsEnabledKey)
-            }
-        }
-    }
-
-    var assistantCodeUnlocked: Bool {
-        get {
-            access(keyPath: \.assistantCodeUnlocked)
-            return UserDefaults.standard.bool(forKey: Constant.assistantCodeUnlockedKey)
-        }
-        set {
-            withMutation(keyPath: \.assistantCodeUnlocked) {
-                UserDefaults.standard.set(newValue, forKey: Constant.assistantCodeUnlockedKey)
+            withMutation(keyPath: \.sendReadReceipts) {
+                UserDefaults.standard.set(newValue, forKey: Constant.sendReadReceiptsKey)
             }
         }
     }
 
     func reset() {
-        withMutation(keyPath: \.autoRevealPhotos) {
-            UserDefaults.standard.removeObject(forKey: Constant.autoRevealPhotosKey)
-        }
+        // Clear the orphaned reveal-mode default left by older installs.
+        UserDefaults.standard.removeObject(forKey: Constant.legacyAutoRevealPhotosKey)
         withMutation(keyPath: \.includeInfoWithInvites) {
             UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
         }
-        withMutation(keyPath: \.assistantsEnabled) {
-            UserDefaults.standard.removeObject(forKey: Constant.assistantsEnabledKey)
-        }
-        withMutation(keyPath: \.assistantCodeUnlocked) {
-            UserDefaults.standard.removeObject(forKey: Constant.assistantCodeUnlockedKey)
+        withMutation(keyPath: \.sendReadReceipts) {
+            UserDefaults.standard.removeObject(forKey: Constant.sendReadReceiptsKey)
         }
     }
 
     private enum Constant {
-        static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
+        static let legacyAutoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
-        static let assistantsEnabledKey: String = "globalAssistantsEnabled"
-        static let assistantCodeUnlockedKey: String = "globalAssistantCodeUnlocked"
+        static let sendReadReceiptsKey: String = "globalSendReadReceipts"
     }
 }

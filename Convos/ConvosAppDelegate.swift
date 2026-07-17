@@ -9,11 +9,11 @@ import UserNotifications
 @MainActor
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
-    var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
     private var leftConversationObserver: Any?
+    private var foregroundObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        SentryConfiguration.configure()
+        PostHogConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(
@@ -22,18 +22,49 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             guard let conversationId = notification.userInfo?["conversationId"] as? String else { return }
             Task { await self?.clearDeliveredNotifications(for: conversationId) }
         }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            BadgeCounter.reset(appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier)
+            UNUserNotificationCenter.current().setBadgeCount(0)
+        }
         return true
     }
 
+    // Lifecycle ordering invariant for the singleton-based token handoff:
+    //
+    //   ConvosApp.init
+    //     |
+    //     +--> PlatformProviders.iOS
+    //     |       |
+    //     |       +--> PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
+    //     |                            (singleton _shared is set HERE)
+    //     v
+    //   UIKit lifecycle starts
+    //     |
+    //     +--> application(_:didFinishLaunchingWithOptions:)
+    //     |       |
+    //     |       +--> UIApplication.registerForRemoteNotifications()
+    //     v
+    //   APNS callback
+    //     |
+    //     +--> didRegisterForRemoteNotificationsWithDeviceToken
+    //             |
+    //             +--> PushNotificationRegistrar.save(token:)
+    //                     |
+    //                     +-- _shared != nil (normal lifecycle) -> save + post notification
+    //                     +-- _shared == nil (test / extension)  -> Log.error + no-op (D10)
+    //
+    // The singleton is configured before UIKit fires didFinishLaunching, so the
+    // happy path is race-free by construction. The graceful no-op covers UI tests
+    // and any future lifecycle change without crashing the process.
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
         let token = tokenParts.joined()
 
         Log.info("Received device token from APNS")
-        // Store token in shared storage
-        pushNotificationRegistrar?.save(token: token)
-        Log.info("Stored device token in shared storage")
+        PushNotificationRegistrar.save(token: token)
     }
 
     func application(_ application: UIApplication,
@@ -58,17 +89,14 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    // Handle notifications when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let conversationId = notification.request.content.threadIdentifier
 
-        // Wake the inbox for this conversation so it's ready when the user opens it
         if !conversationId.isEmpty, let session = session {
-            await session.wakeInboxForNotification(conversationId: conversationId)
+            session.wakeInboxForNotification(conversationId: conversationId)
         }
 
-        // Handle explosion notifications - trigger cleanup and show banner
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("App in foreground - explosion notification received, triggering cleanup")
             NotificationCenter.default.post(
@@ -79,7 +107,6 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             return [.banner, .sound]
         }
 
-        // Check if we should display regular notifications based on the active conversation
         if !conversationId.isEmpty,
            let session = session {
             let shouldDisplay = await session.shouldDisplayNotification(for: conversationId)
@@ -88,20 +115,16 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             }
         }
 
-        // Show notification banner when app is in foreground
-        // NSE processes all notifications regardless of app state
         Log.info("App in foreground - showing notification banner")
         return [.banner]
     }
 
-    // Handle notification taps
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         Log.debug("Notification tapped")
 
         let conversationId = response.notification.request.content.threadIdentifier
 
-        // Check if this is an explosion notification tap
         if response.notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("Explosion notification tapped")
             DispatchQueue.main.async {
@@ -128,11 +151,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             return
         }
 
-        // Wake the inbox for this conversation when notification is tapped
-        // This ensures the inbox is ready when the user opens the conversation
-        await session.wakeInboxForNotification(conversationId: conversationId)
-
-        // Clear all delivered notifications for this conversation
+        session.wakeInboxForNotification(conversationId: conversationId)
         await clearDeliveredNotifications(for: conversationId)
 
         Log

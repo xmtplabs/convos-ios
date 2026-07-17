@@ -110,19 +110,19 @@ Comparison of Notion QA plan (Release Candidate 1.0.6) against our automated tes
 | Conversation list scroll | High | ❌ | Add to `15-performance.md`: create 20+ conversations, scroll rapidly |
 | Avatar loading during scroll | High | ❌ | Add: scroll through conversations with different avatars |
 
-## Category: Quickname
+## Category: Profile
 
 | Notion Test | Priority | Our Coverage | Action |
 |---|---|---|---|
-| Quickname onboarding | High | ✅ `14-quickname.md` + `01-onboarding.md` | Covered |
-| "Tap to use Quickname" flow | High | 🔧 `14-quickname.md` | Covered but known bug — quickname pill doesn't appear on invite join |
-| Set Quickname | High | ✅ `14-quickname.md` | Covered |
+| Profile onboarding | High | ✅ `14-profile.md` + `01-onboarding.md` | Covered |
+| "Tap to use Profile" flow | High | 🔧 `14-profile.md` | Covered but known bug — profile pill doesn't appear on invite join |
+| Set Profile | High | ✅ `14-profile.md` | Covered |
 
 ## Category: Regression - Profile
 
 | Notion Test | Priority | Our Coverage | Action |
 |---|---|---|---|
-| Set Quickname applies to new convos | High | ✅ `14-quickname.md` | Covered |
+| Set Profile applies to new convos | High | ✅ `14-profile.md` | Covered |
 | Per-conversation profile isolation | High | ❌ | **Add to `07-profile-update.md`**: change name in one convo, verify other convo still shows old name |
 
 ## Category: Conversation Capacity

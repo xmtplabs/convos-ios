@@ -1,0 +1,83 @@
+import Foundation
+import GRDB
+
+/// Local-only record. Persists the AgentBuilderSummary the iOS app
+/// captured at Make time so it survives navigating away from the conversation
+/// or quitting the app — without this row, a returning user would see the
+/// natural pre-Make agent hello + their own prompt messages instead of
+/// the polished summary card.
+public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
+    public static let databaseTableName: String = "agentBuilderSummary"
+
+    public enum Columns {
+        public static let conversationId: Column = Column(CodingKeys.conversationId)
+        public static let summaryId: Column = Column(CodingKeys.summaryId)
+        public static let prompt: Column = Column(CodingKeys.prompt)
+        public static let attachmentsJSON: Column = Column(CodingKeys.attachmentsJSON)
+        public static let createdAt: Column = Column(CodingKeys.createdAt)
+        public static let cutoffDate: Column = Column(CodingKeys.cutoffDate)
+        public static let bundledMessageIdsJSON: Column = Column(CodingKeys.bundledMessageIdsJSON)
+        public static let cloudConnectionIdsJSON: Column = Column(CodingKeys.cloudConnectionIdsJSON)
+        public static let connectionsAppliedAt: Column = Column(CodingKeys.connectionsAppliedAt)
+        public static let existingConversation: Column = Column(CodingKeys.existingConversation)
+    }
+
+    public let conversationId: String
+    public let summaryId: String
+    public let prompt: String
+    /// JSON-encoded `[AgentBuilderSummaryAttachment]`. Photo / video
+    /// thumbnails are base64-encoded `Data` inside the JSON — base64 inflates
+    /// payload by ~33% but keeps the schema flat. Per-row cap is ~8
+    /// attachments so a worst-case row stays under a megabyte.
+    public let attachmentsJSON: String
+    public let createdAt: Date
+    public let cutoffDate: Date
+    /// JSON-encoded `[String]` of the `clientMessageId`s of every send the
+    /// builder issued on the user's behalf (prompt text, multi-remote
+    /// attachment bundle, …). The processor filters these out of the chat
+    /// feed by id so they don't render beside the summary card. Stored as a
+    /// JSON array (not a Set) for portability; the model layer rehydrates
+    /// into a Set for O(1) lookups.
+    public let bundledMessageIdsJSON: String
+    /// JSON-encoded `[String: String]` mapping `AgentBuilderConnection`
+    /// rawValue → captured `CloudConnection.id`. Drives the post-Make grant
+    /// replayer so a force-quit between Make and agent-join doesn't lose the
+    /// user's selection. Defaults to `"{}"` on summaries written before this
+    /// column existed.
+    public let cloudConnectionIdsJSON: String
+    /// Set the first time the replayer has fully processed this summary's
+    /// connections. Once non-null, the replayer skips this row. `nil` for
+    /// summaries written before the replayer existed, or that haven't yet
+    /// reached the replayer.
+    public let connectionsAppliedAt: Date?
+    /// `true` for summaries written by the in-chat "New Agent" entry (a
+    /// conversation the user was already in). Defaults to `false` on summaries
+    /// written before this column existed -- i.e. home-flow agent chats, which
+    /// is the correct default. The messages list keeps the invite affordances
+    /// visible when this is `true`.
+    public let existingConversation: Bool
+
+    public init(
+        conversationId: String,
+        summaryId: String,
+        prompt: String,
+        attachmentsJSON: String,
+        createdAt: Date,
+        cutoffDate: Date,
+        bundledMessageIdsJSON: String,
+        cloudConnectionIdsJSON: String,
+        connectionsAppliedAt: Date? = nil,
+        existingConversation: Bool = false
+    ) {
+        self.conversationId = conversationId
+        self.summaryId = summaryId
+        self.prompt = prompt
+        self.attachmentsJSON = attachmentsJSON
+        self.createdAt = createdAt
+        self.cutoffDate = cutoffDate
+        self.bundledMessageIdsJSON = bundledMessageIdsJSON
+        self.cloudConnectionIdsJSON = cloudConnectionIdsJSON
+        self.connectionsAppliedAt = connectionsAppliedAt
+        self.existingConversation = existingConversation
+    }
+}

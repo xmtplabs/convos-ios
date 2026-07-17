@@ -20,6 +20,10 @@ struct InviteClientProviderAdapter: InviteClientProvider {
         try await provider.conversationsProvider.findOrCreateDm(with: inboxId)
     }
 
+    func syncConversations() async throws {
+        try await provider.conversationsProvider.sync()
+    }
+
     // swiftlint:disable:next function_parameter_count
     func listDms(
         createdAfterNs: Int64?,

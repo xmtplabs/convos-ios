@@ -38,8 +38,23 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .messages(let group):
                 return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
             case .agentOutOfCredits:
+                return .estimated(CGSize(width: width, height: 100.0))
+            case .agentJoinStatus:
                 return .estimated(CGSize(width: width, height: 48.0))
-            case .assistantJoinStatus:
+            case .agentPresentInfo:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .connectionEvent:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .capabilityConnect:
+                // Caption row + 8pt gap + 44pt pill + vertical padding.
+                return .estimated(CGSize(width: width, height: 100.0))
+            case .agentBuilderSummary:
+                // Composer-card height plus "You created an agent" footer.
+                return .estimated(CGSize(width: width, height: 320.0))
+            case .agentActivating:
+                // Avatar + name + description + progress bar + caption.
+                return .estimated(CGSize(width: width, height: 280.0))
+            case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }
         case .footer, .header:
@@ -51,16 +66,38 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var height: CGFloat = 16.0
         var childCount: Int = 0
 
-        for (index, message) in group.messages.enumerated() {
-            let isAttachment = message.content.isAttachment
+        // Agent contact card prefix (sender label + standard-style card:
+        // 32pt padding x2 + 40pt avatar + 16pt spacing + ~28pt name +
+        // ~2 subtitle lines). Without this, a card-only group is estimated
+        // at the bare 16pt baseline and self-sizes ~10x larger on first
+        // layout, which is exactly the growth the bottom anchor can't absorb
+        // during the open transition.
+        if group.agentContactCard != nil {
+            height += 164.0
+            childCount += 1
+        }
 
-            if index == 0 && !group.sender.isCurrentUser && !isAttachment {
+        for (index, message) in group.messages.enumerated() {
+            let isFullBleed = message.content.isFullBleedAttachment
+
+            if index == 0 && !group.sender.isCurrentUser && !isFullBleed {
                 height += 17.0
                 childCount += 1
             }
 
             height += messageHeight(for: message, width: width)
             childCount += 1
+
+            // Inline voice memo transcript row, when one exists for this message.
+            // The transcript cell sits inside the same MessagesGroupItemView VStack
+            // directly under the voice memo bubble, so its height is part of the
+            // parent message cell's height, not a separate list item. The VStack
+            // uses `spacing: 0` so we don't add inter-child spacing, just the row's
+            // explicit `.padding(.top, stepX)`.
+            if let transcript = group.voiceMemoTranscripts[message.messageId] {
+                height += DesignConstants.Spacing.stepX
+                height += estimatedTranscriptHeight(for: transcript)
+            }
 
             if !message.reactions.isEmpty {
                 height += 34.0
@@ -81,7 +118,57 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         return height
     }
 
-    private func attachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
+    private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
+        // HTML attachments render via HTMLAttachmentBubble as a 160×160 tile
+        // inside the message group, regardless of mediaType, so check before
+        // falling into the .file branch.
+        if attachment.isHTMLFile {
+            return 160.0
+        }
+        switch attachment.mediaType {
+        case .audio:
+            // VoiceMemoBubbleContent: 12pt top padding + 36pt play button + 12pt
+            // bottom padding = 60pt. Any inline transcript row is added separately
+            // in `estimatedHeight(for:width:)` so outgoing voice memos (which never
+            // get a transcript) don't reserve space they won't use.
+            return 60.0
+        case .file:
+            return 60.0
+        case .image, .video, .unknown:
+            return imageAttachmentHeight(for: attachment, width: width)
+        }
+    }
+
+    /// Estimated rendered height of a `VoiceMemoTranscriptRow` for layout pre-flight.
+    /// The numbers here are measured empirically from SwiftUI's actual output so the
+    /// initial collection view content size matches the final size closely enough
+    /// that there is no visible jump when the cells finish self-sizing.
+    private func estimatedTranscriptHeight(for transcript: VoiceMemoTranscriptListItem) -> CGFloat {
+        switch transcript.status {
+        case .notRequested:
+            // Capsule-only row ("Tap to transcribe").
+            return 46
+        case .failed:
+            return 0
+        case .pending:
+            // Spinner + "Transcribing…" text.
+            return 40
+        case .completed:
+            // Caption2 header + 2-line preview text. Measured at ~56pt on a real
+            // device; see `[LayoutHeights] fitting=158.3` logs against the
+            // bare voice memo bubble at 97.7pt (delta = 60.6pt which includes the
+            // `stepX` top padding added by the parent VStack).
+            return 56
+        case .permanentlyFailed:
+            // `MessagesListRepository.synthesizeTranscriptItems` strips these
+            // rows from the map so they are never attached to a `MessagesGroup`,
+            // meaning this code path is unreachable in practice. The exhaustive
+            // switch still needs a branch for compile-time completeness.
+            return 0
+        }
+    }
+
+    private func imageAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
         guard let w = attachment.width, let h = attachment.height, w > 0, h > 0 else {
             return width * 0.75
         }
@@ -92,20 +179,46 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var height: CGFloat
         switch message.content {
         case .attachment(let attachment):
-            height = attachmentHeight(for: attachment, width: width)
+            height = estimatedAttachmentHeight(for: attachment, width: width)
         case .attachments(let attachments):
             guard let first = attachments.first else { return 50.0 }
-            height = attachmentHeight(for: first, width: width)
+            height = estimatedAttachmentHeight(for: first, width: width)
         case .emoji:
             height = 80.0
-        case .text:
-            height = 40.0
+        case .text(let text):
+            // One bubble line is ~21pt plus ~22pt of padding; scale by a
+            // rough characters-per-line so multi-line messages don't all
+            // collapse to a single-line estimate (long agent replies were
+            // off by hundreds of points, far outside what the layout's
+            // offset compensation can hide).
+            // A message with an edge link renders the link as its own
+            // preview cell next to the stripped text, so estimate the text
+            // from what actually shows and add a card per extracted edge.
+            let extraction = EdgeLinkExtractionCache.extraction(for: text)
+            let visibleText = extraction?.text ?? text
+            let estimatedLines = max(1.0, (CGFloat(visibleText.count) / 35.0).rounded(.up))
+            height = 22.0 + estimatedLines * 21.0
+            if let extraction {
+                let cardHeight = 210.0 + DesignConstants.Spacing.stepX
+                if extraction.leadingPreview != nil {
+                    height += cardHeight
+                }
+                if extraction.trailingPreview != nil {
+                    height += cardHeight
+                }
+            }
         case .invite:
             height = 240.0
+        case .agentShare:
+            height = 160.0
         case .linkPreview:
             height = 210.0
         case .update, .assistantJoinRequest:
             height = 30.0
+        case .connectionGrantRequest:
+            height = 160.0
+        case .capabilityConnect, .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
+            height = 0.0
         }
 
         if case .reply(let reply, _) = message {

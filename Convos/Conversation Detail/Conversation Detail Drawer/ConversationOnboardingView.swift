@@ -1,14 +1,12 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 /// A view that displays the appropriate onboarding content based on the coordinator's state
 struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
-    let scrollOverscrollAmount: CGFloat
-    let onTapSetupQuickname: () -> Void
-    let onUseQuickname: (Profile, UIImage?) -> Void
-    let onPresentProfileSettings: () -> Void
+    let coreActions: any CoreActions
 
     private var permissionState: NotificationPermissionState? {
         switch coordinator.state {
@@ -32,34 +30,8 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpQuickname, .quicknameLearnMore, .presentingProfileSettings:
+            case .idle, .started, .presentingPaywall:
                 EmptyView()
-
-            case .setupQuickname:
-                SetupQuicknameView {
-                    onTapSetupQuickname()
-                }
-                .transition(.blurReplace)
-
-            case .savedAsQuicknameSuccess:
-                SetupQuicknameSuccessView()
-                    .transition(.blurReplace)
-
-            case let .addQuickname(settings, profileImage):
-                AddQuicknameView(
-                    profile: .constant(settings.profile),
-                    profileImage: .constant(profileImage),
-                    onUseProfile: { profile, image in
-                        onUseQuickname(profile, image)
-                        Task {
-                            await coordinator.didSelectQuickname()
-                        }
-                    },
-                    onDismiss: {
-                        coordinator.skipAddQuickname()
-                    }
-                )
-                .transition(.blurReplace)
 
             case .requestNotifications,
                     .notificationsEnabled,
@@ -86,15 +58,48 @@ struct ConversationOnboardingView: View {
         }
         .transition(.blurReplace)
         .animation(.spring(duration: 0.4, bounce: 0.2), value: coordinator.state)
-        .selfSizingSheet(isPresented: Binding(get: {
-            coordinator.state == .quicknameLearnMore
-        }, set: { _ in
-        })) {
-            WhatIsQuicknameView {
-                coordinator.onContinueFromWhatIsQuickname()
-            }
-            .interactiveDismissDisabled()
+        .sheet(isPresented: nuxPaywallPresented) {
+            nuxPaywallSheetContent
         }
+    }
+
+    private var nuxPaywallPresented: Binding<Bool> {
+        Binding(
+            get: { coordinator.state == .presentingPaywall },
+            set: { newValue in
+                // External dismissal (close X or swipe-down): advance the
+                // coordinator so the NUX sheet doesn't re-present on the next
+                // conversation. No trial granted on this path — the user has
+                // to tap the explicit Skip-to-trial button to claim it.
+                if !newValue, coordinator.state == .presentingPaywall {
+                    Task { await coordinator.userDidCompleteNUXPaywall() }
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var nuxPaywallSheetContent: some View {
+        let paywallViewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            paywallSource: .onboarding,
+            coreActions: coreActions
+        )
+        let onPurchaseSucceeded: () -> Void = {
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        let nuxSkipAction = {
+            // Mock trial grant. When the backend `POST /v2/credits/me/redeem-trial`
+            // route lands, replace this with the real HTTP call.
+            MockCreditsService.shared.setPreset(.trialActive)
+            MockSubscriptionService.shared.setPreset(.trialActive)
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        PaywallView(
+            viewModel: paywallViewModel,
+            onSkip: nuxSkipAction,
+            onPurchaseSucceeded: onPurchaseSucceeded
+        )
     }
 }
 
@@ -103,9 +108,6 @@ struct ConversationOnboardingView: View {
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     let onboardingSteps: [ConversationOnboardingState] = [
         .idle,
-        .setupQuickname,
-        .settingUpQuickname,
-        .savedAsQuicknameSuccess,
         .requestNotifications,
         .notificationsEnabled
     ]
@@ -141,73 +143,13 @@ struct ConversationOnboardingView: View {
         ConversationOnboardingView(
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
-            scrollOverscrollAmount: 0,
-            onTapSetupQuickname: {},
-            onUseQuickname: { _, _ in },
-            onPresentProfileSettings: {}
+            coreActions: NoOpCoreActions()
         )
         .onAppear {
-            coordinator.state = .setupQuickname
+            coordinator.state = .requestNotifications
         }
         .padding()
     }
-}
-
-#Preview("Setup Quickname - Not Dismissible") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .setupQuickname
-    }
-    .padding()
-}
-
-#Preview("Setup Quickname - Auto Dismiss") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .setupQuickname
-    }
-    .padding()
-}
-
-#Preview("Add Quickname") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .addQuickname(
-            settings: QuicknameSettings.current(),
-            profileImage: nil
-        )
-    }
-    .padding()
 }
 
 #Preview("Request Notifications") {
@@ -217,10 +159,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .requestNotifications
@@ -235,10 +174,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsEnabled
@@ -253,10 +189,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.state = .notificationsDenied
@@ -271,10 +204,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
+        coreActions: NoOpCoreActions()
     )
     .onAppear {
         coordinator.isWaitingForInviteAcceptance = true

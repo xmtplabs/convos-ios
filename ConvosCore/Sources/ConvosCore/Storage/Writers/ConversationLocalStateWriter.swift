@@ -5,6 +5,10 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
+    func setHidesInviteCard(_ hidesInviteCard: Bool, for conversationId: String) async throws
+    func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws
+    func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws
+    func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -50,7 +54,12 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnread: false,
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
-                    pinnedOrder: nil
+                    pinnedOrder: nil,
+                    hidesInviteCard: false,
+                    leftHostedInviteSession: false,
+                    wasRemoved: false,
+                    hasHadOtherMembers: false,
+                    hasSharedInvite: false
                 )
 
             let pinnedOrder: Int? = if isPinned {
@@ -79,6 +88,30 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
         QAEvent.emit(.conversation, isMuted ? "muted" : "unmuted", ["id": conversationId])
     }
 
+    func setHidesInviteCard(_ hidesInviteCard: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(hidesInviteCard: hidesInviteCard)
+        }
+    }
+
+    func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(leftHostedInviteSession: leftHostedInviteSession)
+        }
+    }
+
+    func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(hasSharedInvite: hasSharedInvite)
+        }
+    }
+
+    func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(publishedProfileUpdatedAt: publishedProfileUpdatedAt)
+        }
+    }
+
     private func updateLocalState(
         for conversationId: String,
         _ update: @escaping @Sendable (ConversationLocalState) -> ConversationLocalState
@@ -97,7 +130,12 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnread: false,
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
-                    pinnedOrder: nil
+                    pinnedOrder: nil,
+                    hidesInviteCard: false,
+                    leftHostedInviteSession: false,
+                    wasRemoved: false,
+                    hasHadOtherMembers: false,
+                    hasSharedInvite: false
                 )
             let updated = update(current)
             try updated.save(db)

@@ -7,6 +7,7 @@ enum ConversationCustomMetadataError: Error, LocalizedError {
     case invalidLength(Int)
     case invalidInboxIdHex(String)
     case appDataLimitExceeded(limit: Int, actualSize: Int)
+    case invalidInviteTag(String)
     case metadataUpdateFailed
 
     var errorDescription: String? {
@@ -19,6 +20,8 @@ enum ConversationCustomMetadataError: Error, LocalizedError {
             return "Failed to convert MemberProfile to ConversationProfile - invalid inbox ID hex: \(inboxId)"
         case let .appDataLimitExceeded(limit, actualSize):
             return "Conversation metadata exceeds \(limit) byte limit: \(actualSize) bytes"
+        case .invalidInviteTag(let tag):
+            return "Invalid invite tag: \(tag)"
         case .metadataUpdateFailed:
             return "Failed to update conversation metadata after multiple retries"
         }
@@ -34,6 +37,7 @@ extension ConversationCustomMetadataError: DisplayError {
         case .randomGenerationFailed: return "Security error"
         case .invalidLength: return "Invalid data"
         case .invalidInboxIdHex: return "Invalid profile"
+        case .invalidInviteTag: return "Invalid invite tag"
         case .metadataUpdateFailed: return "Update failed"
         }
     }
@@ -48,6 +52,8 @@ extension ConversationCustomMetadataError: DisplayError {
             return "Invalid data length: \(length)"
         case .invalidInboxIdHex:
             return "Invalid member profile identifier"
+        case .invalidInviteTag:
+            return "Invalid invite tag format"
         case .metadataUpdateFailed:
             return "Failed to update conversation. Please try again."
         }

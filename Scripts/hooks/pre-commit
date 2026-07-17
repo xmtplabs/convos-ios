@@ -20,57 +20,50 @@ elif [ -d "/usr/local/bin" ]; then
 fi
 
 # Get staged Swift files (excluding deleted files and build directories)
-STAGED_SWIFT_FILES=$(git diff --cached --name-only --diff-filter=d | grep '\.swift$' || true)
-STAGED_SWIFT_FILES=$(echo "$STAGED_SWIFT_FILES" | grep -v -E '^\.derivedData/|^\.build/|/\.build/' || true)
+STAGED_SWIFT_FILES=()
+while IFS= read -r line; do
+    [ -n "$line" ] && STAGED_SWIFT_FILES+=("$line")
+done < <(
+    git diff --cached --name-only --diff-filter=d |
+        grep '\.swift$' |
+        grep -v -E '^\.derivedData/|^\.derivedData-device/|^\.build/|/\.build/|\.build/' || true
+)
 
-if [ -z "$STAGED_SWIFT_FILES" ]; then
+if [ ${#STAGED_SWIFT_FILES[@]} -eq 0 ]; then
     echo -e "${GREEN}✓ No Swift files staged, skipping checks${NC}"
     exit 0
 fi
 
-echo "📝 Checking $(echo "$STAGED_SWIFT_FILES" | wc -l | tr -d ' ') Swift file(s)"
+echo "📝 Checking ${#STAGED_SWIFT_FILES[@]} Swift file(s)"
 
-# Check if SwiftFormat is available
+# Format first, then lint. SwiftFormat can introduce changes that themselves
+# trigger SwiftLint violations (e.g. import reordering -> sorted_imports);
+# running format last would let those slip back into the commit.
 if command -v swiftformat &> /dev/null; then
     echo "🎨 Running SwiftFormat..."
-    while IFS= read -r file; do
+    for file in "${STAGED_SWIFT_FILES[@]}"; do
         if [ -f "$file" ]; then
             swiftformat "$file"
             git add "$file"
         fi
-    done <<< "$STAGED_SWIFT_FILES"
+    done
 else
     echo -e "${YELLOW}⚠ SwiftFormat not found, skipping formatting${NC}"
 fi
 
-# Check if SwiftLint is available
+# Run SwiftLint on the staged files in a single batch invocation. We pass
+# paths positionally (not via --use-stdin) so file-path-dependent rules
+# like sorted_imports actually fire; --use-stdin used to be the local
+# mode and silently let those slip through to CI. With the glob-free
+# `.swiftlint.yml` excludes a full-tree lint takes ~1.2s, so per-commit
+# lint of a handful of staged files is well under a second.
 if command -v swiftlint &> /dev/null; then
-    echo "🔎 Running SwiftLint..."
-
-    LINT_ERRORS=0
-    while IFS= read -r file; do
-        if [ -f "$file" ]; then
-            # Run SwiftLint with auto-fix
-            swiftlint lint --fix "$file" 2>/dev/null || true
-
-            # Re-add after auto-fix
-            git add "$file"
-
-            # Check for remaining errors
-            if ! swiftlint lint --quiet "$file" 2>/dev/null; then
-                LINT_ERRORS=$((LINT_ERRORS + 1))
-                echo -e "${RED}✗ Lint errors in: $file${NC}"
-            fi
-        fi
-    done <<< "$STAGED_SWIFT_FILES"
-
-    if [ $LINT_ERRORS -gt 0 ]; then
-        echo -e "${RED}✗ SwiftLint found errors that couldn't be auto-fixed${NC}"
-        echo "Run 'swiftlint' to see details"
+    echo "🔎 Running SwiftLint on ${#STAGED_SWIFT_FILES[@]} staged file(s)..."
+    if ! swiftlint lint --strict --quiet "${STAGED_SWIFT_FILES[@]}"; then
+        echo -e "${RED}✗ SwiftLint violations found. Fix them before committing.${NC}"
+        echo "  Try: swiftlint --fix \"${STAGED_SWIFT_FILES[0]}\""
         exit 1
     fi
-
-    echo -e "${GREEN}✓ SwiftLint passed${NC}"
 else
     echo -e "${YELLOW}⚠ SwiftLint not found, skipping lint check${NC}"
 fi

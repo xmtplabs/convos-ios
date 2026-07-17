@@ -1,6 +1,5 @@
 import Combine
 import ConvosAppData
-import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -22,6 +21,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
+    func refreshInvite(for conversationId: String) async throws -> Invite?
 }
 
 // MARK: - Conversation Metadata Errors
@@ -56,33 +56,31 @@ enum ConversationMetadataError: LocalizedError {
 /// DatabaseWriter is thread-safe (internal serial queue). InboxStateManager and
 /// InviteWriter protocols are Sendable. All methods are async with no shared mutable state.
 final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unchecked Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
+    private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
-    init(inboxStateManager: any InboxStateManagerProtocol,
+    init(sessionStateManager: any SessionStateManagerProtocol,
          inviteWriter: any InviteWriterProtocol,
-         databaseWriter: any DatabaseWriter) {
-        self.inboxStateManager = inboxStateManager
+         databaseWriter: any DatabaseWriter,
+         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil) {
+        self.sessionStateManager = sessionStateManager
         self.inviteWriter = inviteWriter
         self.databaseWriter = databaseWriter
+        self.contactSyncCoordinator = contactSyncCoordinator
     }
 
     // MARK: - Invite Preview Sync
 
     private func syncInvitePreview(for conversation: DBConversation) async throws {
-        _ = try await inviteWriter.update(
-            for: conversation.id,
-            name: conversation.includeInfoInPublicPreview ? conversation.name : nil,
-            description: conversation.includeInfoInPublicPreview ? conversation.description : nil,
-            imageURL: conversation.includeInfoInPublicPreview ? conversation.publicImageURLString : nil
-        )
+        _ = try await inviteWriter.update(for: conversation.id)
     }
 
     // MARK: - Conversation Metadata Updates
 
     func updateName(_ name: String, for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let truncatedName = name.count > NameLimits.maxConversationNameLength ? String(name.prefix(NameLimits.maxConversationNameLength)) : name
 
@@ -111,7 +109,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -136,7 +134,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateDescription(_ description: String, for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -162,16 +160,20 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let xmtpConversation = try await inboxReady.client.conversation(with: conversation.id),
               case .group(let group) = xmtpConversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
+        // Key by the conversation id, not `conversation.imageCacheIdentifier`:
+        // until `imageURL` is persisted that identifier resolves to the other
+        // member's inbox id, which would cache the conversation image as that
+        // member's profile avatar everywhere.
         guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
-            for: conversation
+            forIdentifier: conversation.clientConversationId
         ) else {
             throw ConversationMetadataWriterError.failedImageCompression
         }
@@ -253,11 +255,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
-        // Cache the uploaded image using the new URL-tracking API
-        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
-        if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
-        }
+        // Cache under the conversation id, matching the prepareForUpload key
+        // above. The `conversation` parameter still has a nil `imageURL`, so
+        // its `imageCacheIdentifier` would resolve to the other member's
+        // inbox id and record the conversation image as their avatar.
+        ImageCacheContainer.shared.cacheAfterUpload(
+            compressedImageData,
+            for: conversation.clientConversationId,
+            url: encryptedAssetUrl
+        )
 
         try await syncInvitePreview(for: updatedConversation)
 
@@ -268,7 +274,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let localConversation = try await databaseWriter.read({ db in
             try DBConversation.fetchOne(db, key: conversationId)
@@ -367,7 +373,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -411,7 +417,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Member Management
 
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -423,6 +429,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let currentInboxId = inboxReady.client.inboxId
         try await databaseWriter.write { db in
             for memberInboxId in memberInboxIds {
+                // A directly-added inbox (e.g. a freshly provisioned agent) may
+                // never have been seen locally, so the member parent row the
+                // membership row references doesn't exist yet — create it
+                // first. Members arriving via the stream get theirs from the
+                // welcome/profile path instead.
+                try DBMember(inboxId: memberInboxId).save(db, onConflict: .ignore)
                 let conversationMember = DBConversationMember(
                     conversationId: conversationId,
                     inboxId: memberInboxId,
@@ -432,18 +444,57 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     invitedByInboxId: currentInboxId
                 )
                 try conversationMember.save(db)
+
+                // Seed a per-conversation profile name from the adder's contact
+                // record so the ProfileSnapshot sent below advertises the
+                // directly-added member's name to every other member (agents
+                // especially) instead of "Somebody", until the member
+                // self-attests via their own ProfileUpdate 
+                // Names only. Fill-only: never overwrite an existing profile,
+                // and skip contacts with no stored name. A later ProfileUpdate
+                // from the member wins via the normal inbound name-preservation.
+                let existingProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: memberInboxId)
+                if existingProfile?.name == nil,
+                   let contactName = try ContactsRepository.contactNameInTransaction(db: db, inboxId: memberInboxId) {
+                    let seededProfile = (existingProfile ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: memberInboxId,
+                        name: nil,
+                        avatar: nil
+                    )).with(name: contactName)
+                    try seededProfile.save(db)
+                }
+
                 Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
             }
+            try ConversationWriter.markHasHadOtherMembersIfNeeded(
+                conversationId: conversationId,
+                currentMemberInboxIds: Set(memberInboxIds),
+                in: db
+            )
         }
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
         QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
 
-        let allMemberInboxIds = try await group.members.map(\.inboxId)
+        if let coordinator = contactSyncCoordinator {
+            // Force-rerun to pick up the newly added members. The coordinator
+            // short-circuits when the conversation has not yet been synced
+            // (i.e. the local user has not acted there), preserving the
+            // action-gated semantic.
+            Task.detached {
+                do {
+                    try await coordinator.syncContactsAfterMembershipChange(for: conversationId)
+                } catch {
+                    Log.error("Contact sync after addMembers failed for \(conversationId): \(error)")
+                }
+            }
+        }
+
         do {
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,
-                memberInboxIds: allMemberInboxIds
+                databaseReader: databaseWriter
             )
             Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
         } catch {
@@ -452,7 +503,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -478,7 +529,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Admin Management
 
     func promoteToAdmin(_ memberInboxId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -502,7 +553,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -525,7 +576,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -548,7 +599,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -573,7 +624,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Lock/Unlock Conversation
 
     func lockConversation(for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -602,7 +653,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func unlockConversation(for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -631,5 +682,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Unlocked conversation \(conversationId)")
         QAEvent.emit(.conversation, "unlocked", ["id": conversationId])
+    }
+
+    func refreshInvite(for conversationId: String) async throws -> Invite? {
+        guard try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId) != nil
+        }) else { return nil }
+
+        return try await inviteWriter.update(for: conversationId)
     }
 }

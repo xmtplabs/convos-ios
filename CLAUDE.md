@@ -7,10 +7,9 @@ This document contains project-specific conventions and best practices for the C
 ## Architecture & Organization
 
 ### Project Structure
-- **ConvosCore**: Swift Package containing app-specific business logic, models, services, repositories, writers, GRDB database, and XMTP client
+- **ConvosCore**: Swift Package containing app-specific business logic, models, services, repositories, writers, GRDB database, XMTP client, and the profile system (`Sources/ConvosCore/Profiles/` — AES-256-GCM image encryption, encrypted image loading, ProfileUpdate/ProfileSnapshot codecs)
 - **ConvosAppData**: Shared foundation package — protobuf types (ConversationCustomMetadata, ConversationProfile, EncryptedImageRef), serialization (Base64URL, DEFLATE), profile helpers
 - **ConvosInvites**: Reusable invite system package — cryptographic tokens, join request processing, invite tag storage (120 tests)
-- **ConvosProfiles**: Reusable profile system package — AES-256-GCM image encryption, encrypted image loading (25 tests)
 - **ConvosCoreiOS**: iOS-specific implementations needed by ConvosCore (e.g., `UIImage` handling, push notification registration)
 - **Main App (Convos)**: Views and ViewModels only (SwiftUI with UIKit integration where needed)
 - **App Clips**: Separate target for lightweight experiences
@@ -130,6 +129,42 @@ Use `@Previewable` for preview state variables:
 @Previewable @State var text: String = "Preview"
 ```
 
+### View Modes for Multi-Entry-Point Surfaces
+
+When the same screen is shown from multiple entry points with subtly
+different behavior (e.g., a card with extra actions in some contexts), prefer
+parameterizing the view with a mode enum over duplicating the view per
+surface:
+
+```swift
+enum ContactCardMode {
+    case standalone
+    case scopedToConversation(...)
+}
+
+ContactCardView(mode: .standalone)
+ContactCardView(mode: .scopedToConversation(...))
+```
+
+Conventions:
+
+- Define the mode enum in its own file alongside the view (e.g.
+  `ContactCardMode.swift` next to `ContactCardView.swift`).
+- Add a module-overview comment block at the top of the view file
+  enumerating every entry point and the mode it uses. New engineers grep
+  for the view, find the file, and the first thing they see is the entry-
+  point map.
+- Cross-reference sibling mode enums in their doc comments (e.g.
+  `ContactCardMode` notes that it mirrors `ContactsPickerMode`'s pattern).
+- Keep view structure shared — only branch behavior on the mode where
+  necessary. If the structural difference is large enough to feel like two
+  views, that's a signal you may want a wrapper composition instead.
+
+Existing examples in the codebase:
+
+- `ContactCardMode` — `Convos/Contacts/ContactCardMode.swift`
+- `ContactsPickerMode` — `Convos/Contacts/ContactsPickerViewModel.swift`
+
 ## Code Style & Formatting
 
 ### SwiftFormat Configuration
@@ -223,6 +258,8 @@ return nil
 - **Only add comments when necessary** to explain something confusing or not apparent from the code
 - **Never use step counts** in comments (e.g., "Step 1:", "Step 2:") - they get out of date when code changes
 - **Never use all caps for emphasis** in comments (e.g., "BEFORE", "IMPORTANT") - use normal sentence case
+- **Never reference temporary planning artifacts in comments** - phase numbers (e.g., "Phase 2.5", "Phase 2.10"), ticket IDs, or PR numbers go stale once shipped. Comments should describe current behavior only. If historical context matters, put it in commit history or an ADR.
+- **Use ASCII characters in comments.** Avoid the section sign (`§`), em dashes (`—`), arrows (`→`), smart quotes, and other non-ASCII punctuation - they are inconsistent with the rest of the codebase and harder to grep. Use plain text equivalents (`-` for dashes, `->` for arrows, `"..."` for quotes, plain references like "see contacts PRD" instead of `§`).
 - Prefer self-documenting code with clear variable and function names over comments
 - If you find yourself writing many comments, consider refactoring the code to be clearer
 
@@ -285,6 +322,99 @@ Logger.error("Error message")
 - Minimize view body complexity
 - Extract complex views into separate components
 
+## Build Performance: Type-Check Time
+
+The project builds with `-warn-long-expression-type-checking 100` and `-warn-long-function-bodies 100`, with `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`. **Any expression or function body the type-checker spends more than 100ms on becomes a hard build failure.** Do not raise the thresholds. Write expressions the solver can resolve quickly.
+
+The two patterns that consume nearly all of these errors:
+1. Several ternaries stacked across many SwiftUI modifier arguments in one chain.
+2. Big `@ViewBuilder` `switch` statements where each case has its own modifier chain with conditional values.
+
+### Rules
+
+- **Annotate the type on any non-trivial `let`.** If the RHS uses ternaries, optionals, generics, or arithmetic across types, write the type. Type inference is what gives the solver too many candidates.
+- **Never stack ternaries inside SwiftUI modifier arguments.** Hoist each conditional to a typed `let` above the modifier chain.
+
+  ```swift
+  // ❌ — three ternaries × N chained modifiers blows up the solver
+  content
+      .scaleEffect(isPressed ? 1.03 : 1.0, anchor: isCurrentUser ? .trailing : .leading)
+      .opacity(isSourceBubble ? 0 : 1)
+      .offset(x: swipeOffset > 0 ? min(swipeOffset, maxOffset) : 0)
+
+  // ✅ — typed lets above, plain modifier chain below
+  let scale: CGFloat = isPressed ? 1.03 : 1.0
+  let anchor: UnitPoint = isCurrentUser ? .trailing : .leading
+  let bubbleOpacity: Double = isSourceBubble ? 0 : 1
+  let xOffset: CGFloat = swipeOffset > 0 ? min(swipeOffset, maxOffset) : 0
+  content
+      .scaleEffect(scale, anchor: anchor)
+      .opacity(bubbleOpacity)
+      .offset(x: xOffset)
+  ```
+
+- **No nested ternaries.** One ternary per expression. Two-deep is the cap; three-deep → use `switch` or extract a helper.
+- **Cap SwiftUI `body` / `body(content:)` at ~50 lines or ~10 modifiers.** Beyond that, extract subviews or `@ViewBuilder` computed properties.
+- **For `@ViewBuilder switch` statements:** if any case has more than 3 chained modifiers or a conditional argument, extract that case to its own `@ViewBuilder` helper.
+- **No `+` for string concatenation across optionals or non-`String` types.** Always use interpolation: `"\(a)\(b ?? "")"`.
+- **One numeric type per expression.** Don't mix `Int`, `Double`, `CGFloat` in a single `let` — cast at the boundary.
+- **Annotate parameter and return types in non-trivial `.map` / `.reduce` / `.sorted` closures.**
+
+  ```swift
+  array.map { (item: Item) -> Value in … }
+  ```
+
+- **Build arrays and dicts with `var` + `append`, not conditional `+` chains.**
+
+### Before you edit a SwiftUI view body
+
+The 100ms threshold is a cliff, not a slope — chains routinely sit at 80–95ms and a single new modifier tips them over. Treat appending to an existing body as the dangerous operation. Before you add a modifier, count what's already there. If **any** of these are true, extract first, then add:
+
+- The chain already has **≥ 4 `.onChange` modifiers**, or **≥ 6 chained modifiers total**.
+- The body uses **inline arithmetic, `max`/`min`, or method calls inside a modifier argument** (e.g. `maxSelectionCount: max(1, a - b.count)`). Hoist to a typed computed property of the exact return type the modifier expects.
+- A **`.sheet` / `.fullScreenCover` / `.alert` / `.popover` content closure** contains more than a single view constructor — anything with its own closures (`onImageCaptured:`, `onVideoCaptured:`) goes into a `@ViewBuilder` computed property.
+- An **`.onChange` closure body is more than 3 lines** or contains a `for`/`while`/`Task { ... }` block — extract to a `private func handleXChanged(...)` method and call it from the closure.
+- The body uses **`Task { for item in items { ... } }`** inline inside a modifier closure — extract the whole closure body.
+
+Counting takes a few seconds and is much cheaper than diagnosing a CI archive failure after the fact. The local simulator build often passes at 95ms; the CI archive trips at 107ms — you cannot rely on local builds to catch this.
+
+When extracting, name the helpers descriptively (`photoPickerMaxSelectionCount: Int`, `cameraPickerCover: some View`, `handleSelectedPhotosChanged(to:)`) so the call site at the modifier reads cleanly.
+
+### When you hit a type-check timeout
+
+Fix the expression. Do not bump the threshold and do not `// swiftlint:disable` past it.
+
+1. Find the line in the error message — it points at the exact offender.
+2. Hoist the most complex sub-expression(s) to typed `let` bindings above.
+3. Replace nested ternaries with `switch` or `if/else`.
+4. Extract subviews or `@ViewBuilder` helpers from oversized SwiftUI bodies.
+5. Rebuild.
+
+### If type-check timeouts are firing everywhere (including unchanged files)
+
+If `took N ms to type-check` warnings start hitting code you haven't touched — or even *trivially simple* functions like a six-line `togglePlayback()` — the file is probably not the culprit. The most common cause is an `lldb-rpc-server` memory leak.
+
+`lldb-rpc-server` is the out-of-process debugger backend Xcode spawns. Swift debugger support has long-standing leaks: every `po`, expression evaluation, and breakpoint inspection loads Swift type metadata for the debug target's modules and never frees it. The process grows monotonically across a debug session and frequently survives Xcode quit. Reports of it reaching 15–20 GB are common. When that much memory is in use, the system swaps continuously, the Swift module cache thrashes off disk for every type lookup, and even cheap type-checks blow the 100 ms budget.
+
+**Diagnose:** Activity Monitor → search `lldb-rpc-server`. If the memory column shows anything north of ~2 GB, that's your problem.
+
+**Fix:**
+
+```bash
+killall lldb-rpc-server
+```
+
+Or Force Quit it from Activity Monitor. The Memory Pressure bar should return to green within seconds. Re-time the offending file's type-check; trivial code that was tripping the budget should drop back below 50 ms.
+
+**Mitigate going forward:**
+
+- Quit Xcode periodically during heavy sessions; run `ps aux | grep lldb-rpc-server` after to confirm no orphan process survives, and `killall` any that did.
+- Stop debug sessions when not actively debugging — the leak grows with debugger use, not with mere attach time.
+- Watch `lldb-rpc-server`'s memory column during long sessions; once it crosses ~5 GB, `killall` it before it gets worse.
+- Heavy `po` / `expression` use during marathon sessions is leak fuel; each evaluation loads more Swift type metadata that's never released until the process exits.
+
+The leak has no permanent fix on Apple's end — `killall` is the workaround. If you find yourself doing it every couple of hours, alias it: `alias xclean='killall lldb-rpc-server'`.
+
 ## Build & Release
 
 ### Build Commands
@@ -329,7 +459,7 @@ When migrating from `ObservableObject`:
 - **Prefer editing existing files** over creating new ones
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
-- **Run `/lint` before committing** - SwiftLint runs via `/lint` command and pre-commit hooks, not during builds (for faster compilation)
+- **Pre-commit and pre-push hooks run SwiftLint automatically** - blocks the commit on violations. Run `/lint` manually for a full-tree sweep. SwiftLint does not run during Xcode builds (for faster compilation).
 - **Run the full test suite before pushing** - Start Docker with `./dev/up` if needed, run `swift test --package-path ConvosCore`, and verify all tests pass. Never push without a passing test run against your final code.
 
 ---
@@ -348,9 +478,9 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/test` | Run tests (ConvosCore by default) |
 | `/lint` | Check code with SwiftLint (run before committing) |
 | `/format` | Format code with SwiftFormat |
-| `/firebase-token` | Get Firebase App Check debug token from simulator logs |
+| `/firebase-token` | Sync/rotate the shared Firebase App Check debug token (1Password source of truth, .env cache) |
 
-**Pre-commit workflow:** SwiftLint runs via `/lint` and pre-commit hooks, not during Xcode builds (for faster compilation). The pre-commit hook auto-fixes issues; run `/lint` manually to check before staging.
+**Pre-commit workflow:** SwiftFormat auto-formats and SwiftLint blocks the commit on violations (both via `Scripts/hooks/pre-commit`). Pre-push lints the diff against `dev` again as a final gate before the push hits GitHub. SwiftLint does not run during Xcode builds (for faster compilation). A full-tree `/lint` runs in ~1-2 seconds with the current config.
 
 ### Subagents
 
@@ -419,19 +549,18 @@ cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
 
 ```bash
-# Full test suite (starts Docker automatically)
+# Full test suite (starts Docker automatically, leaves the stack running)
 ./dev/test
 
-# Start Docker manually, run tests, then stop
+# Start Docker manually if needed, then run tests
 ./dev/up
 swift test --package-path ConvosCore
-./dev/down
 
 # Run a single test
-./dev/up  # Start Docker first
 swift test --filter "TestClassName" --package-path ConvosCore
-./dev/down  # Stop when done
 ```
+
+**The Docker stack is shared.** Every checkout, worktree, and agent session on the machine uses the same compose project, so do not run `./dev/down` (or `./dev/test --down`) as routine cleanup — tearing the stack down kills any other session's in-flight integration tests, which then fail with `Connection refused 127.0.0.1:5556` or hang. Leave the stack running; only stop it when you know nothing else is using it.
 
 **Docker is required.** If Docker is not running, start it with `./dev/up` before running tests. If Docker fails to start (not installed, daemon not running, port conflicts), **do not skip the tests** — stop and notify the user that Docker cannot start and tests cannot run. Never push untested code.
 
@@ -499,12 +628,14 @@ main
 
 ### Pre-commit Hooks
 
-A pre-commit hook at `Scripts/hooks/pre-commit` is automatically installed by `Scripts/setup.sh`. It:
-- Runs SwiftFormat on staged Swift files
-- Runs SwiftLint with auto-fix
-- Blocks commits with unfixable lint errors
+`Scripts/setup.sh` configures `git config core.hooksPath Scripts/hooks` so the tracked hook scripts run for every commit and push:
 
-If the hook isn't installed, run `Scripts/setup.sh` to set it up.
+- **`pre-commit`** auto-runs SwiftFormat on staged Swift files (writes back into the staged copy via `git add`), then SwiftLint `--strict --quiet` in a single batched invocation on the staged paths. Violations block the commit. Pass paths positionally (not `--use-stdin`) so file-path-dependent rules like `sorted_imports` actually fire.
+- **`pre-push`** re-lints every Swift file changed since the merge-base with `origin/dev`. Same batched-invocation shape. Last line of defense before the push reaches GitHub.
+
+A full-tree lint runs in ~1-2 seconds; the per-staged-file pre-commit lint is sub-second.
+
+If the hooks aren't installed (no `core.hooksPath` set), run `Scripts/setup.sh`.
 
 ### Parallel Task Management
 
@@ -647,6 +778,17 @@ cat .convos-task
 When Claude Code starts in a convos-task worktree, a SessionStart hook detects `.convos-task` and prompts Claude to run `/setup`.
 
 Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (auto-detected by default).
+
+### Git Rebase Conflict Resolution
+
+When resolving rebase conflicts, `git rebase --continue` opens an interactive editor (vim) which hangs in non-TTY environments. Use `GIT_EDITOR=true` to skip the editor and accept the default commit message:
+
+```bash
+# After resolving conflicts and staging with git add:
+GIT_EDITOR=true git rebase --continue
+```
+
+This accepts the existing commit message without opening an editor. Use this for all `git rebase --continue`, `git commit --amend`, or any git command that would open an editor.
 
 ### Git and Branch Management with Graphite
 

@@ -20,20 +20,39 @@ extension EnvironmentValues {
 struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
+    var segment: MessageBubbleSegment = .whole
+    /// Whether the source bubble's long-body inline expansion is currently on,
+    /// captured into the context menu so its preview matches the on-screen
+    /// bubble. Only the text-bubble path ever passes a non-default value.
+    var isExpanded: Bool = false
     let onSingleTap: (() -> Void)?
+    let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
+    let onToggleReaction: (String, String) -> Void
+    var externalSwipeOffset: Binding<CGFloat>?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var isPressed: Bool = false
     @State private var hasAppeared: Bool = false
+    @State private var interactiveExclusionFrames: [CGRect] = []
+    @State private var mediaContentFrame: CGRect?
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
+    @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
     private var isSourceBubble: Bool {
-        !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
+        !contextMenuState.isReplyParent
+            && contextMenuState.presentedMessage?.messageId == message.messageId
+            && contextMenuState.presentedSegment == segment
+    }
+
+    private var doubleTapEmoji: String {
+        let uniqueEmoji = Set(message.reactions.map(\.emoji))
+        return uniqueEmoji.count == 1 ? uniqueEmoji.first ?? "❤️" : "❤️"
     }
 
     func body(content: Content) -> some View {
         content
+            .coordinateSpace(name: MessageMediaContentFrameKey.coordinateSpaceName)
             .environment(\.messagePressed, isPressed)
             .scaleEffect(
                 isPressed && hasAppeared ? 1.03 : 1.0,
@@ -41,76 +60,143 @@ struct MessageGestureModifier: ViewModifier {
             )
             .opacity(isSourceBubble ? 0 : 1)
             .onAppear { hasAppeared = true }
-            .background {
-                if isSourceBubble {
-                    GeometryReader { geo in
-                        Color.clear
-                            .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
-                    }
-                }
-            }
+            .background { sourceBubbleFrameTracker }
             .onPreferenceChange(SourceFrameKey.self) { frame in
                 if isSourceBubble, let frame {
-                    contextMenuState.currentSourceFrame = frame
+                    contextMenuState.currentSourceFrame = bubbleFrame(within: frame)
                 }
+            }
+            .onPreferenceChange(MessageMediaContentFrameKey.self) { frame in
+                mediaContentFrame = frame
+            }
+            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
+                interactiveExclusionFrames = frames
             }
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
-            .background(alignment: .leading) {
-                if swipeOffset > 0 {
-                    let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
-                    Image(systemName: "arrowshape.turn.up.left.fill")
-                        .foregroundStyle(.tertiary)
-                        .scaleEffect(0.4 + progress * 0.6)
-                        .opacity(Double(progress))
-                        .padding(.leading, DesignConstants.Spacing.step2x)
-                        .accessibilityHidden(true)
+            .background(alignment: .leading) { swipeReplyIndicator }
+            .overlay { gestureOverlay }
+            .accessibilityActions {
+                if !isReadOnly {
+                    Button("React") {
+                        onToggleReaction(doubleTapEmoji, message.messageId)
+                    }
+                    Button("Reply") {
+                        onReply(message)
+                    }
                 }
             }
-            .overlay {
-                GeometryReader { geometry in
-                    GestureOverlayView(
-                        contextMenuState: contextMenuState,
-                        hasSingleTap: onSingleTap != nil,
-                        onSingleTap: { onSingleTap?() },
-                        onDoubleTap: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?("❤️", message.messageId)
-                        },
-                        onLongPress: {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            let frame = geometry.frame(in: .global)
-                            contextMenuState.present(
-                                message: message,
-                                bubbleFrame: frame,
-                                bubbleStyle: bubbleStyle
-                            )
-                        },
-                        onSwipeOffsetChanged: { offset in
-                            swipeOffset = offset
-                        },
-                        onSwipeEnded: { triggered in
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                swipeOffset = 0
-                            }
-                            if triggered { onReply(message) }
-                        },
-                        onPressChanged: { pressed in
-                            isPressed = pressed
-                        }
-                    )
+    }
+
+    @ViewBuilder
+    private var sourceBubbleFrameTracker: some View {
+        if isSourceBubble {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var swipeReplyIndicator: some View {
+        if swipeOffset > 0 {
+            let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .foregroundStyle(.tertiary)
+                .scaleEffect(0.4 + progress * 0.6)
+                .opacity(Double(progress))
+                .padding(.leading, DesignConstants.Spacing.step2x)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var gestureOverlay: some View {
+        GeometryReader { geometry in
+            GestureOverlayView(
+                contextMenuState: contextMenuState,
+                hasSingleTap: onSingleTap != nil,
+                excludedFrames: interactiveExclusionFrames,
+                onSingleTap: { onSingleTap?() },
+                onDoubleTap: handleDoubleTap,
+                onLongPress: { handleLongPress(geometry: geometry) },
+                onSwipeOffsetChanged: handleSwipeOffsetChanged,
+                onSwipeEnded: handleSwipeEnded,
+                onPressChanged: { pressed in
+                    isPressed = pressed
                 }
-            }
-            .accessibilityAction(named: "React") {
-                contextMenuState.onToggleReaction?("❤️", message.messageId)
-            }
-            .accessibilityAction(named: "Reply") {
-                onReply(message)
-            }
+            )
+        }
+    }
+
+    private func handleDoubleTap() {
+        if isReadOnly { return }
+        if let onDoubleTap {
+            onDoubleTap()
+        } else {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onToggleReaction(doubleTapEmoji, message.messageId)
+        }
+    }
+
+    private func handleLongPress(geometry: GeometryProxy) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let frame = bubbleFrame(within: geometry.frame(in: .global))
+        contextMenuState.present(
+            message: message,
+            bubbleFrame: frame,
+            bubbleStyle: bubbleStyle,
+            isExpanded: isExpanded,
+            segment: segment
+        )
+    }
+
+    /// Media attachments expand to the full row width while the visible photo
+    /// can be narrower (e.g. capped at a max width on iPad). When a media
+    /// frame is reported, offset it into the row's global frame so the
+    /// context menu anchors on the photo instead of the row.
+    private func bubbleFrame(within contentFrame: CGRect) -> CGRect {
+        guard let mediaContentFrame else { return contentFrame }
+        return mediaContentFrame.offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
+    }
+
+    private func handleSwipeOffsetChanged(_ offset: CGFloat) {
+        if isReadOnly { return }
+        swipeOffset = offset
+        externalSwipeOffset?.wrappedValue = offset
+    }
+
+    private func handleSwipeEnded(_ triggered: Bool) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            swipeOffset = 0
+            externalSwipeOffset?.wrappedValue = 0
+        }
+        if triggered && !isReadOnly { onReply(message) }
     }
 
     private enum Constant {
         static let swipeThreshold: CGFloat = 60.0
+    }
+}
+
+struct MessageGestureExclusionFrameKey: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+/// Reports the visible media content frame, relative to the message gesture
+/// coordinate space, so the context menu can anchor on the photo rather than
+/// the full-width attachment row. Measured in the named space (anchored below
+/// the press scale effect) to stay in pure layout coordinates.
+struct MessageMediaContentFrameKey: PreferenceKey {
+    static let coordinateSpaceName: String = "messageGestureContent"
+    static let defaultValue: CGRect? = nil
+
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
     }
 }
 
@@ -125,16 +211,49 @@ extension View {
     func messageGesture(
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
+        segment: MessageBubbleSegment = .whole,
+        isExpanded: Bool = false,
         onSingleTap: (() -> Void)? = nil,
-        onReply: @escaping (AnyMessage) -> Void
+        onDoubleTap: (() -> Void)? = nil,
+        onReply: @escaping (AnyMessage) -> Void,
+        onToggleReaction: @escaping (String, String) -> Void,
+        swipeOffset: Binding<CGFloat>? = nil
     ) -> some View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
+            segment: segment,
+            isExpanded: isExpanded,
             onSingleTap: onSingleTap,
-            onReply: onReply
+            onDoubleTap: onDoubleTap,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction,
+            externalSwipeOffset: swipeOffset
         ))
     }
+}
+
+// MARK: - Gesture Passthrough Marker
+
+final class GesturePassthroughMarkerView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+struct GesturePassthroughBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> GesturePassthroughMarkerView {
+        GesturePassthroughMarkerView()
+    }
+
+    func updateUIView(_ uiView: GesturePassthroughMarkerView, context: Context) {}
 }
 
 // MARK: - Gesture Overlay (UIKit for reliable gesture disambiguation)
@@ -142,6 +261,7 @@ extension View {
 private struct GestureOverlayView: UIViewRepresentable {
     let contextMenuState: MessageContextMenuState
     let hasSingleTap: Bool
+    let excludedFrames: [CGRect]
     let onSingleTap: () -> Void
     let onDoubleTap: () -> Void
     let onLongPress: () -> Void
@@ -218,6 +338,7 @@ private struct GestureOverlayView: UIViewRepresentable {
 
     func updateUIView(_ uiView: GesturePassthroughView, context: Context) {
         context.coordinator.contextMenuState = contextMenuState
+        context.coordinator.excludedFrames = excludedFrames
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onLongPress = onLongPress
@@ -230,11 +351,21 @@ private struct GestureOverlayView: UIViewRepresentable {
     final class GesturePassthroughView: UIView {
         weak var coordinator: Coordinator?
 
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            guard bounds.contains(point) else { return false }
+            guard let coordinator else { return true }
+            return !coordinator.isExcluded(point: point, in: self)
+        }
+
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
             guard bounds.contains(point) else { return nil }
             if let linkView = findLinkViewInCell(at: point) {
                 return linkView
             }
+            if hasPassthroughMarker(at: point) {
+                return nil
+            }
+            guard self.point(inside: point, with: event) else { return nil }
             return self
         }
 
@@ -243,6 +374,13 @@ private struct GestureOverlayView: UIViewRepresentable {
             guard let root else { return nil }
             let rootPoint = convert(point, to: root)
             return findLinkView(in: root, at: rootPoint, excluding: self)
+        }
+
+        private func hasPassthroughMarker(at point: CGPoint) -> Bool {
+            let root = findAncestorCell()?.contentView ?? superview
+            guard let root else { return false }
+            let rootPoint = convert(point, to: root)
+            return findPassthroughMarker(in: root, at: rootPoint, excluding: self)
         }
 
         private func findLinkView(in view: UIView, at point: CGPoint, excluding: UIView) -> UIView? {
@@ -261,6 +399,21 @@ private struct GestureOverlayView: UIViewRepresentable {
             return nil
         }
 
+        private func findPassthroughMarker(in view: UIView, at point: CGPoint, excluding: UIView) -> Bool {
+            for subview in view.subviews.reversed() {
+                if subview === excluding { continue }
+                let subviewPoint = view.convert(point, to: subview)
+                guard subview.bounds.contains(subviewPoint) else { continue }
+                if subview is GesturePassthroughMarkerView {
+                    return true
+                }
+                if findPassthroughMarker(in: subview, at: subviewPoint, excluding: excluding) {
+                    return true
+                }
+            }
+            return false
+        }
+
         private func findAncestorCell() -> UICollectionViewCell? {
             var current: UIView? = superview
             while let view = current {
@@ -277,6 +430,7 @@ private struct GestureOverlayView: UIViewRepresentable {
         weak var overlayView: GesturePassthroughView?
         weak var singleTapRecognizer: UITapGestureRecognizer?
         weak var contextMenuState: MessageContextMenuState?
+        var excludedFrames: [CGRect] = []
         var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
         var onLongPress: (() -> Void)?
@@ -408,6 +562,11 @@ private struct GestureOverlayView: UIViewRepresentable {
                 current = view.superview
             }
             return nil
+        }
+
+        func isExcluded(point: CGPoint, in overlay: UIView) -> Bool {
+            let pointInGlobal = overlay.convert(point, to: nil)
+            return excludedFrames.contains { $0.contains(pointInGlobal) }
         }
 
         func gestureRecognizerShouldBegin(

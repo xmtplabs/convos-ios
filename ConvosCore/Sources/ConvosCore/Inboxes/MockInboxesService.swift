@@ -1,16 +1,56 @@
 import Combine
+import ConvosConnections
 import Foundation
+import GRDB
 
-public final class MockInboxesService: SessionManagerProtocol {
-    private let mockMessagingService: MockMessagingService = MockMessagingService()
+public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendable {
+    private let mockMessagingService: MockMessagingService
+    /// Single shared registry so providers registered through this mock are visible to
+    /// the resolver `capabilityResolver()` returns.
+    private let mockCapabilityRegistry: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
+
+    public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
+        self.mockMessagingService = mockMessagingService
+    }
+
+    // MARK: - Inbox Management
+
+    /// Recorded arguments for the claim-lifecycle methods, in call order, so
+    /// tests can assert which discard shape a flow routed through.
+    public private(set) var committedConversationIds: [String] = []
+    public private(set) var discardedConversationIds: [String] = []
+    public private(set) var discardedIfUnengagedConversationIds: [String] = []
+
+    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+        (service: mockMessagingService, conversationId: nil)
+    }
+
+    public func commitClaimedConversation(id conversationId: String) async {
+        committedConversationIds.append(conversationId)
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+    }
+
+    public func registerClaimedConversation(id conversationId: String) async {
+    }
+
+    public func discardClaimedConversation(id conversationId: String) async {
+        discardedConversationIds.append(conversationId)
+    }
+
+    public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
+        discardedIfUnengagedConversationIds.append(conversationId)
+    }
+
+    public func deleteAllInboxes() async throws {
+    }
 
     public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
         AsyncThrowingStream { continuation in
             Task {
-                // Simulate deletion progress
                 continuation.yield(.clearingDeviceRegistration)
                 try? await Task.sleep(for: .milliseconds(200))
-                // Simulate stopping 1 service
                 continuation.yield(.stoppingServices(completed: 0, total: 1))
                 try? await Task.sleep(for: .milliseconds(300))
                 continuation.yield(.stoppingServices(completed: 1, total: 1))
@@ -23,44 +63,27 @@ public final class MockInboxesService: SessionManagerProtocol {
         }
     }
 
-    public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        true
-    }
-
-    public func notifyChangesInDatabase() {
-    }
-
-    public func inboxId(for conversationId: String) async -> String? {
-        "mock-inbox-id"
-    }
-
-    public init() {
-    }
-
-    // MARK: - Inbox Management
-
-    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        (service: mockMessagingService, conversationId: nil)
-    }
-
-    public func addInboxOnly() async -> AnyMessagingService {
-        mockMessagingService
-    }
-
-    public func deleteInbox(clientId: String, inboxId: String) async throws {
-    }
-
-    public func deleteAllInboxes() async throws {
-    }
-
     // MARK: - Messaging Services
 
-    public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
+    public func messagingService() -> AnyMessagingService {
         mockMessagingService
     }
 
-    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+    public func messagingServiceSync() -> AnyMessagingService {
         mockMessagingService
+    }
+
+    public func joinerPairingService() -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func refreshAfterPairingCompleted() async {
+    }
+
+    public var mockHasAnyUsedConversations: Bool = false
+
+    public func hasAnyUsedConversations() async -> Bool {
+        mockHasAnyUsedConversations
     }
 
     // MARK: - Factory methods for repositories
@@ -81,7 +104,12 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    public func addAgentToConversation(
+        conversationId: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
             case 502: throw APIError.agentProvisionFailed
@@ -90,13 +118,12 @@ public final class MockInboxesService: SessionManagerProtocol {
             default: throw APIError.serverError("Mock forced error \(forceErrorCode)")
             }
         }
-        return .init(success: true, joined: true)
+        return .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")
     }
 
-    public func redeemInviteCode(_ code: String) async throws {
-    }
+    public func republishAgentTimezones() async {}
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
+    public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
@@ -112,24 +139,61 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockPhotoPreferencesWriter()
     }
 
+    public func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
+        MockVoiceMemoTranscriptRepository()
+    }
+
+    public func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol {
+        MockVoiceMemoTranscriptWriter()
+    }
+
+    public func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing {
+        MockVoiceMemoTranscriptionService()
+    }
+
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
         MockAttachmentLocalStateWriter()
     }
 
-    // MARK: - Lifecycle Management
+    private static let mockDatabase: DatabaseQueue = MockDatabaseManager.shared.dbPool
 
-    public func setActiveClientId(_ clientId: String?) async {}
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    }
 
-    public func wakeInboxForNotification(clientId: String, inboxId: String) async {}
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
+    }
 
-    public func wakeInboxForNotification(conversationId: String) async {}
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    }
 
-    public func isInboxAwake(clientId: String) async -> Bool {
+    public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
+        BuilderBundleHiddenMessagesRepository(databaseReader: Self.mockDatabase)
+    }
+
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: Self.mockDatabase)
+    }
+
+    // MARK: - Notifications
+
+    public func notifyChangesInDatabase() {
+    }
+
+    public func shouldDisplayNotification(for conversationId: String) async -> Bool {
         true
     }
 
-    public func isInboxSleeping(clientId: String) async -> Bool {
-        false
+    public func setIsOnConversationsList(_ isOn: Bool) {}
+
+    public func wakeInboxForNotification(conversationId: String) {}
+
+    // MARK: - Helpers
+
+    public func inboxId(for conversationId: String) async -> String? {
+        "mock-inbox-id"
     }
 
     // MARK: - Debug
@@ -142,11 +206,9 @@ public final class MockInboxesService: SessionManagerProtocol {
         0
     }
 
-    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        []
+    public func isAccountOrphaned() throws -> Bool {
+        false
     }
-
-    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {}
 
     // MARK: - Asset Renewal
 
@@ -159,4 +221,57 @@ public final class MockInboxesService: SessionManagerProtocol {
             recoveryHandler: recoveryHandler
         )
     }
+
+    // MARK: - Connections
+
+    public func cloudConnectionManager(
+        callbackURLScheme: String
+    ) -> any CloudConnectionManagerProtocol {
+        MockCloudConnectionManager()
+    }
+
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        MockConnectionRepository()
+    }
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        mockCapabilityRegistry
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        MockCapabilityRequestRepository()
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        MockDeviceConnectionAuthorizer()
+    }
+
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        nil
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        MockCapabilityResolutionsRepository()
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        InMemoryEnablementStore()
+    }
+}
+
+private final class MockCapabilityResolutionsRepository: CapabilityResolutionsRepositoryProtocol, @unchecked Sendable {
+    let resolutionsPublisher: AnyPublisher<[CapabilityResolution], Never> = Just([]).eraseToAnyPublisher()
+}
+
+private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
+    func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus { .notDetermined }
+    func requestAuthorization(for kind: ConnectionKind) async throws -> ConnectionAuthorizationStatus { .authorized }
+}
+
+private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

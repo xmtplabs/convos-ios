@@ -1,0 +1,405 @@
+import Combine
+import ConvosCore
+import Foundation
+import Observation
+
+/// Mode parameterizes the picker for either creating a new conversation or
+/// scoping the selection to add members to an existing chat. The mode drives
+/// the title, the bottom CTA copy, and the inline-disabled "in chat"
+/// treatment for members already in the destination conversation.
+///
+/// Mirrors `ContactDetailMode`'s "one view, multiple entry points" pattern.
+/// When introducing a similar surface elsewhere in the app, prefer this
+/// shape (mode enum + parameterized view) over duplicating the view.
+enum ContactsPickerMode: Hashable {
+    case newConversation
+    /// First step of the compose flow (`ComposeFlowView`): the picker is the
+    /// root of the host navigation stack and selecting contacts is optional
+    /// (the bottom CTA stays hidden until a contact is picked, then reads
+    /// "Continue"), then the new conversation is pushed rather than presented.
+    case compose
+    case addToConversation(conversationId: String, conversationTitle: String?)
+
+    var isAddToConversation: Bool {
+        switch self {
+        case .newConversation, .compose:
+            return false
+        case .addToConversation:
+            return true
+        }
+    }
+
+    var isCompose: Bool {
+        if case .compose = self { return true }
+        return false
+    }
+}
+
+/// View model backing the contact picker. Subscribes to the contacts
+/// repository, drops blocked contacts, applies search filtering, groups the
+/// result into alphabetical sections, and tracks the selected inboxIds.
+@Observable
+@MainActor
+final class ContactsPickerViewModel {
+    struct Section: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let rows: [Row]
+    }
+
+    struct Row: Identifiable, Hashable {
+        let id: String
+        let contact: Contact
+        let isAlreadyInChat: Bool
+        /// Caption rendered under the contact name: the name of the
+        /// conversation that promoted the inbox to a contact, "DM" for a 1:1,
+        /// or empty when there's no source name to show (the row hides the
+        /// line). Verified agents carry their role label in the trailing pill,
+        /// not here. See `Contact.listSubtitle(sources:)`.
+        let subtitle: String
+        /// True for rows in the "Suggested agents" section -- featured agent
+        /// templates fetched from the backend rather than the user's own
+        /// contacts. Drives the load-more trigger when the last such row
+        /// appears (see `suggestedAgentRowAppeared(id:)`).
+        var isSuggestedAgent: Bool = false
+    }
+
+    let mode: ContactsPickerMode
+    var sections: [Section] = []
+    var selectedInboxIds: Set<String> = []
+    var searchQuery: String = "" {
+        didSet { rebuildSections() }
+    }
+    /// Audience filter toggled from the search bar's filter menu. Narrows the
+    /// pickable list to people or agents; selections persist across filter
+    /// changes -- a selected contact hidden by the filter stays selected and
+    /// still appears in the selected-pills row.
+    var filter: ContactsFilter = .all {
+        didSet { rebuildSections() }
+    }
+    var isLoading: Bool = true
+    /// True while the initial suggested-agents page request is in flight.
+    /// Drives the loading state when there are no contacts to show yet.
+    var isLoadingSuggestedAgents: Bool {
+        suggestedAgentsModel.isLoading
+    }
+    /// True when a text search or audience filter is narrowing the list, so an
+    /// empty `sections` means "nothing matched" rather than "no contacts".
+    /// Blocked contacts are always hidden from the picker.
+    var isFiltering: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || filter.isActive
+    }
+
+    private let contactsRepository: any ContactsRepositoryProtocol
+    private let alreadyInChatInboxIds: Set<String>
+    private var allContacts: [Contact] = []
+    private var cancellable: AnyCancellable?
+
+    /// Shared suggested-agents fetch/pagination state. A nil service (e.g. the
+    /// add-to-conversation entry point) yields no section.
+    private let suggestedAgentsModel: SuggestedAgentsModel
+    /// Synthetic contacts for the currently visible suggested agents. Kept so
+    /// selection lookups (agent detection, confirm-by-template) resolve a
+    /// selected suggestion even while the section is hidden by a search query.
+    private var suggestedAgentContacts: [Contact] = []
+
+    init(
+        mode: ContactsPickerMode,
+        contactsRepository: any ContactsRepositoryProtocol,
+        alreadyInChatInboxIds: Set<String> = [],
+        preselectedInboxIds: Set<String> = [],
+        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil
+    ) {
+        self.mode = mode
+        self.contactsRepository = contactsRepository
+        self.alreadyInChatInboxIds = alreadyInChatInboxIds
+        self.selectedInboxIds = preselectedInboxIds.subtracting(alreadyInChatInboxIds)
+        self.suggestedAgentsModel = SuggestedAgentsModel(service: suggestedAgentsService)
+
+        suggestedAgentsModel.onAgentsChanged = { [weak self] in
+            self?.rebuildSections()
+        }
+
+        cancellable = contactsRepository.contactsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] contacts in
+                self?.applyContacts(contacts)
+            }
+
+        if let initial = try? contactsRepository.fetchAll() {
+            applyContacts(initial)
+        }
+    }
+
+    // MARK: - Derived state
+
+    /// Everything a selection can point at: the user's contacts plus the
+    /// synthetic contacts backing the suggested-agents section. Selecting a
+    /// suggested agent inserts its synthetic inboxId, so agent detection,
+    /// template resolution, and the selected-pills row all read this union.
+    private var selectableContacts: [Contact] {
+        allContacts + suggestedAgentContacts
+    }
+
+    var selectedContacts: [Contact] {
+        selectableContacts.filter { selectedInboxIds.contains($0.inboxId) }
+    }
+
+    var selectionCount: Int {
+        selectedInboxIds.count
+    }
+
+    var canConfirm: Bool {
+        // Compose allows proceeding once a contact is picked (its CTA is hidden
+        // while empty); other modes need at least one contact too.
+        switch mode {
+        case .compose:
+            return true
+        case .newConversation, .addToConversation:
+            return !selectedInboxIds.isEmpty
+        }
+    }
+
+    var headerTitle: String {
+        switch mode {
+        case .newConversation, .compose:
+            return "New conversation"
+        case .addToConversation(_, let title):
+            if let title, !title.isEmpty {
+                return "Add to \(title)"
+            }
+            return "Add to convo"
+        }
+    }
+
+    /// Top-line text for the indicator pill. "New convo" while assembling
+    /// a fresh conversation; existing convo name (or "Add to convo") when
+    /// the picker is scoped to an existing chat.
+    var pillTitle: String {
+        switch mode {
+        case .newConversation, .compose:
+            return "New Convo"
+        case .addToConversation(_, let title):
+            if let title, !title.isEmpty {
+                return title
+            }
+            return "Add to convo"
+        }
+    }
+
+    /// Subtitle below the title in the indicator pill. Reads "Draft" when
+    /// the user hasn't picked anyone yet, then transitions to "N selected"
+    /// once they start picking. Identical wording across both modes — the
+    /// title already disambiguates the intent.
+    var pillSubtitle: String {
+        if selectionCount == 0 {
+            return "Draft"
+        }
+        return "\(selectionCount) selected"
+    }
+
+    var confirmButtonTitle: String {
+        return "Continue"
+    }
+
+    /// The compose picker hides its bottom CTA until something is selected --
+    /// there is no "Skip" affordance; an empty compose picker is left via the
+    /// top-three invite actions or Cancel. Other modes always show the button
+    /// (disabled until a contact is picked).
+    var showsConfirmButton: Bool {
+        guard case .compose = mode else { return true }
+        return !selectedInboxIds.isEmpty
+    }
+
+    // MARK: - Mutations
+
+    func toggleSelection(for inboxId: String) {
+        guard !alreadyInChatInboxIds.contains(inboxId) else { return }
+        if selectedInboxIds.contains(inboxId) {
+            selectedInboxIds.remove(inboxId)
+        } else {
+            selectedInboxIds.insert(inboxId)
+        }
+    }
+
+    func deselect(inboxId: String) {
+        selectedInboxIds.remove(inboxId)
+    }
+
+    func clearSelection() {
+        selectedInboxIds.removeAll()
+    }
+
+    func isSelected(inboxId: String) -> Bool {
+        selectedInboxIds.contains(inboxId)
+    }
+
+    /// `inboxId`s of the currently selected agents.
+    var selectedAgentInboxIds: Set<String> {
+        Set(selectedContacts.filter { $0.agentTemplateId != nil }.map(\.inboxId))
+    }
+
+    /// `agentTemplateId`s of the currently selected agents, threaded into
+    /// conversation creation so a fresh instance of each template is
+    /// spawned into the new (or existing) conversation.
+    var selectedAgentTemplateIds: [String] {
+        selectedContacts.compactMap(\.agentTemplateId)
+    }
+
+    /// Single source of truth for "is this contact a valid picker row".
+    /// A contact is pickable when it shows in the Contacts browse list
+    /// (`isVisibleInContactsList`: template-backed agents and named humans)
+    /// and the user hasn't blocked it. Blocked contacts stay in the browse
+    /// list so they can be unblocked, but they are never a valid picker
+    /// target. Template-backed agents are selectable in every mode, since
+    /// starting (or adding to) a conversation spawns a fresh instance.
+    static func isPickable(_ contact: Contact) -> Bool {
+        !contact.isBlocked && contact.isVisibleInContactsList
+    }
+
+    /// Contacts selectable in the picker, used by `ConversationsViewModel` to
+    /// size its compose entry point.
+    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
+        contacts.filter(isPickable)
+    }
+
+    // MARK: - Section building
+
+    private func applyContacts(_ contacts: [Contact]) {
+        allContacts = contacts
+        // Prune selections to what's actually pickable. Pruning against the
+        // *visible* set (not just the known set) drops phantom selections --
+        // a preselected inboxId for a contact who's hidden because they're
+        // blocked / a verified agent / unnamed would otherwise stay in
+        // `selectedInboxIds`, counting toward `selectionCount` and passing
+        // `canConfirm` with no UI for the user to remove it.
+        // Pruning keeps a selected suggested agent alive: its synthetic
+        // inboxId isn't a real contact, so it must be unioned in or a contacts
+        // publisher emission would silently drop the selection.
+        let visibleInboxIds = Set(allContacts.filter(Self.isPickable).map(\.inboxId))
+            .union(suggestedAgentContacts.map(\.inboxId))
+        selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
+        rebuildSections()
+        isLoading = false
+    }
+
+    private func rebuildSections() {
+        // The picker is a selection surface; blocked contacts are never a
+        // valid target. Unlike the browse list (which exposes a "Show blocked"
+        // toggle so the user can reach the unblock CTA on the contact card),
+        // the picker always filters them out via `Self.isPickable`.
+        let visible = allContacts.filter(Self.isPickable)
+        let filtered = filterByQuery(filterByAudience(visible))
+        let grouped: [String: [Contact]] = Dictionary(
+            grouping: filtered,
+            by: { $0.alphabeticalSectionKey }
+        )
+        let sortedKeys = grouped.keys.sorted(by: Self.sectionKeyOrder)
+
+        // Batched read of source-conversation metadata so each row's subtitle
+        // can show the convo the user met the contact in. Missing entries
+        // (deleted convo, never-recorded source) fall through to the agent
+        // label or empty in the subtitle resolver below.
+        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
+        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
+
+        var rebuilt: [Section] = sortedKeys.map { key in
+            let rows = (grouped[key] ?? []).map { contact in
+                Row(
+                    id: contact.inboxId,
+                    contact: contact,
+                    isAlreadyInChat: alreadyInChatInboxIds.contains(contact.inboxId),
+                    subtitle: contact.listSubtitle(sources: sources)
+                )
+            }
+            return Section(id: key, title: key, rows: rows)
+        }
+
+        if let suggested = buildSuggestedAgentsSection() {
+            rebuilt.append(suggested)
+        }
+        sections = rebuilt
+    }
+
+    /// Builds the trailing "Suggested agents" section and refreshes
+    /// `suggestedAgentContacts` (kept in sync regardless of the search query so
+    /// selection lookups still resolve). Returns nil when there's nothing to
+    /// show, or while a search is active -- suggestions are a browse
+    /// affordance, and the server-paged list can't be meaningfully filtered
+    /// against a partial set on the client.
+    private func buildSuggestedAgentsSection() -> Section? {
+        // Drop suggestions the user already has as a contact so an agent never
+        // appears in both the alphabetical list and the suggested section.
+        let existingAgentTemplateIds = Set(allContacts.compactMap { $0.agentTemplateId })
+        let visibleSuggested = suggestedAgentsModel.visibleAgents(excludingTemplateIds: existingAgentTemplateIds)
+
+        let rows: [Row] = visibleSuggested.map { agent in
+            let contact = Contact.suggestedAgent(agent)
+            return Row(
+                id: contact.inboxId,
+                contact: contact,
+                isAlreadyInChat: false,
+                subtitle: agent.description ?? "",
+                isSuggestedAgent: true
+            )
+        }
+        suggestedAgentContacts = rows.map(\.contact)
+
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Suggested agents are agents, so hide the whole section under the
+        // People filter. `suggestedAgentContacts` stays complete above so a
+        // selected suggested agent still resolves in the pills row.
+        guard trimmedQuery.isEmpty, filter.includesAgents, !rows.isEmpty else { return nil }
+        return Section(id: SuggestedAgentsSection.id, title: SuggestedAgentsSection.title, rows: rows)
+    }
+
+    private func filterByQuery(_ contacts: [Contact]) -> [Contact] {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return contacts }
+        return contacts.filter { contact in
+            contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
+    private func filterByAudience(_ contacts: [Contact]) -> [Contact] {
+        guard filter.isActive else { return contacts }
+        return contacts.filter { filter.includes($0) }
+    }
+
+    /// Clears the active text search and audience filter so the full pickable
+    /// list is shown again. Backs the "Show all" button on the filtered empty
+    /// state. Selections are unaffected.
+    func clearFilters() {
+        searchQuery = ""
+        filter = .all
+    }
+
+    private static func sectionKeyOrder(_ lhs: String, _ rhs: String) -> Bool {
+        switch (lhs, rhs) {
+        case ("#", "#"): return false
+        case ("#", _): return false
+        case (_, "#"): return true
+        default: return lhs < rhs
+        }
+    }
+
+    // MARK: - Suggested agents
+
+    /// Loads the first page of suggested agents the first time the picker
+    /// appears. Idempotent: safe to call from `.task` on every appear.
+    func loadSuggestedAgentsIfNeeded() async {
+        await suggestedAgentsModel.loadIfNeeded()
+    }
+
+    /// Loads the next page when the last suggested row scrolls into view,
+    /// until the backend reports there are no more.
+    func suggestedAgentRowAppeared(id rowId: String) async {
+        guard rowId == suggestedAgentContacts.last?.inboxId else { return }
+        await suggestedAgentsModel.loadMore()
+    }
+
+    func loadMoreSuggestedAgents() async {
+        await suggestedAgentsModel.loadMore()
+    }
+}

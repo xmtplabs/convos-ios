@@ -28,37 +28,47 @@ struct ShatteringText: View {
 
     var body: some View {
         ZStack {
-            // Regular text when not exploded
             Text(text)
                 .opacity(isExploded ? 0 : 1)
                 .animation(.easeOut(duration: 0.1), value: isExploded)
 
-            // Shattered letters
-            HStack(spacing: 0) {
-                ForEach(Array(text.enumerated()), id: \.offset) { index, character in
-                    let delay = Double(index) * config.letterStaggerDelay
-                    let springAnimation = Animation
-                        .spring(response: config.letterAnimationResponse, dampingFraction: config.letterAnimationDamping)
-                        .delay(delay)
-                    // Use easeOut for opacity to prevent bounce-back visibility
-                    let opacityAnimation = Animation
-                        .easeOut(duration: config.letterAnimationResponse * 0.6)
-                        .delay(delay)
-
-                    Text(String(character))
-                        .offset(isExploded && index < letterOffsets.count ? letterOffsets[index] : .zero)
-                        .rotationEffect(.degrees(isExploded && index < letterRotations.count ? letterRotations[index] : 0))
-                        .scaleEffect(isExploded && index < letterScales.count ? letterScales[index] : 1)
-                        .blur(radius: isExploded ? config.letterBlurRadius : 0)
-                        .animation(isExploded ? springAnimation : .none, value: isExploded)
-                        .opacity(isExploded ? 0.0 : 1.0)
-                        .animation(isExploded ? opacityAnimation : .none, value: isExploded)
-                }
-            }
-            .opacity(isExploded ? 1.0 : 0.0)
-            .animation(.none, value: isExploded)
+            shatteredLetters
         }
         .task(id: text) { generateRandomValues() }
+    }
+
+    private var shatteredLetters: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(text.enumerated()), id: \.offset) { index, character in
+                shatteredLetter(index: index, character: character)
+            }
+        }
+        .opacity(isExploded ? 1.0 : 0.0)
+        .animation(.none, value: isExploded)
+    }
+
+    private func shatteredLetter(index: Int, character: Character) -> some View {
+        let delay = Double(index) * config.letterStaggerDelay
+        let springAnimation = Animation
+            .spring(response: config.letterAnimationResponse, dampingFraction: config.letterAnimationDamping)
+            .delay(delay)
+        // easeOut for opacity to prevent bounce-back visibility
+        let opacityAnimation = Animation
+            .easeOut(duration: config.letterAnimationResponse * 0.6)
+            .delay(delay)
+
+        let offset: CGSize = (isExploded && index < letterOffsets.count) ? letterOffsets[index] : .zero
+        let rotation: Double = (isExploded && index < letterRotations.count) ? letterRotations[index] : 0
+        let scale: Double = (isExploded && index < letterScales.count) ? letterScales[index] : 1
+
+        return Text(String(character))
+            .offset(offset)
+            .rotationEffect(.degrees(rotation))
+            .scaleEffect(scale)
+            .blur(radius: isExploded ? config.letterBlurRadius : 0)
+            .animation(isExploded ? springAnimation : .none, value: isExploded)
+            .opacity(isExploded ? 0.0 : 1.0)
+            .animation(isExploded ? opacityAnimation : .none, value: isExploded)
     }
 
     private func generateRandomValues() {

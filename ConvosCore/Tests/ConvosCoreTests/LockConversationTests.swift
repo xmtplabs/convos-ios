@@ -6,7 +6,6 @@ import XMTPiOS
 
 @Suite("Lock Conversation Tests", .serialized, .timeLimit(.minutes(2)))
 struct LockConversationTests {
-
     // MARK: - Integration Tests (Real XMTP)
 
     @Test("Old invites cannot be used after group is locked")
@@ -165,16 +164,10 @@ struct LockConversationTests {
         let conversationId = group.id
 
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -192,16 +185,18 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
         // Create mock inbox state manager that returns the real client
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -209,7 +204,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -260,16 +255,10 @@ struct LockConversationTests {
 
         // Create DB records with isLocked = true
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: inviteTag,
                 creatorId: inboxId,
@@ -287,15 +276,17 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -303,7 +294,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -335,8 +326,8 @@ struct LockConversationTests {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -344,7 +335,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -432,16 +423,10 @@ struct LockConversationTests {
 
         // Create DB records
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -459,16 +444,18 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
         }
 
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -476,7 +463,7 @@ struct LockConversationTests {
 
         // Create the metadata writer (the actual component we're testing)
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -558,16 +545,10 @@ struct LockConversationTests {
 
         // Create DB records including the member with superAdmin role
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -585,8 +566,10 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAgent: false,
             ).insert(db)
 
             // Create the member record with superAdmin role (this is what the UI reads)
@@ -613,15 +596,15 @@ struct LockConversationTests {
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -694,11 +677,7 @@ struct LockConversationTests {
 
         // Create DB inbox record (required for ConversationWriter)
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
         }
 
         // Create the ConversationWriter (same component used in the app)
@@ -911,8 +890,9 @@ struct LockConversationTests {
 // MARK: - Mock Invite Writer
 
 final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
+    // swiftlint:disable:next large_tuple
     var generatedInvites: [(conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool)] = []
-    var updatedInvites: [(conversationId: String, name: String?, description: String?, imageURL: String?)] = []
+    var updatedInvites: [String] = []
     var deletedConversationIds: [String] = []
 
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite {
@@ -925,8 +905,8 @@ final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
         )
     }
 
-    func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite {
-        updatedInvites.append((conversationId: conversationId, name: name, description: description, imageURL: imageURL))
+    func update(for conversationId: String) async throws -> Invite {
+        updatedInvites.append(conversationId)
         return Invite(
             conversationId: conversationId,
             urlSlug: "mock-updated-slug",

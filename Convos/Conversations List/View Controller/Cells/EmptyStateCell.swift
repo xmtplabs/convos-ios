@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 
 enum EmptyStateType {
-    case cta(onStartConvo: () -> Void, onJoinConvo: () -> Void)
     case filtered(message: String, onShowAll: () -> Void)
 }
 
@@ -20,23 +19,14 @@ final class EmptyStateCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-    }
+    // No `prepareForReuse` clearing `contentConfiguration`: `configure(with:)`
+    // runs synchronously on every dequeue (cell registration) and reassigns a
+    // same-typed `UIHostingConfiguration` - including the fresh `onShowAll`
+    // closure - which UIKit applies in place rather than rebuilding the hosting
+    // controller. Matches the other list cells.
 
     func configure(with type: EmptyStateType) {
         switch type {
-        case let .cta(onStartConvo, onJoinConvo):
-            contentConfiguration = UIHostingConfiguration {
-                ConversationsListEmptyCTA(
-                    onStartConvo: onStartConvo,
-                    onJoinConvo: onJoinConvo
-                )
-            }
-            .margins(.all, 0)
-            .background(.clear)
-
         case let .filtered(message, onShowAll):
             contentConfiguration = UIHostingConfiguration {
                 FilteredEmptyStateView(
@@ -64,7 +54,7 @@ final class EmptyStateCell: UICollectionViewCell {
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         )
-        layoutAttributes.size.height = max(fittingSize.height, 200)
+        layoutAttributes.size.height = fittingSize.height
         return layoutAttributes
     }
 }

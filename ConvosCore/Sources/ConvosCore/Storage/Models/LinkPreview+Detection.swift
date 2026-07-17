@@ -1,5 +1,20 @@
 import Foundation
 
+/// A text message split around a URL found at its start and/or end: the
+/// extracted previews render as their own cells and `text` is what remains
+/// in the text bubble.
+public struct EdgeLinkExtraction: Hashable, Sendable {
+    public let leadingPreview: LinkPreview?
+    public let trailingPreview: LinkPreview?
+    public let text: String
+
+    public init(leadingPreview: LinkPreview?, trailingPreview: LinkPreview?, text: String) {
+        self.leadingPreview = leadingPreview
+        self.trailingPreview = trailingPreview
+        self.text = text
+    }
+}
+
 extension LinkPreview {
     private static let maxURLLength: Int = 2048
 
@@ -15,6 +30,69 @@ extension LinkPreview {
     private static let linkDetector: NSDataDetector? = {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
+
+    /// Splits a URL off the start and/or end of a text message so it can
+    /// render as its own link preview cell next to the remaining text.
+    /// Returns nil when no edge URL is present, when the URL is the entire
+    /// message (that renders as a link preview message instead), or when
+    /// stripping the URLs would leave no text behind.
+    public static func extractingEdgeLinks(from text: String) -> EdgeLinkExtraction? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let detector = linkDetector else { return nil }
+
+        let nsText = trimmed as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let matches = detector.matches(in: trimmed, options: [], range: fullRange)
+        guard let firstMatch = matches.first, let lastMatch = matches.last else { return nil }
+
+        var leadingPreview: LinkPreview?
+        var remainingStart = 0
+        if firstMatch.range.location == 0,
+           isCleanEdgeMatch(nsText.substring(with: firstMatch.range)),
+           let url = firstMatch.url,
+           let resolved = validatedPreviewURL(url) {
+            leadingPreview = LinkPreview(url: resolved.absoluteString)
+            remainingStart = NSMaxRange(firstMatch.range)
+        }
+
+        // The detector excludes most dangling punctuation from the match
+        // itself ("https://example.com. Wild" matches only the URL), so a
+        // leading split can strand that punctuation at the start of the
+        // remaining text. That means the URL was part of a sentence; keep
+        // it inline.
+        if leadingPreview != nil {
+            let afterLeading = nsText.substring(from: remainingStart)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let first = afterLeading.first, sentencePunctuation.contains(first) {
+                leadingPreview = nil
+                remainingStart = 0
+            }
+        }
+
+        var trailingPreview: LinkPreview?
+        var remainingEnd = nsText.length
+        if NSMaxRange(lastMatch.range) == nsText.length,
+           lastMatch.range.location >= remainingStart,
+           isCleanEdgeMatch(nsText.substring(with: lastMatch.range)),
+           let url = lastMatch.url,
+           let resolved = validatedPreviewURL(url) {
+            trailingPreview = LinkPreview(url: resolved.absoluteString)
+            remainingEnd = lastMatch.range.location
+        }
+
+        guard leadingPreview != nil || trailingPreview != nil else { return nil }
+
+        let remainingRange = NSRange(location: remainingStart, length: remainingEnd - remainingStart)
+        let remainingText = nsText.substring(with: remainingRange)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remainingText.isEmpty else { return nil }
+
+        return EdgeLinkExtraction(
+            leadingPreview: leadingPreview,
+            trailingPreview: trailingPreview,
+            text: remainingText
+        )
+    }
 
     private static func detectSingleURL(in text: String) -> URL? {
         guard let detector = linkDetector else { return nil }
@@ -33,6 +111,30 @@ extension LinkPreview {
         let fullText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard matchedText == fullText else { return nil }
 
+        return validatedPreviewURL(url)
+    }
+
+    /// The detector folds some dangling sentence punctuation into a match
+    /// (e.g. the "?" in "seen https://example.com?") - that is prose around
+    /// a link, not a link sent on its own, so it stays inline. It also folds
+    /// smart punctuation like the apostrophe in "https://example.com's" into
+    /// the match and punycode-encodes the host into a bogus domain, so any
+    /// match containing smart punctuation is rejected outright.
+    private static func isCleanEdgeMatch(_ matchedText: String) -> Bool {
+        guard let last = matchedText.last, !sentencePunctuation.contains(last) else { return false }
+        return !matchedText.contains { smartPunctuation.contains($0) }
+    }
+
+    private static let sentencePunctuation: Set<Character> = [
+        ".", ",", "!", "?", ";", ":", ")", "]", "'", "\"", "\u{2026}",
+        "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}",
+    ]
+
+    private static let smartPunctuation: Set<Character> = [
+        "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2026}",
+    ]
+
+    private static func validatedPreviewURL(_ url: URL) -> URL? {
         let scheme = url.scheme?.lowercased()
         guard scheme == "https" || scheme == "http" else { return nil }
 
@@ -52,7 +154,7 @@ extension LinkPreview {
         return resolved
     }
 
-    static func isPrivateHost(_ url: URL) -> Bool {
+    public static func isPrivateHost(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }
 
         if host == "localhost" || host.hasSuffix(".local") {

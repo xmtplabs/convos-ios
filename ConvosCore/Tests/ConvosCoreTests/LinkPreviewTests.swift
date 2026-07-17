@@ -150,27 +150,122 @@ struct LinkPreviewDetectionTests {
     }
 
     @Test("Rejects IPv6 loopback")
-    func rejectsIPv6Loopback() {
-        let url = URL(string: "https://[::1]/admin")!
+    func rejectsIPv6Loopback() throws {
+        let url = try #require(URL(string: "https://[::1]/admin"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Rejects IPv6 link-local")
-    func rejectsIPv6LinkLocal() {
-        let url = URL(string: "https://[fe80::1]/page")!
+    func rejectsIPv6LinkLocal() throws {
+        let url = try #require(URL(string: "https://[fe80::1]/page"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Rejects IPv6 unique local (fc/fd)")
-    func rejectsIPv6UniqueLocal() {
-        let url = URL(string: "https://[fd12:3456::1]/page")!
+    func rejectsIPv6UniqueLocal() throws {
+        let url = try #require(URL(string: "https://[fd12:3456::1]/page"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Allows public IPv6")
-    func allowsPublicIPv6() {
-        let url = URL(string: "https://[2607:f8b0:4004:800::200e]/")!
+    func allowsPublicIPv6() throws {
+        let url = try #require(URL(string: "https://[2607:f8b0:4004:800::200e]/"))
         #expect(!LinkPreview.isPrivateHost(url))
+    }
+}
+
+@Suite("LinkPreview Edge Extraction")
+struct LinkPreviewEdgeExtractionTests {
+    @Test("Extracts trailing URL with remaining text")
+    func trailingURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Check out this video https://www.youtube.com/watch?v=TB2lSQZ5Mb0")
+        #expect(extraction?.leadingPreview == nil)
+        #expect(extraction?.trailingPreview?.url == "https://www.youtube.com/watch?v=TB2lSQZ5Mb0")
+        #expect(extraction?.text == "Check out this video")
+    }
+
+    @Test("Extracts leading URL with remaining text")
+    func leadingURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://example.com/article is worth a read")
+        #expect(extraction?.leadingPreview?.url == "https://example.com/article")
+        #expect(extraction?.trailingPreview == nil)
+        #expect(extraction?.text == "is worth a read")
+    }
+
+    @Test("Extracts both leading and trailing URLs")
+    func leadingAndTrailingURLs() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://apple.com versus https://google.com")
+        #expect(extraction?.leadingPreview?.url == "https://apple.com")
+        #expect(extraction?.trailingPreview?.url == "https://google.com")
+        #expect(extraction?.text == "versus")
+    }
+
+    @Test("Returns nil when the URL is the entire message")
+    func wholeMessageURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://example.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil when stripping URLs leaves no text")
+    func onlyURLs() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "https://apple.com https://google.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil for a URL in the middle of text")
+    func embeddedURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Check out https://example.com for details")
+        #expect(extraction == nil)
+    }
+
+    @Test("Returns nil for text without URLs")
+    func noURL() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Hello world")
+        #expect(extraction == nil)
+    }
+
+    @Test("Trims surrounding whitespace and newlines")
+    func trailingURLOnOwnLine() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Today's video:\n\nhttps://example.com/watch")
+        #expect(extraction?.trailingPreview?.url == "https://example.com/watch")
+        #expect(extraction?.text == "Today's video:")
+    }
+
+    @Test("Upgrades trailing HTTP URL to HTTPS")
+    func trailingHTTPUpgraded() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "see http://example.com")
+        #expect(extraction?.trailingPreview?.url == "https://example.com")
+    }
+
+    @Test("Ignores private-host URL at the edge")
+    func privateHostEdge() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "running at http://localhost:3000")
+        #expect(extraction == nil)
+    }
+
+    @Test("Ignores trailing email address")
+    func trailingEmail() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Reach me at hello@example.com")
+        #expect(extraction == nil)
+    }
+
+    @Test("URL followed by punctuation is not extracted")
+    func trailingPunctuation() {
+        let extraction = LinkPreview.extractingEdgeLinks(from: "Have you seen https://example.com?")
+        #expect(extraction == nil)
+    }
+
+    @Test("Leading URL followed by sentence punctuation stays inline")
+    func leadingURLFollowedByPunctuation() {
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com. That was wild") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com, check it out") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com! amazing") == nil)
+    }
+
+    @Test("Smart punctuation folded into the match is rejected")
+    func smartPunctuationInMatch() {
+        #expect(LinkPreview.extractingEdgeLinks(from: "see https://example.com\u{2019}") == nil)
+        #expect(LinkPreview.extractingEdgeLinks(from: "https://example.com\u{2019}s new design is live") == nil)
     }
 }
 
@@ -381,5 +476,41 @@ struct ImageValidationTests {
     @Test("Rejects oversized dimensions")
     func rejectsOversizedDimensions() {
         #expect(!OpenGraphService.isValidImageSize(width: 10000, height: 10000))
+    }
+}
+
+@Suite("Rich Link Metadata Fallback", .serialized)
+struct RichLinkMetadataFallbackTests {
+    @Test("Provider is nil by default")
+    func providerNilByDefault() {
+        RichLinkMetadata.resetForTesting()
+        #expect(RichLinkMetadata.provider == nil)
+    }
+
+    @Test("Provider can be configured")
+    func providerCanBeConfigured() {
+        RichLinkMetadata.resetForTesting()
+        let mock = MockRichLinkProvider(result: nil)
+        RichLinkMetadata.configure(mock)
+        #expect(RichLinkMetadata.provider != nil)
+        RichLinkMetadata.resetForTesting()
+    }
+
+    @Test("Provider can be reset for testing")
+    func providerResetForTesting() {
+        RichLinkMetadata.resetForTesting()
+        let mock = MockRichLinkProvider(result: nil)
+        RichLinkMetadata.configure(mock)
+        #expect(RichLinkMetadata.provider != nil)
+        RichLinkMetadata.resetForTesting()
+        #expect(RichLinkMetadata.provider == nil)
+    }
+}
+
+private struct MockRichLinkProvider: RichLinkMetadataProviding {
+    let result: OpenGraphService.OpenGraphMetadata?
+
+    func fetchMetadata(for url: URL) async -> OpenGraphService.OpenGraphMetadata? {
+        result
     }
 }

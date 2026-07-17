@@ -1,0 +1,45 @@
+{
+  "conversations": [
+    {
+      "id": "soccer-club",
+      "name": "Dunes Soccer Club",
+      "emoji": "⚽️",
+      "messageText": "Skipper: need 3 more RSVPs for tomorrow's match — Emily, Ray…"
+    },
+    {
+      "id": "fam",
+      "name": "Fam",
+      "emoji": "🏡",
+      "messageText": "Mealplanner: this week's dinner plan is ready — taco Tuesday is confirmed"
+    },
+    {
+      "id": "book-club",
+      "name": "Book Club",
+      "emoji": "📚",
+      "messageText": "Bookworm: reminder — we're discussing chapters 4–6 on Thursday"
+    },
+    {
+      "id": "tahoe-trip",
+      "name": "Tahoe Trip",
+      "emoji": "🏔️",
+      "messageText": "Trip Planner: cabin booked! I made a packing list for everyone"
+    }
+  ],
+  "things": [
+    {
+      "id": "dinner-suggestion",
+      "conversationName": "The Kitchen",
+      "htmlFile": "mock-thing-dinner.html"
+    },
+    {
+      "id": "pushup-streak",
+      "conversationName": "Pushup Party",
+      "htmlFile": "mock-thing-pushups.html"
+    },
+    {
+      "id": "departure-countdown",
+      "conversationName": "Sedona Weekend",
+      "htmlFile": "mock-thing-countdown.html"
+    }
+  ]
+}

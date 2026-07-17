@@ -16,6 +16,7 @@ struct QuickEditView: View {
     @Binding var text: String
     @Binding var image: UIImage?
     @Binding var isImagePickerPresented: Bool
+    var imageAssetIdentifier: Binding<String?>?
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
     let imageSymbolName: String = "photo.fill.on.rectangle.fill"
@@ -26,77 +27,99 @@ struct QuickEditView: View {
 
     @State private var textFieldDelegate: TextFieldDelegate = .init()
 
-    var body: some View {
-        HStack {
-            ImagePickerButton(
-                currentImage: $image,
-                isPickerPresented: $isImagePickerPresented,
-                symbolName: imageSymbolName
-            )
-            .frame(width: 52.0, height: 52.0)
-            .accessibilityIdentifier("quick-edit-image-picker")
+    @ViewBuilder
+    private var settingsButton: some View {
+        if showsSettingsButton {
+            Button {
+                onSettings()
+            } label: {
+                Image(systemName: settingsSymbolName)
+                    .resizable()
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.colorTextTertiary)
+                    .padding(.vertical, 6.0)
+                    .padding(.horizontal, 5.0)
+            }
+            .frame(width: 32.0, height: 32.0)
+            .padding(.trailing, 10.0)
+            .accessibilityLabel("Profile settings")
+            .accessibilityIdentifier("quick-edit-settings-button")
+        }
+    }
 
-            TextField(
-                placeholderText,
-                text: $text
-            )
+    private var doneButton: some View {
+        Button {
+            onSubmit()
+        } label: {
+            Image(systemName: "checkmark")
+                .resizable()
+                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .padding(DesignConstants.Spacing.step4x)
+        }
+        .frame(width: 52.0, height: 52.0)
+        .background(Circle().fill(.colorFillPrimary))
+        .accessibilityLabel("Done editing")
+        .accessibilityIdentifier("quick-edit-done-button")
+    }
+
+    /// The bare field with focus and UIKit introspection, split from
+    /// `nameTextField` so the type-checker solves the introspect generics
+    /// separately from the long modifier tail. The combined chain sat near
+    /// the type-check budget and tripped it on loaded machines.
+    private var introspectedNameField: some View {
+        TextField(placeholderText, text: $text)
             .focused($focusState, equals: focused)
-            .introspect(.textField, on: .iOS(.v26)) { textField in
+            .introspect(.textField, on: .iOS(.v26)) { (textField: UITextField) in
                 textFieldDelegate.action = onSubmit
                 textField.delegate = textFieldDelegate
             }
-            .padding(.leading, DesignConstants.Spacing.step4x)
+    }
+
+    private var nameTextField: some View {
+        let leadingPadding: CGFloat = DesignConstants.Spacing.step4x
+        let fieldHeight: CGFloat = 52.0
+        let borderColor: Color = .colorBorderSubtle
+        return introspectedNameField
+            .padding(.leading, leadingPadding)
             .font(.body)
             .tint(.colorTextPrimary)
             .foregroundStyle(.colorTextPrimary)
             .multilineTextAlignment(.leading)
             .truncationMode(.tail)
             .submitLabel(.done)
-            .frame(height: 52.0)
+            .frame(height: fieldHeight)
             .accessibilityIdentifier("quick-edit-display-name-field")
-            .safeAreaInset(edge: .trailing) {
-                if showsSettingsButton {
-                    Button {
-                        onSettings()
-                    } label: {
-                        Image(systemName: settingsSymbolName)
-                            .resizable()
-                            .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                            .aspectRatio(contentMode: .fit)
-                            .foregroundStyle(.colorTextTertiary)
-                            .padding(.vertical, 6.0)
-                            .padding(.horizontal, 5.0)
-                    }
-                    .frame(width: 32.0, height: 32.0)
-                    .padding(.trailing, 10.0)
-                    .accessibilityLabel("Profile settings")
-                    .accessibilityIdentifier("quick-edit-settings-button")
-                }
-            }
+            .safeAreaInset(edge: .trailing) { settingsButton }
             .onChange(of: text) { _, newValue in
-                if newValue.count > NameLimits.maxDisplayNameLength {
-                    text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
-                }
+                handleTextChanged(to: newValue)
             }
-            .background(
-                Capsule()
-                    .stroke(.colorBorderSubtle, lineWidth: 1.0)
-            )
+            .background(Capsule().stroke(borderColor, lineWidth: 1.0))
+    }
 
-            Button {
-                onSubmit()
-            } label: {
-                Image(systemName: "checkmark")
-                    .resizable()
-                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                    .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .padding(DesignConstants.Spacing.step4x)
-            }
+    private func handleTextChanged(to newValue: String) {
+        let maxLength: Int = NameLimits.maxDisplayNameLength
+        if newValue.count > maxLength {
+            text = String(newValue.prefix(maxLength))
+        }
+    }
+
+    var body: some View {
+        HStack {
+            ImagePickerButton(
+                currentImage: $image,
+                isPickerPresented: $isImagePickerPresented,
+                currentImageAssetIdentifier: imageAssetIdentifier,
+                symbolName: imageSymbolName
+            )
             .frame(width: 52.0, height: 52.0)
-            .background(Circle().fill(.colorFillPrimary))
-            .accessibilityLabel("Done editing")
-            .accessibilityIdentifier("quick-edit-done-button")
+            .accessibilityIdentifier("quick-edit-image-picker")
+
+            nameTextField
+
+            doneButton
         }
         .frame(maxWidth: .infinity)
     }

@@ -3,22 +3,22 @@ import SwiftUI
 
 struct OrphanedInboxDebugView: View {
     let session: any SessionManagerProtocol
-    @State private var orphans: [OrphanedInboxDetail] = []
+    @State private var isOrphaned: Bool = false
     @State private var loadError: String?
-    @State private var deletingClientId: String?
+    @State private var isDeleting: Bool = false
 
     var body: some View {
         List {
             Section {
                 HStack {
-                    Text("Total")
+                    Text("Status")
                     Spacer()
-                    Text("\(orphans.count)")
-                        .foregroundStyle(orphans.isEmpty ? .colorTextSecondary : .red)
+                    Text(isOrphaned ? "Orphaned" : "OK")
+                        .foregroundStyle(isOrphaned ? .red : .colorTextSecondary)
                         .font(.system(.body, design: .monospaced))
                 }
             } header: {
-                Text("Summary")
+                Text("Account")
             }
 
             if let loadError {
@@ -28,34 +28,27 @@ struct OrphanedInboxDebugView: View {
                 }
             }
 
-            if orphans.isEmpty && loadError == nil {
+            if isOrphaned {
                 Section {
-                    Text("No orphaned inboxes found")
+                    Text("The authorized inbox has no joined conversations and no tagged drafts. Reset the account to start clean.")
                         .foregroundStyle(.colorTextSecondary)
-                }
-            }
-
-            ForEach(orphans) { orphan in
-                Section {
-                    orphanRow(orphan: orphan)
-
                     Button {
-                        deleteOrphan(orphan)
+                        resetAccount()
                     } label: {
                         HStack {
-                            if deletingClientId == orphan.clientId {
+                            if isDeleting {
                                 ProgressView()
                                     .padding(.trailing, DesignConstants.Spacing.step2x)
-                                Text("Deleting…")
+                                Text("Resetting…")
                             } else {
                                 Image(systemName: "trash")
-                                Text("Hold to delete")
+                                Text("Hold to reset account")
                             }
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                     }
-                    .disabled(deletingClientId != nil)
+                    .disabled(isDeleting)
                     .buttonStyle(HoldToConfirmPrimitiveStyle(config: {
                         var config = HoldToConfirmStyleConfig.default
                         config.duration = 2.0
@@ -66,85 +59,36 @@ struct OrphanedInboxDebugView: View {
                 }
             }
         }
-        .navigationTitle("Orphaned Inboxes")
+        .navigationTitle("Orphaned Inbox")
         .toolbarTitleDisplayMode(.inline)
         .task {
-            loadOrphans()
+            refresh()
         }
         .refreshable {
-            loadOrphans()
+            refresh()
         }
     }
 
-    private func orphanRow(orphan: OrphanedInboxDetail) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            HStack {
-                Text("Orphaned Inbox")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
-                Spacer()
-            }
-
-            labeledValue("Age", waitingDuration(since: orphan.createdAt))
-            labeledValue("Created", orphan.createdAt.formatted(
-                .dateTime.month(.abbreviated).day().hour().minute()
-            ))
-            labeledValue("Client ID", orphan.clientId, monospaced: true)
-            labeledValue("Inbox ID", orphan.inboxId, monospaced: true)
-            labeledValue("Drafts", "\(orphan.draftConversationIds.count)")
-        }
-        .padding(.vertical, DesignConstants.Spacing.stepHalf)
-    }
-
-    private func labeledValue(_ label: String, _ value: String, monospaced: Bool = false) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.colorTextTertiary)
-                .frame(width: 70, alignment: .leading)
-            Text(value)
-                .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
-                .foregroundStyle(.colorTextSecondary)
-                .textSelection(.enabled)
-        }
-    }
-
-    private func deleteOrphan(_ orphan: OrphanedInboxDetail) {
-        guard deletingClientId == nil else { return }
-        deletingClientId = orphan.clientId
-        Task {
+    private func resetAccount() {
+        guard !isDeleting else { return }
+        isDeleting = true
+        Task { @MainActor in
             do {
-                try await session.deleteOrphanedInbox(clientId: orphan.clientId, inboxId: orphan.inboxId)
+                try await session.deleteAllInboxes()
             } catch {
-                Log.error("Failed to delete orphaned inbox \(orphan.clientId): \(error)")
+                Log.error("Failed to reset account: \(error)")
             }
-            loadOrphans()
-            deletingClientId = nil
+            refresh()
+            isDeleting = false
         }
     }
 
-    private func loadOrphans() {
+    private func refresh() {
         do {
-            orphans = try session.orphanedInboxDetails()
+            isOrphaned = try session.isAccountOrphaned()
             loadError = nil
         } catch {
             loadError = error.localizedDescription
-        }
-    }
-
-    private func waitingDuration(since date: Date) -> String {
-        let interval = max(0, Date().timeIntervalSince(date))
-        let hours = Int(interval) / 3600
-        let minutes = (Int(interval) % 3600) / 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            return "\(days)d \(remainingHours)h \(minutes)m"
-        } else if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
         }
     }
 }

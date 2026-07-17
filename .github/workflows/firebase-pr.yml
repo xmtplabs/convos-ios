@@ -1,0 +1,43 @@
+# Firebase PR Build — thin caller. The job lives in convos-releases:
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-firebase-pr.yml
+#
+# Required repository secrets (passed via `secrets: inherit`):
+#   CONVOS_CERTIFICATES_TOKEN, MATCH_PASSWORD, FIREBASE_SERVICE_ACCOUNT_JSON,
+#   CACHIX_AUTH_TOKEN; optional POSTHOG_API_KEY_DEV, SENTRY_DSN_DEV.
+# Required repository variable: FIREBASE_APP_ID_PR.
+name: Firebase PR Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main", "dev"]
+    # `labeled` lets contributors trigger a build by adding the
+    # `adhoc-build` label without re-pushing. Filtered in the job's `if:`.
+    types: [opened, reopened, synchronize, labeled]
+
+concurrency:
+  group: firebase-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firebase_pr:
+    # On `labeled`, only run when the `adhoc-build` label is the one being
+    # added — otherwise unrelated labels (bug, wip, etc.) would also fire.
+    if: github.event.action != 'labeled' || github.event.label.name == 'adhoc-build'
+    # Callers must grant what the reusable workflow's job declares — a called
+    # workflow can't elevate beyond the caller's grant.
+    permissions:
+      id-token: write
+      contents: read
+    uses: xmtplabs/convos-releases/.github/workflows/ios-firebase-pr.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
+      # Bump both together when Xcode upgrades; the hash is from
+      # `nix store add /Applications/Xcode_NN.N.app`.
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+      firebase-app-id: ${{ vars.FIREBASE_APP_ID_PR }}
+      tester-groups: ${{ vars.FIREBASE_TESTER_GROUPS || 'xmtp-internal' }}
+      pr-number: ${{ github.event.pull_request.number || '' }}
+      pr-title: ${{ github.event.pull_request.title || '' }}
+    secrets: inherit

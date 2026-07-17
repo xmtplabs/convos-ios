@@ -82,7 +82,7 @@ When a step involves a known-tricky pattern (ephemeral UI, background processes,
 ```markdown
 <!-- ✅ Good — calls out the tricky pattern -->
 4. Start `process-join-requests --watch` in a background process, then
-   immediately use `sim_tap_id` with retries to catch the quickname pill
+   immediately use `sim_tap_id` with retries to catch the profile pill
    (per ephemeral UI rules in RULES.md).
 ```
 
@@ -109,7 +109,7 @@ Every test should include:
 
 Don't repeat rules — reference them:
 - Invite processing → "Process the join request (per invite ordering rules in RULES.md)"
-- Ephemeral UI → "Tap the quickname pill (per ephemeral UI rules in RULES.md)"
+- Ephemeral UI → "Tap the profile pill (per ephemeral UI rules in RULES.md)"
 - Log monitoring → "Check for errors (per log monitoring rules in RULES.md)"
 - XMTP errors → "Note any XMTP errors but judge pass/fail by app state (per RULES.md)"
 

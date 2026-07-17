@@ -1,0 +1,288 @@
+id: "27"
+name: "Send and Receive Video Messages"
+description: >
+  Verify end-to-end video messaging: selecting a video from the photo picker,
+  sending with compression, receiving from CLI, thumbnail display with play
+  button and duration badge, inline playback, context menu actions, size limit
+  enforcement, and that existing photo messaging continues to work alongside
+  video. Incoming videos render immediately with a clear thumbnail, unblurred.
+tags: [messaging, video, photos, core]
+depends_on: ["20"]
+estimated_duration_s: 360
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: false
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_reset
+    note: >
+      convos reset && convos init --env dev --force
+  - action: add_test_video_to_simulator
+    note: >
+      Download a short test video and add it to the simulator photo library:
+      curl -sL "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4" -o /tmp/test-video.mp4
+      xcrun simctl addmedia $UDID /tmp/test-video.mp4
+      Also add a test photo if not already present:
+      curl -sL "https://picsum.photos/400/300" -o /tmp/test-photo.jpg
+      xcrun simctl addmedia $UDID /tmp/test-photo.jpg
+  - action: cli_create_conversation
+    args: { name: "Video Test", profile_name: "CLI User" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.invite_url
+  - action: open_deep_link
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: picker_shows_videos
+    name: "Photo picker shows both photos and videos"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - visual_check: "System PhotosPicker is open and shows both photos and videos (videos have duration badges in the grid)"
+    criteria: picker_shows_photos_and_videos
+    note: >
+      The picker filter should be .any(of: [.images, .videos]) so both media
+      types appear. Videos are distinguishable by a duration badge in the
+      system picker grid. Dismiss the picker after visual verification.
+
+  - id: select_and_send_video
+    name: "Select a video and send it"
+    actions:
+      - tap_first_video: {}
+        note: >
+          Tap a video thumbnail in the picker (videos have a duration label
+          overlay). If "Pics are personal" education sheet appears, dismiss
+          with "Got it".
+      - dismiss_education_sheet: { button: "Got it" }
+      - wait_for_element: { id: "attachment-preview-image", timeout: 10 }
+      - screenshot: {}
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label: "Sent", timeout: 30 }
+    verify:
+      - element_exists: { id: "attachment-preview-image" }
+    expect_event: "message.sent"
+    criteria: video_sent_from_app
+    note: >
+      After selecting, a thumbnail preview should appear in the composer area
+      (same attachment-preview-image identifier as photos). The video is
+      compressed before upload, so the send may take longer than a photo.
+      After sending, the message should show a thumbnail with a play button
+      overlay and a duration badge (e.g., "0:10").
+
+  - id: sent_video_displays_correctly
+    name: "Sent video shows thumbnail with play button and duration"
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: "Sent video message shows a thumbnail image with a play button overlay and a duration badge"
+      - element_exists: { id: "video-play-button" }
+      - element_exists: { id: "video-duration-badge" }
+    criteria: sent_video_has_thumbnail_and_controls
+    note: >
+      The video message in the conversation should display as a full-bleed
+      thumbnail (like photos) but with a centered play button and a duration
+      badge in the corner. The thumbnail is a still frame from the video.
+
+  - id: remove_video_before_send
+    name: "Remove video attachment before sending"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_first_video: {}
+      - dismiss_education_sheet: { button: "Got it" }
+      - wait_for_element: { id: "remove-attachment-button", timeout: 10 }
+      - tap: { id: "remove-attachment-button" }
+    verify:
+      - element_not_exists: { id: "attachment-preview-image" }
+    criteria: video_attachment_removable
+    note: >
+      Same flow as photos — selecting a video shows a preview with an X
+      button. Tapping the X removes the preview and returns to text input.
+
+  - id: inline_playback_tap_to_play
+    name: "Tap sent video to start inline playback"
+    actions:
+      - tap: { id: "video-play-button" }
+      - screenshot: {}
+    verify:
+      - visual_check: "Video is playing inline in the message — the play button is gone and the video frame is animating"
+      - element_not_exists: { id: "video-play-button" }
+    criteria: tap_plays_video_inline
+    note: >
+      Tapping the play button on a sent video should start inline playback.
+      The play button overlay disappears and the video plays within the
+      message bubble. No fullscreen player should appear.
+
+  - id: inline_playback_tap_to_pause
+    name: "Tap playing video to pause"
+    actions:
+      - tap: { label_contains: "Video message" }
+        note: Tap the video area to pause
+      - screenshot: {}
+    verify:
+      - visual_check: "Video is paused — the play button overlay has reappeared"
+      - element_exists: { id: "video-play-button" }
+    criteria: tap_pauses_video
+    note: >
+      Tapping a playing video should pause it and bring back the play button
+      overlay.
+
+  - id: receive_video_from_cli
+    name: "Receive a video from CLI (renders unblurred)"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-video.mp4"
+          mime_type: "video/mp4"
+      - wait_for_element: { label_contains: "Video message", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Video message" }
+      - element_exists: { id: "video-play-button" }
+      - element_not_exists: { label_contains: "Tap to reveal" }
+      - visual_check: "Incoming video thumbnail is clear and recognizable with a play button overlay and duration badge, no reveal overlay"
+    expect_event: "message.received"
+    criteria: video_received_from_cli
+    note: >
+      The CLI sends the video as a remote attachment with mime type video/mp4.
+      The app displays it immediately as a clear thumbnail with a play button
+      overlay and duration badge, unblurred. There is no blur and no reveal
+      overlay. The thumbnail and duration metadata are embedded in the
+      RemoteAttachment parameters.
+
+  - id: play_incoming_video
+    name: "Tap incoming video to play"
+    actions:
+      - tap: { id: "video-play-button" }
+      - screenshot: {}
+    verify:
+      - visual_check: "Incoming video is playing inline"
+    criteria: incoming_video_plays_inline
+    note: >
+      Tapping the play button on an incoming video should start inline
+      playback. The video data may need to download first — a progress
+      indicator should show during download, then playback begins.
+
+  - id: video_context_menu_incoming
+    name: "Context menu for incoming video has no Blur/Reveal"
+    actions:
+      - long_press: { label_contains: "Video message", duration: 0.5 }
+        note: Long-press on the incoming video area to open context menu
+      - screenshot: {}
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_not_exists: { label: "Blur" }
+      - element_not_exists: { label: "Reveal" }
+    criteria: incoming_video_context_menu
+    note: >
+      The context menu for an incoming video shows the standard actions
+      (Reply, Save, Share), same as photos. There is no per-message Blur or
+      Reveal action.
+    actions_after:
+      - key: { code: 41 }
+        note: Dismiss context menu with Escape
+
+  - id: own_video_context_menu
+    name: "Context menu for own sent video has no Blur/Reveal"
+    actions:
+      - scroll_to_own_video: {}
+        note: Scroll up to find the video sent by the app user earlier
+      - long_press: { label_contains: "Video message", duration: 0.5 }
+        note: Long-press on own sent video
+      - screenshot: {}
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_not_exists: { label: "Blur" }
+      - element_not_exists: { label: "Reveal" }
+    criteria: own_video_context_menu
+    note: >
+      Own videos render unblurred. The context menu shows the standard
+      actions (Reply, Save, Share) with no Blur or Reveal action.
+    actions_after:
+      - key: { code: 41 }
+
+  - id: photo_still_works
+    name: "Photo sending still works alongside video"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_first_photo: {}
+      - dismiss_education_sheet: { button: "Got it" }
+      - wait_for_element: { id: "send-message-button", timeout: 5 }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label: "Sent", timeout: 15 }
+    verify:
+      - element_exists: { label: "Sent" }
+    expect_event: "message.sent"
+    criteria: photo_sending_still_works
+    note: >
+      After adding video support, photo sending should be completely
+      unchanged. Select a photo, send it, verify it renders as a full-width
+      image.
+
+  - id: conversation_list_preview
+    name: "Conversation list shows appropriate preview text"
+    actions:
+      - tap: { id: "BackButton" }
+        note: Navigate back to conversations list
+      - wait_for_element: { id: "compose-button", timeout: 10 }
+      - find_elements: { pattern: "Video Test" }
+    verify:
+      - element_exists: { label_contains: "a photo" }
+        note: >
+          The last message was a photo, so the preview should say "a photo".
+          If the last message was a video, it should say "a video".
+    criteria: list_preview_text_correct
+    note: >
+      The conversation list preview text should differentiate between photo
+      and video messages. "a photo" for images, "a video" for videos.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  picker_shows_photos_and_videos:
+    description: "Photo picker shows both photos and videos in the grid"
+  video_sent_from_app:
+    description: "Video can be selected from picker and sent successfully"
+  sent_video_has_thumbnail_and_controls:
+    description: "Sent video displays thumbnail with play button and duration badge"
+  video_attachment_removable:
+    description: "Video attachment can be removed from composer before sending"
+  tap_plays_video_inline:
+    description: "Tapping play button starts inline video playback"
+  tap_pauses_video:
+    description: "Tapping a playing video pauses playback"
+  video_received_from_cli:
+    description: "Video sent from CLI renders immediately with a clear thumbnail, unblurred, with no reveal overlay"
+  incoming_video_plays_inline:
+    description: "Tapping the play button on an incoming video starts inline playback"
+  incoming_video_context_menu:
+    description: "Incoming video context menu shows Reply and Save but no Blur or Reveal action"
+  own_video_context_menu:
+    description: "Own sent video context menu shows Reply and Save but no Blur or Reveal action"
+  photo_sending_still_works:
+    description: "Photo sending continues to work alongside video support"
+  list_preview_text_correct:
+    description: "Conversation list preview shows 'a video' or 'a photo' as appropriate"

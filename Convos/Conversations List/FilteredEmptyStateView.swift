@@ -3,6 +3,9 @@ import SwiftUI
 
 struct FilteredEmptyStateView: View {
     let message: String
+    /// Spoken label for the "Show all" button. Defaults to the conversations-
+    /// list phrasing; other surfaces (e.g. contacts) pass their own.
+    var accessibilityLabel: String = "Show all conversations"
     let onShowAll: () -> Void
 
     var body: some View {
@@ -16,7 +19,7 @@ struct FilteredEmptyStateView: View {
                 Text("Show all")
             }
             .convosButtonStyle(.rounded(fullWidth: false))
-            .accessibilityLabel("Show all conversations")
+            .accessibilityLabel(accessibilityLabel)
             .accessibilityIdentifier("show-all-button")
         }
         .frame(maxWidth: .infinity)

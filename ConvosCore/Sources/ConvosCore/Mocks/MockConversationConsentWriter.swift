@@ -5,6 +5,7 @@ public final class MockConversationConsentWriter: ConversationConsentWriterProto
     public var joinedConversations: [Conversation] = []
     public var deletedConversations: [Conversation] = []
     public var deleteAllCalled: Bool = false
+    public var deleteError: Error?
 
     public init() {}
 
@@ -13,6 +14,9 @@ public final class MockConversationConsentWriter: ConversationConsentWriterProto
     }
 
     public func delete(conversation: Conversation) async throws {
+        if let deleteError {
+            throw deleteError
+        }
         deletedConversations.append(conversation)
     }
 

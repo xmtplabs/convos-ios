@@ -29,6 +29,10 @@ public final class DatabaseManager: DatabaseManagerProtocol {
 
     init(environment: AppEnvironment) {
         self.environment = environment
+        // Detect and wipe pre-single-inbox artifacts before opening the database.
+        // On upgrade from any prior version the old GRDB file and XMTP db3s are
+        // removed so the migration below runs against a clean directory.
+        LegacyDataWipe.runIfNeeded(environment: environment)
         do {
             dbPool = try Self.makeDatabasePool(environment: environment)
         } catch {
@@ -38,9 +42,9 @@ public final class DatabaseManager: DatabaseManagerProtocol {
 
     private static func makeDatabasePool(environment: AppEnvironment) throws -> DatabasePool {
         let fileManager = FileManager.default
-        // Use the shared App Group container so the main app and NSE share the same DB
+        // Shared App Group container so the main app and NSE share the same DB.
         let groupDirURL = environment.defaultDatabasesDirectoryURL
-        let dbURL = groupDirURL.appendingPathComponent("convos.sqlite")
+        let dbURL = groupDirURL.appendingPathComponent("convos-single-inbox.sqlite")
 
         // Ensure the App Group directory exists
         try fileManager.createDirectory(at: groupDirURL, withIntermediateDirectories: true)

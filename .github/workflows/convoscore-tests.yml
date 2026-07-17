@@ -15,7 +15,7 @@ concurrency:
 jobs:
   unit-tests:
     name: Unit Tests
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: warp-macos-26-arm64-12x
     timeout-minutes: 15
 
     steps:
@@ -36,14 +36,22 @@ jobs:
             ConvosCore/.build
             ConvosAppData/.build
             ConvosInvites/.build
-            ConvosProfiles/.build
             ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved', 'ConvosProfiles/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
       - name: Run unit tests
         run: ./ci/run-tests.sh --unit
+
+      - name: Upload unit test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-logs
+          path: ci-test-logs/
+          retention-days: 7
+          if-no-files-found: ignore
 
   deploy-backend:
     name: Deploy XMTP Backend
@@ -51,7 +59,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       xmtp_node_address: ${{ steps.deploy.outputs.xmtp_node_address }}
-      xmtp_is_secure: ${{ steps.deploy.outputs.xmtp_is_secure }}
       app_name: ${{ steps.deploy.outputs.app_name }}
 
     steps:
@@ -60,6 +67,8 @@ jobs:
 
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.60
 
       - name: Deploy ephemeral backend
         id: deploy
@@ -69,10 +78,9 @@ jobs:
           APP_NAME="convos-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
           ./ci/fly/deploy "$APP_NAME"
 
-
   integration-tests:
     name: Integration Tests
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: warp-macos-26-arm64-12x
     needs: deploy-backend
     timeout-minutes: 60
 
@@ -100,7 +108,8 @@ jobs:
       - name: Run integration tests
         env:
           XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.xmtp_node_address }}
-          XMTP_IS_SECURE: ${{ needs.deploy-backend.outputs.xmtp_is_secure }}
+          CONVOS_TEST_XMTP_LOG_LEVEL: debug
+          CONVOS_TEST_XMTP_LOG_DIR: ${{ github.workspace }}/xmtp-test-logs
         run: ./ci/run-tests.sh --integration
 
       - name: Upload test logs
@@ -109,7 +118,9 @@ jobs:
         with:
           name: integration-test-logs
           path: |
+            ci-test-logs/
             ConvosCore/.build/debug/*.log
+            xmtp-test-logs/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -126,6 +137,8 @@ jobs:
 
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.60
 
       - name: Destroy ephemeral app
         env:

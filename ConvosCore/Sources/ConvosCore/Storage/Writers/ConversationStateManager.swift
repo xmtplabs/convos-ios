@@ -1,4 +1,5 @@
 import Combine
+import ConvosMetrics
 import Foundation
 import GRDB
 import os
@@ -9,7 +10,6 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 
     func resetFromError() async
 
-    var myProfileWriter: any MyProfileWriterProtocol { get }
     var draftConversationRepository: any DraftConversationRepositoryProtocol { get }
     var conversationConsentWriter: any ConversationConsentWriterProtocol { get }
     var conversationLocalStateWriter: any ConversationLocalStateWriterProtocol { get }
@@ -62,7 +62,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol
     public let conversationConsentWriter: any ConversationConsentWriterProtocol
     public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     public let conversationMetadataWriter: any ConversationMetadataWriterProtocol
@@ -70,43 +69,79 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     // MARK: - Private Properties
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
+    /// Seeds a conversation with the current user's global profile when it
+    /// becomes ready. Injected so the concrete implementation
+    /// (`ProfilesRepository.publishMyProfileToConversation`) stays out of this
+    /// type; defaults to a no-op for tests and mocks.
+    private let profileConversationSeeder: @Sendable (String) async -> Void
     private let stateMachine: ConversationStateMachine
+    /// Inbox IDs to add to the conversation as part of the initial create
+    /// / resume sequence. The contacts picker flow supplies these when
+    /// constructing the state manager so they're folded into the same
+    /// state-machine action as the conversation creation. Downstream
+    /// consumers can then treat `.ready` as the strong guarantee
+    /// "conversation exists and these members are in it". Empty preserves
+    /// existing "+" button / invite-resume behavior.
+    private let initialMemberInboxIds: [String]
 
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
 
+    /// Conversations this instance has already handed to the profile seeder.
+    /// `.ready` can re-emit, so this prevents launching duplicate concurrent
+    /// seeds for the same conversation within one manager's lifetime.
+    /// Conversations with an in-flight profile seed. Coalesces concurrent seeds
+    /// for the same conversation so a `.ready` re-emission doesn't launch a
+    /// duplicate, but the id is cleared when the seed completes so a later
+    /// re-emission can seed again. The seeder is change-aware and stamps only on
+    /// delivery, so a seed that couldn't publish yet (e.g. before the
+    /// conversation is fully joined) is retried rather than suppressed forever.
+    private let seedingConversationIds: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+
     // MARK: - Initialization
 
     public init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         conversationId: String? = nil,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        initialMemberInboxIds: [String] = [],
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        coreActions: any CoreActions = NoOpCoreActions(),
+        profileConversationSeeder: @escaping @Sendable (String) async -> Void = { _ in }
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
+        self.initialMemberInboxIds = initialMemberInboxIds
+        self.profileConversationSeeder = profileConversationSeeder
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
 
-        let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
-        self.conversationMetadataWriter = ConversationMetadataWriter(
-            inboxStateManager: inboxStateManager,
+        let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter, coreActions: coreActions)
+        // Pass the contact-sync coordinator so `addMembers(_:to:)` triggers
+        // the membership-change hook and pulls newly added members into
+        // the contacts table, matching `MessagingService.conversationMetadataWriter()`.
+        let contactSyncCoordinator = ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
+        )
+        let metadataWriter = ConversationMetadataWriter(
+            sessionStateManager: sessionStateManager,
             inviteWriter: inviteWriter,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator
         )
-
-        self.myProfileWriter = MyProfileWriter(
-            inboxStateManager: inboxStateManager,
-            databaseWriter: databaseWriter
-        )
+        self.conversationMetadataWriter = metadataWriter
 
         self.conversationConsentWriter = ConversationConsentWriter(
-            inboxStateManager: inboxStateManager,
-            databaseWriter: databaseWriter
+            sessionStateManager: sessionStateManager,
+            databaseWriter: databaseWriter,
+            pushTopicSubscriptionManager: PushTopicSubscriptionManager(
+                identityStore: identityStore
+            )
         )
 
         self.conversationLocalStateWriter = ConversationLocalStateWriter(
@@ -117,24 +152,40 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             dbReader: databaseReader,
             conversationId: conversationIdSubject.value,
             conversationIdPublisher: conversationIdSubject.eraseToAnyPublisher(),
-            inboxStateManager: inboxStateManager
+            sessionStateManager: sessionStateManager
         )
 
+        // Bridge `ConversationMetadataWriter.addMembers(_:to:)` into the
+        // state machine via the hook so the create / useExisting
+        // sequences can run it before emitting `.ready`. The metadata
+        // writer's full pipeline (XMTP group op, local member rows,
+        // contact sync, ProfileSnapshot) is unchanged; it just gets
+        // composed into the create sequence atomically.
+        let addMembersHook: ConversationStateMachineAddMembersHook = { inboxIds, conversationId in
+            try await metadataWriter.addMembers(inboxIds, to: conversationId)
+        }
+
         self.stateMachine = ConversationStateMachine(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             clientConversationId: initialConversationId,
-            backgroundUploadManager: backgroundUploadManager
+            backgroundUploadManager: backgroundUploadManager,
+            addMembersHook: addMembersHook,
+            coreActions: coreActions
         )
 
         setupStateObservation()
 
         if let conversationId {
+            let memberInboxIds = initialMemberInboxIds
             initializationTask = Task { [stateMachine] in
-                await stateMachine.useExisting(conversationId: conversationId)
+                await stateMachine.useExisting(
+                    conversationId: conversationId,
+                    initialMemberInboxIds: memberInboxIds
+                )
             }
         }
     }
@@ -167,12 +218,39 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         default:
             break
         }
+
+        if case .ready(let result) = state {
+            scheduleProfileSync(for: result.conversationId)
+        }
+    }
+
+    private func scheduleProfileSync(for conversationId: String) {
+        guard !DBConversation.isDraft(id: conversationId) else { return }
+        // Coalesce only concurrent seeds; clear the id when the seed finishes so
+        // a `.ready` re-emission after completion can retry. The seeder is
+        // change-aware (a no-op once the profile has actually been delivered
+        // here), so retrying is cheap and self-limiting.
+        let shouldStart = seedingConversationIds.withLock { $0.insert(conversationId).inserted }
+        guard shouldStart else { return }
+        let seeder = profileConversationSeeder
+        let seeding = seedingConversationIds
+        Task.detached {
+            await seeder(conversationId)
+            seeding.withLock { _ = $0.remove(conversationId) }
+        }
     }
 
     // MARK: - DraftConversationWriterProtocol Methods
 
     public func createConversation() async throws {
-        await stateMachine.create()
+        try await createConversation(startsUnused: false)
+    }
+
+    public func createConversation(startsUnused: Bool) async throws {
+        await stateMachine.create(
+            initialMemberInboxIds: initialMemberInboxIds,
+            startsUnused: startsUnused
+        )
     }
 
     public func joinConversation(inviteCode: String) async throws {
@@ -193,6 +271,13 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         }
     }
 
+    public func send(text: String, clientMessageId: String) async throws {
+        await stateMachine.sendMessage(text: text, clientMessageId: clientMessageId)
+        await MainActor.run {
+            sentMessageSubject.send(text)
+        }
+    }
+
     public func send(image: ImageType) async throws {
         try await stateMachine.sendPhoto(image: image)
     }
@@ -205,8 +290,60 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendEagerPhoto(trackingKey: trackingKey)
     }
 
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        try await stateMachine.startEagerVideoUpload(at: fileURL)
+    }
+
+    public func sendEagerVideo(trackingKey: String) async throws {
+        try await stateMachine.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     public func cancelEagerUpload(trackingKey: String) async {
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
+    }
+
+    public func awaitEagerUpload(trackingKey: String) async throws {
+        try await stateMachine.awaitEagerUpload(trackingKey: trackingKey)
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        try await stateMachine.sendMultiRemoteAttachment(items: items)
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        try await stateMachine.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
+    }
+
+    public func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String,
+        awaitsAgentJoin: Bool
+    ) async throws {
+        try await stateMachine.sendBuilderBundle(
+            text: text,
+            bundleItems: bundleItems,
+            textClientMessageId: textClientMessageId,
+            bundleClientMessageId: bundleClientMessageId,
+            awaitsAgentJoin: awaitsAgentJoin
+        )
+    }
+
+    public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
+    }
+
+    public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
     }
 
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
@@ -229,9 +366,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.deleteFailedMessage(id: id)
     }
 
-    public func delete() async throws {
-        try await inboxStateManager.deleteInbox()
-        await stateMachine.delete()
+    public func insertPendingInvite(text: String) async throws -> String {
+        try await stateMachine.insertPendingInvite(text: text)
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        try await stateMachine.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
     }
 
     public func resetFromError() async {

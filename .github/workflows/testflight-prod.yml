@@ -1,0 +1,75 @@
+# Prod TestFlight Release — thin caller. The job lives in convos-releases:
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-testflight-prod.yml
+#
+# Scheduled (not per-merge): Apple limits TestFlight uploads per version —
+# a train closes entirely once that version ships to the App Store
+# ("Invalid Pre-Release Train ... closed for new build submissions"; bump
+# MARKETING_VERSION to reopen), and long trains cap at ~100 builds. Three
+# slots a day bounds a 30-day train at ≤90 builds and stops per-merge
+# uploads from burning quota on busy days; the check job skips a slot when
+# dev hasn't changed since the last successful upload. Manual
+# workflow_dispatch always builds.
+#
+# Required repository secrets (passed via `secrets: inherit`):
+#   CONVOS_CERTIFICATES_TOKEN, MATCH_PASSWORD, APP_STORE_CONNECT_API_KEY_ID,
+#   APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_API_PRIVATE_KEY,
+#   CACHIX_AUTH_TOKEN; optional POSTHOG_API_KEY_PROD, SENTRY_DSN_PROD,
+#   SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT.
+name: Prod TestFlight Release
+
+on:
+  schedule:
+    # 13:00 / 17:00 / 21:00 UTC — schedule events run on the default
+    # branch (dev), so each slot builds the dev tip.
+    - cron: "0 13,17,21 * * *"
+  workflow_dispatch:
+
+# Single-slot queue: only one TestFlight build runs at a time.
+concurrency:
+  group: testflight-prod
+  cancel-in-progress: true
+
+jobs:
+  # Skip a scheduled slot when dev is unchanged since the last successful
+  # build — an identical rebuild would still consume a build number.
+  check_fresh:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      fresh: ${{ steps.check.outputs.fresh }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch — building regardless of staleness."
+            exit 0
+          fi
+          last=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/testflight-prod.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // empty')
+          if [ "$last" = "${{ github.sha }}" ]; then
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "dev unchanged since last successful build ($last) — skipping."
+          else
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+            echo "New commits since $last — building."
+          fi
+
+  testflight_prod:
+    needs: check_fresh
+    if: needs.check_fresh.outputs.fresh == 'true'
+    # Callers must grant what the reusable workflow's job declares — a called
+    # workflow can't elevate beyond the caller's grant.
+    permissions:
+      id-token: write
+      contents: read
+    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight-prod.yml@main
+    with:
+      runner: warp-macos-latest-arm64-12x
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    secrets: inherit

@@ -1,0 +1,85 @@
+id: "29"
+name: "Typing Indicators"
+description: >
+  Verify that typing indicators appear when another participant is typing,
+  disappear when they stop, and are cleared when a message arrives.
+tags: [messaging, typing, real-time]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Typing Test", profile_name: "CLI Typer" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+  - action: open_invite_url
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id" }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: typing_indicator_appears
+    name: "Typing indicator appears when CLI sends typing"
+    actions:
+      - cli_send_typing: { conversation: "$conversation_id" }
+        note: "convos conversation send-typing-indicator $conversation_id --env dev"
+      - wait_for_element: { label_contains: "typing", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "typing" }
+    criteria: typing_indicator_visible
+    note: >
+      The typing indicator should show animated dots inside a message bubble
+      with the sender's avatar visible.
+
+  - id: typing_indicator_clears_on_message
+    name: "Typing indicator clears when message arrives"
+    actions:
+      - cli_send_text: { conversation: "$conversation_id", text: "Done typing!" }
+      - wait_for_element: { label_contains: "Done typing!", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Done typing!" }
+      - element_not_exists: { label_contains: "typing" }
+    criteria: typing_clears_on_message
+
+  - id: typing_indicator_expires
+    name: "Typing indicator expires after timeout"
+    actions:
+      - cli_send_typing: { conversation: "$conversation_id" }
+      - wait_for_element: { label_contains: "typing", timeout: 10 }
+      - note: "Wait ~10 seconds for the typing indicator to expire automatically"
+      - screenshot: {}
+    verify:
+      - visual_check: "Typing indicator should disappear after the expiry timeout"
+    criteria: typing_expires
+    optional: true
+    note: >
+      Typing indicators expire after a configurable timeout (typically 5-10s).
+      This step may be timing-sensitive.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+
+criteria:
+  typing_indicator_visible:
+    description: "Typing indicator bubble appears when another user is typing"
+  typing_clears_on_message:
+    description: "Typing indicator disappears when the typer sends a message"
+  typing_expires:
+    description: "Typing indicator auto-expires after timeout period"

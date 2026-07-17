@@ -14,25 +14,20 @@ final class GlobalConvoDefaultsTests: XCTestCase {
     }
 
     func testDefaultValuesWhenUnset() {
-        XCTAssertFalse(GlobalConvoDefaults.shared.autoRevealPhotos)
-        XCTAssertFalse(GlobalConvoDefaults.shared.includeInfoWithInvites)
+        XCTAssertTrue(GlobalConvoDefaults.shared.includeInfoWithInvites)
     }
 
     func testPersistsUpdatedValues() {
-        GlobalConvoDefaults.shared.autoRevealPhotos = true
         GlobalConvoDefaults.shared.includeInfoWithInvites = true
 
-        XCTAssertTrue(GlobalConvoDefaults.shared.autoRevealPhotos)
         XCTAssertTrue(GlobalConvoDefaults.shared.includeInfoWithInvites)
     }
 
     func testResetRestoresDefaults() {
-        GlobalConvoDefaults.shared.autoRevealPhotos = true
-        GlobalConvoDefaults.shared.includeInfoWithInvites = true
+        GlobalConvoDefaults.shared.includeInfoWithInvites = false
 
         GlobalConvoDefaults.shared.reset()
 
-        XCTAssertFalse(GlobalConvoDefaults.shared.autoRevealPhotos)
-        XCTAssertFalse(GlobalConvoDefaults.shared.includeInfoWithInvites)
+        XCTAssertTrue(GlobalConvoDefaults.shared.includeInfoWithInvites)
     }
 }

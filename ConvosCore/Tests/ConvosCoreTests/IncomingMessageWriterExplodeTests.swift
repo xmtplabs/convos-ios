@@ -5,7 +5,6 @@ import Testing
 
 @Suite("IncomingMessageWriter ExplodeSettings Tests", .serialized)
 struct IncomingMessageWriterExplodeTests {
-
     @Test("Returns fromSelf when sender is current user")
     func testFromSelfReturnsFromSelf() async throws {
         let fixtures = ExplodeTestFixtures()
@@ -287,8 +286,6 @@ private class ExplodeTestFixtures {
 
             let conversation = DBConversation(
                 id: convId,
-                inboxId: currInboxId,
-                clientId: clId,
                 clientConversationId: convId,
                 inviteTag: "test-invite-tag",
                 creatorId: crId,
@@ -306,8 +303,10 @@ private class ExplodeTestFixtures {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAgent: false,
             )
             try conversation.insert(db)
 

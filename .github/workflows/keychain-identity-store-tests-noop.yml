@@ -1,0 +1,28 @@
+# Companion to keychain-identity-store-tests.yml. That workflow is a
+# required status check but only triggers on keychain-related paths, so
+# pull requests that do not touch those paths would otherwise sit on
+# "Expected - Waiting for status to be reported" forever. This no-op
+# reports the same check name with an immediate success on the inverse
+# paths, per GitHub's documented pattern for skipped-but-required checks:
+# https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks#handling-skipped-but-required-checks
+#
+# Keep the paths-ignore list in sync with the real workflow's paths list,
+# and the job name identical to the real workflow's job name.
+name: KeychainIdentityStore Tests (no-op)
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'KeychainIdentityStoreExample/**'
+      - 'KeychainIdentityStoreTests/**'
+      - 'ConvosCore/Sources/ConvosCore/Auth/Keychain/**'
+      - '.github/workflows/keychain-identity-store-tests.yml'
+
+jobs:
+  test:
+    name: Run KeychainIdentityStore Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report success for the required check
+        run: echo "No KeychainIdentityStore paths changed - tests not required for this PR."

@@ -100,6 +100,19 @@ public enum AppEnvironment: Sendable {
         }
     }
 
+    public var siweConfiguration: SIWEConfiguration {
+        switch self {
+        case .local(let config), .dev(let config), .production(let config):
+            return config.siweConfiguration
+        case .tests:
+            // Tests construct their own SIWEMessage / SIWESigner inputs
+            // directly and never read this accessor. The placeholder
+            // here exists only to keep the switch exhaustive; it must
+            // never reach a real backend.
+            return SIWEConfiguration(domain: "tests.invalid", uri: "https://tests.invalid", chainId: 0)
+        }
+    }
+
     public var appGroupIdentifier: String {
         switch self {
         case .local(config: let config), .dev(config: let config), .production(config: let config):
@@ -213,28 +226,56 @@ public extension AppEnvironment {
         }
     }
 
+    /// True for Dev and Local builds. Gate debug-only UI on this so it
+    /// never reaches the App Store build.
+    var isInternalBuild: Bool {
+        switch self {
+        case .dev, .local:
+            true
+        case .production, .tests:
+            false
+        }
+    }
+
     var defaultXMTPLogsDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }
-
-        guard let groupUrl = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupIdentifier
-        ) else {
-            fatalError("Failed getting container URL for group identifier: \(appGroupIdentifier)")
-        }
-        return groupUrl.appendingPathComponent("logs", isDirectory: true)
+        return appGroupContainerURL.appendingPathComponent("logs", isDirectory: true)
     }
 
     var defaultDatabasesDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }
+        return appGroupContainerURL
+    }
 
+    /// Shared app-group container, used for logs and databases.
+    ///
+    /// A nil container is not a simulator limitation -- the simulator honors
+    /// app-group entitlements like a device. It means the running build was
+    /// not signed with an app-group entitlement that grants
+    /// `appGroupIdentifier`. Common causes: the app was built or installed
+    /// without the entitlement applied (a simulator build needs
+    /// `-configuration Local` or `Dev`, not the default Release), or
+    /// config.json's `appGroupIdentifier` does not match the build
+    /// configuration's `APP_GROUP_IDENTIFIER` entitlement. The message names
+    /// the requested identifier and bundle id so the mismatch is obvious.
+    private var appGroupContainerURL: URL {
         guard let groupUrl = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) else {
-            fatalError("Failed getting container URL for group identifier: \(appGroupIdentifier)")
+            let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
+            let message = """
+            Could not resolve the app group container for '\(appGroupIdentifier)'. \
+            The running build's app-group entitlement does not grant this identifier. \
+            Verify the app was built and installed with its entitlement applied \
+            (simulator builds need -configuration Local or Dev) and that config.json's \
+            appGroupIdentifier matches the build configuration's APP_GROUP_IDENTIFIER. \
+            Bundle id: \(bundleId).
+            """
+            fatalError(message)
         }
         return groupUrl
     }

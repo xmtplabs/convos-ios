@@ -8,6 +8,7 @@ public enum QAEvent {
         case member
         case message
         case onboarding
+        case pairing
         case profile
         case reaction
         case sync

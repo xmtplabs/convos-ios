@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -10,10 +11,21 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     public init() {}
 
     public func sendExplode(expiresAt: Date) async throws {
-        // No-op for mock
+    }
+
+    public func sendTypingIndicator(isTyping: Bool) async throws {
+    }
+
+    public func sendReadReceipt() async throws {
     }
 
     public func prepare(text: String) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepare(joinRequest: JoinRequestContent) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)
         return messageId
@@ -25,7 +37,37 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
         return messageId
     }
 
+    public func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
     public func prepare(reply: Reply) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepareForManualPublish(text: String) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepareForManualPublish(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepareForManualPublish(builderBundleManifest: BuilderBundleManifest) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)
         return messageId

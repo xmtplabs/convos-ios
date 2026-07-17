@@ -1,13 +1,16 @@
+import ConvosMetrics
 import SwiftUI
 
 struct CustomizeSettingsView: View {
     @Bindable private var defaults: GlobalConvoDefaults = .shared
+    @State private var navState: CustomizeSettingsNavigatorImpl = .init()
+    @State private var navigator: CustomizeSettingsCollector?
 
-    private var blurIncomingPhotosBinding: Binding<Bool> {
-        Binding(
-            // UI toggle represents blur-on, so it is the inverse of auto-reveal.
-            get: { !defaults.autoRevealPhotos },
-            set: { defaults.autoRevealPhotos = !$0 }
+    private func ensureNavigator() {
+        guard navigator == nil else { return }
+        navigator = CustomizeSettingsCollector(
+            instance: navState,
+            delegate: PostHogConfiguration.sharedMetricsDelegate ?? CollectorDelegate()
         )
     }
 
@@ -34,35 +37,32 @@ struct CustomizeSettingsView: View {
 
             Section {
                 customizeToggleRow(
-                    symbolName: "eye.slash",
-                    title: "Reveal mode",
-                    subtitle: "Blur incoming pics",
-                    isOn: blurIncomingPhotosBinding,
-                    toggleAccessibilityIdentifier: "customize-reveal-mode-toggle"
-                )
-
-                customizeToggleRow(
                     symbolName: "qrcode",
                     title: "Include info with invites",
                     subtitle: "When enabled, anyone with your convo code can see its pic, name and description",
                     isOn: $defaults.includeInfoWithInvites,
                     toggleAccessibilityIdentifier: "customize-include-info-toggle"
                 )
-            }
 
-            Section {
-                HStack {
-                    Text("Colors")
-                        .foregroundStyle(.colorTextTertiary)
-                    Spacer()
-                    SoonLabel()
-                }
+                customizeToggleRow(
+                    symbolName: "eye",
+                    title: "Read receipts",
+                    subtitle: "Let others know when you've read their messages",
+                    isOn: $defaults.sendReadReceipts,
+                    toggleAccessibilityIdentifier: "read-receipts-toggle"
+                )
             }
-            .disabled(true)
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            ensureNavigator()
+            navState.markScreenAppeared()
+        }
+        .onDisappear {
+            navigator?.closed(context: navState.closeContext())
+        }
     }
 
     @ViewBuilder

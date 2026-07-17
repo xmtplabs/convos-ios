@@ -1,0 +1,17 @@
+default_platform(:ios)
+
+# All lanes live in xmtplabs/convos-releases. Two ways to get them:
+#  - nix develop: CONVOS_LANES is exported by the fastlane wrapper and pins
+#    the lanes to this repo's flake.lock.
+#  - plain fastlane (Homebrew via Scripts/setup.sh): fall back to fetching
+#    the latest lanes from convos-releases main.
+lanes_dir = ENV["CONVOS_LANES"]
+if lanes_dir.to_s.empty?
+  import_from_git(
+    url: "https://github.com/xmtplabs/convos-releases.git",
+    branch: "main",
+    path: "fastlane/lanes/ios.rb",
+  )
+else
+  import "#{lanes_dir}/ios.rb"
+end

@@ -18,6 +18,42 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
     public func fetchAll() throws -> [Conversation] {
         mockConversations
     }
+
+    /// Note: this mock doesn't model the repo's `consent` scope, so a
+    /// test that injects conversations with mixed consent values and
+    /// queries with a narrow scope (e.g. `[.allowed]`) will see false
+    /// positives. The production `ConversationsRepository` enforces
+    /// the scope via the `WHERE consent IN (...)` clause in
+    /// `composeOneToOne`.
+    public func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation? {
+        mockConversations.first { conversation in
+            guard conversation.id != excludedConversationId else { return false }
+            let others = conversation.membersWithoutCurrent
+            return others.count == 1 && others.first?.profile.inboxId == inboxId
+        }
+    }
+
+    public func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
+        var addedByCurrentUser: [Conversation] = []
+        var addedByOthers: [Conversation] = []
+        for conversation in mockConversations {
+            let agentMember = conversation.members.first { member in
+                member.isAgent && member.profile.agentTemplateId == templateId
+            }
+            guard let agentMember else { continue }
+            let currentUserInboxId = conversation.members.first { $0.isCurrentUser }?.profile.inboxId
+            if let inviterInboxId = agentMember.invitedBy?.inboxId, inviterInboxId == currentUserInboxId {
+                addedByCurrentUser.append(conversation)
+            } else {
+                addedByOthers.append(conversation)
+            }
+        }
+        let partition = AgentTemplateConversations(
+            addedByCurrentUser: addedByCurrentUser,
+            addedByOthers: addedByOthers
+        )
+        return Just(partition).eraseToAnyPublisher()
+    }
 }
 
 // MARK: - Mock Conversations Count Repository
@@ -135,8 +171,14 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
         hasMoreMessages = false
     }
 
-    public var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> {
-        Just((conversationId, mockMessages)).eraseToAnyPublisher()
+    public var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> {
+        Just(ConversationMessagesResult(conversationId: conversationId, messages: mockMessages, readReceipts: [], memberProfiles: [:]))
+            .eraseToAnyPublisher()
+    }
+
+    public func fetchInitialResult() throws -> ConversationMessagesResult {
+        let messages = try fetchInitial()
+        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
     }
 }
 
@@ -194,49 +236,110 @@ public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryPro
 // MARK: - Mock Photo Preferences Writer
 
 public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
-    public var autoRevealValues: [String: Bool] = [:]
-    public var hasRevealedFirstValues: [String: Bool] = [:]
+    public var sendReadReceiptsValues: [String: Bool?] = [:]
 
     public init() {}
 
-    public func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws {
-        autoRevealValues[conversationId] = autoReveal
+    public func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws {
+        sendReadReceiptsValues[conversationId] = sendReadReceipts
+    }
+}
+
+// MARK: - Mock Voice Memo Transcript Storage
+
+public final class MockVoiceMemoTranscriptRepository: VoiceMemoTranscriptRepositoryProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func transcript(for messageId: String) async throws -> VoiceMemoTranscript? {
+        nil
     }
 
-    public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
-        hasRevealedFirstValues[conversationId] = hasRevealedFirst
+    public func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript] {
+        [:]
     }
+
+    public func transcriptPublisher(for messageId: String) -> AnyPublisher<VoiceMemoTranscript?, Never> {
+        Just(nil).eraseToAnyPublisher()
+    }
+
+    public func transcriptsPublisher(in conversationId: String) -> AnyPublisher<[String: VoiceMemoTranscript], Never> {
+        Just([:]).eraseToAnyPublisher()
+    }
+}
+
+public final class MockVoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func markPending(messageId: String, conversationId: String, attachmentKey: String) async throws {
+    }
+
+    public func saveCompleted(messageId: String, conversationId: String, attachmentKey: String, text: String) async throws {
+    }
+
+    public func saveFailed(messageId: String, conversationId: String, attachmentKey: String, errorDescription: String?) async throws {
+    }
+
+    public func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws {
+    }
+
+    public func deleteTranscript(messageId: String) async throws {
+    }
+}
+
+public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
+    public init() {}
+
+    public func enqueueIfNeeded(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
+
+    public func retry(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
+
+    public func hasSpeechPermission() -> Bool { true }
 }
 
 // MARK: - Mock Attachment Local State Writer
 
 public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {
-    public var revealedAttachments: [String: String] = [:]
-    public var hiddenKeys: Set<String> = []
+    public var migratedKeys: [String: String] = [:]
 
     public init() {}
-
-    public func markRevealed(attachmentKey: String, conversationId: String) async throws {
-        revealedAttachments[attachmentKey] = conversationId
-    }
-
-    public func markHidden(attachmentKey: String, conversationId: String) async throws {
-        hiddenKeys.insert(attachmentKey)
-        revealedAttachments.removeValue(forKey: attachmentKey)
-    }
 
     public func saveWithDimensions(
         attachmentKey: String,
         conversationId: String,
         width: Int,
         height: Int
-    ) async throws {
-        // No-op for mock
-    }
+    ) async throws {}
+
+    public func saveWithDimensions(
+        attachmentKey: String,
+        conversationId: String,
+        width: Int,
+        height: Int,
+        mimeType: String?
+    ) async throws {}
 
     public func migrateKey(from oldKey: String, to newKey: String) async throws {
-        if let conversationId = revealedAttachments.removeValue(forKey: oldKey) {
-            revealedAttachments[newKey] = conversationId
-        }
+        migratedKeys[oldKey] = newKey
+    }
+
+    public func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws {
+    }
+
+    public func saveDuration(_ duration: Double, for attachmentKey: String) async throws {
     }
 }

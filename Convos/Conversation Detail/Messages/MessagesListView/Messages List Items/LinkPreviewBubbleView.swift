@@ -121,7 +121,7 @@ struct LinkPreviewCardView: View {
 
         hasFetchedMetadata = true
 
-        if let metadata, let messageId,
+        if let metadata,
            preview.imageWidth == nil || preview.title == nil {
             let enriched = preview.enriched(
                 title: metadata.title,
@@ -130,7 +130,11 @@ struct LinkPreviewCardView: View {
                 imageWidth: metadata.imageWidth,
                 imageHeight: metadata.imageHeight
             )
-            await LinkPreviewWriter.shared?.updateLinkPreview(enriched, forMessageId: messageId)
+            if let messageId {
+                await LinkPreviewWriter.shared?.updateLinkPreview(enriched, forMessageId: messageId)
+            } else {
+                TransientLinkPreviewCache.store(enriched)
+            }
         }
     }
 
@@ -146,6 +150,30 @@ struct LinkPreviewCardView: View {
             cachedImage = image
             imageAspectRatio = image.size.width / image.size.height
         }
+    }
+}
+
+/// In-memory enrichment for link previews with no backing database row
+/// (extracted edge links on text messages persist nothing). Re-displays
+/// start at the settled card size instead of replaying the
+/// placeholder-then-resize jump on every scroll-by.
+enum TransientLinkPreviewCache {
+    private final class Entry: NSObject {
+        let preview: LinkPreview
+
+        init(_ preview: LinkPreview) {
+            self.preview = preview
+        }
+    }
+
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Entry> = .init()
+
+    static func enriched(_ preview: LinkPreview) -> LinkPreview {
+        cache.object(forKey: preview.url as NSString)?.preview ?? preview
+    }
+
+    static func store(_ preview: LinkPreview) {
+        cache.setObject(Entry(preview), forKey: preview.url as NSString)
     }
 }
 
