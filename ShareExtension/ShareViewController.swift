@@ -153,12 +153,40 @@ final class ShareViewController: UIViewController {
 /// process on every share; the staged outbox already guarantees delivery of
 /// anything a dead process left behind, so exit is safe by construction.
 enum ExtensionProcessRetirement {
-    /// Exits the process if no sheet is active after `delay`. A share that
-    /// arrives in the window flips `activeSheetCount` and the exit is
-    /// skipped; that share schedules its own retirement when it finishes.
+    /// In-flight publish runways. Sheets and runways have different
+    /// lifetimes - a runway outlives its dismissed sheet - so retirement
+    /// must wait for both counts to reach zero, or one share's retirement
+    /// could kill another share's still-publishing runway (overlapping
+    /// shares in one reused process). Lock-protected because runways run
+    /// on background queues.
+    private static let lock: NSLock = NSLock()
+    nonisolated(unsafe) private static var runwayCount: Int = 0
+
+    static nonisolated func runwayBegan() {
+        lock.lock()
+        runwayCount += 1
+        lock.unlock()
+    }
+
+    static nonisolated func runwayEnded() {
+        lock.lock()
+        runwayCount -= 1
+        lock.unlock()
+    }
+
+    private static nonisolated var activeRunways: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return runwayCount
+    }
+
+    /// Exits the process if no sheet is active and no runway is publishing
+    /// after `delay`. A share or runway that begins in the window flips its
+    /// count and the exit is skipped; whichever activity finishes last
+    /// schedules the retirement that actually fires.
     static nonisolated func retireIfIdle(after delay: TimeInterval, reason: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            guard ShareViewController.activeSheetCount == 0 else { return }
+            guard ShareViewController.activeSheetCount == 0, activeRunways == 0 else { return }
             Log.info("retiring extension process (\(reason))")
             ConvosLog.flush()
             exit(0)
@@ -555,15 +583,18 @@ final class ShareComposeModel: AgentDraftComposing {
             .sink { _ in
                 semaphore.signal()
             }
+        ExtensionProcessRetirement.runwayBegan()
         ProcessInfo.processInfo.performExpiringActivity(withReason: "share-extension-publish") { expired in
             guard !expired else {
                 cancellable?.cancel()
+                ExtensionProcessRetirement.runwayEnded()
                 return
             }
             let outcome = semaphore.wait(timeout: .now() + Constant.publishRunway)
             Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out"))")
             ConvosLog.flush()
             cancellable?.cancel()
+            ExtensionProcessRetirement.runwayEnded()
             ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "runway ended")
         }
     }

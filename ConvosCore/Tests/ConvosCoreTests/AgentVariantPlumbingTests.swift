@@ -147,7 +147,7 @@ struct AgentVariantPlumbingTests {
         let database = try Self.makeDatabase()
         let api = VariantRecordingStubAPIClient()
         let repository = Self.makeRepository(database: database, apiClient: api)
-        repository.startGeneration(
+        await repository.startGeneration(
             prompt: "build me a chef",
             conversationId: "convo-1",
             slug: "chef.abcd",

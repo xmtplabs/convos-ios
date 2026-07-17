@@ -223,7 +223,7 @@ public enum AgentCreationFlow {
         connections: [String] = [],
         variantId: String? = nil
     ) async {
-        session.agentTemplateRepository().startGeneration(
+        await session.agentTemplateRepository().startGeneration(
             prompt: commit.summary.prompt,
             conversationId: conversationId,
             slug: slug,

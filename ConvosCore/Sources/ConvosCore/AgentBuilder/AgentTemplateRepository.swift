@@ -84,7 +84,11 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// `variantId` is the dev-only agent variant slug captured once at build
     /// start (`nil` for default builds); it is persisted on the row and reused
     /// for the generation, join, and join-status-poll calls.
-    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?)
+    /// Returns once the generation row is durably persisted (the row is what
+    /// `resumePendingGenerations` re-drives, so callers may treat the return
+    /// as the delivery handoff); the submit/poll pipeline continues in the
+    /// background.
+    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async
 
     /// Latest generation for a conversation, observed reactively.
     func generationPublisher(conversationId: String) -> AnyPublisher<AgentTemplateGeneration?, Never>
@@ -107,8 +111,8 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
 
 public extension AgentTemplateRepositoryProtocol {
     /// Text-only convenience for callers with no attachments or connections.
-    func startGeneration(prompt: String, conversationId: String, slug: String) {
-        startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [], variantId: nil)
+    func startGeneration(prompt: String, conversationId: String, slug: String) async {
+        await startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [], variantId: nil)
     }
 }
 
@@ -165,7 +169,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         joinHandler.withLock { $0 = handler }
     }
 
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async {
         let idempotencyKey: String = UUID().uuidString
         let now: Date = Date()
         let storedAttachments: [StoredGenerationAttachment]
@@ -191,17 +195,20 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             updatedAt: now
         )
         Log.info("AgentTemplateRepository: starting generation \(idempotencyKey) for conversation \(conversationId)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.databaseWriter.write { db in
-                    try row.insert(db)
-                }
-            } catch {
-                Log.error("AgentTemplateRepository: failed to persist generation row: \(error.localizedDescription)")
-                return
+        // The insert is awaited so the caller's return means the row is
+        // durable: staged share-extension records are cleared on this
+        // return, and a fire-and-forget insert left a kill window where
+        // neither record existed (review finding on PR #1191).
+        do {
+            try await databaseWriter.write { db in
+                try row.insert(db)
             }
-            await self.drive(idempotencyKey: idempotencyKey)
+        } catch {
+            Log.error("AgentTemplateRepository: failed to persist generation row: \(error.localizedDescription)")
+            return
+        }
+        Task { [weak self] in
+            await self?.drive(idempotencyKey: idempotencyKey)
         }
     }
 
@@ -743,7 +750,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 /// No-op repository used as the `SessionManagerProtocol` default so test mocks
 /// and non-builder conformers don't need bespoke wiring.
 public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol {
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {}
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async {}
 
     public init() {}
 
