@@ -152,6 +152,21 @@ final class ShareViewController: UIViewController {
 /// Exiting once all work is done trades warm relaunch for a fresh 14 MB
 /// process on every share; the staged outbox already guarantees delivery of
 /// anything a dead process left behind, so exit is safe by construction.
+/// Lock-protected once-only latch; `fire()` returns true for exactly one
+/// caller across threads.
+final class OneShotFlag: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var fired: Bool = false
+
+    func fire() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !fired else { return false }
+        fired = true
+        return true
+    }
+}
+
 enum ExtensionProcessRetirement {
     /// In-flight publish runways. Sheets and runways have different
     /// lifetimes - a runway outlives its dismissed sheet - so retirement
@@ -584,17 +599,30 @@ final class ShareComposeModel: AgentDraftComposing {
                 semaphore.signal()
             }
         ExtensionProcessRetirement.runwayBegan()
+        // performExpiringActivity can invoke the block a second time with
+        // expired=true while the first invocation is still blocked on the
+        // semaphore; both invocations run their cleanup, so the count
+        // decrement must be one-shot per runway or it goes negative and a
+        // later share's runway is unprotected.
+        let runwayEnd = OneShotFlag()
         ProcessInfo.processInfo.performExpiringActivity(withReason: "share-extension-publish") { expired in
             guard !expired else {
                 cancellable?.cancel()
-                ExtensionProcessRetirement.runwayEnded()
+                // Unblock the original invocation promptly; iOS is about to
+                // suspend the process either way.
+                semaphore.signal()
+                if runwayEnd.fire() {
+                    ExtensionProcessRetirement.runwayEnded()
+                }
                 return
             }
             let outcome = semaphore.wait(timeout: .now() + Constant.publishRunway)
             Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out"))")
             ConvosLog.flush()
             cancellable?.cancel()
-            ExtensionProcessRetirement.runwayEnded()
+            if runwayEnd.fire() {
+                ExtensionProcessRetirement.runwayEnded()
+            }
             ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "runway ended")
         }
     }
