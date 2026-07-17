@@ -51,7 +51,7 @@ public enum AgentCreationFlow {
     /// is not yet sent when this returns - callers clear any durable staging
     /// record first (the generation row now guarantees delivery), then call
     /// `sendPrompt(for:)`.
-    public struct CreatedAgent {
+    public struct CreatedAgent: Sendable {
         public let conversationId: String
         public let commit: Commit
     }

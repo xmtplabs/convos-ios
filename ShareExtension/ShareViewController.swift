@@ -229,6 +229,10 @@ final class ShareComposeModel: AgentDraftComposing {
     /// conversation's transcript with the agent-join progress cell,
     /// mirroring the app's post-Make reveal, for a beat before it closes.
     var didMakeAgent: Bool = false
+    /// The pre-created (still hidden) draft conversation, resolved as soon
+    /// as `prepareDraftConversation` finishes so the transcript can mount
+    /// beneath the draft composer ahead of Make.
+    var draftConversation: Conversation?
     var isReady: Bool = false
     var isSending: Bool = false
     /// User-visible reason the share sheet cannot proceed (intent target gone,
@@ -335,9 +339,15 @@ final class ShareComposeModel: AgentDraftComposing {
                 target = nil
                 isNewAgentTarget = true
                 let session = client.session
-                draftConversationTask = Task {
+                draftConversationTask = Task { [weak self] in
                     let draft = try await AgentCreationFlow.prepareDraftConversation(session: session)
                     Log.info("draft conversation ready \(draft.conversationId)")
+                    // Mount the transcript now, hidden beneath the draft
+                    // composer, so the collection view's expensive first
+                    // layout is long done when Make crossfades to it -
+                    // mounting at reveal time made the fade land on an
+                    // empty, still-laying-out list.
+                    await self?.mountDraftTranscript(id: draft.conversationId, client: client)
                     return draft
                 }
             }
@@ -381,6 +391,34 @@ final class ShareComposeModel: AgentDraftComposing {
         }
     }
 
+    private func publishPromptInBackground(_ created: AgentCreationFlow.CreatedAgent, session: any SessionManagerProtocol) {
+        guard created.commit.promptMessageId != nil else { return }
+        ExtensionProcessRetirement.runwayBegan()
+        Task {
+            do {
+                try await AgentCreationFlow.sendPrompt(
+                    for: created,
+                    session: session,
+                    backgroundUploadManager: UnavailableBackgroundUploadManager()
+                )
+                Log.info("prompt published to \(created.conversationId)")
+            } catch {
+                Log.error("prompt publish failed; the app's drain will republish: \(error.localizedDescription)")
+            }
+            ExtensionProcessRetirement.runwayEnded()
+            ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "prompt published")
+        }
+    }
+
+    private func mountDraftTranscript(id conversationId: String, client: ConvosClient) {
+        guard let conversation = try? client.session.conversationRepository(for: conversationId).fetchConversation() else {
+            Log.warning("draft conversation \(conversationId) not readable; transcript mounts at reveal instead")
+            return
+        }
+        draftConversation = conversation
+        startObservingMessages(for: conversation, client: client)
+    }
+
     /// Swaps the draft composer for the new conversation's transcript so the
     /// user sees the same post-Make surface the app shows: the creation-
     /// prompt card (seeded synchronously, like the app's inner view model),
@@ -396,7 +434,11 @@ final class ShareComposeModel: AgentDraftComposing {
         targetConversationId = conversation.id
         targetConversation = conversation
         targetTitle = conversation.computedDisplayName(memberNameOverride: { _ in nil })
-        startObservingMessages(for: conversation, client: client)
+        // Pre-mounted at draft-ready in the common path; the fallback
+        // (create-at-Make) still mounts here.
+        if messagesListRepository == nil {
+            startObservingMessages(for: conversation, client: client)
+        }
         // Seed the cards the app's view model would provide: the processor
         // renders the creation card from the summary without waiting for the
         // prompt row to land, and the activating card supplies the join
@@ -562,17 +604,17 @@ final class ShareComposeModel: AgentDraftComposing {
             // staged record so the drain cannot build a duplicate agent.
             AgentBuildOutbox.clear(id: stagedId)
             Log.info("make agent: generation submitted to \(created.conversationId) attachments=\(prepared.inputs.count)")
-            if let writer = try await AgentCreationFlow.sendPrompt(
-                for: created,
-                session: session,
-                backgroundUploadManager: UnavailableBackgroundUploadManager()
-            ) {
-                Self.holdPublishRunway(writer: writer, count: 1)
-            }
             messageText = ""
             pendingMediaAttachments = []
             pendingLinkPreview = nil
+            // Reveal before the prompt publish: the commit above is all
+            // local database work, so the crossfade starts immediately (the
+            // app sequences its Make the same way). The publish is network
+            // and rides a retirement-guarded background task; if the process
+            // still dies mid-publish, the prepared row is republished by the
+            // app's outgoing-message drain.
             revealCreatedConversation(created, client: client)
+            publishPromptInBackground(created, session: session)
             return true
         } catch {
             Log.error("make agent failed: \(error)")
@@ -943,7 +985,7 @@ struct ShareComposeView: View {
     /// of the app's overlay-fade commit choreography.
     private var newAgentStack: some View {
         ZStack {
-            if let conversation = model.targetConversation {
+            if let conversation = model.targetConversation ?? model.draftConversation {
                 conversationTranscript(for: conversation)
             }
             if !model.didMakeAgent {
@@ -1024,13 +1066,15 @@ struct ShareComposeView: View {
     private func handleMakeTap() {
         guard !model.isSending else { return }
         Task { @MainActor in
+            // Drop the keyboard at the tap, while the composer content is
+            // already fading via isCommitting - dismissing it during the
+            // crossfade made the keyboard slide-down and its layout resize
+            // fight the reveal animation.
+            focusState = nil
             if await model.send() {
                 if model.didMakeAgent {
-                    // Let the post-Make transcript (creation card + join
-                    // progress) register before the sheet closes, mirroring
-                    // the app's reveal. The publish runway is already held,
-                    // so the dwell costs the delivery path nothing.
-                    focusState = nil
+                    // Dwell on the post-Make transcript (creation card + join
+                    // progress) before the sheet closes, mirroring the app.
                     try? await Task.sleep(for: .seconds(Constant.postMakeDwellSeconds))
                 }
                 onSend()
