@@ -122,6 +122,42 @@ struct CapabilityRequestCodecTests {
         )
         #expect(try codec.shouldPush(content: request) == false)
     }
+
+    @Test("validateCapabilityRequest rejects spoofed askerInboxId")
+    func validateRejectsSpoofedSender() throws {
+        let spoofed = CapabilityRequest(
+            requestId: "req-1",
+            askerInboxId: "trusted_agent_inbox",
+            subject: .calendar,
+            capability: .writeCreate,
+            rationale: "hostile rationale"
+        )
+
+        #expect(throws: XMTPiOS.DecodedMessage.DecodedMessageDBRepresentationError.self) {
+            try XMTPiOS.DecodedMessage.validateCapabilityRequest(
+                spoofed,
+                senderInboxId: "hostile_member_inbox",
+                messageId: "msg-1"
+            )
+        }
+    }
+
+    @Test("validateCapabilityRequest passes when sender matches askerInboxId")
+    func validateAcceptsMatchingSender() throws {
+        let legitimate = CapabilityRequest(
+            requestId: "req-2",
+            askerInboxId: "agent_inbox",
+            subject: .calendar,
+            capability: .writeCreate,
+            rationale: "I can add events to your calendar."
+        )
+
+        try XMTPiOS.DecodedMessage.validateCapabilityRequest(
+            legitimate,
+            senderInboxId: "agent_inbox",
+            messageId: "msg-2"
+        )
+    }
 }
 
 @Suite("CapabilityRequestResult codec")
