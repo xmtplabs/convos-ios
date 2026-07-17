@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import ConvosMetrics
@@ -34,6 +35,7 @@ struct AgentBuilderView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
+    @State private var isConnectionsSheetPresented: Bool = false
     @State private var didFireInlineCommit: Bool = false
     /// Local focus state for `.inline` mode. Sheet mode reads its focus
     /// state from [[ConversationPresenter]]'s content closure (which owns
@@ -389,7 +391,16 @@ struct AgentBuilderView: View {
                     withAnimation(.easeInOut(duration: 0.35)) {
                         viewModel.commit(focusCoordinator: focusCoordinator)
                     }
-                }
+                },
+                connectionChips: viewModel.agentDraftConnectionChips,
+                onConnectionsTap: { isConnectionsSheetPresented = true }
+            )
+            // The connections sheet is an app-only concept, so its
+            // presentation lives here rather than in the packaged composer.
+            .selfSizingSheet(
+                isPresented: $isConnectionsSheetPresented,
+                onDismiss: { focusState.wrappedValue = .agentBuilder },
+                content: { AgentBuilderConnectionsSheet(viewModel: viewModel) }
             )
             // Cap the card at its original height but let it shrink below
             // that when the keyboard constrains the available space. With a

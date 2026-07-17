@@ -6,6 +6,15 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     public static let shared: BackgroundUploadManager = BackgroundUploadManager()
 
     public static let sessionIdentifier: String = "com.convos.backgroundUpload"
+    /// The share extension's uploads run under their own session identifier
+    /// (background session identifiers must be unique per process), backed by
+    /// the app-group container. When an upload outlives the extension, iOS
+    /// launches the containing app and hands it events for this identifier;
+    /// the app reconstitutes a manager with the same identifier to drain them.
+    public static let shareExtensionSessionIdentifier: String = "com.convos.backgroundUpload.shareExtension"
+
+    private let configuredSessionIdentifier: String
+    private let sharedContainerIdentifier: String?
 
     // swiftlint:disable:next implicitly_unwrapped_optional
     private var backgroundSession: URLSession!
@@ -35,15 +44,22 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
     /// Results for tasks that completed before waitForCompletion was called
     private var completedResults: [String: BackgroundUploadResult] = [:]
 
-    private override init() {
+    private override convenience init() {
+        self.init(sessionIdentifier: Self.sessionIdentifier, sharedContainerIdentifier: nil)
+    }
+
+    public init(sessionIdentifier: String, sharedContainerIdentifier: String?) {
+        self.configuredSessionIdentifier = sessionIdentifier
+        self.sharedContainerIdentifier = sharedContainerIdentifier
         super.init()
 
         sessionQueue.async { [self] in
-            let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
+            let config = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
             config.isDiscretionary = false
             config.sessionSendsLaunchEvents = true
             config.allowsCellularAccess = true
             config.shouldUseExtendedBackgroundIdleMode = true
+            config.sharedContainerIdentifier = sharedContainerIdentifier
 
             backgroundSession = URLSession(
                 configuration: config,
@@ -93,7 +109,7 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
         identifier: String,
         completionHandler: @escaping @Sendable () -> Void
     ) async {
-        guard identifier == Self.sessionIdentifier else {
+        guard identifier == configuredSessionIdentifier else {
             completionHandler()
             return
         }

@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosConnections
 import ConvosCore
 import ConvosMetrics
