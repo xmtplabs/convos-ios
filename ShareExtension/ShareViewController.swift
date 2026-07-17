@@ -423,7 +423,11 @@ final class ShareComposeModel: AgentDraftComposing {
     /// user sees the same post-Make surface the app shows: the creation-
     /// prompt card (seeded synchronously, like the app's inner view model),
     /// the "activating agent" progress card, and the prompt message.
-    private func revealCreatedConversation(_ created: AgentCreationFlow.CreatedAgent, client: ConvosClient) {
+    private func revealCreatedConversation(
+        _ created: AgentCreationFlow.CreatedAgent,
+        client: ConvosClient,
+        commitStartedAt: Date
+    ) async {
         guard let conversation = try? client.session.conversationRepository(for: created.conversationId).fetchConversation() else {
             Log.warning("make agent: created conversation \(created.conversationId) not readable for reveal; closing without transcript")
             return
@@ -454,6 +458,14 @@ final class ShareComposeModel: AgentDraftComposing {
             agentDescription: nil,
             progressPhrases: []
         )
+        // Phase A parity with the app: the composer content gets its full
+        // 180ms fade (driven by isCommitting) before the reveal spring
+        // starts, even when the local commit finishes faster.
+        let elapsed = Date().timeIntervalSince(commitStartedAt)
+        let remaining = Constant.contentFadeSeconds - elapsed
+        if remaining > 0 {
+            try? await Task.sleep(for: .seconds(remaining))
+        }
         withAnimation(.easeInOut(duration: 0.35)) {
             didMakeAgent = true
         }
@@ -568,6 +580,7 @@ final class ShareComposeModel: AgentDraftComposing {
     /// (`resumePendingGenerations`) - delivery is guaranteed, like a photo
     /// send.
     private func makeAgent(text: String, client: ConvosClient) async -> Bool {
+        let commitStartedAt = Date()
         do {
             var promptText = text
             if let linkURL = pendingLinkPreview?.url {
@@ -613,7 +626,7 @@ final class ShareComposeModel: AgentDraftComposing {
             // and rides a retirement-guarded background task; if the process
             // still dies mid-publish, the prepared row is republished by the
             // app's outgoing-message drain.
-            revealCreatedConversation(created, client: client)
+            await revealCreatedConversation(created, client: client, commitStartedAt: commitStartedAt)
             publishPromptInBackground(created, session: session)
             return true
         } catch {
@@ -858,6 +871,9 @@ final class ShareComposeModel: AgentDraftComposing {
         /// crossed the 120 MB ceiling on device; 1280px cuts every copy to
         /// ~9 MB.
         static let sharedImageMaxPixel: CGFloat = 1280
+        /// Mirrors the app's `contentFadeMs`: the pause between the Make tap
+        /// (composer content fading) and the overlay reveal.
+        static let contentFadeSeconds: TimeInterval = 0.18
     }
 }
 
@@ -984,18 +1000,36 @@ struct ShareComposeView: View {
     /// crossfades the composer away to reveal it - the extension's version
     /// of the app's overlay-fade commit choreography.
     private var newAgentStack: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             if let conversation = model.targetConversation ?? model.draftConversation {
                 conversationTranscript(for: conversation)
             }
             if !model.didMakeAgent {
+                DesignConstants.Colors.backgroundRaisedSecondary
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+            if !model.didMakeAgent {
                 agentDraftStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(uiColor: .systemBackground))
-                    .transition(.opacity)
+                    .transition(draftRemovalTransition)
+                    .zIndex(2)
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: model.didMakeAgent)
+        .animation(.spring(response: 0.42, dampingFraction: 0.85), value: model.didMakeAgent)
+    }
+
+    /// The app's exact commit choreography (`AgentBuilderView.content`): the
+    /// composer slides down, scales toward its bottom edge, and fades on the
+    /// reveal spring while the backdrop layer fades separately.
+    private var draftRemovalTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity,
+            removal: .move(edge: .bottom)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.85, anchor: .bottom))
+        )
     }
 
     private func conversationTranscript(for conversation: Conversation) -> some View {

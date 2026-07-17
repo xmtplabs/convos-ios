@@ -58,6 +58,10 @@ public enum DesignConstants {
         /// consume the package but can't see its internal asset accessors.
         public static let textPrimary: Color = .colorTextPrimary
         public static let textSecondary: Color = .colorTextSecondary
+        /// Raised-surface backdrop (Figma `color/background/raised-secondary`),
+        /// the color the agent builder floats over before Make reveals the
+        /// conversation beneath it.
+        public static let backgroundRaisedSecondary: Color = .colorBackgroundRaisedSecondary
     }
 
     public enum Fonts {
