@@ -182,6 +182,10 @@ final class ShareComposeModel: AgentDraftComposing {
     /// stages the content for the app, which opens the agent builder with it
     /// pre-seeded on its next foreground.
     var isNewAgentTarget: Bool = false
+    /// Set after a successful Make: the sheet morphs into the new
+    /// conversation's transcript with the agent-join progress cell,
+    /// mirroring the app's post-Make reveal, for a beat before it closes.
+    var didMakeAgent: Bool = false
     var isReady: Bool = false
     var isSending: Bool = false
     /// User-visible reason the share sheet cannot proceed (intent target gone,
@@ -330,6 +334,26 @@ final class ShareComposeModel: AgentDraftComposing {
             Log.error("prepare failed: \(error.localizedDescription)")
             unavailableReason = "Convos could not start. Try again."
         }
+    }
+
+    /// Swaps the draft composer for the new conversation's transcript so the
+    /// user sees the same post-Make surface the app shows (prompt message,
+    /// creation card, agent-join progress cell) while the sheet lingers for
+    /// a beat before closing.
+    private func revealCreatedConversation(id conversationId: String, client: ConvosClient) {
+        let conversations = (try? client.session.conversationsRepository(for: [.allowed]).fetchAll()) ?? []
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            Log.warning("make agent: created conversation \(conversationId) not readable for reveal; closing without transcript")
+            return
+        }
+        if let myProfile = conversation.members.first(where: { $0.isCurrentUser })?.profile {
+            profile = myProfile
+        }
+        targetConversationId = conversation.id
+        targetConversation = conversation
+        targetTitle = conversation.computedDisplayName(memberNameOverride: { _ in nil })
+        startObservingMessages(for: conversation, client: client)
+        didMakeAgent = true
     }
 
     private func startObservingMessages(for conversation: Conversation, client: ConvosClient) {
@@ -483,6 +507,7 @@ final class ShareComposeModel: AgentDraftComposing {
             messageText = ""
             pendingMediaAttachments = []
             pendingLinkPreview = nil
+            revealCreatedConversation(id: created.conversationId, client: client)
             return true
         } catch {
             Log.error("make agent failed: \(error)")
@@ -855,7 +880,7 @@ struct ShareComposeView: View {
                 onRetryTranscript: { _ in },
                 profileSheetForMember: { _ in AnyView(EmptyView()) },
                 memberContactOverride: { _ in nil },
-                isAgentJoinPending: false,
+                isAgentJoinPending: model.didMakeAgent,
                 headerMode: .suppressed,
                 bottomBarHeight: bottomBarHeight,
                 hasBottomBar: true,
@@ -900,6 +925,14 @@ struct ShareComposeView: View {
         guard !model.isSending else { return }
         Task { @MainActor in
             if await model.send() {
+                if model.didMakeAgent {
+                    // Let the post-Make transcript (creation card + join
+                    // progress) register before the sheet closes, mirroring
+                    // the app's reveal. The publish runway is already held,
+                    // so the dwell costs the delivery path nothing.
+                    focusState = nil
+                    try? await Task.sleep(for: .seconds(Constant.postMakeDwellSeconds))
+                }
                 onSend()
             }
         }
@@ -972,5 +1005,11 @@ struct ShareComposeView: View {
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() }
         )
+    }
+
+    private enum Constant {
+        /// How long the post-Make transcript stays up before the sheet
+        /// dismisses itself.
+        static let postMakeDwellSeconds: TimeInterval = 3.0
     }
 }
