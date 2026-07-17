@@ -97,6 +97,10 @@ public struct AgentBuilderSummaryView: View {
         }
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        // The chip row disables scroll clipping and stretches edge-to-edge via
+        // negative padding, so the card itself must mask it -- without this,
+        // chips bleed past the border.
+        .clipShape(.rect(cornerRadius: Constant.cornerRadius))
         .background(
             RoundedRectangle(cornerRadius: Constant.cornerRadius)
                 .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)

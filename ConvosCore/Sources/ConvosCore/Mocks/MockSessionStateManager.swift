@@ -43,6 +43,9 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     public func requestDiscovery() async {
     }
 
+    public func runHistorySyncBackfill() async {
+    }
+
     public func startAgentJoinRequestPolling() async {
     }
 
