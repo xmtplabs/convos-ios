@@ -1,4 +1,4 @@
-import ConvosCore
+#if canImport(UIKit)
 import SwiftUI
 
 /// One of the "top three" invite actions rendered above the contacts list in
@@ -11,8 +11,8 @@ import SwiftUI
 /// The leading icon is either an SF Symbol (`qrcode`, `square.and.arrow.up`)
 /// or a bundled asset image (the custom `addAgentIcon` agent glyph), rendered
 /// white-on-black.
-struct ContactsPickerActionRow: View {
-    enum Icon {
+public struct ContactsPickerActionRow: View {
+    public enum Icon {
         case system(String)
         case asset(String)
     }
@@ -27,7 +27,7 @@ struct ContactsPickerActionRow: View {
     let showsProgress: Bool
     let action: () -> Void
 
-    init(
+    public init(
         icon: Icon,
         title: String,
         subtitle: String? = nil,
@@ -43,7 +43,7 @@ struct ContactsPickerActionRow: View {
         self.action = action
     }
 
-    var body: some View {
+    public var body: some View {
         Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 iconTile
@@ -94,7 +94,7 @@ struct ContactsPickerActionRow: View {
             // A bundled template asset renders at its (small) intrinsic size and
             // ignores `.font`, so it has to be resized explicitly to fill the
             // tile like the SF Symbols in the sibling rows do.
-            Image(name)
+            Image(name, bundle: .module)
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
@@ -136,3 +136,4 @@ struct ContactsPickerActionRow: View {
     }
     .padding()
 }
+#endif
