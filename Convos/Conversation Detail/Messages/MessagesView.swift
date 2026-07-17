@@ -160,7 +160,12 @@ struct MessagesView<BottomBarContent: View>: View {
 
     private var representableAgentBuilderSummaryProvider: (AgentBuilderCardContent) -> AnyView {
         { content in
-            AnyView(AgentBuilderSummaryView(content: content))
+            AnyView(AgentBuilderSummaryView(
+                content: content,
+                connectionChipImageName: { identifier in
+                    AgentBuilderConnection(rawValue: identifier)?.chipImageName
+                }
+            ))
         }
     }
 

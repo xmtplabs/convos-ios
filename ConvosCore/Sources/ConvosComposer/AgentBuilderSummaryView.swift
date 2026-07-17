@@ -1,5 +1,5 @@
+#if canImport(UIKit)
 import AVFoundation
-import ConvosComposer
 import ConvosCore
 import SwiftUI
 import UIKit
@@ -16,8 +16,20 @@ import UIKit
 /// messages (the prompt + attachment bundle every member receives), so the card
 /// is visible to all members and sits in chronological order -- it is no longer
 /// pinned to the top from a creator-only local summary.
-struct AgentBuilderSummaryView: View {
+public struct AgentBuilderSummaryView: View {
     let content: AgentBuilderCardContent
+    /// Maps a connection identifier to the app's chip asset name. App-only
+    /// concept (the share extension never has connections), so it is a slot
+    /// with a placeholder fallback rather than a package dependency.
+    let connectionChipImageName: ((String) -> String?)?
+
+    public init(
+        content: AgentBuilderCardContent,
+        connectionChipImageName: ((String) -> String?)? = nil
+    ) {
+        self.content = content
+        self.connectionChipImageName = connectionChipImageName
+    }
 
     private var footerText: String {
         if content.creatorIsCurrentUser || content.creatorDisplayName.isEmpty {
@@ -30,7 +42,7 @@ struct AgentBuilderSummaryView: View {
         !content.attachments.isEmpty || !content.connectionIdentifiers.isEmpty
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             TextTitleContentView(title: footerText, profile: content.creatorProfile)
                 .frame(maxWidth: .infinity)
@@ -189,7 +201,7 @@ struct AgentBuilderSummaryView: View {
 
     @ViewBuilder
     private func connectionChip(identifier: String) -> some View {
-        let imageName: String? = AgentBuilderConnection(rawValue: identifier)?.chipImageName
+        let imageName: String? = connectionChipImageName?(identifier)
         Group {
             if let imageName {
                 Image(imageName)
@@ -269,23 +281,4 @@ private struct AgentBuilderChipThumbnail: View {
         }
     }
 }
-
-#Preview {
-    let content = AgentBuilderCardContent(
-        id: "preview",
-        prompt: "Help me plan a backpacking trip across Patagonia. I want to camp 4 nights and finish in El Chaltén.",
-        attachments: [
-            HydratedAttachment(key: "preview-photo", mimeType: "image/jpeg"),
-            HydratedAttachment(key: "preview-file", mimeType: "application/pdf", filename: "itinerary.pdf"),
-            HydratedAttachment(
-                key: "preview-voice",
-                mimeType: "audio/m4a",
-                duration: 18,
-                waveformLevels: Array(repeating: 0.6, count: 40)
-            ),
-        ],
-        connectionIdentifiers: ["googleCalendar"]
-    )
-    return AgentBuilderSummaryView(content: content)
-        .padding()
-}
+#endif

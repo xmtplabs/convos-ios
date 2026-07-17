@@ -132,8 +132,11 @@ public enum AgentCreationFlow {
         return CreatedAgent(conversationId: conversationId, commit: commit)
     }
 
-    /// Publishes the prompt under the commit's pre-allocated message id so
-    /// the creation card bundles it. Returns the writer (nil for an
+    /// Publishes the prompt as a builder-bundle send under the commit's
+    /// pre-allocated message id: the bundle path records the id as hidden,
+    /// so every client renders the prompt inside the creation card instead
+    /// of as a separate bubble - a plain text send here shows up as a
+    /// normal message next to the card. Returns the writer (nil for an
     /// attachment-only build) so extension hosts can hold a publish runway
     /// on it.
     @discardableResult
@@ -147,7 +150,13 @@ public enum AgentCreationFlow {
             for: created.conversationId,
             backgroundUploadManager: backgroundUploadManager
         )
-        try await writer.send(text: created.commit.summary.prompt, clientMessageId: promptMessageId)
+        try await writer.sendBuilderBundle(
+            text: created.commit.summary.prompt,
+            bundleItems: [],
+            textClientMessageId: promptMessageId,
+            bundleClientMessageId: UUID().uuidString,
+            awaitsAgentJoin: false
+        )
         return writer
     }
 

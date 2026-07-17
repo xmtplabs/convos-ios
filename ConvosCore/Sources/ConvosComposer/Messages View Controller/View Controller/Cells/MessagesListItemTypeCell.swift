@@ -160,6 +160,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         makeAgentBuilderSummary(content)
                             .padding(.vertical, DesignConstants.Spacing.step4x)
                             .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    } else {
+                        // Hosts without an injected provider (the share
+                        // extension) still render the shared card; the
+                        // provider slot exists so the app can add its
+                        // connection-chip asset mapping.
+                        AgentBuilderSummaryView(content: content)
+                            .padding(.vertical, DesignConstants.Spacing.step4x)
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
                     }
 
                 case .agentActivating(let content):
