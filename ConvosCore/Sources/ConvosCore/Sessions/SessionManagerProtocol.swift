@@ -45,6 +45,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// array when there is nothing to offer.
     func pairableDeviceBackups() async -> [PairableDeviceBackup]
 
+    /// Whether this launch registered a brand-new identity because the
+    /// keychain was empty - a provably fresh install. False on reinstalls
+    /// (the surviving identity authorizes) and while unresolved, so
+    /// callers can gate fresh-install-only behavior on it safely.
+    func registeredFreshIdentityThisLaunch() async -> Bool
+
     /// The full iCloud backup inventory for the Devices screen: the
     /// current identity's own mirror plus every other identity's backup,
     /// unfiltered by the prompt's ordering rule (see
@@ -203,9 +209,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// redundant.
     func setIsOnConversationsList(_ isOn: Bool)
 
-    /// Ensures the messaging service is ready before processing a notification
-    /// for the given conversation. Safe to call from the NSE.
-    func wakeInboxForNotification(conversationId: String)
+    /// Ensures the single messaging service is loaded before processing a
+    /// notification. Safe to call from the NSE.
+    func wakeInboxForNotification()
 
     // MARK: Helpers
 
@@ -267,6 +273,12 @@ extension SessionManagerProtocol {
     /// other devices to pair with. The real lookup lives on `SessionManager`.
     public func pairableDeviceBackups() async -> [PairableDeviceBackup] {
         []
+    }
+
+    /// Default for conformers without keychain access (test mocks):
+    /// conservative false, so nothing takes the provably-fresh fast path.
+    public func registeredFreshIdentityThisLaunch() async -> Bool {
+        false
     }
 
     /// Default for conformers without keychain access (test mocks): an

@@ -383,6 +383,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager.startAgentJoinRequestPolling()
     }
 
+    /// `nonisolated` so the non-Sendable client obtained from
+    /// `waitForInboxReadyResult` never crosses the actor's isolation
+    /// boundary on its way into the (also nonisolated) backfill.
+    public nonisolated func runHistorySyncBackfill() async {
+        guard let syncingManager else { return }
+        guard let result = try? await waitForInboxReadyResult() else { return }
+        await syncingManager.runHistoryBackfill(client: result.client)
+    }
+
     // MARK: - SessionStateManagerProtocol
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
@@ -1251,10 +1260,14 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             appVersion: "convos/\(Bundle.appVersion)"
         )
 
-        // Device sync (XMTP history server) is enabled so the identity
-        // carries its group memberships and message history across devices signed
-        // in to the same Apple ID. `useDefaultHistorySyncUrl: true` (the default
-        // on `ClientOptions.init`) resolves the per-environment URL via
+        // Device sync starts libxmtp's sync worker, which keeps consent and
+        // preference records flowing between the inbox's installations
+        // automatically. Message history is not automatic: it only moves
+        // when an installation explicitly asks its peers for an archive
+        // (`SessionManager.requestHistorySyncAfterPairing` does this on the
+        // joiner right after pairing adoption). `useDefaultHistorySyncUrl:
+        // true` (the default on `ClientOptions.init`) resolves the
+        // per-environment archive server URL via
         // `XMTPEnvironment.getHistorySyncUrl()`:
         //   .production → message-history.production.ephemera.network
         //   .dev        → message-history.dev.ephemera.network

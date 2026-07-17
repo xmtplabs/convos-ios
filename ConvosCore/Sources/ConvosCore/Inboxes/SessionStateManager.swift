@@ -16,6 +16,12 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
 
     func requestDiscovery() async
 
+    /// Re-ingests every message libxmtp holds locally, ignoring catch-up
+    /// cursors. Called after a post-pairing history sync request so that
+    /// archive-imported messages (original timestamps, no stream events)
+    /// reach the app database. No-ops when streaming services are off.
+    func runHistorySyncBackfill() async
+
     /// Temporary diagnostic for agents timing out while joining. Starts a
     /// bounded poll for unprocessed join-request DMs in case the message
     /// stream has died. See `SyncingManager.startAgentJoinRequestPolling`.

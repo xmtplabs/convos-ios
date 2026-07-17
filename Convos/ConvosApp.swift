@@ -32,6 +32,21 @@ struct ConvosApp: App {
         let environment = ConfigManager.shared.currentEnvironment
         ConvosLog.configure(environment: environment)
 
+        // Export the persisted bidi-streams opt-in while the process is still
+        // effectively single-threaded (setenv racing a native getenv from a
+        // spawned thread is undefined behavior) and before anything touches
+        // libxmtp, which latches the gate env var once, before the first
+        // stream -- so a Debug-menu flip takes effect here, on the next
+        // launch. Runtime setenv works for the Rust layer because it reads
+        // getenv, unlike the AppCheck case documented in FirebaseHelper.
+        // Main-app process only, deliberately: the NotificationService
+        // extension and App Clip run their own processes (with their own
+        // defaults containers) and stay on the legacy stream path.
+        if FeatureFlags.shared.isXMTPBidiStreamsEnabled {
+            setenv("XMTP_BIDI_STREAMS_ENABLED", "1", 1)
+            Log.info("XMTP bidi streams enabled for this launch")
+        }
+
         // Start Sentry as early as possible so crashes during the rest of app
         // init (database setup, Firebase, client creation) are captured. The
         // SwiftUI App initializer runs before the app delegate's
@@ -79,6 +94,11 @@ struct ConvosApp: App {
             if let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL {
                 let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
                 FirebaseHelperCore.configure(with: url, debugToken: debugToken)
+                // Extensions can't App Attest, so the main app hands them its
+                // current App Check token via the shared app group (refreshed
+                // again on every foreground in handleScenePhaseActive).
+                let appGroupIdentifier = environment.appGroupIdentifier
+                Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
             } else {
                 Log.error("Missing Firebase plist URL for current environment")
             }
@@ -124,6 +144,21 @@ struct ConvosApp: App {
         self.coreActions = coreMetrics.actions
         self.conversationsViewModel = .init(session: convos.session, coreActions: coreMetrics.actions)
         appDelegate.session = convos.session
+        // Runs when a share-extension upload wakes the app in the background:
+        // publish whatever the extension staged but never got to send.
+        let drainWriter = convos.databaseWriter
+        let drainSession = convos.session
+        appDelegate.shareExtensionOutboxDrain = {
+            await OutgoingMessageDrain.drainStuckOutgoingMessages(
+                databaseWriter: drainWriter,
+                messagingService: drainSession.messagingService(),
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
+            await AgentBuildOutbox.drain(
+                session: drainSession,
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
+        }
         // PushNotificationRegistrar.configure(...) ran inside `PlatformProviders.iOS`
         // above, so AppDelegate's APNS callback uses the static accessor directly
         // (see ConvosAppDelegate.didRegisterForRemoteNotificationsWithDeviceToken).
@@ -209,6 +244,35 @@ struct ConvosApp: App {
         Task {
             await CreditsServices.shared.refresh()
             await SubscriptionServices.shared.refresh()
+            // Keep the app-group App Check token fresh for extension
+            // processes (share extension sends need it to authenticate).
+            await FirebaseHelperCore.mirrorTokenToAppGroup(
+                ConfigManager.shared.currentEnvironment.appGroupIdentifier
+            )
+        }
+
+        // Messages the share extension wrote to the shared database from its
+        // own process are invisible to this process's GRDB observation (it
+        // only tracks in-process writes), so the conversation list and open
+        // conversation would show them only after the next app-side write.
+        // Nudge every observation to re-read on foreground, then republish
+        // anything a dead process (share extension, force-quit app) staged
+        // but never got to publish.
+        let databaseWriter = convos.databaseWriter
+        let drainSession = convos.session
+        Task {
+            try? await databaseWriter.write { db in
+                try db.notifyChanges(in: .fullDatabase)
+            }
+            await OutgoingMessageDrain.drainStuckOutgoingMessages(
+                databaseWriter: databaseWriter,
+                messagingService: drainSession.messagingService(),
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
+            await AgentBuildOutbox.drain(
+                session: drainSession,
+                backgroundUploadManager: BackgroundUploadManager.shared
+            )
         }
 
         // Opportunistic agent-timezone republish (agent-timezone Channel B).

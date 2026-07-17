@@ -653,6 +653,34 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             installationIds: [installationId]
         )
     }
+
+    func requestHistorySync() async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        try await result.client.requestHistorySync()
+        scheduleHistorySyncBackfill()
+    }
+
+    /// The archive a peer sends back is imported straight into libxmtp's
+    /// local database - no stream events, and the messages carry their
+    /// original timestamps, which sit behind every catch-up cursor this
+    /// fresh installation has already stamped. Without an explicit
+    /// cursor-ignoring re-ingest they never reach the app database. The
+    /// app can't observe when the import lands (observed ~3s after the
+    /// request on simulators; slower on real networks), so run a few
+    /// spaced passes - re-ingesting already-persisted rows is a no-op.
+    private func scheduleHistorySyncBackfill() {
+        let stateManager = sessionStateManager
+        Task.detached(priority: .utility) {
+            var elapsedSeconds: Double = 0
+            for fireAtSeconds in [5.0, 20.0, 60.0, 150.0] {
+                try? await Task.sleep(for: .seconds(fireAtSeconds - elapsedSeconds))
+                elapsedSeconds = fireAtSeconds
+                if Task.isCancelled { return }
+                await stateManager.runHistorySyncBackfill()
+                Log.info("MessagingService: history sync backfill pass ran (t+\(Int(fireAtSeconds))s)")
+            }
+        }
+    }
 }
 
 enum MessagingServiceError: Error {

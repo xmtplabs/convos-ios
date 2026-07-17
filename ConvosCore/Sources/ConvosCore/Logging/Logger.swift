@@ -67,6 +67,13 @@ public enum ConvosLog {
     }
 
     /// Get all logs from the shared log file
+    /// Blocks until pending log lines hit the shared file. Call before an app
+    /// extension calls completeRequest, which terminates the process and
+    /// discards the async write queue.
+    public static func flush() {
+        FileLogHandler.flush()
+    }
+
     public static func getLogs(appGroupIdentifier: String = "group.org.convos.app") async -> String {
         await FileLogHandler.getLogs(appGroupIdentifier: appGroupIdentifier)
     }

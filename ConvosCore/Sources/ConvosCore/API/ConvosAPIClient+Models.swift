@@ -173,10 +173,57 @@ public enum ConvosAPI {
     // addMembers and is done — the runtime observes the resulting group
     // welcome and attaches, with no confirmation call.
 
+    /// Idempotency key for `POST /v2/agents/join`: a lowercase v4 UUID stable
+    /// across retries of one logical join. The assistants service uses it as
+    /// the workflow instance id, so a retry of a join whose response was lost
+    /// adopts the already-provisioned instance instead of creating a duplicate.
+    ///
+    /// A dedicated type rather than `String` so another identifier (e.g. the
+    /// generation idempotency key, which is uppercase) cannot be wired in by
+    /// accident, and rather than Foundation's `UUID` because `UUID` encodes as
+    /// its uppercase `uuidString` while the server contract is lowercase-only
+    /// (the key becomes the assistant instance id).
+    public struct JoinIdempotencyKey: Hashable, Sendable, Codable {
+        public let rawValue: String
+
+        /// Mints a fresh key - the only way to produce a new key value.
+        public static func mint() -> JoinIdempotencyKey {
+            JoinIdempotencyKey(validated: UUID().uuidString.lowercased())
+        }
+
+        /// Rehydrates a persisted key, normalizing to lowercase; `nil` for
+        /// anything that is not a UUID.
+        public init?(rawValue: String) {
+            guard UUID(uuidString: rawValue) != nil else { return nil }
+            self.init(validated: rawValue.lowercased())
+        }
+
+        private init(validated: String) {
+            rawValue = validated
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            guard let key = JoinIdempotencyKey(rawValue: raw) else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid join idempotency key: \(raw)")
+            }
+            self = key
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
+    }
+
     public struct AgentJoinRequest: Codable {
         public let slug: String?
         public let conversationId: String?
         public let templateId: String?
+        /// Optional and nil-omitted by Codable, so default joins stay
+        /// byte-identical and the wire format remains backward-compatible.
+        public let idempotencyKey: JoinIdempotencyKey?
         public let options: AgentJoinOptions?
         /// IANA timezone identifier (e.g. "Europe/Paris") carrying the
         /// conversation creator's device timezone, used by the agent runtime as
@@ -192,12 +239,14 @@ public enum ConvosAPI {
             slug: String? = nil,
             conversationId: String? = nil,
             templateId: String? = nil,
+            idempotencyKey: JoinIdempotencyKey? = nil,
             options: AgentJoinOptions? = nil,
             timezone: String? = nil
         ) {
             self.slug = slug
             self.conversationId = conversationId
             self.templateId = templateId
+            self.idempotencyKey = idempotencyKey
             self.options = options
             self.timezone = timezone
         }
