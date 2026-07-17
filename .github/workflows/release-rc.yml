@@ -1,10 +1,12 @@
 # TestFlight RC uploads for release trains: every push to a release or
-# hotfix branch. The scheduled dev stream stays in testflight-prod.yml.
+# hotfix branch. The scheduled dev stream stays in testflight-prod.yml. Only
+# the train's numeric branch shapes upload RCs — a feature branch named
+# hotfix/* must not displace the recorded RC on TestFlight.
 name: TestFlight RC
 
 on:
   push:
-    branches: ["release/**", "hotfix/**"]
+    branches: ["release/[0-9]*.[0-9]*.[0-9]*", "hotfix/[0-9]*.[0-9]*.[0-9]*"]
 
 jobs:
   testflight_rc:
