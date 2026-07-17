@@ -66,6 +66,63 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
 private enum FakeSessionError: Error {
     case upload
     case send
+    case storeFetch
+}
+
+private actor Counter {
+    private(set) var value: Int = 0
+    func increment() { value += 1 }
+}
+
+/// Wraps the in-memory store and, once `startFailing` is called, throws from
+/// `nextReadyJob` - simulating a persistent row-read failure so tests can
+/// assert the drain stops instead of hot-looping through the retry timer.
+private actor FailingNextReadyPublishStore: ProfilePublishStoreProtocol {
+    private let inner: InMemoryProfilePublishStore
+    private var failing: Bool = false
+
+    init(wrapping inner: InMemoryProfilePublishStore) {
+        self.inner = inner
+    }
+
+    func startFailing() {
+        failing = true
+    }
+
+    func nextReadyJob(now: Date) async throws -> DBProfilePublishJob? {
+        if failing {
+            throw FakeSessionError.storeFetch
+        }
+        return try await inner.nextReadyJob(now: now)
+    }
+
+    func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
+        try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
+    func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
+    func enqueue(_ job: DBProfilePublishJob) async throws { try await inner.enqueue(job) }
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob {
+        try await inner.enqueueNext(makeJob)
+    }
+    func update(_ job: DBProfilePublishJob) async throws { try await inner.update(job) }
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob? {
+        try await inner.claimJob(id: id, updatedAt: updatedAt)
+    }
+    func job(id: String) async throws -> DBProfilePublishJob? { try await inner.job(id: id) }
+    func reclaimStalledJobs(excluding: Set<String>) async throws { try await inner.reclaimStalledJobs(excluding: excluding) }
+    func activeJobs() async throws -> [DBProfilePublishJob] { try await inner.activeJobs() }
+    func jobs(conversationId: String) async throws -> [DBProfilePublishJob] { try await inner.jobs(conversationId: conversationId) }
+    func nextSeq() async throws -> Int64 { try await inner.nextSeq() }
+    func earliestNextAttempt() async throws -> Date? { try await inner.earliestNextAttempt() }
+    func deleteJob(id: String) async throws { try await inner.deleteJob(id: id) }
+    func deleteJobs(conversationId: String) async throws { try await inner.deleteJobs(conversationId: conversationId) }
+    func supersedeOlderThan(conversationId: String, seq: Int64) async throws {
+        try await inner.supersedeOlderThan(conversationId: conversationId, seq: seq)
+    }
+    func deleteAll() async throws { try await inner.deleteAll() }
 }
 
 /// Monotonic clock the tests advance by hand for deterministic backoff retries.
@@ -517,6 +574,43 @@ struct ProfilePublisherTests {
         try await waitFor { await session.sends.count == 2 }
         let all = await session.sends
         #expect(Set(all.map(\.conversationId)) == ["c-mine", "c-other"])
+    }
+
+    @Test("a store fetch error stops the drain without arming the timer (no hot loop)")
+    func fetchErrorStopsDrainWithoutTimer() async throws {
+        let inner = InMemoryProfilePublishStore()
+        let store = FailingNextReadyPublishStore(wrapping: inner)
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let sleepCount = Counter()
+        let publisher = makePublisher(
+            publishStore: store,
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: InMemorySelfProfileStore(),
+            clock: clock,
+            sleep: { _ in
+                await sleepCount.increment()
+                try await Task.sleep(nanoseconds: .max)
+            }
+        )
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // A ready pending job exists, but every fetch throws. With `try?`
+        // semantics this looked like an empty queue, and the past-deadline
+        // pending job armed a zero-delay timer that re-entered the failing
+        // drain forever. The drain must stop and arm nothing.
+        try await inner.enqueue(DBProfilePublishJob(
+            id: "stuck", seq: 1, conversationId: "c1",
+            nextAttemptAt: Date(timeIntervalSince1970: 0),
+            createdAt: clock.current, updatedAt: clock.current
+        ))
+        await store.startFailing()
+        await publisher.drainReadyJobs()
+
+        let sends = await session.sends
+        #expect(sends.isEmpty)
+        let armed = await sleepCount.value
+        #expect(armed == 0, "a failed drain pass must not arm the retry timer")
     }
 
     @Test("a job whose XMTP conversation is gone is dropped, not retried forever")

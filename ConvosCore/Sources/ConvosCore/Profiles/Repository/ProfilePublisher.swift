@@ -122,10 +122,23 @@ actor ProfilePublisher {
             hasAvatar: source != nil,
             profileUpdatedAt: selfProfile?.updatedAt
         )
-        if let session, let claimed = try? await publishStore.claimJob(id: job.id, updatedAt: now()) {
-            inFlightJobIds.insert(claimed.id)
-            defer { inFlightJobIds.remove(claimed.id) }
-            await process(claimed, session: session, selfInboxId: selfInboxId)
+        if let session {
+            // A claim failure is logged, not thrown: the job is already
+            // durably enqueued, so the background drain retries it, and the
+            // pre-send hook must not fail the user's message over a transient
+            // store error when eventual publish is guaranteed.
+            let claimed: DBProfilePublishJob?
+            do {
+                claimed = try await publishStore.claimJob(id: job.id, updatedAt: now())
+            } catch {
+                claimed = nil
+                Log.error("ProfilePublisher: failed to claim inline job \(job.id): \(error)")
+            }
+            if let claimed {
+                inFlightJobIds.insert(claimed.id)
+                defer { inFlightJobIds.remove(claimed.id) }
+                await process(claimed, session: session, selfInboxId: selfInboxId)
+            }
         }
         kickBackgroundDrain()
     }
@@ -150,20 +163,37 @@ actor ProfilePublisher {
         defer { draining = false }
         repeat {
             redrainRequested = false
-            await drainPass()
+            // A pass that hit a store error stops without re-arming the timer:
+            // the failing job's past deadline would arm a zero-delay timer
+            // that immediately re-enters the failing pass, a hot loop. The
+            // next external trigger (message send, launch, attach) retries.
+            guard await drainPass() else { return }
             await armRetryTimer()
         } while redrainRequested
     }
 
-    private func drainPass() async {
-        guard let session else { return }
-        guard let selfInboxId = await resolveSelfInboxId() else { return }
+    /// Runs one drain pass. Returns false when a store error stopped the pass
+    /// early - the caller must not re-arm the retry timer off that state.
+    private func drainPass() async -> Bool {
+        guard let session else { return true }
+        guard let selfInboxId = await resolveSelfInboxId() else { return true }
         // Return jobs a previous process instance left mid-flight to the ready
         // pool. Jobs currently being processed inline by publishConversation
         // are alive, not stalled - reclaiming one mid-upload would let this
         // drain claim and process it a second time.
         try? await publishStore.reclaimStalledJobs(excluding: inFlightJobIds)
-        while let job = try? await publishStore.nextReadyJob(now: now()) {
+        while true {
+            // A fetch error must be distinguishable from an empty queue: with
+            // `try?` a persistently failing row read looks like "done", while
+            // the failing job stays pending forever with no signal.
+            let job: DBProfilePublishJob?
+            do {
+                job = try await publishStore.nextReadyJob(now: now())
+            } catch {
+                Log.error("ProfilePublisher: failed to fetch next ready job, stopping drain: \(error)")
+                return false
+            }
+            guard let job else { return true }
             // The atomic claim (pending -> uploading) is what keeps this loop
             // and the inline per-conversation path from double-processing a
             // job. A nil claim means the job was claimed or superseded between
@@ -175,7 +205,7 @@ actor ProfilePublisher {
                 claimed = try await publishStore.claimJob(id: job.id, updatedAt: now())
             } catch {
                 Log.error("ProfilePublisher: failed to claim job \(job.id): \(error)")
-                break
+                return false
             }
             guard let claimed else { continue }
             inFlightJobIds.insert(claimed.id)

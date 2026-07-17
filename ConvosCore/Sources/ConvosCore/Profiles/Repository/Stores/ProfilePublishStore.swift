@@ -7,8 +7,6 @@ import GRDB
 /// (`nextReadyJob`, `nextSeq`, `earliestNextAttempt`, `supersedeOlderThan`) the
 /// drain loop needs. No state transitions or scheduling here; `ProfilePublisher`
 /// owns those.
-///
-/// Not wired into the app yet; introduced ahead of `ProfilePublisher`.
 protocol ProfilePublishStoreProtocol: Sendable {
     // Source image
     func setSource(_ source: DBProfileAvatarSource) async throws
@@ -44,8 +42,6 @@ protocol ProfilePublishStoreProtocol: Sendable {
     /// is never handed out twice. Fetch only; the publisher transitions state
     /// via `update`.
     func nextReadyJob(now: Date) async throws -> DBProfilePublishJob?
-    /// Returns any `uploading` jobs to `pending`, e.g. after a drain was
-    /// interrupted mid-flight, so they become eligible for retry.
     /// Returns `uploading` jobs to `pending` so work stranded mid-flight (e.g.
     /// by a crash) becomes ready again. `excluding` names jobs currently being
     /// processed in this process - live, not stranded - which must keep their
@@ -54,6 +50,10 @@ protocol ProfilePublishStoreProtocol: Sendable {
     func activeJobs() async throws -> [DBProfilePublishJob]
     func jobs(conversationId: String) async throws -> [DBProfilePublishJob]
     func nextSeq() async throws -> Int64
+    /// The earliest `nextAttemptAt` among `pending` jobs only, for arming the
+    /// retry timer. `uploading` jobs are in flight - their (past) deadline
+    /// must not arm a zero-delay timer that spins against work the drain
+    /// cannot claim anyway.
     func earliestNextAttempt() async throws -> Date?
     func deleteJob(id: String) async throws
     func deleteJobs(conversationId: String) async throws
@@ -194,8 +194,8 @@ final class GRDBProfilePublishStore: ProfilePublishStoreProtocol {
         try await databaseReader.read { db in
             try Date.fetchOne(
                 db,
-                sql: "SELECT MIN(nextAttemptAt) FROM profilePublishJob WHERE state <> ?",
-                arguments: [ProfilePublishJobState.done.rawValue]
+                sql: "SELECT MIN(nextAttemptAt) FROM profilePublishJob WHERE state = ?",
+                arguments: [ProfilePublishJobState.pending.rawValue]
             )
         }
     }
@@ -319,7 +319,7 @@ actor InMemoryProfilePublishStore: ProfilePublishStoreProtocol {
 
     func earliestNextAttempt() -> Date? {
         jobsById.values
-            .filter { $0.state != .done }
+            .filter { $0.state == .pending }
             .map(\.nextAttemptAt)
             .min()
     }

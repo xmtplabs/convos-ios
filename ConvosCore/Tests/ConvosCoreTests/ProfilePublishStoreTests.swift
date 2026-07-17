@@ -134,12 +134,19 @@ struct ProfilePublishStoreTests {
         }
         let readyWhileUploading = try await store.nextReadyJob(now: now)
         #expect(readyWhileUploading == nil)
+        // earliestNextAttempt counts pending jobs only: an in-flight
+        // (uploading) job's past deadline must not arm a zero-delay retry
+        // timer that spins against work the drain cannot claim.
+        let earliestWhileUploading = try await store.earliestNextAttempt()
+        #expect(earliestWhileUploading == nil)
         try await store.reclaimStalledJobs(excluding: ["F"])
         let stillClaimed = try await store.nextReadyJob(now: now)
         #expect(stillClaimed == nil)
         try await store.reclaimStalledJobs(excluding: [])
         let readyAfterReclaim = try await store.nextReadyJob(now: now)
         #expect(readyAfterReclaim?.id == "F")
+        let earliestAfterReclaim = try await store.earliestNextAttempt()
+        #expect(earliestAfterReclaim == past1)
 
         // enqueueNext returns the job it inserted.
         let returned = try await store.enqueueNext { seq in
