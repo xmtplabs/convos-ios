@@ -103,7 +103,23 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     public func localCacheURL(for filename: String) throws -> URL {
-        try Self.sentPhotosDirectory().appendingPathComponent(filename)
+        let appGroupURL = try Self.sentPhotosDirectory().appendingPathComponent(filename)
+        guard !FileManager.default.fileExists(atPath: appGroupURL.path) else {
+            return appGroupURL
+        }
+        // Photos sent before the cache moved into the app-group container
+        // still live in the old per-process cache; fall back so upgraded
+        // installs keep rendering them from disk. New filenames exist in
+        // neither location and default to the app-group path.
+        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let legacyURL = cacheDir
+                .appendingPathComponent("SentPhotos", isDirectory: true)
+                .appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+        }
+        return appGroupURL
     }
 
     private static func sentPhotosDirectory() throws -> URL {
