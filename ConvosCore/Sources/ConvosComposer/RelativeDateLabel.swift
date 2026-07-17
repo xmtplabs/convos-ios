@@ -1,11 +1,16 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-struct RelativeDateLabel: View {
+public struct RelativeDateLabel: View {
     let date: Date
+
+    public init(date: Date) {
+        self.date = date
+    }
     @State private var dateString: String = ""
 
-    var body: some View {
+    public var body: some View {
         Text(dateString)
             .textCase(.lowercase)
             .onAppear {
@@ -39,3 +44,4 @@ struct RelativeDateLabel: View {
         }
     }
 }
+#endif

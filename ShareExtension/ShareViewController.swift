@@ -940,6 +940,7 @@ struct ShareComposeView: View {
                     }
                 }
                 .toolbar { closeToolbarItem }
+                .navigationTitle(model.isPickingTarget ? "Share to…" : "")
                 .toolbarTitleDisplayMode(.inline)
         }
         .overlay(alignment: .top) {
@@ -1031,16 +1032,14 @@ struct ShareComposeView: View {
 
     /// Targetless-share landing surface: the Make-an-agent action row (the
     /// same `ContactsPickerActionRow` the contacts compose picker uses)
-    /// above every conversation, in chats-list order. Rows mirror the
-    /// contacts picker's 56pt-tile layout so the two pickers read the same.
+    /// above every conversation, rendered with the exact chats-tab list
+    /// styling: the same `ConversationsListItem` rows the Convos tab shows
+    /// (title, relative-date + last-message subtitle, unread/muted/countdown
+    /// accessories), no separators, rows owning their own padding, over the
+    /// surfaceless background.
     private var conversationPicker: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Share to…")
-                    .font(.title2.bold())
-                    .foregroundStyle(DesignConstants.Colors.textPrimary)
-                    .padding(.top, 72)
-                    .padding(.bottom, DesignConstants.Spacing.step4x)
+            LazyVStack(alignment: .leading, spacing: 0) {
                 let makeAgentAction = { model.chooseMakeAgent() }
                 ContactsPickerActionRow(
                     icon: .asset("addAgentIcon"),
@@ -1048,40 +1047,25 @@ struct ShareComposeView: View {
                     accessibilityIdentifier: "share-picker-make-agent",
                     action: makeAgentAction
                 )
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
                 ForEach(model.pickerConversations) { conversation in
                     conversationPickerRow(for: conversation)
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step6x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
         }
+        .background(DesignConstants.Colors.backgroundSurfaceless)
         .scrollDismissesKeyboard(.immediately)
     }
 
     private func conversationPickerRow(for conversation: Conversation) -> some View {
-        let title: String = conversation.computedDisplayName(memberNameOverride: { _ in nil })
-        let displayTitle: String = title.isEmpty ? "Convo" : title
         let action = {
             model.selectShareTarget(conversation)
             focusState = .message
         }
         return Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                ConversationAvatarView(conversation: conversation, conversationImage: nil, size: 56)
-                    .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(displayTitle)
-                        .font(.body)
-                        .foregroundStyle(DesignConstants.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(conversation.membersCountString)
-                        .font(.subheadline)
-                        .foregroundStyle(DesignConstants.Colors.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .contentShape(Rectangle())
+            ConversationsListItem(conversation: conversation)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("share-picker-conversation-\(conversation.id)")
