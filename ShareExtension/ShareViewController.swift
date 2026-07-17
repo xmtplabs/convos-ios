@@ -23,7 +23,7 @@ final class ExtensionRuntime {
 
     static func shared() throws -> ExtensionRuntime {
         if let cached {
-            Log.info("extension runtime reused \(MemoryProbe.snapshot)")
+            Log.info("extension runtime reused")
             return cached
         }
         let runtime = try ExtensionRuntime()
@@ -34,7 +34,7 @@ final class ExtensionRuntime {
     private init() throws {
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
-        Log.info("extension runtime boot \(MemoryProbe.snapshot)")
+        Log.info("extension runtime boot")
         ConfigManager.configure(overrides: .empty)
         // Prefer the App Check token the main app mirrored into the app
         // group: the extension can't App Attest, and archive builds (PR
@@ -159,7 +159,7 @@ enum ExtensionProcessRetirement {
     static nonisolated func retireIfIdle(after delay: TimeInterval, reason: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard ShareViewController.activeSheetCount == 0 else { return }
-            Log.info("retiring extension process (\(reason)) \(MemoryProbe.snapshot)")
+            Log.info("retiring extension process (\(reason))")
             ConvosLog.flush()
             exit(0)
         }
@@ -249,14 +249,6 @@ final class ShareComposeModel: AgentDraftComposing {
     func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {}
 
     func start(extensionContext: NSExtensionContext?) {
-        // Spike diagnostics: sample the footprint continuously so a jetsam
-        // kill leaves a memory curve in the unified log right up to death.
-        Task {
-            while !Task.isCancelled {
-                Log.info("mem \(MemoryProbe.snapshot)")
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
-        }
         Task { await prepare(extensionContext: extensionContext) }
     }
 
@@ -279,7 +271,6 @@ final class ShareComposeModel: AgentDraftComposing {
             let client = runtime.client
             self.client = client
             uploadManager = runtime.uploadManager
-            Log.info("client ready \(MemoryProbe.snapshot)")
 
             // A database read failure is not "no convos" - surface it as the
             // bootstrap error it is instead of a misleading empty state.
@@ -303,7 +294,7 @@ final class ShareComposeModel: AgentDraftComposing {
                 let session = client.session
                 draftConversationTask = Task {
                     let draft = try await AgentCreationFlow.prepareDraftConversation(session: session)
-                    Log.info("draft conversation ready \(draft.conversationId) \(MemoryProbe.snapshot)")
+                    Log.info("draft conversation ready \(draft.conversationId)")
                     return draft
                 }
             }
@@ -326,7 +317,7 @@ final class ShareComposeModel: AgentDraftComposing {
                 appendPhoto(image)
             }
             if !images.isEmpty {
-                Log.info("shared images loaded count=\(images.count) \(MemoryProbe.snapshot)")
+                Log.info("shared images loaded count=\(images.count)")
             }
             if messageText.isEmpty, let sharedText = await Self.loadSharedText(extensionContext: extensionContext) {
                 // A shared URL (Safari etc.) becomes the composer's
@@ -403,7 +394,6 @@ final class ShareComposeModel: AgentDraftComposing {
                 self?.messages = Array(items.suffix(Constant.transcriptMessageLimit))
             }
         repository.startObserving()
-        Log.info("transcript ready \(MemoryProbe.snapshot)")
     }
 
     /// Stages the content durably (message rows in the shared database plus
@@ -421,7 +411,7 @@ final class ShareComposeModel: AgentDraftComposing {
         sendError = nil
         let text: String = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachmentCount = pendingMediaAttachments.count
-        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) newAgent=\(isNewAgentTarget) \(MemoryProbe.snapshot)")
+        Log.info("send(): raw=\(messageText.count) trimmed=\(text.count) chars, attachments=\(attachmentCount) link=\(pendingLinkPreview != nil) newAgent=\(isNewAgentTarget)")
         if isNewAgentTarget {
             return await makeAgent(text: text, client: client)
         }
@@ -467,7 +457,7 @@ final class ShareComposeModel: AgentDraftComposing {
             sendError = "Could not queue the message: \(error.localizedDescription)"
             return false
         }
-        Log.info("staged to \(targetConversationId) attachments=\(attachmentCount) text=\(!text.isEmpty) \(MemoryProbe.snapshot)")
+        Log.info("staged to \(targetConversationId) attachments=\(attachmentCount) text=\(!text.isEmpty)")
         // Hold a system-granted expiring activity so the publish pipeline
         // (auth -> presign -> upload handoff -> publish) can keep running
         // after the sheet closes. Without it the process suspends before the
@@ -518,7 +508,7 @@ final class ShareComposeModel: AgentDraftComposing {
             // opened); nil after a pre-create failure, which falls back to
             // creating at Make like before.
             let draft = try? await draftConversationTask?.value
-            Log.info("make agent: staged \(stagedId); committing (draft=\(draft?.conversationId ?? "none")) \(MemoryProbe.snapshot)")
+            Log.info("make agent: staged \(stagedId); committing (draft=\(draft?.conversationId ?? "none"))")
             let created = try await AgentCreationFlow.createAgent(
                 prompt: promptText,
                 prepared: prepared,
@@ -571,7 +561,7 @@ final class ShareComposeModel: AgentDraftComposing {
                 return
             }
             let outcome = semaphore.wait(timeout: .now() + Constant.publishRunway)
-            Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out")) \(MemoryProbe.snapshot)")
+            Log.info("publish runway ended (\(outcome == .success ? "published" : "timed out"))")
             ConvosLog.flush()
             cancellable?.cancel()
             ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "runway ended")
@@ -681,7 +671,6 @@ final class ShareComposeModel: AgentDraftComposing {
     /// share would otherwise decode tens of megapixels inside the appex
     /// memory budget.
     private static func downsampledImage(from data: Data, maxPixel: CGFloat = Constant.sharedImageMaxPixel) -> UIImage? {
-        Log.info("downsample begin bytes=\(data.count) \(MemoryProbe.snapshot)")
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary) else {
             return UIImage(data: data)
@@ -694,9 +683,7 @@ final class ShareComposeModel: AgentDraftComposing {
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
             return UIImage(data: data)
         }
-        Log.info("downsample thumbnail done \(cgImage.width)x\(cgImage.height) \(MemoryProbe.snapshot)")
         let image = UIImage(cgImage: cgImage)
-        Log.info("downsample image wrapped \(MemoryProbe.snapshot)")
         return image
     }
 
@@ -721,7 +708,6 @@ final class ShareComposeModel: AgentDraftComposing {
             }
         }
         if let fromFile {
-            Log.info("shared image via file representation \(MemoryProbe.snapshot)")
             return fromFile
         }
         return await withCheckedContinuation { continuation in

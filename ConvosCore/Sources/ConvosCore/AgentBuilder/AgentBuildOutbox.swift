@@ -87,12 +87,42 @@ public enum AgentBuildOutbox {
         return builds.sorted { $0.createdAt < $1.createdAt }
     }
 
+    /// Serializes drains across the app's two triggers (foreground and
+    /// background wake). Swift actors are reentrant across suspension
+    /// points, so an explicit in-flight flag - not mere actor isolation -
+    /// is what prevents two overlapping drains from finishing the same
+    /// staged build twice.
+    private actor DrainGate {
+        private var isDraining: Bool = false
+
+        func tryEnter() -> Bool {
+            guard !isDraining else { return false }
+            isDraining = true
+            return true
+        }
+
+        func exit() {
+            isDraining = false
+        }
+    }
+
+    private static let drainGate: DrainGate = DrainGate()
+
     /// Finishes builds a dead extension process left behind. Called from the
-    /// main app on foreground, alongside `OutgoingMessageDrain`.
+    /// main app on foreground, alongside `OutgoingMessageDrain`. Overlapping
+    /// calls are dropped, not queued: triggers recur on every foreground and
+    /// the grace window makes timing non-critical.
     public static func drain(
         session: any SessionManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol
     ) async {
+        guard await drainGate.tryEnter() else {
+            Log.info("AgentBuildOutbox: drain already in progress; skipping")
+            return
+        }
+        defer {
+            Task { await drainGate.exit() }
+        }
         let builds = pendingBuilds()
         guard !builds.isEmpty else { return }
         Log.info("AgentBuildOutbox: draining \(builds.count) staged build(s)")

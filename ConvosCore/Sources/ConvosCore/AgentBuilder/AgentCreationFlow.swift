@@ -246,11 +246,13 @@ public enum AgentCreationFlow {
         attempts: Int = Constant.pollAttempts,
         pollInterval: Duration = Constant.pollInterval
     ) async throws -> String {
-        for _ in 0..<attempts {
+        for attempt in 0..<attempts {
             if case .ready(let result) = stateManager.currentState {
                 return result.conversationId
             }
-            try await Task.sleep(for: pollInterval)
+            if attempt < attempts - 1 {
+                try await Task.sleep(for: pollInterval)
+            }
         }
         throw FlowError.conversationNotReady
     }
@@ -266,12 +268,14 @@ public enum AgentCreationFlow {
         pollInterval: Duration = Constant.pollInterval
     ) async throws -> String {
         let repository = session.conversationRepository(for: conversationId)
-        for _ in 0..<attempts {
+        for attempt in 0..<attempts {
             if let slug = (try? repository.fetchConversation())?.invite?.urlSlug,
                !slug.isEmpty {
                 return slug
             }
-            try await Task.sleep(for: pollInterval)
+            if attempt < attempts - 1 {
+                try await Task.sleep(for: pollInterval)
+            }
         }
         throw FlowError.inviteUnavailable
     }

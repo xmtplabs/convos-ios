@@ -30,7 +30,6 @@
 		A0C6AA6175B2F6D54EB08BF8 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 212806B32B1CD0BDB80FB47B /* Secrets.swift */; };
 		A7A3EBA84220CBC46A5E4E5C /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = 1AEE475B3FE0066D11742B75 /* ConvosComposer */; };
 		B25AB1932E32B65678BA64B6 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54CE25088361C2F195BEABC /* ShareViewController.swift */; };
-		C549ED799F2562031183CF09 /* MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A8795E706DC576F5D73319 /* MemoryProbe.swift */; };
 		C6DB12C50C74FA7E73E95796 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F674D719A434DEB7A1875508 /* Foundation.framework */; };
 		C88FE7B7DA58D9FF0141A0F6 /* ConvosComposer in Frameworks */ = {isa = PBXBuildFile; productRef = CAABDAA52472593D92D2FAB3 /* ConvosComposer */; };
 		D1719B20BD585B9545B790C0 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F93C5E4BA5FB5D5C698E2EAC /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -142,7 +141,6 @@
 		1311F369060B2E8A6D88E211 /* ForegroundUploadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ForegroundUploadManager.swift; sourceTree = SOURCE_ROOT; };
 		16BB7B83D82FAB80633F9891 /* Dev.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Convos/Config/Dev.xcconfig; sourceTree = SOURCE_ROOT; };
 		212806B32B1CD0BDB80FB47B /* Secrets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Config/Secrets.swift; sourceTree = SOURCE_ROOT; };
-		23A7EDD82517202F19181ACC /* MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
 		2A9157E38499DBC9147DAB6A /* GoogleService-Info.Dev.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "ShareExtension/Config/GoogleService-Info.Dev.plist"; sourceTree = SOURCE_ROOT; };
 		2F63AB403B8817413997889B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
@@ -164,7 +162,6 @@
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7BE1CF8D52008121A8B8F1B0 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C2200F64A8822526E861838 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = SOURCE_ROOT; };
-		80A8795E706DC576F5D73319 /* MemoryProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/MemoryProbe.swift; sourceTree = SOURCE_ROOT; };
 		9C8D28BAC891D4F758D75C7B /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E685B0C5F9DBE3A4D221D3 /* Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text.xcconfig; path = Config/Local.xcconfig; sourceTree = SOURCE_ROOT; };
 		A9FB875F680F4C56EDABF9EB /* Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExtension/Log.swift; sourceTree = SOURCE_ROOT; };
@@ -388,12 +385,10 @@
 			isa = PBXGroup;
 			children = (
 				7C2200F64A8822526E861838 /* ShareViewController.swift */,
-				23A7EDD82517202F19181ACC /* MemoryProbe.swift */,
 				A9FB875F680F4C56EDABF9EB /* Log.swift */,
 				2F63AB403B8817413997889B /* Info.plist */,
 				BFD99E3CDF82BCB336F67F9C /* ShareExtension.entitlements */,
 				C54CE25088361C2F195BEABC /* ShareViewController.swift */,
-				80A8795E706DC576F5D73319 /* MemoryProbe.swift */,
 				C61FF76E33794FCB740C5169 /* Log.swift */,
 				DFB0D71E3E5448CD813348A6 /* Info.plist */,
 				B01DAB4025D870B76205DF31 /* ShareExtension.entitlements */,
@@ -1034,7 +1029,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				B25AB1932E32B65678BA64B6 /* ShareViewController.swift in Sources */,
-				C549ED799F2562031183CF09 /* MemoryProbe.swift in Sources */,
 				641E0F249FB9BBBC16281F43 /* Log.swift in Sources */,
 				A0C6AA6175B2F6D54EB08BF8 /* Secrets.swift in Sources */,
 				62AC312533556741C99C016D /* ForegroundUploadManager.swift in Sources */,
