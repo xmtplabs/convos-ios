@@ -159,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.11.0-nightly.20260716.e444995",
-        "revision" : "c5f3be41d1fe6026745af27285db3de3ee5ce8b0"
+        "branch" : "ios-4.11.0-nightly.20260718.c8c8aba",
+        "revision" : "24bc09a643c6db221af856ef72b19627662e1b11"
       }
     },
     {
