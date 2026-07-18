@@ -62,6 +62,8 @@ public enum DesignConstants {
         /// the color the agent builder floats over before Make reveals the
         /// conversation beneath it.
         public static let backgroundRaisedSecondary: Color = .colorBackgroundRaisedSecondary
+        /// The chats list background (Figma `color/background/surfaceless`).
+        public static let backgroundSurfaceless: Color = .colorBackgroundSurfaceless
     }
 
     public enum Fonts {

@@ -1,8 +1,8 @@
-import ConvosComposer
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
-extension Conversation {
+public extension Conversation {
     var title: String {
         title(memberNameOverride: { _ in nil })
     }
@@ -23,7 +23,7 @@ extension Conversation {
     }
 }
 
-struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryContent: View>: View {
+public struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryContent: View>: View {
     let title: String
     let isMuted: Bool
     let isUnread: Bool
@@ -31,7 +31,23 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
     @ViewBuilder let subtitle: () -> SubtitleContent
     @ViewBuilder let accessoryContent: () -> AccessoryContent
 
-    var body: some View {
+    public init(
+        title: String,
+        isMuted: Bool,
+        isUnread: Bool,
+        @ViewBuilder leadingContent: @escaping () -> LeadingContent,
+        @ViewBuilder subtitle: @escaping () -> SubtitleContent,
+        @ViewBuilder accessoryContent: @escaping () -> AccessoryContent
+    ) {
+        self.title = title
+        self.isMuted = isMuted
+        self.isUnread = isUnread
+        self.leadingContent = leadingContent
+        self.subtitle = subtitle
+        self.accessoryContent = accessoryContent
+    }
+
+    public var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             leadingContent()
                 .frame(width: 56.0, height: 56.0)
@@ -77,8 +93,12 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
     }
 }
 
-struct ConversationsListItem: View {
+public struct ConversationsListItem: View {
     let conversation: Conversation
+
+    public init(conversation: Conversation) {
+        self.conversation = conversation
+    }
 
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
@@ -108,7 +128,7 @@ struct ConversationsListItem: View {
         return parts.joined(separator: ", ")
     }
 
-    var body: some View {
+    public var body: some View {
         ListItemView(
             title: title,
             isMuted: isPendingInvite ? false : isMuted,
@@ -152,3 +172,4 @@ struct ConversationsListItem: View {
 #Preview("Pending Invite") {
     ConversationsListItem(conversation: .mockPendingInvite())
 }
+#endif

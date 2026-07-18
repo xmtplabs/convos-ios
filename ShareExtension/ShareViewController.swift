@@ -221,10 +221,17 @@ final class ShareComposeModel: AgentDraftComposing {
     /// A shared URL rendered as the composer's link-preview chip (mirrors the
     /// in-app pasted-link flow); sent as its own message ahead of typed text.
     var pendingLinkPreview: LinkPreview?
-    /// True when the share carried no donated conversation target: sending
-    /// stages the content for the app, which opens the agent builder with it
-    /// pre-seeded on its next foreground.
+    /// True when the share carried no donated conversation target and the
+    /// user chose "Make an agent" from the picker: the sheet hosts the
+    /// agent builder and Make finishes the agent in place.
     var isNewAgentTarget: Bool = false
+    /// True while the targetless share shows the conversation picker (all
+    /// of the user's conversations plus the Make-an-agent action row).
+    /// Cleared when the user picks a conversation or the agent builder.
+    var isPickingTarget: Bool = false
+    /// The pickable conversations, in the same order the app's chats list
+    /// shows them.
+    var pickerConversations: [Conversation] = []
     /// Set after a successful Make: the sheet morphs into the new
     /// conversation's transcript with the agent-join progress cell,
     /// mirroring the app's post-Make reveal, for a beat before it closes.
@@ -333,23 +340,12 @@ final class ShareComposeModel: AgentDraftComposing {
                     unavailableReason = "This convo is no longer available."
                 }
             } else {
-                // No donated target: the share starts a new agent. The
-                // content is staged for the app, which opens the agent
-                // builder pre-seeded on its next foreground.
+                // No donated target: show the conversation picker. The user
+                // either sends into an existing conversation or taps the
+                // Make-an-agent row, which swaps the sheet to the builder.
                 target = nil
-                isNewAgentTarget = true
-                let session = client.session
-                draftConversationTask = Task { [weak self] in
-                    let draft = try await AgentCreationFlow.prepareDraftConversation(session: session)
-                    Log.info("draft conversation ready \(draft.conversationId)")
-                    // Mount the transcript now, hidden beneath the draft
-                    // composer, so the collection view's expensive first
-                    // layout is long done when Make crossfades to it -
-                    // mounting at reveal time made the fade land on an
-                    // empty, still-laying-out list.
-                    await self?.mountDraftTranscript(id: draft.conversationId, client: client)
-                    return draft
-                }
+                isPickingTarget = true
+                pickerConversations = conversations
             }
             targetConversationId = target?.id
             targetConversation = target
@@ -384,7 +380,7 @@ final class ShareComposeModel: AgentDraftComposing {
                     Log.info("shared text loaded (no link parsed): \(sharedText.count) chars")
                 }
             }
-            isReady = targetConversationId != nil || isNewAgentTarget
+            isReady = targetConversationId != nil || isNewAgentTarget || isPickingTarget
         } catch {
             Log.error("prepare failed: \(error.localizedDescription)")
             unavailableReason = "Convos could not start. Try again."
@@ -407,6 +403,42 @@ final class ShareComposeModel: AgentDraftComposing {
             }
             ExtensionProcessRetirement.runwayEnded()
             ExtensionProcessRetirement.retireIfIdle(after: 1.0, reason: "prompt published")
+        }
+    }
+
+    /// Picker row tap: the share becomes a normal conversation-target
+    /// compose, identical to arriving via a donated share-sheet suggestion.
+    func selectShareTarget(_ conversation: Conversation) {
+        guard let client else { return }
+        isPickingTarget = false
+        targetConversationId = conversation.id
+        targetConversation = conversation
+        targetTitle = conversation.computedDisplayName(memberNameOverride: { _ in nil })
+        if let myProfile = conversation.members.first(where: { $0.isCurrentUser })?.profile {
+            profile = myProfile
+        }
+        startObservingMessages(for: conversation, client: client)
+    }
+
+    /// Make-an-agent row tap: swap the sheet to the agent builder with the
+    /// shared attachments already staged in the composer, and start
+    /// pre-creating the hidden draft conversation so Make is instant.
+    /// Creation starts here - not at sheet open - so shares that target an
+    /// existing conversation never mint an unused row.
+    func chooseMakeAgent() {
+        guard let client else { return }
+        isPickingTarget = false
+        isNewAgentTarget = true
+        targetTitle = "New Agent"
+        let session = client.session
+        draftConversationTask = Task { [weak self] in
+            let draft = try await AgentCreationFlow.prepareDraftConversation(session: session)
+            Log.info("draft conversation ready \(draft.conversationId)")
+            // Mount the transcript now, hidden beneath the draft composer,
+            // so the collection view's expensive first layout is long done
+            // when Make crossfades to it.
+            await self?.mountDraftTranscript(id: draft.conversationId, client: client)
+            return draft
         }
     }
 
@@ -901,13 +933,13 @@ struct ShareComposeView: View {
     var body: some View {
         NavigationStack {
             transcript
-                .ignoresSafeArea()
                 .safeAreaBar(edge: .bottom) {
-                    if !model.isNewAgentTarget {
+                    if !model.isNewAgentTarget && !model.isPickingTarget {
                         composerBar
                     }
                 }
                 .toolbar { closeToolbarItem }
+                .navigationTitle(model.isPickingTarget ? "Share to…" : "")
                 .toolbarTitleDisplayMode(.inline)
         }
         .overlay(alignment: .top) {
@@ -984,15 +1016,62 @@ struct ShareComposeView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if model.isNewAgentTarget {
+        // The messages surfaces run full-bleed under the top pill; the
+        // picker is a normal list and must respect the navigation bar.
+        if model.isPickingTarget {
+            conversationPicker
+        } else if model.isNewAgentTarget {
             newAgentStack
+                .ignoresSafeArea()
         } else if let conversation = model.targetConversation {
             conversationTranscript(for: conversation)
+                .ignoresSafeArea()
         } else if let reason = model.unavailableReason {
             ContentUnavailableView(reason, systemImage: "bubble.left.and.exclamationmark.bubble.right")
         } else {
             Spacer(minLength: 0)
         }
+    }
+
+    /// Targetless-share landing surface: the Make-an-agent action row (the
+    /// same `ContactsPickerActionRow` the contacts compose picker uses)
+    /// above every conversation, rendered with the exact chats-tab list
+    /// styling: the same `ConversationsListItem` rows the Convos tab shows
+    /// (title, relative-date + last-message subtitle, unread/muted/countdown
+    /// accessories), no separators, rows owning their own padding, over the
+    /// surfaceless background.
+    private var conversationPicker: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                let makeAgentAction = { model.chooseMakeAgent() }
+                ContactsPickerActionRow(
+                    icon: .asset("addAgentIcon"),
+                    title: "Make an agent",
+                    accessibilityIdentifier: "share-picker-make-agent",
+                    action: makeAgentAction
+                )
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                ForEach(model.pickerConversations) { conversation in
+                    conversationPickerRow(for: conversation)
+                }
+            }
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+        }
+        .background(DesignConstants.Colors.backgroundSurfaceless)
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private func conversationPickerRow(for conversation: Conversation) -> some View {
+        let action = {
+            model.selectShareTarget(conversation)
+            focusState = .message
+        }
+        return Button(action: action) {
+            ConversationsListItem(conversation: conversation)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("share-picker-conversation-\(conversation.id)")
     }
 
     /// The new-agent surface: the transcript of the (pre-created, hidden)
