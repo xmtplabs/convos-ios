@@ -45,11 +45,6 @@ public protocol MessagesRepositoryProtocol {
 
     func fetchInitial() throws -> [AnyMessage]
     func fetchInitialResult() throws -> ConversationMessagesResult
-    /// Async variant of `fetchInitialResult()`. Runs the read on GRDB's
-    /// reader pool instead of blocking the calling thread, so main-actor
-    /// callers can load the initial page without hanging the main thread
-    /// on a large row or a contended page cache.
-    func fetchInitialResult() async throws -> ConversationMessagesResult
     func fetchPrevious() throws
 
     var hasMoreMessages: Bool { get }
@@ -236,19 +231,17 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
     func fetchInitialResult() throws -> ConversationMessagesResult {
         resetForInitialFetch()
+        // Capture the id and limit before the read: the conversationIdPublisher
+        // sink can switch conversations while the read is in flight, and
+        // re-reading the live properties mid-read could mix rows from two
+        // conversations into one result.
+        let conversationId = conversationId
+        let limit = currentLimit
         return try dbReader.read { [weak self] db in
             guard let self else {
-                return ConversationMessagesResult(conversationId: "", messages: [], readReceipts: [], memberProfiles: [:])
+                return ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:])
             }
-            return try self.composeInitialResult(db)
-        }
-    }
-
-    func fetchInitialResult() async throws -> ConversationMessagesResult {
-        resetForInitialFetch()
-        nonisolated(unsafe) let unsafeSelf = self
-        return try await dbReader.read { db in
-            try unsafeSelf.composeInitialResult(db)
+            return try self.composeInitialResult(db, conversationId: conversationId, limit: limit)
         }
     }
 
@@ -261,13 +254,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
         currentLimit = pageSize
     }
 
-    private func composeInitialResult(_ db: Database) throws -> ConversationMessagesResult {
+    private func composeInitialResult(_ db: Database, conversationId: String, limit: Int) throws -> ConversationMessagesResult {
         let currentSeenIds = stateQueue.sync { self._seenMessageIds }
 
         let (messages, updatedSeenIds) = try db.composeMessages(
             for: conversationId,
             currentInboxId: currentInboxId,
-            limit: currentLimit,
+            limit: limit,
             seenMessageIds: currentSeenIds,
             isInitialLoad: true,
             isPaginating: false

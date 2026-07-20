@@ -1219,13 +1219,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         presentingConversationForked = shouldPresentConversationForked
 
+        primeInitialMessages(messagesRepository: messagesRepository)
+
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-        Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms (messages load asynchronously)")
+        let individualMessageCount = messages.reduce(0) { count, item in
+            if case .messages(let group) = item { return count + group.messages.count }
+            return count
+        }
+        Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
-        loadInitialMessages()
         observeAgentBuilderSummary()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
@@ -1251,6 +1256,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         applyGlobalDefaultsForNewConversation: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
@@ -1297,11 +1303,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         self.messages = []
 
+        primeInitialMessages(messagesRepository: messagesRepository)
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        let individualMessageCount = messages.reduce(0) { count, item in
+            if case .messages(let group) = item { return count + group.messages.count }
+            return count
+        }
+        Log.info("[PERF] ConversationViewModel.init(draft): \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for draft conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
-        loadInitialMessages()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
@@ -1318,35 +1331,64 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     // MARK: - Private
 
-    /// Primes `messages` and the persisted agent-builder summary without
-    /// blocking the main thread. `init` used to run both reads
-    /// synchronously, which hung the UI whenever message rows carried
-    /// large text payloads or a background writer had the SQLite
-    /// page cache contended (Sentry CONVOS-IOS-4A). The summary lands
-    /// before the message fetch so the first emission already carries the
-    /// summary card and the cutoff-filtered messages; the publisher
-    /// subscriptions set up in `observe()` pick up any subsequent writes.
-    private func loadInitialMessages() {
-        Task { [weak self] in
-            guard let self else { return }
-            let perfStart = CFAbsoluteTimeGetCurrent()
-            if let summary = try? await session.agentBuilderSummaryRepository().summary(for: conversation.id),
-               agentBuilderSummary == nil {
-                agentBuilderSummary = summary
+    private struct InitialPrime {
+        let summary: AgentBuilderSummary?
+        let result: ConversationMessagesResult?
+    }
+
+    /// Loads the persisted agent-builder summary and the initial message
+    /// page on a background queue, waiting only a bounded time for the
+    /// result. `init` used to run both reads synchronously on the main
+    /// thread, which hung the UI whenever a message row carried a large
+    /// text payload or a background writer had the SQLite page cache
+    /// contended (Sentry CONVOS-IOS-4A). In the common case the read
+    /// finishes inside the deadline and messages are on screen in the
+    /// first rendered frame, exactly as before; in the pathological case
+    /// the wait gives up and the result is applied as soon as the read
+    /// lands, keeping the app responsive instead of hanging.
+    private func primeInitialMessages(messagesRepository: any MessagesRepositoryProtocol) {
+        // The reads are thread-safe (GRDB pool reads plus stateQueue-guarded
+        // pagination state); the existential just isn't Sendable.
+        nonisolated(unsafe) let primeRepository = messagesRepository
+        let summaryRepository = session.agentBuilderSummaryRepository()
+        let conversationId = conversation.id
+        let primed: InitialPrime? = BoundedInitialRead.prime(read: {
+            InitialPrime(
+                summary: summaryRepository.summarySync(for: conversationId),
+                result: try? primeRepository.fetchInitialResult()
+            )
+        }, late: { [weak self] payload in
+            self?.applyInitialPrime(payload, deliveredLate: true)
+        })
+        if let primed {
+            applyInitialPrime(primed, deliveredLate: false)
+        } else {
+            Log.info("[PERF] ConversationViewModel: initial message read missed the first-frame deadline; applying when it completes")
+        }
+    }
+
+    private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        // Setting the summary before processing the message page keeps the
+        // original ordering guarantee: the first emission already carries
+        // the summary card and the cutoff-filtered messages. The didSet
+        // seeds messagesListRepository and arms the placeholder expiry.
+        if let summary = prime.summary, agentBuilderSummary == nil {
+            agentBuilderSummary = summary
+        }
+        guard let result = prime.result else { return }
+        // On the late path the observation pipeline may have populated
+        // messages already; it is the source of truth, so never replace
+        // its emission with this older snapshot.
+        if deliveredLate, !messages.isEmpty { return }
+        let items = messagesListRepository.processInitial(result)
+        messages = items
+        scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
+        if deliveredLate {
+            let individualMessageCount = items.reduce(0) { (count: Int, item: MessagesListItemType) -> Int in
+                if case .messages(let group) = item { return count + group.messages.count }
+                return count
             }
-            do {
-                let items = try await messagesListRepository.fetchInitial()
-                messages = items
-                scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
-                let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-                let individualMessageCount = items.reduce(0) { (count: Int, item: MessagesListItemType) -> Int in
-                    if case .messages(let group) = item { return count + group.messages.count }
-                    return count
-                }
-                Log.info("[PERF] ConversationViewModel.loadInitialMessages: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(items.count) list items)")
-            } catch {
-                Log.error("Error fetching messages: \(error.localizedDescription)")
-            }
+            Log.info("[PERF] ConversationViewModel.applyInitialPrime: \(individualMessageCount) messages applied after the deadline (\(items.count) list items)")
         }
     }
 

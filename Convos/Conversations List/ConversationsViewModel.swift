@@ -273,6 +273,11 @@ final class ConversationsViewModel {
     /// Resolved to a selection once the row appears.
     @ObservationIgnored
     private var pendingScanNavigationConversationId: String?
+    /// A connection-grant deep link that arrived before its conversation was
+    /// in the list (cold launch races the initial load). Resolved once the
+    /// conversation appears; mirrors `pendingScanNavigationConversationId`.
+    @ObservationIgnored
+    private var pendingConnectionGrantLink: (serviceId: String, conversationId: String)?
     /// Mirrors whether the Chats tab is frontmost in the tab shell (kept
     /// current by `MainTabView`). Scan navigation must not select a
     /// conversation while another tab is visible: selecting hides the tab bar
@@ -326,33 +331,9 @@ final class ConversationsViewModel {
         )
         self.conversations = []
         self.conversationsCount = 0
+        primeInitialConversations()
         observe()
         observeIncomingPairingRequests()
-        loadInitialConversations()
-    }
-
-    /// Primes `conversations` without blocking the main thread. `init`
-    /// used to fetch synchronously, which hung the UI whenever a
-    /// conversation's last-message row carried a huge text payload or the
-    /// SQLite page cache was contended by a background writer (Sentry
-    /// CONVOS-IOS-4A). The count arrives via the repository publisher in
-    /// `observe()`, which also supersedes this initial list as soon as it
-    /// emits.
-    private func loadInitialConversations() {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                // The repository's async read is thread-safe (a pure GRDB
-                // pool read); the existential just isn't Sendable.
-                nonisolated(unsafe) let conversationsRepository = self.conversationsRepository
-                let fetched = try await conversationsRepository.fetchAll()
-                if conversations.isEmpty {
-                    conversations = fetched
-                }
-            } catch {
-                Log.error("Error fetching conversations: \(error)")
-            }
-        }
     }
 
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
@@ -407,14 +388,15 @@ final class ConversationsViewModel {
             join(from: inviteCode)
         case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
             guard conversations.contains(where: { $0.id == conversationId }) else {
-                Log.warning("Dropping connection grant deep link for unknown conversationId")
+                // On cold launch the list may not have loaded yet (the
+                // initial prime and the repository publisher both arrive
+                // asynchronously), so park the link and resolve it once the
+                // conversation appears instead of dropping it outright.
+                Log.warning("Parking connection grant deep link until its conversation loads")
+                pendingConnectionGrantLink = (serviceId: serviceId, conversationId: conversationId)
                 return
             }
-            _selectedConversationId = conversationId
-            pendingGrantRequest = PendingGrantRequest(
-                serviceId: serviceId,
-                conversationId: conversationId
-            )
+            openConnectionGrant(serviceId: serviceId, conversationId: conversationId)
         case let .pairDevice(pairingId, expiresAt, initiatorName):
             pendingPairDevice = PendingPairDevice(
                 pairingId: pairingId,
@@ -609,11 +591,7 @@ final class ConversationsViewModel {
         conversationsCountRepository.conversationsCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversationsCount in
-                guard let self else { return }
-                self.conversationsCount = conversationsCount
-                if conversationsCount > 1, !hasCreatedMoreThanOneConvo {
-                    hasCreatedMoreThanOneConvo = true
-                }
+                self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
         conversationsRepository.conversationsPublisher
@@ -632,6 +610,7 @@ final class ConversationsViewModel {
                 }
 
                 resolvePendingScanNavigationIfPossible()
+                resolvePendingConnectionGrantIfPossible()
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
@@ -1403,5 +1382,76 @@ extension ConversationsViewModel {
         let vm = ConversationsViewModel(session: client.session)
         vm.conversations = conversations
         return vm
+    }
+}
+
+// MARK: - Initial Prime
+
+/// Bounded-deadline first load, in an extension to keep the class body
+/// under the type-body-length limit. `init` used to fetch the list and
+/// count synchronously on the main thread, which hung the UI whenever a
+/// conversation's last-message row carried a huge text payload or the
+/// SQLite page cache was contended by a background writer (Sentry
+/// CONVOS-IOS-4A). In the common case the read finishes inside the
+/// deadline and the list is populated in the first rendered frame,
+/// exactly as before; otherwise the result is applied when the read
+/// lands, and the repository publishers in `observe()` remain the source
+/// of truth either way.
+extension ConversationsViewModel {
+    fileprivate struct InitialPrime {
+        let conversations: [Conversation]?
+        let count: Int?
+    }
+
+    fileprivate func primeInitialConversations() {
+        // The reads are pure GRDB pool reads and thread-safe; the
+        // existentials just aren't Sendable.
+        nonisolated(unsafe) let primeRepository = conversationsRepository
+        nonisolated(unsafe) let primeCountRepository = conversationsCountRepository
+        let primed: InitialPrime? = BoundedInitialRead.prime(read: {
+            InitialPrime(
+                conversations: try? primeRepository.fetchAll(),
+                count: try? primeCountRepository.fetchCount()
+            )
+        }, late: { [weak self] payload in
+            self?.applyInitialPrime(payload, deliveredLate: true)
+        })
+        if let primed {
+            applyInitialPrime(primed, deliveredLate: false)
+        } else {
+            Log.info("[PERF] ConversationsViewModel: initial conversations read missed the first-frame deadline; applying when it completes")
+        }
+    }
+
+    private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        if let fetched = prime.conversations {
+            // On the late path the conversations publisher may have emitted
+            // already; it is the source of truth, so never replace its
+            // emission with this older snapshot.
+            if !deliveredLate || conversations.isEmpty {
+                conversations = fetched
+                resolvePendingConnectionGrantIfPossible()
+            }
+        }
+        // Assigning the count latches hasCreatedMoreThanOneConvo via its
+        // didSet, matching what the old synchronous init fetch did.
+        if let count = prime.count, !deliveredLate || conversationsCount == 0 {
+            conversationsCount = count
+        }
+    }
+
+    private func openConnectionGrant(serviceId: String, conversationId: String) {
+        _selectedConversationId = conversationId
+        pendingGrantRequest = PendingGrantRequest(
+            serviceId: serviceId,
+            conversationId: conversationId
+        )
+    }
+
+    fileprivate func resolvePendingConnectionGrantIfPossible() {
+        guard let link = pendingConnectionGrantLink,
+              conversations.contains(where: { $0.id == link.conversationId }) else { return }
+        pendingConnectionGrantLink = nil
+        openConnectionGrant(serviceId: link.serviceId, conversationId: link.conversationId)
     }
 }

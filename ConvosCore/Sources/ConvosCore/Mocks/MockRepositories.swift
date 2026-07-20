@@ -184,11 +184,6 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
         let messages = try fetchInitial()
         return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
     }
-
-    public func fetchInitialResult() async throws -> ConversationMessagesResult {
-        let messages = try fetchInitial()
-        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
-    }
 }
 
 // MARK: - Mock Draft Conversation Repository
