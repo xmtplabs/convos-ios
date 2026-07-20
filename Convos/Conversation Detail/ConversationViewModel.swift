@@ -1185,14 +1185,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        // Hydrate the persisted summary *before* `fetchInitial()` so the first
-        // emission already includes the `.agentBuilderSummary` card and the
-        // cutoff-filtered messages. The publisher subscription below picks up
-        // any subsequent writes.
-        let initialSummary: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo.agentBuilderSummary = initialSummary
         self.messagesListRepository = messagesListRepo
-        self.agentBuilderSummary = initialSummary
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1219,12 +1212,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
@@ -1232,15 +1220,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         presentingConversationForked = shouldPresentConversationForked
 
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-        let individualMessageCount = messages.reduce(0) { count, item in
-            if case .messages(let group) = item { return count + group.messages.count }
-            return count
-        }
-        Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
+        Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms (messages load asynchronously)")
         Log.info("Created for conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
+        loadInitialMessages()
         observeAgentBuilderSummary()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
@@ -1250,7 +1235,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1287,10 +1271,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo2.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        let initialSummary2: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo2.agentBuilderSummary = initialSummary2
         self.messagesListRepository = messagesListRepo2
-        self.agentBuilderSummary = initialSummary2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1314,22 +1295,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
         Log.info("Created for draft conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
+        loadInitialMessages()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
         observeAgentBuilderSummary()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1341,6 +1317,38 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     // MARK: - Private
+
+    /// Primes `messages` and the persisted agent-builder summary without
+    /// blocking the main thread. `init` used to run both reads
+    /// synchronously, which hung the UI whenever message rows carried
+    /// large text payloads or a background writer had the SQLite
+    /// page cache contended (Sentry CONVOS-IOS-4A). The summary lands
+    /// before the message fetch so the first emission already carries the
+    /// summary card and the cutoff-filtered messages; the publisher
+    /// subscriptions set up in `observe()` pick up any subsequent writes.
+    private func loadInitialMessages() {
+        Task { [weak self] in
+            guard let self else { return }
+            let perfStart = CFAbsoluteTimeGetCurrent()
+            if let summary = try? await session.agentBuilderSummaryRepository().summary(for: conversation.id),
+               agentBuilderSummary == nil {
+                agentBuilderSummary = summary
+            }
+            do {
+                let items = try await messagesListRepository.fetchInitial()
+                messages = items
+                scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
+                let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+                let individualMessageCount = items.reduce(0) { (count: Int, item: MessagesListItemType) -> Int in
+                    if case .messages(let group) = item { return count + group.messages.count }
+                    return count
+                }
+                Log.info("[PERF] ConversationViewModel.loadInitialMessages: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(items.count) list items)")
+            } catch {
+                Log.error("Error fetching messages: \(error.localizedDescription)")
+            }
+        }
+    }
 
     private func loadPhotoPreferences() {
         Task { @MainActor [weak self] in

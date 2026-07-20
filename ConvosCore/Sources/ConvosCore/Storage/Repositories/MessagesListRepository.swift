@@ -9,6 +9,11 @@ public protocol MessagesListRepositoryProtocol {
 
     func startObserving()
     func fetchInitial() throws -> [MessagesListItemType]
+    /// Async variant of `fetchInitial()`. The heavy message-page read runs
+    /// on GRDB's reader pool instead of blocking the main thread, so view
+    /// models can prime their message list without hanging the UI on a
+    /// large row or a contended page cache.
+    func fetchInitial() async throws -> [MessagesListItemType]
     func fetchPrevious() throws
 
     var hasMoreMessages: Bool { get }
@@ -194,6 +199,19 @@ public final class MessagesListRepository: MessagesListRepositoryProtocol {
         // Seed the hidden-bundle ids synchronously so the first emission already
         // filters the agent brief, matching the transcript-seeding rationale
         // above. The publisher subscription in startObserving() keeps it current.
+        hiddenBundleMessageIds = hiddenBundleMessagesRepository.hiddenMessageIdsSync(in: conversationId)
+        return processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles)
+    }
+
+    public func fetchInitial() async throws -> [MessagesListItemType] {
+        // The repository's async read is thread-safe (all mutable state
+        // sits behind its stateQueue); the existential just isn't Sendable.
+        nonisolated(unsafe) let messagesRepository = self.messagesRepository
+        let result = try await messagesRepository.fetchInitialResult()
+        // The transcript and hidden-bundle seeds are small indexed reads;
+        // they stay synchronous here for the same first-emission rationale
+        // as in the sync variant above.
+        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
         hiddenBundleMessageIds = hiddenBundleMessagesRepository.hiddenMessageIdsSync(in: conversationId)
         return processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles)
     }

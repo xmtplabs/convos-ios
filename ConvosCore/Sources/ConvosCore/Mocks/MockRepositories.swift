@@ -19,6 +19,10 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         mockConversations
     }
 
+    public func fetchAll() async throws -> [Conversation] {
+        mockConversations
+    }
+
     /// Note: this mock doesn't model the repo's `consent` scope, so a
     /// test that injects conversations with mixed consent values and
     /// queries with a narrow scope (e.g. `[.allowed]`) will see false
@@ -177,6 +181,11 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
     }
 
     public func fetchInitialResult() throws -> ConversationMessagesResult {
+        let messages = try fetchInitial()
+        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
+    }
+
+    public func fetchInitialResult() async throws -> ConversationMessagesResult {
         let messages = try fetchInitial()
         return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
     }

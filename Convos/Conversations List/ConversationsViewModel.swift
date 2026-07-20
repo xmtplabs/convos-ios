@@ -324,19 +324,35 @@ final class ConversationsViewModel {
             for: .allowed,
             kinds: .groups
         )
-        do {
-            self.conversations = try conversationsRepository.fetchAll()
-            self.conversationsCount = try conversationsCountRepository.fetchCount()
-            if conversationsCount > 1 {
-                hasCreatedMoreThanOneConvo = true
-            }
-        } catch {
-            Log.error("Error fetching conversations: \(error)")
-            self.conversations = []
-            self.conversationsCount = 0
-        }
+        self.conversations = []
+        self.conversationsCount = 0
         observe()
         observeIncomingPairingRequests()
+        loadInitialConversations()
+    }
+
+    /// Primes `conversations` without blocking the main thread. `init`
+    /// used to fetch synchronously, which hung the UI whenever a
+    /// conversation's last-message row carried a huge text payload or the
+    /// SQLite page cache was contended by a background writer (Sentry
+    /// CONVOS-IOS-4A). The count arrives via the repository publisher in
+    /// `observe()`, which also supersedes this initial list as soon as it
+    /// emits.
+    private func loadInitialConversations() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                // The repository's async read is thread-safe (a pure GRDB
+                // pool read); the existential just isn't Sendable.
+                nonisolated(unsafe) let conversationsRepository = self.conversationsRepository
+                let fetched = try await conversationsRepository.fetchAll()
+                if conversations.isEmpty {
+                    conversations = fetched
+                }
+            } catch {
+                Log.error("Error fetching conversations: \(error)")
+            }
+        }
     }
 
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
@@ -593,7 +609,11 @@ final class ConversationsViewModel {
         conversationsCountRepository.conversationsCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversationsCount in
-                self?.conversationsCount = conversationsCount
+                guard let self else { return }
+                self.conversationsCount = conversationsCount
+                if conversationsCount > 1, !hasCreatedMoreThanOneConvo {
+                    hasCreatedMoreThanOneConvo = true
+                }
             }
             .store(in: &cancellables)
         conversationsRepository.conversationsPublisher

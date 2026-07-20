@@ -45,6 +45,11 @@ public protocol MessagesRepositoryProtocol {
 
     func fetchInitial() throws -> [AnyMessage]
     func fetchInitialResult() throws -> ConversationMessagesResult
+    /// Async variant of `fetchInitialResult()`. Runs the read on GRDB's
+    /// reader pool instead of blocking the calling thread, so main-actor
+    /// callers can load the initial page without hanging the main thread
+    /// on a large row or a contended page cache.
+    func fetchInitialResult() async throws -> ConversationMessagesResult
     func fetchPrevious() throws
 
     var hasMoreMessages: Bool { get }
@@ -230,52 +235,65 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }
 
     func fetchInitialResult() throws -> ConversationMessagesResult {
+        resetForInitialFetch()
+        return try dbReader.read { [weak self] db in
+            guard let self else {
+                return ConversationMessagesResult(conversationId: "", messages: [], readReceipts: [], memberProfiles: [:])
+            }
+            return try self.composeInitialResult(db)
+        }
+    }
+
+    func fetchInitialResult() async throws -> ConversationMessagesResult {
+        resetForInitialFetch()
+        nonisolated(unsafe) let unsafeSelf = self
+        return try await dbReader.read { db in
+            try unsafeSelf.composeInitialResult(db)
+        }
+    }
+
+    private func resetForInitialFetch() {
         stateQueue.sync(flags: .barrier) {
             self._hasMoreMessages = true
             self._seenMessageIds.removeAll()
             self._hasCompletedInitialLoad = false
         }
-
         currentLimit = pageSize
+    }
 
-        return try dbReader.read { [weak self] db in
-            guard let self else {
-                return ConversationMessagesResult(conversationId: self?.conversationId ?? "", messages: [], readReceipts: [], memberProfiles: [:])
+    private func composeInitialResult(_ db: Database) throws -> ConversationMessagesResult {
+        let currentSeenIds = stateQueue.sync { self._seenMessageIds }
+
+        let (messages, updatedSeenIds) = try db.composeMessages(
+            for: conversationId,
+            currentInboxId: currentInboxId,
+            limit: currentLimit,
+            seenMessageIds: currentSeenIds,
+            isInitialLoad: true,
+            isPaginating: false
+        )
+
+        stateQueue.sync(flags: .barrier) {
+            self._seenMessageIds = updatedSeenIds
+            self._hasCompletedInitialLoad = true
+            if messages.count < self.pageSize {
+                self._hasMoreMessages = false
             }
-
-            let currentSeenIds = self.stateQueue.sync { self._seenMessageIds }
-
-            let (messages, updatedSeenIds) = try db.composeMessages(
-                for: self.conversationId,
-                currentInboxId: self.currentInboxId,
-                limit: self.currentLimit,
-                seenMessageIds: currentSeenIds,
-                isInitialLoad: true,
-                isPaginating: false
-            )
-
-            self.stateQueue.sync(flags: .barrier) {
-                self._seenMessageIds = updatedSeenIds
-                self._hasCompletedInitialLoad = true
-                if messages.count < self.pageSize {
-                    self._hasMoreMessages = false
-                }
-            }
-
-            let readReceipts = try DBConversationReadReceipt
-                .filter(DBConversationReadReceipt.Columns.conversationId == self.conversationId)
-                .fetchAll(db)
-                .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
-
-            let profiles = try Self.fetchMemberProfiles(db, conversationId: self.conversationId)
-
-            return ConversationMessagesResult(
-                conversationId: self.conversationId,
-                messages: messages,
-                readReceipts: readReceipts,
-                memberProfiles: profiles
-            )
         }
+
+        let readReceipts = try DBConversationReadReceipt
+            .filter(DBConversationReadReceipt.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
+
+        let profiles = try Self.fetchMemberProfiles(db, conversationId: conversationId)
+
+        return ConversationMessagesResult(
+            conversationId: conversationId,
+            messages: messages,
+            readReceipts: readReceipts,
+            memberProfiles: profiles
+        )
     }
 
     func fetchPrevious() throws {
