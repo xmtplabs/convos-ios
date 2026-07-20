@@ -1,0 +1,123 @@
+{
+  "platform": "ios",
+  "viewModels": {
+    "AgentBuilderViewModel": [
+      "CloudConnectionManager",
+      "CloudConnectionRepository",
+      "MessagingService",
+      "NewConversationViewModel",
+      "SessionManager"
+    ],
+    "AppSettingsViewModel": [
+      "CloudConnectionManager",
+      "CloudConnectionRepository",
+      "ConnectionsListViewModel",
+      "SessionManager"
+    ],
+    "ConnectionsListViewModel": [
+      "CloudConnectionManager",
+      "CloudConnectionRepository"
+    ],
+    "ContactsPickerViewModel": [
+      "ContactsRepository",
+      "SuggestedAgentsService"
+    ],
+    "ContactsViewModel": [
+      "ContactsRepository",
+      "SuggestedAgentsService"
+    ],
+    "ConversationViewModel": [
+      "AgentBuilderSummaryRepository",
+      "AgentBuilderViewModel",
+      "AgentTemplateRepository",
+      "AttachmentLocalStateWriter",
+      "BackgroundUploadManager",
+      "BuilderBundleHiddenMessagesRepository",
+      "CapabilityRequestRepository",
+      "CapabilityRequestResultWriter",
+      "CloudConnectionManager",
+      "CloudConnectionRepository",
+      "ConnectionEnablementStore",
+      "ConnectionEventWriter",
+      "ConnectionGrantWriter",
+      "ConnectionServicesStore",
+      "ContactsRepository",
+      "ConversationConsentWriter",
+      "ConversationExplosionWriter",
+      "ConversationLeaveWriter",
+      "ConversationLocalStateWriter",
+      "ConversationMetadataWriter",
+      "ConversationOnboardingCoordinator",
+      "ConversationRepository",
+      "ConversationStateManager",
+      "MessageWriter",
+      "MessagesListRepository",
+      "MessagesRepository",
+      "MessagingService",
+      "MyProfileViewModel",
+      "NewConversationViewModel",
+      "OutgoingMessageWriter",
+      "PhotoPreferencesRepository",
+      "PhotoPreferencesWriter",
+      "ReactionWriter",
+      "ReadReceiptWriter",
+      "SessionManager",
+      "ThinkingSessionRepository",
+      "TypingIndicatorManager",
+      "VoiceMemoTranscriptRepository",
+      "VoiceMemoTranscriptionService"
+    ],
+    "ConversationsViewModel": [
+      "AgentBuilderViewModel",
+      "AppSettingsViewModel",
+      "ConversationExplosionWriter",
+      "ConversationLocalStateWriter",
+      "ConversationViewModel",
+      "ConversationsCountRepository",
+      "ConversationsRepository",
+      "FocusCoordinator",
+      "JoinerPairingSheetViewModel",
+      "MessagingService",
+      "NewConversationViewModel",
+      "PairingSheetViewModel",
+      "SessionManager"
+    ],
+    "DevicesViewModel": [
+      "MessagingService",
+      "PairingSheetViewModel",
+      "SessionManager"
+    ],
+    "JoinerPairingSheetViewModel": [
+      "PairingService"
+    ],
+    "MyProfileViewModel": [
+      "MessagingService",
+      "MyProfileRepository",
+      "ProfilesRepository"
+    ],
+    "NewConversationViewModel": [
+      "ConversationStateManager",
+      "ConversationViewModel",
+      "MessagingService",
+      "QRScannerViewModel",
+      "SessionManager"
+    ],
+    "PairingSheetViewModel": [
+      "PairingCoordinator",
+      "PairingService"
+    ],
+    "PaywallViewModel": [
+      "SubscriptionService"
+    ],
+    "ProfileSettingsViewModel": [
+      "MyGlobalProfileRepository",
+      "MyGlobalProfileWriter",
+      "SessionManager"
+    ],
+    "ThingsOverviewViewModel": [
+      "AgentFilesLinksRepository",
+      "ConversationsRepository",
+      "SessionManager"
+    ]
+  }
+}

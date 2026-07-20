@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Convos iOS — ViewModel → Dependency Map</title>
+<style>
+  .viz-root { color-scheme: light;
+    --surface-1:#fcfcfb; --page:#f9f9f7; --ink-1:#0b0b0b; --ink-2:#52514e;
+    --ink-muted:#898781; --hairline:#e1e0d9; --ring:rgba(11,11,11,0.10); }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root { color-scheme: dark;
+      --surface-1:#1a1a19; --page:#0d0d0d; --ink-1:#ffffff; --ink-2:#c3c2b7;
+      --ink-muted:#898781; --hairline:#2c2c2a; --ring:rgba(255,255,255,0.10); } }
+  :root[data-theme="dark"] .viz-root { color-scheme: dark;
+    --surface-1:#1a1a19; --page:#0d0d0d; --ink-1:#ffffff; --ink-2:#c3c2b7;
+    --ink-muted:#898781; --hairline:#2c2c2a; --ring:rgba(255,255,255,0.10); }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .viz-root { background:var(--page); color:var(--ink-1); min-height:100vh; padding:24px; }
+  header, .tiles, .controls, .board, .tablewrap, footer { max-width:1200px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--ink-2); font-size:13px; margin:0; }
+  .scope { color:var(--ink-muted); font-size:12px; margin:4px 0 0; }
+  .tiles { display:flex; gap:12px; flex-wrap:wrap; margin:16px auto; }
+  .tile { background:var(--surface-1); border:1px solid var(--ring); border-radius:10px; padding:10px 16px; min-width:110px; }
+  .tile .v { font-size:24px; font-weight:650; }
+  .tile .k { font-size:12px; color:var(--ink-2); }
+  .controls { margin-bottom:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .controls input[type=search] { padding:7px 12px; border:1px solid var(--hairline); border-radius:8px; background:var(--surface-1); color:var(--ink-1); font-size:13px; width:240px; }
+  .btn { padding:7px 12px; border:1px solid var(--hairline); border-radius:8px; background:var(--surface-1); color:var(--ink-1); font-size:13px; cursor:pointer; }
+  .btn[aria-pressed="true"] { border-color:var(--ink-2); font-weight:600; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--ink-2); margin-left:auto; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; }
+  .dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .board { background:var(--surface-1); border:1px solid var(--ring); border-radius:12px; padding:16px; position:relative; }
+  .cols { display:flex; position:relative; }
+  .col { width:330px; z-index:2; }
+  .col h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-muted); margin:6px 0; }
+  .gap { flex:1; min-width:120px; }
+  svg.wires { position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+  .node { display:flex; align-items:center; gap:7px; font-size:12.5px; padding:3px 8px; border-radius:6px; cursor:pointer; border:1px solid transparent; color:var(--ink-1); }
+  .node:hover { border-color:var(--hairline); }
+  .node.sel { border-color:var(--ink-2); font-weight:600; }
+  .node.dim { opacity:.25; }
+  .node .cnt { margin-left:auto; color:var(--ink-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .cat-label { font-size:11px; color:var(--ink-2); margin:8px 0 2px; display:flex; align-items:center; gap:5px; font-weight:600; }
+  path.wire { fill:none; stroke-width:1.3; opacity:.28; }
+  path.wire.hot { opacity:.95; stroke-width:2; }
+  path.wire.cold { opacity:.04; }
+  .tablewrap { margin-top:16px; background:var(--surface-1); border:1px solid var(--ring); border-radius:12px; padding:16px; overflow-x:auto; }
+  table { border-collapse:collapse; font-size:12.5px; width:100%; }
+  th, td { text-align:left; padding:5px 10px; border-bottom:1px solid var(--hairline); vertical-align:top; }
+  th { color:var(--ink-muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .hidden { display:none; }
+  footer { color:var(--ink-muted); font-size:12px; margin-top:14px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <header>
+    <h1>Convos iOS — ViewModel → Dependency Map</h1>
+    <p class="sub">Generated from stored properties, init params, and <code>session.*()</code> factory calls by <code>Scripts/generate_vm_map_ios.py</code>. Click a node to pin its connections; search to filter; Table view for the flat list.</p>
+    <p class="scope"><b>Question this answers:</b> what does each ViewModel depend on, and which ones carry too much? <b>Action it drives:</b> read before touching a surface; split VMs whose collaborator count is an outlier. iOS counterpart of android architecture.md §15 — one chart, nothing more.</p>
+  </header>
+  <div class="tiles" id="tiles"></div>
+  <div class="controls">
+    <input type="search" id="q" placeholder="Filter ViewModels…" aria-label="Filter ViewModels">
+    <button class="btn" id="tableBtn" aria-pressed="false">Table view</button>
+    <button class="btn" id="themeBtn">Dark / light</button>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="board" id="board">
+    <div class="cols">
+      <div class="col" id="vmCol"><h2>ViewModels (by dependency count)</h2></div>
+      <div class="gap"></div>
+      <div class="col" id="depCol"><h2>Dependencies (by kind)</h2></div>
+      <svg class="wires" id="wires"></svg>
+    </div>
+  </div>
+  <div class="tablewrap hidden" id="tablewrap">
+    <table><thead><tr><th>ViewModel</th><th>Depends on</th></tr></thead><tbody id="tbody"></tbody></table>
+  </div>
+  <footer>Generated by Scripts/generate_vm_map_ios.py — do not edit by hand; CI regenerates and fails on drift. Regenerate after adding or rewiring a ViewModel.</footer>
+</div>
+<script>
+const CATS = [{"key": "repo", "label": "Repositories", "light": "#2a78d6", "dark": "#3987e5"}, {"key": "svc", "label": "Services", "light": "#008300", "dark": "#008300"}, {"key": "mgr", "label": "Managers", "light": "#e87ba4", "dark": "#d55181"}, {"key": "store", "label": "Stores & caches", "light": "#eda100", "dark": "#c98500"}, {"key": "nav", "label": "Coordinators", "light": "#1baf7a", "dark": "#199e70"}, {"key": "writer", "label": "Writers", "light": "#eb6834", "dark": "#d95926"}, {"key": "other", "label": "Child VMs & other", "light": "#4a3aa7", "dark": "#9085e9"}];
+const DATA = {"viewModels": {"AgentBuilderViewModel": ["CloudConnectionManager", "CloudConnectionRepository", "MessagingService", "NewConversationViewModel", "SessionManager"], "AppSettingsViewModel": ["CloudConnectionManager", "CloudConnectionRepository", "ConnectionsListViewModel", "SessionManager"], "ConnectionsListViewModel": ["CloudConnectionManager", "CloudConnectionRepository"], "ContactsPickerViewModel": ["ContactsRepository", "SuggestedAgentsService"], "ContactsViewModel": ["ContactsRepository", "SuggestedAgentsService"], "ConversationViewModel": ["AgentBuilderSummaryRepository", "AgentBuilderViewModel", "AgentTemplateRepository", "AttachmentLocalStateWriter", "BackgroundUploadManager", "BuilderBundleHiddenMessagesRepository", "CapabilityRequestRepository", "CapabilityRequestResultWriter", "CloudConnectionManager", "CloudConnectionRepository", "ConnectionEnablementStore", "ConnectionEventWriter", "ConnectionGrantWriter", "ConnectionServicesStore", "ContactsRepository", "ConversationConsentWriter", "ConversationExplosionWriter", "ConversationLeaveWriter", "ConversationLocalStateWriter", "ConversationMetadataWriter", "ConversationOnboardingCoordinator", "ConversationRepository", "ConversationStateManager", "MessageWriter", "MessagesListRepository", "MessagesRepository", "MessagingService", "MyProfileViewModel", "NewConversationViewModel", "OutgoingMessageWriter", "PhotoPreferencesRepository", "PhotoPreferencesWriter", "ReactionWriter", "ReadReceiptWriter", "SessionManager", "ThinkingSessionRepository", "TypingIndicatorManager", "VoiceMemoTranscriptRepository", "VoiceMemoTranscriptionService"], "ConversationsViewModel": ["AgentBuilderViewModel", "AppSettingsViewModel", "ConversationExplosionWriter", "ConversationLocalStateWriter", "ConversationViewModel", "ConversationsCountRepository", "ConversationsRepository", "FocusCoordinator", "JoinerPairingSheetViewModel", "MessagingService", "NewConversationViewModel", "PairingSheetViewModel", "SessionManager"], "DevicesViewModel": ["MessagingService", "PairingSheetViewModel", "SessionManager"], "JoinerPairingSheetViewModel": ["PairingService"], "MyProfileViewModel": ["MessagingService", "MyProfileRepository", "ProfilesRepository"], "NewConversationViewModel": ["ConversationStateManager", "ConversationViewModel", "MessagingService", "QRScannerViewModel", "SessionManager"], "PairingSheetViewModel": ["PairingCoordinator", "PairingService"], "PaywallViewModel": ["SubscriptionService"], "ProfileSettingsViewModel": ["MyGlobalProfileRepository", "MyGlobalProfileWriter", "SessionManager"], "ThingsOverviewViewModel": ["AgentFilesLinksRepository", "ConversationsRepository", "SessionManager"]}, "depCat": {"CloudConnectionManager": "mgr", "CloudConnectionRepository": "repo", "MessagingService": "svc", "NewConversationViewModel": "other", "SessionManager": "mgr", "ConnectionsListViewModel": "other", "ContactsRepository": "repo", "SuggestedAgentsService": "svc", "AgentBuilderSummaryRepository": "repo", "AgentBuilderViewModel": "other", "AgentTemplateRepository": "repo", "AttachmentLocalStateWriter": "writer", "BackgroundUploadManager": "mgr", "BuilderBundleHiddenMessagesRepository": "repo", "CapabilityRequestRepository": "repo", "CapabilityRequestResultWriter": "writer", "ConnectionEnablementStore": "store", "ConnectionEventWriter": "writer", "ConnectionGrantWriter": "writer", "ConnectionServicesStore": "store", "ConversationConsentWriter": "writer", "ConversationExplosionWriter": "writer", "ConversationLeaveWriter": "writer", "ConversationLocalStateWriter": "writer", "ConversationMetadataWriter": "writer", "ConversationOnboardingCoordinator": "nav", "ConversationRepository": "repo", "ConversationStateManager": "mgr", "MessageWriter": "writer", "MessagesListRepository": "repo", "MessagesRepository": "repo", "MyProfileViewModel": "other", "OutgoingMessageWriter": "writer", "PhotoPreferencesRepository": "repo", "PhotoPreferencesWriter": "writer", "ReactionWriter": "writer", "ReadReceiptWriter": "writer", "ThinkingSessionRepository": "repo", "TypingIndicatorManager": "mgr", "VoiceMemoTranscriptRepository": "repo", "VoiceMemoTranscriptionService": "svc", "AppSettingsViewModel": "other", "ConversationViewModel": "other", "ConversationsCountRepository": "repo", "ConversationsRepository": "repo", "FocusCoordinator": "nav", "JoinerPairingSheetViewModel": "other", "PairingSheetViewModel": "other", "PairingService": "svc", "MyProfileRepository": "repo", "ProfilesRepository": "repo", "QRScannerViewModel": "other", "PairingCoordinator": "nav", "SubscriptionService": "svc", "MyGlobalProfileRepository": "repo", "MyGlobalProfileWriter": "writer", "AgentFilesLinksRepository": "repo"}};
+
+const root = document.querySelector(".viz-root");
+function applyCatColors() {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
+    (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+  CATS.forEach(c => root.style.setProperty("--cat-" + c.key, dark ? c.dark : c.light));
+}
+applyCatColors();
+
+const vms = Object.keys(DATA.viewModels).sort((a, b) =>
+  DATA.viewModels[b].length - DATA.viewModels[a].length || a.localeCompare(b));
+const deps = [...new Set(vms.flatMap(v => DATA.viewModels[v]))];
+const depByCat = {};
+deps.forEach(d => { const c = DATA.depCat[d] || "other"; (depByCat[c] = depByCat[c] || []).push(d); });
+Object.values(depByCat).forEach(a => a.sort());
+const edges = vms.flatMap(v => DATA.viewModels[v].map(d => [v, d]));
+
+const maxDeps = Math.max(...vms.map(v => DATA.viewModels[v].length), 0);
+const tiles = [["ViewModels", vms.length], ["Dependency edges", edges.length], ["Max collaborators", maxDeps]];
+document.getElementById("tiles").innerHTML = tiles.map(([k, v]) =>
+  `<div class="tile"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+document.getElementById("legend").innerHTML = CATS.filter(c => depByCat[c.key]).map(c =>
+  `<span><span class="dot" style="background:var(--cat-${c.key})"></span>${c.label}</span>`).join("");
+
+const vmCol = document.getElementById("vmCol"), depCol = document.getElementById("depCol");
+vms.forEach(v => {
+  const el = document.createElement("div");
+  el.className = "node"; el.dataset.id = v; el.dataset.side = "vm";
+  el.innerHTML = `<span>${v.replace(/ViewModel$/, "")}<span style="color:var(--ink-muted)">VM</span></span><span class="cnt">${DATA.viewModels[v].length}</span>`;
+  vmCol.appendChild(el);
+});
+CATS.forEach(c => {
+  if (!depByCat[c.key]) return;
+  const h = document.createElement("div");
+  h.className = "cat-label";
+  h.innerHTML = `<span class="dot" style="background:var(--cat-${c.key})"></span>${c.label}`;
+  depCol.appendChild(h);
+  depByCat[c.key].forEach(d => {
+    const el = document.createElement("div");
+    el.className = "node"; el.dataset.id = d; el.dataset.side = "dep";
+    const users = edges.filter(e => e[1] === d).length;
+    el.innerHTML = `<span class="dot" style="background:var(--cat-${c.key})"></span><span>${d}</span><span class="cnt">${users}</span>`;
+    depCol.appendChild(el);
+  });
+});
+
+const board = document.getElementById("board"), svg = document.getElementById("wires");
+function colorOf(dep) {
+  return getComputedStyle(root).getPropertyValue("--cat-" + (DATA.depCat[dep] || "other")).trim();
+}
+function draw() {
+  const cRect = board.querySelector(".cols").getBoundingClientRect();
+  svg.innerHTML = "";
+  edges.forEach(([v, d]) => {
+    const a = vmCol.querySelector(`[data-id="${v}"]`), b = depCol.querySelector(`[data-id="${CSS.escape(d)}"]`);
+    if (!a || !b || a.classList.contains("hidden")) return;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const x1 = ra.right - cRect.left, y1 = ra.top + ra.height / 2 - cRect.top;
+    const x2 = rb.left - cRect.left, y2 = rb.top + rb.height / 2 - cRect.top;
+    const mx = (x1 + x2) / 2;
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    p.setAttribute("class", "wire");
+    p.setAttribute("stroke", colorOf(d));
+    p.dataset.v = v; p.dataset.d = d;
+    svg.appendChild(p);
+  });
+  svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
+}
+
+let pinned = null;
+function highlight(id) {
+  const nodes = [...document.querySelectorAll(".node")];
+  const wires = [...svg.querySelectorAll("path")];
+  if (!id) {
+    nodes.forEach(n => n.classList.remove("dim", "sel"));
+    wires.forEach(w => w.classList.remove("hot", "cold"));
+    return;
+  }
+  const linked = new Set([id]);
+  edges.forEach(([v, d]) => { if (v === id) linked.add(d); if (d === id) linked.add(v); });
+  nodes.forEach(n => {
+    n.classList.toggle("dim", !linked.has(n.dataset.id));
+    n.classList.toggle("sel", n.dataset.id === id);
+  });
+  wires.forEach(w => {
+    const hot = w.dataset.v === id || w.dataset.d === id;
+    w.classList.toggle("hot", hot); w.classList.toggle("cold", !hot);
+  });
+}
+document.addEventListener("click", e => {
+  const n = e.target.closest(".node");
+  if (!n) { pinned = null; highlight(null); return; }
+  pinned = pinned === n.dataset.id ? null : n.dataset.id;
+  highlight(pinned);
+});
+document.addEventListener("mouseover", e => {
+  if (pinned) return;
+  const n = e.target.closest(".node");
+  highlight(n ? n.dataset.id : null);
+});
+document.getElementById("q").addEventListener("input", e => {
+  const q = e.target.value.toLowerCase();
+  vmCol.querySelectorAll(".node").forEach(n => {
+    n.classList.toggle("hidden", q && !n.dataset.id.toLowerCase().includes(q));
+  });
+  draw(); if (pinned) highlight(pinned);
+});
+const tbody = document.getElementById("tbody");
+vms.forEach(v => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${v}</td><td>${DATA.viewModels[v].join(", ") || "—"}</td>`;
+  tbody.appendChild(tr);
+});
+document.getElementById("tableBtn").addEventListener("click", e => {
+  const w = document.getElementById("tablewrap");
+  const on = w.classList.toggle("hidden") === false;
+  document.getElementById("board").classList.toggle("hidden", on);
+  e.currentTarget.setAttribute("aria-pressed", on);
+  e.currentTarget.textContent = on ? "Graph view" : "Table view";
+  if (!on) { draw(); if (pinned) highlight(pinned); }
+});
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const r = document.documentElement;
+  const cur = r.getAttribute("data-theme");
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  r.setAttribute("data-theme", (cur ? cur === "dark" : dark) ? "light" : "dark");
+  applyCatColors(); draw(); if (pinned) highlight(pinned);
+});
+
+addEventListener("resize", () => { draw(); if (pinned) highlight(pinned); });
+draw();
+</script>
+</body>
+</html>

@@ -913,3 +913,15 @@ aichat search "error handling" | grep "convos-ios-push"
 #### How Sessions Are Stored
 
 Sessions live at `~/.claude/projects/<project-hash>/sessions/*.jsonl`. The search index is at `~/.cctools/search-index/`.
+
+
+## Generated ViewModel Map
+
+`docs/vm-map.{md,json,html}` is **generated from code** by
+`Scripts/generate_vm_map_ios.py`. Scope: one chart — what each ViewModel depends on (stored properties,
+init params, and session factory calls) — the iOS counterpart of android
+architecture.md §15. ADRs and identity-system-overview remain the curated
+source for everything else. After adding or rewiring a ViewModel, regenerate:
+
+    python3 Scripts/generate_vm_map_ios.py --root . \
+      --out docs/vm-map.md --json docs/vm-map.json --html docs/vm-map.html
