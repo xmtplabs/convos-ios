@@ -26,6 +26,12 @@ enum ShareSuggestionDonator {
     /// suggestion store.
     @MainActor private static var lastDonated: [String: String] = [:]
 
+    /// Generation of the newest donate run. Each run captures the value at
+    /// start and bails after any await if a newer run has begun, so a stale
+    /// run never re-donates old conversations or overwrites `lastDonated`
+    /// with an outdated set.
+    @MainActor private static var donationGeneration: Int = 0
+
     static func donate(_ conversations: [Conversation]) {
         // Only conversations with at least one other member are real share
         // targets; skip self-only / empty conversations.
@@ -33,6 +39,8 @@ enum ShareSuggestionDonator {
             conversation.members.contains { !$0.isCurrentUser }
         }
         Task { @MainActor in
+            donationGeneration += 1
+            let generation: Int = donationGeneration
             let current: [(conversation: Conversation, fingerprint: String)] = targetable.prefix(maxSuggestions).map {
                 ($0, fingerprint(for: $0))
             }
@@ -40,15 +48,17 @@ enum ShareSuggestionDonator {
 
             let removedIds: [String] = lastDonated.keys.filter { !currentIds.contains($0) }
             if !removedIds.isEmpty {
-                INInteraction.delete(with: removedIds) { error in
-                    if let error {
-                        Log.error("[ShareSuggestions] delete failed: \(error.localizedDescription)")
-                    }
+                do {
+                    try await INInteraction.delete(with: removedIds)
+                } catch {
+                    Log.error("[ShareSuggestions] delete failed: \(error.localizedDescription)")
                 }
+                guard generation == donationGeneration else { return }
             }
 
             for (conversation, fingerprint) in current where lastDonated[conversation.id] != fingerprint {
                 let photo: UIImage? = await ImageCache.shared.imageAsync(for: conversation)
+                guard generation == donationGeneration else { return }
                 let avatar: INImage? = renderAvatar(for: conversation, photo: photo)
                 submit(conversation: conversation, avatar: avatar)
             }
