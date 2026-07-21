@@ -40,10 +40,10 @@ enum ShareSuggestionDonator {
 
             let removedIds: [String] = lastDonated.keys.filter { !currentIds.contains($0) }
             if !removedIds.isEmpty {
-                INInteraction.delete(with: removedIds) { error in
-                    if let error {
-                        Log.error("[ShareSuggestions] delete failed: \(error.localizedDescription)")
-                    }
+                do {
+                    try await INInteraction.delete(with: removedIds)
+                } catch {
+                    Log.error("[ShareSuggestions] delete failed: \(error.localizedDescription)")
                 }
             }
 
