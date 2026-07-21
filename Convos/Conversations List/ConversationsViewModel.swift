@@ -1409,10 +1409,21 @@ extension ConversationsViewModel {
         nonisolated(unsafe) let primeRepository = conversationsRepository
         nonisolated(unsafe) let primeCountRepository = conversationsCountRepository
         let primed: InitialPrime? = BoundedInitialRead.prime(read: {
-            InitialPrime(
-                conversations: try? primeRepository.fetchAll(),
-                count: try? primeCountRepository.fetchCount()
-            )
+            var fetched: [Conversation]?
+            var count: Int?
+            do {
+                fetched = try primeRepository.fetchAll()
+            } catch {
+                // Distinguish a failed read from a merely slow one: the
+                // deadline-miss log alone would hide real database errors.
+                Log.error("Initial conversations prime failed: \(error.localizedDescription)")
+            }
+            do {
+                count = try primeCountRepository.fetchCount()
+            } catch {
+                Log.error("Initial conversations count prime failed: \(error.localizedDescription)")
+            }
+            return InitialPrime(conversations: fetched, count: count)
         }, late: { [weak self] payload in
             self?.applyInitialPrime(payload, deliveredLate: true)
         })

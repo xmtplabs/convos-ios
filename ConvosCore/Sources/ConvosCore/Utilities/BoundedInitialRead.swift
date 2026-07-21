@@ -18,7 +18,7 @@ import Foundation
 /// In the pathological case the wait gives up (an imperceptible pause, far
 /// below hang thresholds), the view renders without the data, and `late`
 /// delivers the result on the main actor as soon as the read completes.
-enum BoundedInitialRead {
+public enum BoundedInitialRead {
     private final class ResultBox<T>: @unchecked Sendable {
         private let lock: NSLock = NSLock()
         private var value: T?
@@ -46,7 +46,7 @@ enum BoundedInitialRead {
     /// main queue. `read` executes exactly once, always off the caller's
     /// thread; exactly one of the synchronous return or `late` delivers a
     /// non-nil result.
-    static func prime<T>(
+    public static func prime<T>(
         deadline: DispatchTimeInterval = .milliseconds(50),
         read: @escaping @Sendable () -> T?,
         late: @escaping @MainActor (T) -> Void

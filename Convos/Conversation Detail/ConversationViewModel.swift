@@ -1353,10 +1353,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let summaryRepository = session.agentBuilderSummaryRepository()
         let conversationId = conversation.id
         let primed: InitialPrime? = BoundedInitialRead.prime(read: {
-            InitialPrime(
-                summary: summaryRepository.summarySync(for: conversationId),
-                result: try? primeRepository.fetchInitialResult()
-            )
+            let summary = summaryRepository.summarySync(for: conversationId)
+            do {
+                return InitialPrime(summary: summary, result: try primeRepository.fetchInitialResult())
+            } catch {
+                // Distinguish a failed read from a merely slow one: the
+                // deadline-miss log alone would hide real database errors.
+                Log.error("Initial message prime failed for \(conversationId): \(error.localizedDescription)")
+                return InitialPrime(summary: summary, result: nil)
+            }
         }, late: { [weak self] payload in
             self?.applyInitialPrime(payload, deliveredLate: true)
         })
