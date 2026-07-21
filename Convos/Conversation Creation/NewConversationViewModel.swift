@@ -281,6 +281,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// path.
     @ObservationIgnored
     private var pendingAgentTemplateIds: [String] = []
+    /// Spawns the default agent into the conversation once it is ready.
+    /// A default-agent join carries no template id, so it cannot ride
+    /// `pendingAgentTemplateIds` and is tracked separately. Set by builds
+    /// that ship without the agent builder.
+    @ObservationIgnored
+    private let joinsDefaultAgent: Bool
     /// Set when a template QR is scanned before the messaging service
     /// (and `conversationStateManager`) has been acquired; the create is
     /// kicked off once configuration completes. Mirrors `pendingInviteCode`.
@@ -358,10 +364,12 @@ class NewConversationViewModel: Identifiable, Hashable {
         showsEmbeddedInvite: Bool = false,
         embeddedInviteInitialSegment: ScanInviteSegment = .invite,
         defersInviteVisibilityUntilEntered: Bool = false,
+        joinsDefaultAgent: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.joinsDefaultAgent = joinsDefaultAgent
         self.showsEmbeddedInvite = showsEmbeddedInvite
         self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
@@ -1242,10 +1250,20 @@ extension NewConversationViewModel {
     /// re-emitted `.ready` can't request the joins twice. Uses the batched
     /// method -- the single-flight `requestAgentJoin(templateId:)` would cancel
     /// each prior call as the loop advances, leaving only the last to land.
+    ///
+    /// A default-agent join (`joinsDefaultAgent`) takes the single-flight
+    /// method with a nil template: there is exactly one join to make and no
+    /// id to batch, and the backend provisions its default agent when the
+    /// template is omitted.
     private func requestPendingAgentJoinsIfReady(conversationId: String? = nil) {
-        guard _reachedReadyState, !didTriggerAgentJoin, !pendingAgentTemplateIds.isEmpty else { return }
+        guard _reachedReadyState, !didTriggerAgentJoin else { return }
+        guard !pendingAgentTemplateIds.isEmpty || joinsDefaultAgent else { return }
         didTriggerAgentJoin = true
-        conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
+        if pendingAgentTemplateIds.isEmpty {
+            conversationViewModel?.requestAgentJoin(templateId: nil)
+        } else {
+            conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
+        }
         // A scanned agent lands in the conversation it was added to. The
         // `.ready` hook passes the id straight off the ready result: the state
         // manager's own `conversationId` is updated by a separate observer of
@@ -1379,9 +1397,10 @@ extension NewConversationViewModel {
                 claimedConversationId = result.conversationId
             }
 
-            // Agent-template spawn: the conversation now exists with a
-            // shareable invite, so request a fresh instance for each
-            // pending templateId (see `requestPendingAgentJoinsIfReady`).
+            // Agent spawn: the conversation now exists with a shareable
+            // invite, so request a fresh instance for each pending
+            // templateId, or the default agent when this VM was created
+            // with `joinsDefaultAgent` (see `requestPendingAgentJoinsIfReady`).
             requestPendingAgentJoinsIfReady(conversationId: result.conversationId)
 
         case .joinFailed(_, let error):

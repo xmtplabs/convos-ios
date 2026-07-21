@@ -408,7 +408,7 @@ struct MainTabView: View {
                 // reflowed the list mid-transition. The bar also stays up
                 // during the empty-state CTA (it is the same builder entry
                 // point the CTA's "Make an agent" button opens).
-                if tab != .contacts {
+                if tab != .contacts, !ConfigManager.shared.isAgentOnlyBuild {
                     builderBar
                         .transition(.blurReplace)
                 }

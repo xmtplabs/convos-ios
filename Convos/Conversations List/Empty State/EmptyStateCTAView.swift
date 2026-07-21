@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 
 /// Shared scaffold for the new-user empty states on the Chats and Things
@@ -69,7 +70,9 @@ struct EmptyStateCTAView<MockContent: View>: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: Constant.agentIconSize, height: Constant.agentIconSize)
-                Text("Make an agent")
+                // An agent-only build has no builder; the same button starts
+                // a conversation that already has an agent in it.
+                Text(ConfigManager.shared.isAgentOnlyBuild ? "Start a conversation" : "Make an agent")
                     .font(.callout)
             }
         }

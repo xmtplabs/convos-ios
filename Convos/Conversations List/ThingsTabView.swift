@@ -182,7 +182,7 @@ struct ThingsTabView: View {
     /// "Make an agent" button or the surrounding components.
     private var emptyState: some View {
         ThingsEmptyStateView(
-            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onMakeAgent: { conversationsViewModel.onEmptyStatePrimaryAction() },
             onExploreAgents: onSeeSuggestedAgents
         )
     }

@@ -1059,8 +1059,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// is what the agent receives. Surfaces nested inside another sheet (the
     /// Info sheet, Members list) present this from their own `.sheet` so it
     /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
-    func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
-        AgentBuilderViewModel(session: session, existingConversationId: conversation.id, coreActions: coreActions)
+    /// Nil in an agent-only build, which ships without the agent builder.
+    /// Every in-chat builder surface assigns the result into an optional
+    /// presentation binding, so returning nil here leaves all of them inert
+    /// without each having to carry the check.
+    func makeAgentBuilderViewModel() -> AgentBuilderViewModel? {
+        guard !ConfigManager.shared.isAgentOnlyBuild else { return nil }
+        return AgentBuilderViewModel(session: session, existingConversationId: conversation.id, coreActions: coreActions)
     }
 
     private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
