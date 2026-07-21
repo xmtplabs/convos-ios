@@ -278,6 +278,14 @@ final class ConversationsViewModel {
     /// conversation appears; mirrors `pendingScanNavigationConversationId`.
     @ObservationIgnored
     private var pendingConnectionGrantLink: (serviceId: String, conversationId: String)?
+    /// Whether the conversations / count publishers have delivered at least
+    /// one emission. The late prime path must skip applying its stale
+    /// snapshot after any emission, including a legitimately empty or zero
+    /// one, so this cannot be inferred from the data values themselves.
+    @ObservationIgnored
+    private var conversationsObservationHasEmitted: Bool = false
+    @ObservationIgnored
+    private var conversationsCountObservationHasEmitted: Bool = false
     /// Mirrors whether the Chats tab is frontmost in the tab shell (kept
     /// current by `MainTabView`). Scan navigation must not select a
     /// conversation while another tab is visible: selecting hides the tab bar
@@ -591,6 +599,7 @@ final class ConversationsViewModel {
         conversationsCountRepository.conversationsCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversationsCount in
+                self?.conversationsCountObservationHasEmitted = true
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
@@ -598,6 +607,7 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
+                self.conversationsObservationHasEmitted = true
                 self.conversations = hiddenConversationIds.isEmpty
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
@@ -1438,20 +1448,25 @@ extension ConversationsViewModel {
         if let fetched = prime.conversations {
             // On the late path the conversations publisher may have emitted
             // already; it is the source of truth, so never replace its
-            // emission with this older snapshot.
-            if !deliveredLate || conversations.isEmpty {
+            // emission with this older snapshot. An emission can legitimately
+            // be an empty list (the last conversation was just deleted), so
+            // check the explicit flag rather than inferring from the data.
+            if !deliveredLate || (!conversationsObservationHasEmitted && conversations.isEmpty) {
                 conversations = fetched
                 resolvePendingConnectionGrantIfPossible()
             }
         }
         // Assigning the count latches hasCreatedMoreThanOneConvo via its
         // didSet, matching what the old synchronous init fetch did.
-        if let count = prime.count, !deliveredLate || conversationsCount == 0 {
+        if let count = prime.count, !deliveredLate || (!conversationsCountObservationHasEmitted && conversationsCount == 0) {
             conversationsCount = count
         }
     }
 
     private func openConnectionGrant(serviceId: String, conversationId: String) {
+        // Discard any older parked link so it cannot fire later and yank the
+        // user away from the grant that is being handled now.
+        pendingConnectionGrantLink = nil
         _selectedConversationId = conversationId
         pendingGrantRequest = PendingGrantRequest(
             serviceId: serviceId,

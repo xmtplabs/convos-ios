@@ -267,6 +267,11 @@ class MessagesRepository: MessagesRepositoryProtocol {
         )
 
         stateQueue.sync(flags: .barrier) {
+            // The conversationIdPublisher sink can switch conversations and
+            // run a fresh fetchInitial() while this read is still in flight;
+            // committing then would clobber the new conversation's pagination
+            // state (for example locking _hasMoreMessages to false).
+            guard self.conversationId == conversationId else { return }
             self._seenMessageIds = updatedSeenIds
             self._hasCompletedInitialLoad = true
             if messages.count < self.pageSize {

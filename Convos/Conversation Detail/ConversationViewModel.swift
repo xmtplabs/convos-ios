@@ -249,6 +249,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
+    /// Whether the messages list / summary observations have delivered at
+    /// least one emission. The late prime path must skip applying its stale
+    /// snapshot after any emission, including a legitimately empty or nil
+    /// one, so this cannot be inferred from the data values themselves.
+    @ObservationIgnored
+    private var messagesObservationHasEmitted: Bool = false
+    @ObservationIgnored
+    private var summaryObservationHasEmitted: Bool = false
     @ObservationIgnored
     private var directBuildGenerationCancellable: AnyCancellable?
     /// One-shot backstop: cleared/re-armed as the direct build reaches the
@@ -1377,14 +1385,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // original ordering guarantee: the first emission already carries
         // the summary card and the cutoff-filtered messages. The didSet
         // seeds messagesListRepository and arms the placeholder expiry.
-        if let summary = prime.summary, agentBuilderSummary == nil {
+        if let summary = prime.summary, !summaryObservationHasEmitted, agentBuilderSummary == nil {
             agentBuilderSummary = summary
         }
         guard let result = prime.result else { return }
-        // On the late path the observation pipeline may have populated
-        // messages already; it is the source of truth, so never replace
-        // its emission with this older snapshot.
-        if deliveredLate, !messages.isEmpty { return }
+        // On the late path the observation pipeline may have emitted
+        // already; it is the source of truth, so never replace its emission
+        // with this older snapshot. An emission can legitimately be empty
+        // (for example the last message was just deleted), so check the
+        // explicit flag rather than inferring from the data.
+        if deliveredLate, messagesObservationHasEmitted || !messages.isEmpty { return }
         let items = messagesListRepository.processInitial(result)
         messages = items
         scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
@@ -1428,6 +1438,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .summaryPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in
+                self?.summaryObservationHasEmitted = true
                 self?.agentBuilderSummary = summary
             }
         // The summary set during `init` doesn't fire `agentBuilderSummary`'s
@@ -1553,6 +1564,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
                 guard let self else { return }
+                self.messagesObservationHasEmitted = true
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
                 let messageCount = messages.countMessages
                 let messagesChanged = messageCount != self.lastMessageCountForReadReceipt
