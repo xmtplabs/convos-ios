@@ -12,8 +12,10 @@ public struct AgentFile: Sendable, Hashable, Identifiable {
     public let attachmentKey: String
     public let thumbnailDataBase64: String?
 
+    /// The sentinel is plumbing, not part of the artifact's name — a file the
+    /// group opens should never read `notes~quiet.html`.
     public var displayName: String {
-        filename ?? "Untitled"
+        QuietArtifactUpdate.canonicalFilename(filename) ?? "Untitled"
     }
 
     public var formattedDate: String {
@@ -126,10 +128,14 @@ public final class AgentFilesLinksRepository: Sendable {
         // Rows arrive newest first, so the first occurrence of each filename is the
         // most recent send. Files with no filename pass through individually since
         // we can't tell duplicates apart.
+        //
+        // Deduping on the canonical name means a quiet update supersedes the
+        // loud send it follows: both are the same artifact, and only the newer
+        // one survives here even though the transcript ignored the quiet one.
         var seenFilenames: Set<String> = []
         var deduped: [AgentFile] = []
         for file in files {
-            if let filename = file.filename {
+            if let filename = QuietArtifactUpdate.canonicalFilename(file.filename) {
                 if seenFilenames.insert(filename).inserted {
                     deduped.append(file)
                 }
