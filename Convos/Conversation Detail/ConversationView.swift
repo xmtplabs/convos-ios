@@ -354,10 +354,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     bottomBarContent()
 
                     // Openers for an agent still waiting to be told what it is.
-                    // Suppressed while onboarding is up so the two prompts
-                    // don't stack — both want the same brand-new conversation.
-                    if viewModel.showsConversationStarters,
-                       !onboardingCoordinator.showOnboardingView {
+                    // Deliberately not gated on the onboarding view: that goes
+                    // non-idle the moment a creator opens their own new
+                    // conversation, which is every conversation these openers
+                    // exist for, and only clears once profile and notification
+                    // setup resolve. Hiding behind it hid them outright.
+                    if viewModel.showsConversationStarters {
                         ConversationStartersView(onSelect: sendConversationStarter)
                             .transition(.blurReplace)
                     }
