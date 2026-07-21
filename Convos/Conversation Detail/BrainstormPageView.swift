@@ -48,6 +48,10 @@ struct BrainstormPageView: View {
                 BrainstormEmptyStateView(agentName: agentName, onStart: handleStartBrainstorming)
             }
         }
+        // Same canvas as ThinkingDetailView's presentation background: the
+        // thought bubbles fill with colorBackgroundRaised, which disappears
+        // against the default page background.
+        .background(Color.colorBackgroundRaisedSecondary)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             composer
         }
