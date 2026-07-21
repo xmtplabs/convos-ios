@@ -77,10 +77,18 @@ struct ContactDetailView: View {
     @State private var isBlocked: Bool
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
+    @State private var presentingRemoveConfirmation: Bool = false
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
+    // Behind the `Listen (agent participation)` debug flag. The selection is
+    // local to this view; postParticipation pushes it to the runtime.
+    @State private var showingParticipationMenu: Bool = false
+    @State private var participationLevel: AgentParticipationLevel = .speakFreely
+    // Cooldown override (seconds). The runtime default scales by group size;
+    // this lets a member pin the hold explicitly.
+    @State private var cooldownSeconds: Int = 15
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
@@ -189,6 +197,108 @@ struct ContactDetailView: View {
                 pushedConversationView(vm)
             }
             .overlay { agentShareOverlay }
+            .sheet(isPresented: $showingParticipationMenu) {
+                participationMenuSheet
+            }
+            .alert(
+                "Remove \(contact.resolvedDisplayName)?",
+                isPresented: $presentingRemoveConfirmation
+            ) {
+                Button("Remove", role: .destructive) { onRemove?() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    (isVerifiedAgent || isAgentTemplate)
+                        ? "This removes the agent from the conversation. It stops responding here, and you can add it back later."
+                        : "This removes them from the conversation."
+                )
+            }
+    }
+
+    /// The "Agent participation" menu, presented from the Participation row.
+    /// The pick is pushed straight to the runtime; durable per-conversation
+    /// storage lands with the backend work.
+    private var participationMenuSheet: some View {
+        // Three live levels: Speak freely, Mention-only, Paused. Listen-only,
+        // expiration, and Leave-the-room were cut in product planning.
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
+            AgentParticipationMenu(
+                levels: AgentParticipationLevel.liveCases,
+                selection: participationLevel,
+                showsBackground: false
+            ) { level in
+                participationLevel = level
+                postParticipation(mode: level.wireMode, cooldownSeconds: nil)
+                showingParticipationMenu = false
+            }
+            // Cooldown only applies to Speak freely: that is the level where the
+            // agent follows the group's flow, so pacing its bursts is meaningful.
+            // Mention-only already speaks only when addressed; Paused is offline.
+            if participationLevel == .speakFreely {
+                cooldownControl
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step8x)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium])
+    }
+
+    /// Explicit override for the burst-hold the runtime applies before it
+    /// replies once. Left alone, that hold scales with group size (engages at
+    /// 4+ members, +3s each, capped at 30s); picking a value here pins it.
+    /// "Off" means no hold beyond the base coalesce window.
+    private var cooldownControl: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text("Cooldown")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+            Picker("Cooldown", selection: $cooldownSeconds) {
+                Text("Off").tag(0)
+                Text("5s").tag(5)
+                Text("15s").tag(15)
+                Text("30s").tag(30)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: cooldownSeconds) { _, newValue in
+                postParticipation(mode: nil, cooldownSeconds: newValue)
+            }
+            Text("How long the agent holds a burst of messages before replying once.")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Local-dev bridge (behind the Listen debug flag): pushes participation
+    /// straight to the local worker's eval container proxy, which forwards to
+    /// the runtime's /convos/participation. No backend and no auth, because the
+    /// eval API is local-only. The shipping path goes through the backend, so
+    /// this whole function is scaffolding and does not survive the feature.
+    private func postParticipation(mode: String?, cooldownSeconds: Int?) {
+        guard let instanceId = contact.agentInstanceId else { return }
+        var payload: [String: Any] = [:]
+        if let mode { payload["mode"] = mode }
+        if let cooldownSeconds { payload["cooldownSeconds"] = cooldownSeconds }
+        guard
+            let url = URL(
+                string:
+                    "http://127.0.0.1:8787/api/eval/assistants/\(instanceId)/container/convos/participation"
+            ),
+            let body = try? JSONSerialization.data(withJSONObject: payload)
+        else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = body
+        Task {
+            do {
+                _ = try await URLSession.shared.data(for: request)
+                Log.info("participation pushed mode=\(mode ?? "-") cooldown=\(cooldownSeconds.map(String.init) ?? "-")")
+            } catch {
+                Log.error("participation push failed: \(error)")
+            }
+        }
     }
 
     /// Existing conversation pushed when a "Convos with you" row is tapped.
@@ -353,6 +463,13 @@ struct ContactDetailView: View {
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
+                    // Any member can change participation (not owner-gated); it
+                    // only needs to be an agent scoped to this conversation.
+                    showParticipation: FeatureFlags.shared.isListenParticipationEnabled
+                        && (isVerifiedAgent || isAgentTemplate)
+                        && mode.isScopedToConversation,
+                    participationLevel: participationLevel,
+                    onPickParticipation: { showingParticipationMenu = true },
                     showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
@@ -569,7 +686,8 @@ struct ContactDetailView: View {
     }
 
     private func handleRemoveTap() {
-        onRemove?()
+        // Removing the agent is destructive, so confirm natively before firing.
+        presentingRemoveConfirmation = true
     }
 
     private func applyBlockChange(block: Bool) {
@@ -785,6 +903,11 @@ private struct ContactDetailActions: View {
     let isAgent: Bool
     let showShare: Bool
     let showRemove: Bool
+    /// Gated by the `Listen (agent participation)` debug flag; opens the
+    /// participation menu. Any member (not owner-only) sees it.
+    let showParticipation: Bool
+    let participationLevel: AgentParticipationLevel
+    let onPickParticipation: () -> Void
     let showBlock: Bool
     let contactDisplayName: String
     /// Agent's email address from its profile metadata. Renders the
@@ -823,6 +946,9 @@ private struct ContactDetailActions: View {
             }
             if showChat {
                 chatButton
+            }
+            if showParticipation {
+                participationRow
             }
             if showShare {
                 shareRow
@@ -885,6 +1011,18 @@ private struct ContactDetailActions: View {
             accessibilityLabel: "Share \(contactDisplayName)",
             accessibilityIdentifier: "contact-detail-share-agent-row",
             action: onShare
+        )
+    }
+
+    private var participationRow: some View {
+        ContactDetailActionRow(
+            label: "Participation",
+            footer: "\(participationLevel.title) · In this convo",
+            color: .colorTextPrimary,
+            isDisabled: false,
+            accessibilityLabel: "Agent participation: \(participationLevel.title)",
+            accessibilityIdentifier: "agent-participation-button",
+            action: onPickParticipation
         )
     }
 

@@ -45,6 +45,17 @@ enum AgentParticipationLevel: String, CaseIterable, Identifiable {
 
     /// Opens a follow-up step (the duration picker) rather than selecting inline.
     var hasDisclosure: Bool { self == .listenOnly }
+
+    /// Wire value sent to the runtime's /convos/participation (speak/mention/paused).
+    var wireMode: String {
+        switch self {
+        case .speakFreely: "speak"
+        case .mentionsOnly: "mention"
+        case .paused: "paused"
+        // Not in the live set; map to speak so a stray value never gates.
+        case .listenOnly, .leaveRoom: "speak"
+        }
+    }
 }
 
 /// The floating "Agent participation" menu: a frosted card of levels with a
@@ -54,15 +65,21 @@ enum AgentParticipationLevel: String, CaseIterable, Identifiable {
 struct AgentParticipationMenu: View {
     let levels: [AgentParticipationLevel]
     let selection: AgentParticipationLevel
+    /// Draws the frosted card + shadow around the rows. Set `false` when the
+    /// host already provides a surface (e.g. inside a sheet) so the panel isn't
+    /// a redundant card-in-a-card.
+    let showsBackground: Bool
     let onSelect: (AgentParticipationLevel) -> Void
 
     init(
         levels: [AgentParticipationLevel] = AgentParticipationLevel.allCases,
         selection: AgentParticipationLevel,
+        showsBackground: Bool = true,
         onSelect: @escaping (AgentParticipationLevel) -> Void
     ) {
         self.levels = levels
         self.selection = selection
+        self.showsBackground = showsBackground
         self.onSelect = onSelect
     }
 
@@ -78,14 +95,21 @@ struct AgentParticipationMenu: View {
                 }
             }
         }
-        .padding(.vertical, DesignConstants.Spacing.step6x)
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLargest, style: .continuous)
-                .fill(.regularMaterial)
-        )
+        .padding(showsBackground ? DesignConstants.Spacing.step6x : 0)
+        .background {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLargest, style: .continuous)
+                    .fill(.regularMaterial)
+            }
+        }
         // Tight, single-direction lift — reads as a floating menu, not a halo.
-        .shadow(color: .black.opacity(0.12), radius: 18, x: 0, y: 6)
+        // Only when it's a standalone card; a sheet provides its own elevation.
+        .shadow(
+            color: showsBackground ? .black.opacity(0.12) : .clear,
+            radius: showsBackground ? 18 : 0,
+            x: 0,
+            y: showsBackground ? 6 : 0
+        )
     }
 
     private func row(for level: AgentParticipationLevel) -> some View {
