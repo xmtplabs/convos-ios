@@ -32,9 +32,20 @@ struct MessageDetailView: View {
         }
     }
 
+    /// What the text view actually renders. TextKit lays out lazily per
+    /// paragraph, so a single multi-hundred-KB paragraph forces a full
+    /// synchronous layout that delays the sheet presentation and leaves the
+    /// body blank (the render half of the giant-message hang cluster,
+    /// CONVOS-IOS-2H/2M/3R). Bodies over the display limit render truncated;
+    /// Copy still uses the full `bodyText`.
+    private var displayText: String {
+        guard bodyText.count > Constant.displayCharacterLimit else { return bodyText }
+        return String(bodyText.prefix(Constant.displayCharacterLimit)) + "\n\n[Message truncated for display. Use Copy to get the full text.]"
+    }
+
     var body: some View {
         NavigationStack {
-            SelectableTextView(text: bodyText, bottomClearance: Constant.bottomContentClearance)
+            SelectableTextView(text: displayText, bottomClearance: Constant.bottomContentClearance)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .safeAreaInset(edge: .bottom) { bottomActionBar }
                 .navigationTitle("Message")
@@ -89,6 +100,10 @@ struct MessageDetailView: View {
 
     private enum Constant {
         static let actionButtonSize: CGFloat = 44.0
+        /// Cap on how much of the body the sheet renders. TextKit lays out
+        /// a paragraph at a time, so anything beyond roughly this size in a
+        /// single paragraph stalls layout for seconds and presents blank.
+        static let displayCharacterLimit: Int = 50_000
         /// Bottom content inset for the scrolling body so its last line and
         /// scroll indicator clear the floating Copy/Reply buttons. Covers the
         /// button height, the action bar's bottom padding, and a comfortable
@@ -125,7 +140,13 @@ private struct SelectableTextView: UIViewRepresentable {
         textView.textContainerInset = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
-        textView.dataDetectorTypes = .link
+        // Link detection runs NSDataDetector over the whole string on the
+        // main thread while the sheet presents. On pathological bodies
+        // (hundreds of KB) that scan delayed the presentation by seconds
+        // and left the body blank, so linkify only reasonably-sized text.
+        if text.count <= Constant.linkDetectionCharacterLimit {
+            textView.dataDetectorTypes = .link
+        }
         textView.alwaysBounceVertical = true
         return textView
     }
@@ -138,5 +159,9 @@ private struct SelectableTextView: UIViewRepresentable {
             uiView.contentInset.bottom = bottomClearance
             uiView.verticalScrollIndicatorInsets.bottom = bottomClearance
         }
+    }
+
+    private enum Constant {
+        static let linkDetectionCharacterLimit: Int = 50_000
     }
 }
