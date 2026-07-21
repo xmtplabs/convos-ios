@@ -15,5 +15,5 @@
   "siweUri": "https://dev.convos.org",
   "siweChainId": 1,
   "posthogHost": "https://us.i.posthog.com",
-  "agentOnlyBuild": true
+  "noBuilder": true
 }

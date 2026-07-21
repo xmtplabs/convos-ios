@@ -427,9 +427,9 @@ final class ConversationsViewModel {
     /// the picker would be pointless -- so we skip it and open the
     /// new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
-        // An agent-only build skips the picker entirely: Compose lands the
+        // A no-builder build skips the picker entirely: Compose lands the
         // user straight in a conversation the agent is already joining.
-        guard !ConfigManager.shared.isAgentOnlyBuild else {
+        guard !ConfigManager.shared.isNoBuilderBuild else {
             startConversationWithDefaultAgent()
             return
         }
@@ -485,12 +485,11 @@ final class ConversationsViewModel {
         newConversationViewModel = viewModel
     }
 
-    /// Primary action of the Chats and Things empty states. An agent-only
-    /// build has no builder to open, so the CTA starts a conversation --
-    /// which arrives with an agent already in it, reaching the same place
-    /// the builder would have.
+    /// Primary action of the Chats and Things empty states. With no builder
+    /// to open, the CTA starts a conversation instead -- which arrives with
+    /// an agent already in it, reaching the same place the builder would have.
     func onEmptyStatePrimaryAction() {
-        if ConfigManager.shared.isAgentOnlyBuild {
+        if ConfigManager.shared.isNoBuilderBuild {
             onStartConvo()
         } else {
             onStartAgent()
@@ -498,12 +497,12 @@ final class ConversationsViewModel {
     }
 
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        guard !ConfigManager.shared.isAgentOnlyBuild else { return }
+        guard !ConfigManager.shared.isNoBuilderBuild else { return }
         agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }
 
     /// Opens a new conversation and, once it is ready, requests the default
-    /// agent into it. The agent-only build's Compose entry point: there is no
+    /// agent into it. The no-builder build's Compose entry point: there is no
     /// builder to describe an agent with and no template to pick, so the
     /// conversation simply arrives with an agent in it.
     private func startConversationWithDefaultAgent() {

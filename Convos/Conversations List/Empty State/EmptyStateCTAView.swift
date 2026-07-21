@@ -70,9 +70,9 @@ struct EmptyStateCTAView<MockContent: View>: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: Constant.agentIconSize, height: Constant.agentIconSize)
-                // An agent-only build has no builder; the same button starts
-                // a conversation that already has an agent in it.
-                Text(ConfigManager.shared.isAgentOnlyBuild ? "Start a conversation" : "Make an agent")
+                // With no builder to open, the same button starts a
+                // conversation that already has an agent in it.
+                Text(ConfigManager.shared.isNoBuilderBuild ? "Start a conversation" : "Make an agent")
                     .font(.callout)
             }
         }

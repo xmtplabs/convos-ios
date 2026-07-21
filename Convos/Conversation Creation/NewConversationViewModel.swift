@@ -285,7 +285,6 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// A default-agent join carries no template id, so it cannot ride
     /// `pendingAgentTemplateIds` and is tracked separately. Set by builds
     /// that ship without the agent builder.
-    @ObservationIgnored
     private let joinsDefaultAgent: Bool
     /// Set when a template QR is scanned before the messaging service
     /// (and `conversationStateManager`) has been acquired; the create is

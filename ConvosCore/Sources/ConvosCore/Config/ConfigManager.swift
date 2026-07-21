@@ -219,8 +219,8 @@ public final class ConfigManager: @unchecked Sendable {
     /// single build configuration opts in without a compile-time flag —
     /// `#if DEBUG` does not propagate into this package, and the runtime
     /// `environment` is shared with builds that must keep the builder.
-    public var isAgentOnlyBuild: Bool {
-        config["agentOnlyBuild"] as? Bool ?? false
+    public var isNoBuilderBuild: Bool {
+        config["noBuilder"] as? Bool ?? false
     }
 
     /// Agent-variant slug pinned at build time via config.json. When set, agent

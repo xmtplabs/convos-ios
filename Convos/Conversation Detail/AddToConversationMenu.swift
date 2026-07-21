@@ -37,9 +37,9 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
-            // The row opens the agent builder, which an agent-only build
+            // The row opens the agent builder, which a no-builder build
             // ships without.
-            if !ConfigManager.shared.isAgentOnlyBuild {
+            if !ConfigManager.shared.isNoBuilderBuild {
                 Button(action: onInviteAgent) {
                     Text("New agent")
                     Text(agentSubtitle)
