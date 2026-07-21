@@ -15,5 +15,6 @@
   "siweUri": "https://dev.convos.org",
   "siweChainId": 1,
   "posthogHost": "https://us.i.posthog.com",
-  "noBuilder": true
+  "noBuilder": true,
+  "pinnedAgentVariantSlug": "pr-2855"
 }

@@ -284,8 +284,9 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// Spawns the default agent into the conversation once it is ready.
     /// A default-agent join carries no template id, so it cannot ride
     /// `pendingAgentTemplateIds` and is tracked separately. Set by builds
-    /// that ship without the agent builder.
-    private let joinsDefaultAgent: Bool
+    /// that ship without the agent builder; defaulted so the tests-only
+    /// init doesn't have to name it.
+    @ObservationIgnored private var joinsDefaultAgent: Bool = false
     /// Set when a template QR is scanned before the messaging service
     /// (and `conversationStateManager`) has been acquired; the create is
     /// kicked off once configuration completes. Mirrors `pendingInviteCode`.
