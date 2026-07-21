@@ -920,6 +920,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// request, the request was answered here, or observation reset).
     var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
+
+    /// True while a fresh agent has greeted and the user has yet to answer, so
+    /// the conversation can offer openers. `messages` carries dates, updates,
+    /// join status and typing indicators alongside real messages, so both
+    /// halves pattern-match `.messages` rather than counting entries.
+    ///
+    /// Scoped to the no-builder build, which is the only one where a
+    /// conversation opens on a question the user is expected to answer. Reading
+    /// the build config rather than probing the agent's profile for a missing
+    /// `templateId` also avoids a race: the runtime writes that metadata after
+    /// the join, so it is briefly absent for template-backed agents too.
+    var showsConversationStarters: Bool {
+        guard ConfigManager.shared.isNoBuilderBuild else { return false }
+        var someoneElseSpoke = false
+        for item in messages {
+            guard case .messages(let group) = item else { continue }
+            if group.sender.isCurrentUser { return false }
+            someoneElseSpoke = true
+        }
+        return someoneElseSpoke
+    }
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
