@@ -28,6 +28,12 @@ extension DecodedMessage {
             && contentType.typeID == ContentTypeThinking.typeID
     }
 
+    var isBrainstormAnchor: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeBrainstormAnchor.authorityID
+            && contentType.typeID == ContentTypeBrainstormAnchor.typeID
+    }
+
     var isBuilderBundleManifest: Bool {
         guard let contentType = try? encodedContent.type else { return false }
         return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
@@ -659,6 +665,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         case .thinking:
             await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
             return nil
+        case .brainstormAnchor:
+            await storeBrainstormAnchor(message, conversationId: conversation.id)
+            return nil
         case .builderBundleManifest:
             await storeBuilderBundleManifest(message, conversationId: conversation.id)
             return nil
@@ -1183,6 +1192,30 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             senderInboxId: message.senderInboxId,
             sentAtNs: message.sentAtNs
         )
+    }
+
+    /// Persist a brainstorm anchor so replies referencing its id can be
+    /// classified as brainstorm messages. Own anchors are recorded too:
+    /// the sender writes a row at publish time, but another device of the
+    /// same inbox only learns about the anchor from the wire.
+    private func storeBrainstormAnchor(_ message: DecodedMessage, conversationId: String) async {
+        guard let content = try? BrainstormAnchorCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode BrainstormAnchor from caught-up message \(message.id)")
+            return
+        }
+        do {
+            try await databaseWriter.write { db in
+                try DBBrainstormAnchor(
+                    id: message.id,
+                    conversationId: conversationId,
+                    agentInboxId: content.agentInboxId,
+                    senderInboxId: message.senderInboxId,
+                    sentAtNs: message.sentAtNs
+                ).save(db, onConflict: .ignore)
+            }
+        } catch {
+            Log.warning("Failed to store brainstorm anchor: \(error.localizedDescription)")
+        }
     }
 
     /// Persist the message ids a `BuilderBundleManifest` flagged as an

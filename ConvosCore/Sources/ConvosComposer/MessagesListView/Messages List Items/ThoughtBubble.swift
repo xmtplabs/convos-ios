@@ -19,6 +19,10 @@ import SwiftUI
 struct ThoughtBubble<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var color: Color = .colorBackgroundRaised
+    /// Mirrors the tail to the bottom-trailing corner for messages sent by
+    /// the current user (brainstorm view). Incoming/default keeps the
+    /// bottom-leading tail.
+    var isOutgoing: Bool = false
 
     private let cornerRadius: CGFloat = 20.0
     private let bigCircleSize: CGFloat = 12.0
@@ -33,6 +37,10 @@ struct ThoughtBubble<Content: View>: View {
     private let smallCircleCornerOverlap: CGFloat = 1.0
 
     var body: some View {
+        let tailAlignment: Alignment = isOutgoing ? .bottomTrailing : .bottomLeading
+        let smallCircleXOffset: CGFloat = isOutgoing
+            ? smallCircleSize - smallCircleCornerOverlap
+            : -smallCircleSize + smallCircleCornerOverlap
         content()
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
@@ -40,26 +48,26 @@ struct ThoughtBubble<Content: View>: View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(color)
             )
-            // Big circle: bbox bottom-left corner sits exactly on the
-            // rect's bottom-leading bbox corner. With `.bottomLeading`
+            // Big circle: bbox bottom corner sits exactly on the rect's
+            // bottom bbox corner on the tail side. With the tail-side
             // alignment and no offset, the circle's 12×12 bbox occupies
-            // the rect's bottom-leading corner area. The rect's 20pt
-            // rounded corner curves inward from there, so the circle's
-            // bottom-leading portion bleeds out past the curve as the
-            // tail.
-            .overlay(alignment: .bottomLeading) {
+            // that corner area. The rect's 20pt rounded corner curves
+            // inward from there, so the circle's outer portion bleeds out
+            // past the curve as the tail.
+            .overlay(alignment: tailAlignment) {
                 Circle()
                     .fill(color)
                     .frame(width: bigCircleSize, height: bigCircleSize)
             }
-            // Small circle: bbox top-right overlaps the big circle's bbox
-            // bottom-left by `smallCircleCornerOverlap` pt, diagonally.
-            .overlay(alignment: .bottomLeading) {
+            // Small circle: bbox inner-top corner overlaps the big circle's
+            // bbox outer-bottom corner by `smallCircleCornerOverlap` pt,
+            // diagonally, mirrored to the tail side.
+            .overlay(alignment: tailAlignment) {
                 Circle()
                     .fill(color)
                     .frame(width: smallCircleSize, height: smallCircleSize)
                     .offset(
-                        x: -smallCircleSize + smallCircleCornerOverlap,
+                        x: smallCircleXOffset,
                         y: smallCircleSize - smallCircleCornerOverlap
                     )
             }

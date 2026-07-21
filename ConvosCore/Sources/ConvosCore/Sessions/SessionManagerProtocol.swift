@@ -176,6 +176,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
     func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
+    func brainstormRepository() -> any BrainstormRepositoryProtocol
 
     /// Resolves a pasted/received agent-share link to the shared template's
     /// public profile (name / emoji / description) for rendering its contact

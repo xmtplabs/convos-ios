@@ -155,7 +155,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var _cachedMessageWriterConversationId: String?
 
-    private var cachedMessageWriter: any OutgoingMessageWriterProtocol {
+    var cachedMessageWriter: any OutgoingMessageWriterProtocol {
         if _cachedMessageWriterConversationId != conversation.id {
             Log.debug("[EagerUpload] Creating new message writer for conversation: \(conversation.id)")
             _cachedMessageWriter = messagingService.messageWriter(
@@ -243,6 +243,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var observedCapabilityRequestsConversationId: String?
     @ObservationIgnored
     private var thinkingSessionsCancellable: AnyCancellable?
+    private var brainstormFeedCancellable: AnyCancellable?
+    private var observedBrainstormConversationId: String?
     @ObservationIgnored
     private var observedThinkingSessionsConversationId: String?
     @ObservationIgnored
@@ -753,6 +755,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// `messagesWithIndicators`. Mirror of how `typingMembers` drives the
     /// typing bubble, but persisted in GRDB rather than in-memory.
     var thinkingSessions: [ThinkingSessionRecord] = []
+    var brainstormFeed: BrainstormFeed = .empty
 
     @ObservationIgnored
     var isTypingSent: Bool = false
@@ -1480,10 +1483,31 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
     }
 
+    /// Subscribe to the GRDB-backed brainstorm feed (anchors + reply-chain
+    /// messages) for this conversation. Backs the per-agent brainstorm pager
+    /// pages via `brainstormItems(for:)`.
+    func observeBrainstormFeed() {
+        observeBrainstormFeed(for: conversation.id)
+    }
+
+    func observeBrainstormFeed(for conversationId: String) {
+        guard conversationId != observedBrainstormConversationId else { return }
+        observedBrainstormConversationId = conversationId
+        brainstormFeed = .empty
+        brainstormFeedCancellable?.cancel()
+        brainstormFeedCancellable = session.brainstormRepository()
+            .feedPublisher(for: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] feed in
+                self?.brainstormFeed = feed
+            }
+    }
+
     private func observe() {
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         observeThinkingSessions()
+        observeBrainstormFeed()
         observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
@@ -1560,6 +1584,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeBrainstormFeed(for: conversation.id)
                     self.observeDirectBuildGeneration(for: conversation.id)
                     self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {

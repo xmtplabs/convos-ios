@@ -303,7 +303,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if await processThinking(message, conversationId: conversation.id, params: params) {
+                    if await processThinkingSideChannels(message, conversationId: conversation.id, params: params) {
                         return
                     }
 
@@ -472,6 +472,50 @@ actor StreamProcessor: StreamProcessorProtocol {
             senderInboxId: message.senderInboxId,
             sentAtNs: message.sentAtNs
         )
+        return true
+    }
+
+    /// Thinking and brainstorm-anchor routing combined so the message loop
+    /// consumes both side-channel types through one branch.
+    private func processThinkingSideChannels(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        if await processThinking(message, conversationId: conversationId, params: params) {
+            return true
+        }
+        return await processBrainstormAnchor(message, conversationId: conversationId)
+    }
+
+    /// Persist a brainstorm anchor so replies referencing its id can be
+    /// classified as brainstorm messages. Own anchors are recorded here too:
+    /// the publishing device already wrote a row (same id, `.ignore` on
+    /// conflict), but other devices of the same inbox only learn about the
+    /// anchor from the wire.
+    private func processBrainstormAnchor(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard message.isBrainstormAnchor else {
+            return false
+        }
+
+        guard let content = try? BrainstormAnchorCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode BrainstormAnchor from message \(message.id)")
+            return true
+        }
+
+        do {
+            try await databaseWriter.write { db in
+                try DBBrainstormAnchor(
+                    id: message.id,
+                    conversationId: conversationId,
+                    agentInboxId: content.agentInboxId,
+                    senderInboxId: message.senderInboxId,
+                    sentAtNs: message.sentAtNs
+                ).save(db, onConflict: .ignore)
+            }
+        } catch {
+            Log.warning("Failed to store brainstorm anchor: \(error.localizedDescription)")
+        }
         return true
     }
 

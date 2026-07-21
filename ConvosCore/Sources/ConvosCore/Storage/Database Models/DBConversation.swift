@@ -193,6 +193,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocation.rawValue)
         .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocationResult.rawValue)
         .filter(DBMessage.Columns.contentType != MessageContentType.connectionPayload.rawValue)
+        .excludingBrainstormReplies()
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 
@@ -213,11 +214,19 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
                 WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)
+                AND NOT (m.messageType = ? AND m.sourceMessageId IN (
+                    SELECT id FROM thinkingMoment
+                    UNION ALL
+                    SELECT id FROM brainstormAnchor))
                 AND m.dateNs = (
                     SELECT MAX(m2.dateNs)
                     FROM message m2
                     WHERE m2.conversationId = m.conversationId
                     AND m2.contentType NOT IN (?, ?, ?, ?, ?, ?)
+                    AND NOT (m2.messageType = ? AND m2.sourceMessageId IN (
+                        SELECT id FROM thinkingMoment
+                        UNION ALL
+                        SELECT id FROM brainstormAnchor))
                 )
                 """,
             arguments: [
@@ -227,12 +236,14 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 MessageContentType.connectionInvocation.rawValue,
                 MessageContentType.connectionInvocationResult.rawValue,
                 MessageContentType.connectionPayload.rawValue,
+                DBMessageType.reply.rawValue,
                 MessageContentType.update.rawValue,
                 MessageContentType.assistantJoinRequest.rawValue,
                 MessageContentType.connectionGrantRequest.rawValue,
                 MessageContentType.connectionInvocation.rawValue,
                 MessageContentType.connectionInvocationResult.rawValue,
                 MessageContentType.connectionPayload.rawValue,
+                DBMessageType.reply.rawValue,
             ]
         )
 

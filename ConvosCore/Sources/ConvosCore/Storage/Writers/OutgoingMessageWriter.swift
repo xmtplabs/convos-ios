@@ -138,6 +138,19 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Send text after a photo reply (both replying to the same parent).
     func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws
 
+    // MARK: - Brainstorm
+
+    /// Publish a silent `convos.org/brainstorm-anchor:1.0` message for
+    /// `agentInboxId` and return its XMTP message id. Used as the reply-chain
+    /// root of a brainstorm thread when the agent has no thinking message to
+    /// reference yet.
+    func sendBrainstormAnchor(agentInboxId: String) async throws -> String
+
+    /// Send a text reply whose reference is a raw XMTP message id (a thinking
+    /// moment or a brainstorm anchor). Unlike `sendReply`, the referenced
+    /// message has no row in the chat table, so no parent lookup is performed.
+    func sendBrainstormReply(text: String, toReferenceId referenceId: String) async throws
+
     // MARK: - Failed Messages
 
     func retryFailedMessage(id: String) async throws
@@ -150,6 +163,7 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
     case parentMessageNotFound
     case eagerUploadCancelled
     case attachmentEncodingFailed
+    case brainstormUnsupported
 
     var description: String {
         switch self {
@@ -163,7 +177,22 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
             return "Eager upload was cancelled"
         case .attachmentEncodingFailed:
             return "Failed to encode attachment URLs as JSON"
+        case .brainstormUnsupported:
+            return "Brainstorm sends are not supported by this writer"
         }
+    }
+}
+
+public extension OutgoingMessageWriterProtocol {
+    /// Brainstorm sends only make sense in a live conversation with an agent
+    /// member, so draft-conversation writers and mocks fall back to this
+    /// throwing default rather than each stubbing the methods.
+    func sendBrainstormAnchor(agentInboxId: String) async throws -> String {
+        throw OutgoingMessageWriterError.brainstormUnsupported
+    }
+
+    func sendBrainstormReply(text: String, toReferenceId referenceId: String) async throws {
+        throw OutgoingMessageWriterError.brainstormUnsupported
     }
 }
 
@@ -2224,6 +2253,43 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         eagerUploads[trackingKey] = state
 
         try await sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    // MARK: - Brainstorm
+
+    func sendBrainstormAnchor(agentInboxId: String) async throws -> String {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let client = inboxReady.client
+        guard let conversation = try await client.conversation(with: conversationId) else {
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let content = BrainstormAnchorContent(agentInboxId: agentInboxId)
+        let messageId = try await conversation.prepareMessage(
+            content: content,
+            options: .init(contentType: ContentTypeBrainstormAnchor)
+        )
+        try await conversation.publishMessages()
+
+        // Record locally right away so the reply that follows can be
+        // classified without waiting for the anchor to round-trip through
+        // the stream (which skips our own messages anyway).
+        let conversationId = self.conversationId
+        let senderInboxId = client.inboxId
+        try await databaseWriter.write { db in
+            try DBBrainstormAnchor(
+                id: messageId,
+                conversationId: conversationId,
+                agentInboxId: agentInboxId,
+                senderInboxId: senderInboxId,
+                sentAtNs: Date().nanosecondsSince1970
+            ).save(db, onConflict: .ignore)
+        }
+        return messageId
+    }
+
+    func sendBrainstormReply(text: String, toReferenceId referenceId: String) async throws {
+        try await sendText(text, afterPhoto: nil, replyContext: ReplyContext(parentDbId: referenceId))
     }
 
     private func resolveReplyContext(parentClientMessageId: String) async throws -> ReplyContext {

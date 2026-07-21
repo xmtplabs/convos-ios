@@ -485,11 +485,19 @@ struct MessagesGroupView: View {
     private func thoughtBubbleRow(message: AnyMessage, text: String, isLast: Bool) -> some View {
         let lengthClass: MessageLengthClass = MessageBodyClassifier.classify(text)
         let isBounded: Bool = lengthClass != .short
+        let isOutgoing: Bool = message.sender.isCurrentUser
+        let capAlignment: Alignment = isOutgoing ? .trailing : .leading
+        let bubbleColor: Color = isOutgoing ? .colorBubble : .colorBackgroundRaised
+        let trailingPad: CGFloat = isOutgoing ? DesignConstants.Spacing.step4x : 0
         ThoughtBubbleAppearance(animates: message.origin == .inserted) {
             HStack(spacing: 0.0) {
-                ThoughtBubble {
+                if isOutgoing {
+                    Spacer(minLength: 50.0)
+                        .layoutPriority(-1)
+                }
+                ThoughtBubble(content: {
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                        thoughtBubbleText(text, bounded: isBounded)
+                        thoughtBubbleText(text, bounded: isBounded, isOutgoing: isOutgoing)
                         if isBounded {
                             let openDetail: () -> Void = { onOpenMessageDetail?(message) }
                             ReadMoreButton(
@@ -501,16 +509,19 @@ struct MessagesGroupView: View {
                             )
                         }
                     }
+                }, color: bubbleColor, isOutgoing: isOutgoing)
+                if !isOutgoing {
+                    Spacer(minLength: 50.0)
+                        .layoutPriority(-1)
                 }
-                Spacer(minLength: 50.0)
-                    .layoutPriority(-1)
             }
         }
-        .bubbleRowWidthCap(alignment: .leading)
+        .bubbleRowWidthCap(alignment: capAlignment)
+        .padding(.trailing, trailingPad)
         .zIndex(100)
         .id("messages-group-item-\(message.differenceIdentifier)")
         .overlay(alignment: .bottomLeading) {
-            if isLast && !displayGroup.sender.isCurrentUser {
+            if isLast && !isOutgoing {
                 avatarOverlay { onTapAvatar(message) }
             }
         }
@@ -523,13 +534,14 @@ struct MessagesGroupView: View {
     /// finite `lineLimit` caps the layout (no vertical `.fixedSize`, which would
     /// reintroduce the full-height measure).
     @ViewBuilder
-    private func thoughtBubbleText(_ text: String, bounded: Bool) -> some View {
+    private func thoughtBubbleText(_ text: String, bounded: Bool, isOutgoing: Bool = false) -> some View {
         let lineCap: Int? = bounded ? MessageBodyClassifier.longPreviewLineLimit : nil
+        let textColor: Color = isOutgoing ? .colorTextPrimaryInverted : .colorTextSecondary
         Text(text)
             .font(.callout)
             .tracking(0.3)
             .lineSpacing(5.0)
-            .foregroundStyle(.colorTextSecondary)
+            .foregroundStyle(textColor)
             .lineLimit(lineCap)
     }
 

@@ -195,6 +195,8 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
 
+        migrator.registerMigration("createBrainstormAnchor", migrate: Self.createBrainstormAnchor)
+
         return migrator
     }
 
@@ -923,6 +925,26 @@ extension SharedDatabaseMigrator {
             index: "thinkingMoment_sessionKey",
             on: "thinkingMoment",
             columns: ["conversationId", "senderInboxId", "targetMessageId", "sentAtNs"]
+        )
+    }
+
+    /// One row per `convos.org/brainstorm-anchor:1.0` message. Anchors open a
+    /// brainstorm reply chain for an agent when no thinking message exists to
+    /// reply to; replies referencing an anchor id (or a thinkingMoment id) are
+    /// classified as brainstorm messages and hidden from the main chat.
+    private static func createBrainstormAnchor(_ db: Database) throws {
+        try db.create(table: "brainstormAnchor") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("agentInboxId", .text).notNull()
+            t.column("senderInboxId", .text).notNull()
+            t.column("sentAtNs", .integer).notNull()
+        }
+        try db.create(
+            index: "brainstormAnchor_conversationId_agentInboxId",
+            on: "brainstormAnchor",
+            columns: ["conversationId", "agentInboxId"]
         )
     }
 

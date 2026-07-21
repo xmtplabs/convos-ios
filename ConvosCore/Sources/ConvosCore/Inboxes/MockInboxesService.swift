@@ -177,6 +177,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         ThinkingSessionRepository(databaseReader: Self.mockDatabase)
     }
 
+    public func brainstormRepository() -> any BrainstormRepositoryProtocol {
+        BrainstormRepository(databaseReader: Self.mockDatabase)
+    }
+
     // MARK: - Notifications
 
     public func notifyChangesInDatabase() {

@@ -306,6 +306,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
             try DBMessage
                 .filter(DBMessage.Columns.conversationId == capturedConversationId)
                 .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
+                .excludingBrainstormReplies()
                 .fetchCount(db)
         }
 
@@ -1049,6 +1050,7 @@ fileprivate extension Database {
         var query = DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
             .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
+            .excludingBrainstormReplies()
             .order(DBMessage.Columns.sortId.desc)
 
         if let limit {
@@ -1184,6 +1186,21 @@ fileprivate extension Database {
             isPaginating: isPaginating
         )
         return result
+    }
+}
+
+extension QueryInterfaceRequest where RowDecoder == DBMessage {
+    /// Excludes brainstorm messages from a chat-list query: standard replies
+    /// whose reference is a thinking moment or a brainstorm anchor - neither
+    /// of which is a chat row. They render only in the brainstorm tab (see
+    /// `BrainstormRepository`), never in the main messages list.
+    func excludingBrainstormReplies() -> QueryInterfaceRequest<DBMessage> {
+        filter(sql: """
+            NOT (messageType = ? AND sourceMessageId IN (
+                SELECT id FROM thinkingMoment
+                UNION ALL
+                SELECT id FROM brainstormAnchor))
+            """, arguments: [DBMessageType.reply.rawValue])
     }
 }
 

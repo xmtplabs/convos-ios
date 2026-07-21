@@ -446,6 +446,24 @@ extension MessagingService {
         }
     }
 
+    /// True when the just-stored message is a brainstorm reply: a standard
+    /// reply whose reference is a thinking moment or brainstorm anchor.
+    private func isBrainstormReply(messageId: String) async -> Bool {
+        let result = try? await databaseWriter.read { db -> Bool in
+            guard let row = try DBMessage.fetchOne(db, key: messageId),
+                  row.messageType == .reply,
+                  let sourceId = row.sourceMessageId else { return false }
+            let isThinkingReference = try DBThinkingMoment
+                .filter(DBThinkingMoment.Columns.id == sourceId)
+                .fetchCount(db) > 0
+            if isThinkingReference { return true }
+            return try DBBrainstormAnchor
+                .filter(DBBrainstormAnchor.Columns.id == sourceId)
+                .fetchCount(db) > 0
+        }
+        return result ?? false
+    }
+
     private func handleGroupMessage(
         group: XMTPiOS.Group,
         decodedMessage: DecodedMessage,
@@ -512,6 +530,14 @@ extension MessagingService {
         }
 
         _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
+
+        // Brainstorm replies persist above (the brainstorm tab reads them
+        // from the shared DB) but never banner - the thread is presented as
+        // not notifying the group. Best effort: recognition depends on the
+        // referenced thinking moment / anchor being in the shared DB already.
+        if await isBrainstormReply(messageId: decodedMessage.id) {
+            return .droppedMessage
+        }
 
         let notificationTitle = (try? await getComputedDisplayName(
             conversationId: conversationId,

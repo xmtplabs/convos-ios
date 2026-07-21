@@ -1407,6 +1407,10 @@ extension SessionManager {
     public func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol {
         BuilderBundleHiddenMessagesRepository(databaseReader: databaseReader)
     }
+
+    public func brainstormRepository() -> any BrainstormRepositoryProtocol {
+        BrainstormRepository(databaseReader: databaseReader)
+    }
 }
 
 // MARK: - Direct-add agent join

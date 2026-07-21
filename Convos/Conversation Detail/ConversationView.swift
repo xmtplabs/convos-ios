@@ -517,13 +517,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    /// Pager layout: chat first, one brainstorm page per agent member, and
+    /// Things always last.
+    private var pagerPages: [ConversationPagerPage] {
+        var pages: [ConversationPagerPage] = [.messages]
+        for agent in viewModel.brainstormAgents {
+            pages.append(.brainstorm(agentInboxId: agent.profile.inboxId))
+        }
+        pages.append(.things)
+        return pages
+    }
+
+    private func brainstormPage(for agentInboxId: String) -> some View {
+        BrainstormPageView(viewModel: viewModel, agentInboxId: agentInboxId)
+    }
+
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
+            pages: pagerPages,
             showsPageDots: !isKeyboardVisible,
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
+            brainstormPage: { brainstormPage(for: $0) },
             thingsPage: { thingsPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in

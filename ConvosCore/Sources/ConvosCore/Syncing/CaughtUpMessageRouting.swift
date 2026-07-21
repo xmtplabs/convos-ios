@@ -21,6 +21,10 @@ enum CaughtUpMessageKind {
     case ignore
     case readReceipt
     case thinking
+    /// Silent brainstorm-anchor message. Opens a brainstorm reply chain for
+    /// an agent; stored via `storeBrainstormAnchor`, never rendered as a
+    /// chat row.
+    case brainstormAnchor
     /// Silent agent-builder bundle manifest. Lists the prepared XMTP ids of a
     /// builder bundle so every client hides them; stored via
     /// `storeBuilderBundleManifest`, never rendered as a chat row.
@@ -39,6 +43,9 @@ enum CaughtUpMessageKind {
         }
         if message.isThinking {
             return .thinking
+        }
+        if message.isBrainstormAnchor {
+            return .brainstormAnchor
         }
         if message.isBuilderBundleManifest {
             return .builderBundleManifest
