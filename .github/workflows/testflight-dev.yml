@@ -1,0 +1,39 @@
+# Dev TestFlight Release — thin caller. The job lives in convos-releases:
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-testflight.yml
+#
+# Replaces Bitrise's archive_and_export_dev: every push to dev uploads a
+# Convos (Dev) build to the "Convos Dev" TestFlight app. Rapid merges
+# collapse — a new push cancels the superseded in-flight run (the
+# self-healing build number in the lane tolerates cancelled uploads), which
+# bounds TestFlight's ~100-builds-per-version-train quota on busy days.
+#
+# Required repository secrets (passed via `secrets: inherit`):
+#   CONVOS_CERTIFICATES_TOKEN, MATCH_PASSWORD, APP_STORE_CONNECT_API_KEY_ID,
+#   APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_API_PRIVATE_KEY,
+#   CACHIX_AUTH_TOKEN; optional POSTHOG_API_KEY_DEV, SENTRY_DSN_DEV,
+#   SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT.
+name: Dev TestFlight Release
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: testflight-dev
+  cancel-in-progress: true
+
+jobs:
+  testflight_dev:
+    # Callers must grant what the reusable workflow's job declares — a called
+    # workflow can't elevate beyond the caller's grant.
+    permissions:
+      id-token: write
+      contents: read
+    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight.yml@main
+    with:
+      flavor: dev
+      runner: warp-macos-latest-arm64-12x
+      xcode-app-path: /Applications/Xcode_26.3.app
+      xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    secrets: inherit
