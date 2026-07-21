@@ -32,10 +32,20 @@ public struct AgentBuilderSummaryView: View {
     }
 
     private var footerText: String {
+        if let override = content.footerTextOverride {
+            return override
+        }
         if content.creatorIsCurrentUser || content.creatorDisplayName.isEmpty {
             return "You made an agent · They'll join soon"
         }
         return "\(content.creatorDisplayName) created an agent · They'll join soon"
+    }
+
+    private var promptHeaderText: String? {
+        guard let override = content.promptHeaderOverride else {
+            return Constant.promptHeader
+        }
+        return override.isEmpty ? nil : override
     }
 
     private var hasChips: Bool {
@@ -69,9 +79,11 @@ public struct AgentBuilderSummaryView: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             if !content.prompt.isEmpty {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                    Text(Constant.promptHeader)
-                        .font(.caption2)
-                        .foregroundStyle(.colorTextSecondary)
+                    if let promptHeaderText {
+                        Text(promptHeaderText)
+                            .font(.caption2)
+                            .foregroundStyle(.colorTextSecondary)
+                    }
                     Text(content.prompt)
                         .font(.caption)
                         .lineSpacing(Constant.promptLineSpacing)

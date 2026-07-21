@@ -44,6 +44,14 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
     /// committed home-flow build (where the card sits at the top and the
     /// composer is on screen); false otherwise.
     public let transitionEligible: Bool
+    /// Replaces the "What needs done?" caption above the quoted text. Empty
+    /// string hides the caption entirely; nil keeps the builder default.
+    /// Lets other surfaces (the brainstorm tab's attached-message card)
+    /// reuse the bordered-quote style without the builder copy.
+    public let promptHeaderOverride: String?
+    /// Replaces the "You made an agent · They'll join soon" footer line.
+    /// Nil keeps the builder default.
+    public let footerTextOverride: String?
 
     public init(
         id: String,
@@ -54,7 +62,9 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
         creatorProfile: Profile? = nil,
         connectionIdentifiers: [String] = [],
         existingConversation: Bool = false,
-        transitionEligible: Bool = false
+        transitionEligible: Bool = false,
+        promptHeaderOverride: String? = nil,
+        footerTextOverride: String? = nil
     ) {
         self.id = id
         self.prompt = prompt
@@ -65,5 +75,7 @@ public struct AgentBuilderCardContent: Sendable, Equatable, Hashable, Identifiab
         self.connectionIdentifiers = connectionIdentifiers
         self.existingConversation = existingConversation
         self.transitionEligible = transitionEligible
+        self.promptHeaderOverride = promptHeaderOverride
+        self.footerTextOverride = footerTextOverride
     }
 }

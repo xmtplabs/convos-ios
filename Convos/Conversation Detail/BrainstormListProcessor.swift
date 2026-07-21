@@ -28,15 +28,7 @@ enum BrainstormListProcessor {
         for session in agentSessions {
             var items: [MessagesListItemType] = []
             if let target = chatMessagesById[session.targetMessageId] {
-                var group = MessagesGroup(
-                    id: "brainstorm-target-\(session.id)",
-                    sender: target.sender,
-                    messages: [target],
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: false
-                )
-                group.hidesSenderLabel = target.sender.isCurrentUser
-                items.append(.messages(group))
+                items.append(targetItem(for: target, sessionId: session.id))
             }
             if let momentsGroup = momentsGroup(for: session, agent: agent) {
                 items.append(momentsGroup)
@@ -54,6 +46,38 @@ enum BrainstormListProcessor {
 
         let sorted = entries.sorted { $0.sortNs < $1.sortNs }
         return sorted.flatMap(\.items)
+    }
+
+    /// The chat message a thinking session was attached to, rendered in the
+    /// agent-builder summary card style (bordered quote box + sender footer)
+    /// so it reads as quoted chat context rather than a live thread message.
+    /// Non-text targets (attachments, invites) fall back to the regular chat
+    /// bubble, which can render any content type.
+    private static func targetItem(for target: AnyMessage, sessionId: String) -> MessagesListItemType {
+        if case .text(let text) = target.content {
+            let sender = target.sender
+            let footer: String = sender.isCurrentUser
+                ? "Sent by you in the chat"
+                : "Sent by \(sender.displayName) in the chat"
+            return .agentBuilderSummary(AgentBuilderCardContent(
+                id: "brainstorm-target-\(sessionId)",
+                prompt: text,
+                creatorIsCurrentUser: sender.isCurrentUser,
+                creatorDisplayName: sender.displayName,
+                creatorProfile: sender.profile,
+                promptHeaderOverride: "",
+                footerTextOverride: footer
+            ))
+        }
+        var group = MessagesGroup(
+            id: "brainstorm-target-\(sessionId)",
+            sender: target.sender,
+            messages: [target],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        )
+        group.hidesSenderLabel = target.sender.isCurrentUser
+        return .messages(group)
     }
 
     private static func messagesById(from items: [MessagesListItemType]) -> [String: AnyMessage] {
