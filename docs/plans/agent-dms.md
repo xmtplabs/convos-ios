@@ -151,18 +151,30 @@ Sender-side gating (iOS) hides the CTA when the viewer isn't a current co-member
 
 ### 5.3 Session model: one Hermes session + channel metadata (D1, D2)
 
-Per the ticket thread: one Hermes sessionID; every message entering the transcript carries a channel header. Hermes has no `channel_id` field, so the worker/DO owns the mapping and the delivery path injects a prefix, per Nick's sketch:
+Per the ticket thread: one Hermes sessionID; every message entering the transcript carries a channel tag. Hermes has no `channel_id` field, so the worker/DO owns the mapping and the delivery path injects it. The concrete contract:
+
+**Channel labels.** `main` for the primary conversation; `dm-<first 8 hex of conversation_id>` for DMs (extend to 12 on the rare collision). Labels are minted at registry insert and never change; the registry is the authoritative label ↔ conversation_id map. Labels never derive from display names (names change; labels must not).
+
+**Per-message tag (token-lean).** Every message delivered to the model is prefixed with the label only:
 
 ```text
-[Channel: dm-3f9a] [Kind: dm] [Participants: Alice, <agent>]
-<message text>
+[#dm-3f9a8c12] <sender>: <message text>
+[#main] <sender>: <message text>
 ```
 
-Implementation choices within that:
-- **The conversation registry lives in the DO** (new SQLite table, §6.2) — conversation_id, kind, peer_inbox_id, status, label. The label (`dm-3f9a`) is short and stable so the model can refer to channels cheaply.
-- **Prefix injection happens at DO→container delivery** (`herald-helpers.ts` / the drain path), not in Herald and not in Hermes — the layer that owns the registry stamps the header. Group messages get a header too (`[Channel: main]`) so the model never has to infer defaults. The header never appears on the wire (§2, layer separation).
-- **Outbound routing**: replies target the channel of the message being handled. The agent's send tools gain an optional `channel` parameter defaulting to the triggering channel; the DO validates the target against the registry (an agent must never be able to send to a revoked channel — enforced at the DO, not by prompt).
-- Memory files, cron/scheduled work, and self-initiated sends default to the primary channel unless explicitly targeted.
+No kind field (the prefix encodes it), no participants field (DM rosters are static and carried by the notes below). Rationale: the tag is paid on every message forever; roster/context is paid once per event.
+
+**Channel context, injected once per event, not per message:**
+- *Session boot*: a registry summary in the injected context — `Channels: #main = the group conversation. #dm-3f9a8c12 = private DM with Alice. ...` Regenerated every boot, so context truncation can never orphan a label.
+- *Channel opened*: system note `[#dm-3f9a8c12] Channel opened: private DM with Alice (group member).`
+- *Channel revoked/closed*: system note `[#dm-3f9a8c12] Channel closed: Alice is no longer in the group. Do not address this channel again.`
+
+**Send-tool contract.** Send tools gain one optional string parameter `channel` (a label, e.g. `"dm-3f9a8c12"`); default is the channel of the message that triggered the turn. The DO resolves label → conversation_id against the registry and rejects unknown or revoked labels with a tool error the model can read (`channel #dm-3f9a8c12 is closed`). Reply/reaction tools derive the channel from the target message; an explicit `channel` that disagrees is an error, not a redirect. Read receipts are automatic per channel, never model-controlled. Enforcement lives at the DO — an agent must never be able to send to a revoked channel regardless of what the prompt says.
+
+Other placement rules:
+- **The conversation registry lives in the DO** (new SQLite table, §6.2) — conversation_id, kind, peer_inbox_id, status, label.
+- **Tag injection happens at DO→container delivery** (`herald-helpers.ts` / the drain path), not in Herald and not in Hermes. The tag never appears on the wire (§2, layer separation).
+- Memory files, cron/scheduled work, and self-initiated sends default to `main` unless explicitly targeted.
 
 ### 5.4 Channel-aware runtime (the ticket's `Map<String, Map<String, String>>` work)
 
@@ -249,12 +261,24 @@ Deploy order mirrors direct-add: **herald-lite → convos-assistants → convos-
 
 ### 6.4 convos-ios
 
-1. **Flip the CTA**: `ContactDetailView.swift` `canSendMessage` — enable Chat for verified agents when `accepts_dms` is present and the viewer shares the conversation (`.scopedToConversation` mode). Flow: lookup-first (existing agent-DM for this agent inboxId → open), else create a 2-member group + stamp `ConversationCustomMetadata` (agent-dm marker, agent inboxId) + `addMembers([agentInboxId])`. The agent's inboxId comes from the member list.
-2. **Local DM classification**: hydrate the custom-metadata marker into GRDB (kind `.dm` or a dedicated `isAgentDm` flag — decide in implementation). If kind `.dm` is used, audit existing `kind == .dm` branch sites for group/dm semantic mismatches (the phase-1 retro's warning; e.g. `ConversationWriter.inviteTag` throwing for `.dm` is desired here, but verify every site).
-3. **`accepts_dms` plumbing**: read the metadata key through the existing profile pipeline (additive map — no proto change).
-4. **Push + NSE**: nothing new structurally — the DM group rides standard group topics and welcome handling. Verify the welcome path classifies (marker may arrive with/after the welcome; tolerate late classification).
-5. **UI**: shared-brain disclosure line (§5.6); "agent left" rendering on revocation is the standard member-left treatment; verified badge renders from the DM group's own profile messages (§5.8).
-6. **QA doc** under `qa/tests/` covering create/deny/revoke flows (see §9).
+1. **Flip the CTA**: `ContactDetailView.swift` `canSendMessage` — enable Chat for verified agents when `accepts_dms` is present and the viewer shares the conversation (`.scopedToConversation` mode). Flow: lookup-first (existing agent-DM for this agent inboxId → open), else create a 2-member group + stamp the marker + `addMembers([agentInboxId])`. The agent's inboxId comes from the member list.
+2. **The marker (decided)**: new field on `ConversationCustomMetadata` (`conversation_custom_metadata.proto` — field 8 is free):
+
+   ```proto
+   message AgentDmInfo {
+       bytes agentInboxId = 1;               // hex-decoded, same convention as ConversationProfile.inboxId
+       optional bytes originConversationId = 2;  // the primary group this DM was started from
+   }
+   // in ConversationCustomMetadata:
+   optional AgentDmInfo agentDm = 8;
+   ```
+
+   Presence of `agentDm` drives classification. Hydration only honors the marker when it validates: exactly 2 members AND the other member's inboxId equals `agentInboxId` (prevents a member of any ordinary group from stamping the marker to distort other members' UI). `originConversationId` enables "Agent from [group]" context and lets the app find the primary group locally.
+3. **Local DM classification (decided)**: a dedicated `isAgentDm` flag on the (group-kind) conversation row — reuses the shipped 1:1 rendering path unchanged, no `kind == .dm` branch-site audit. UI driven by the flag: hide the add-member "+" button, hide the QR/invite-link surfaces, show the shared-brain disclosure (§5.6). Promote to kind `.dm` later only if DM-specific rendering demands it.
+4. **`accepts_dms` plumbing**: read the metadata key through the existing profile pipeline (additive map — no proto change).
+5. **Push + NSE**: nothing new structurally — the DM group rides standard group topics and welcome handling. Verify the welcome path classifies (marker may arrive with/after the welcome; tolerate late classification).
+6. **UI**: "agent left" rendering on revocation is the standard member-left treatment; verified badge renders from the DM group's own profile messages (§5.8).
+7. **QA doc** under `qa/tests/` covering create/deny/revoke flows (see §9).
 
 ### 6.5 convos-backend
 
@@ -293,5 +317,5 @@ Within each repo, stack PRs per the standard checkpoint conventions (plan PR fir
 2. Farewell message before the agent leaves on revoke/destroy (§5.5, §5.9) — nice or noise?
 3. `accepts_dms` granularity: per-instance bool (v1) vs owner-configurable toggle in the builder — builder UI implications.
 4. Does the reconciliation sweep cadence need to be tighter than hourly for the privacy bar? (Layer 1 handles the common case in seconds; the sweep only bounds the miss window.)
-5. iOS classification shape: GRDB kind `.dm` (DM rendering for free, needs the branch-site audit) vs dedicated `isAgentDm` flag on a group-kind row (no audit, some duplicated rendering logic) — §6.4 item 2.
+5. ~~iOS classification shape~~ **Decided**: dedicated `isAgentDm` flag on a group-kind row (§6.4 item 3); kind `.dm` promotion deferred until DM-specific rendering demands it.
 6. Should a user-initiated "remove agent from DM" (creator-as-admin removal) be surfaced as an explicit affordance, or is delete-conversation enough for v1?
