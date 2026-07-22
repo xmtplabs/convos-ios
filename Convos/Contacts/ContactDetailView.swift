@@ -89,6 +89,10 @@ struct ContactDetailView: View {
     // Cooldown override (seconds). The runtime default scales by group size;
     // this lets a member pin the hold explicitly.
     @State private var cooldownSeconds: Int = 15
+    // The picker updates local state immediately, so a failed write would
+    // otherwise leave the row showing a level the agent never received.
+    @State private var presentingParticipationError: Bool = false
+    @State private var participationErrorMessage: String?
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
@@ -213,6 +217,14 @@ struct ContactDetailView: View {
                         : "This removes them from the conversation."
                 )
             }
+            .alert(
+                "Participation not updated",
+                isPresented: $presentingParticipationError
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(participationErrorMessage ?? "Please try again.")
+            }
     }
 
     /// The "Agent participation" menu, presented from the Participation row.
@@ -270,33 +282,37 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Local-dev bridge (behind the Listen debug flag): pushes participation
-    /// straight to the local worker's eval container proxy, which forwards to
-    /// the runtime's /convos/participation. No backend and no auth, because the
-    /// eval API is local-only. The shipping path goes through the backend, so
-    /// this whole function is scaffolding and does not survive the feature.
+    /// Sends the chosen level to the backend, which holds the assistant
+    /// control-plane key and forwards it. Paused needs that hop: the level has
+    /// to reach the control plane to be recorded, otherwise the agent is still
+    /// woken for a message it will only discard.
+    ///
+    /// Fire-and-forget against optimistic local state. The row already shows
+    /// the new level, and a failed write leaves the app claiming a level the
+    /// agent is not honouring, which is why the failure is surfaced rather
+    /// than only logged.
     private func postParticipation(mode: String?, cooldownSeconds: Int?) {
         guard let instanceId = contact.agentInstanceId else { return }
-        var payload: [String: Any] = [:]
-        if let mode { payload["mode"] = mode }
-        if let cooldownSeconds { payload["cooldownSeconds"] = cooldownSeconds }
-        guard
-            let url = URL(
-                string:
-                    "http://127.0.0.1:8787/api/eval/assistants/\(instanceId)/container/convos/participation"
-            ),
-            let body = try? JSONSerialization.data(withJSONObject: payload)
-        else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = body
+        let apiClient = ConvosAPIClientFactory.client(
+            environment: ConfigManager.shared.currentEnvironment
+        )
         Task {
             do {
-                _ = try await URLSession.shared.data(for: request)
-                Log.info("participation pushed mode=\(mode ?? "-") cooldown=\(cooldownSeconds.map(String.init) ?? "-")")
+                _ = try await apiClient.setAgentParticipation(
+                    instanceId: instanceId,
+                    mode: mode,
+                    cooldownSeconds: cooldownSeconds
+                )
+                Log.info(
+                    "participation set mode=\(mode ?? "-") cooldown=\(cooldownSeconds.map(String.init) ?? "-")"
+                )
             } catch {
-                Log.error("participation push failed: \(error)")
+                Log.error("participation update failed: \(error)")
+                await MainActor.run {
+                    participationErrorMessage =
+                        "Couldn't update participation. The agent is still on its previous setting."
+                    presentingParticipationError = true
+                }
             }
         }
     }

@@ -115,6 +115,21 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
+    func setAgentParticipation(
+        instanceId: String,
+        mode: String?,
+        cooldownSeconds: Int?
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        // Echo the request back, matching the real endpoint: the caller renders
+        // the level it just set.
+        .init(
+            success: true,
+            instanceId: instanceId,
+            mode: mode,
+            cooldownSeconds: cooldownSeconds
+        )
+    }
+
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         .init(
             id: UUID().uuidString,

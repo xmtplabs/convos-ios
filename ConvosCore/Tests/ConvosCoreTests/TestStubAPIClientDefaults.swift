@@ -47,6 +47,22 @@ extension ConvosAPIClientProtocol {
         )
     }
 
+    /// Default for the participation write so pre-existing stubs don't re-stub
+    /// it. Echoes the request, matching the real endpoint. Tests that exercise
+    /// participation should override this on their fixture.
+    func setAgentParticipation(
+        instanceId: String,
+        mode: String?,
+        cooldownSeconds: Int?
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        ConvosAPI.AgentParticipationResponse(
+            success: true,
+            instanceId: instanceId,
+            mode: mode,
+            cooldownSeconds: cooldownSeconds
+        )
+    }
+
     /// Default for the direct-add status poll so pre-existing stubs don't
     /// re-stub it. A coherent terminal state — joined ⇒ inbox present — so
     /// unrelated tests don't iterate the poll loop. Tests that exercise the

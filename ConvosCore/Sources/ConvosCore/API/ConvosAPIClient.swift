@@ -105,6 +105,17 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the poll hit the default worker, which has no record of the instance.
     func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse
 
+    /// Sets how much an agent may speak in its conversation. The backend holds
+    /// the assistant control-plane key and forwards this; the app cannot reach
+    /// that plane directly. Paused depends on the hop: the level has to be
+    /// recorded there for a message to be refused before the agent is woken.
+    /// Both fields are a partial update, but sending neither is rejected.
+    func setAgentParticipation(
+        instanceId: String,
+        mode: String?,
+        cooldownSeconds: Int?
+    ) async throws -> ConvosAPI.AgentParticipationResponse
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
@@ -875,6 +886,24 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // request. Kept well under the loop's overall deadline so a stuck
         // request fails fast and the next iteration's deadline check fires.
         request.timeoutInterval = 10
+        return try await performRequest(request)
+    }
+
+    func setAgentParticipation(
+        instanceId: String,
+        mode: String?,
+        cooldownSeconds: Int?
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        let encoded = instanceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? instanceId
+        var request = try authenticatedRequest(for: "v2/agents/\(encoded)/participation", method: "PATCH")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // One small write that fans out to the control plane and, for the two
+        // speaking levels, on to the container. Bounded so a stuck call cannot
+        // leave the sheet waiting.
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentParticipationRequest(mode: mode, cooldownSeconds: cooldownSeconds)
+        )
         return try await performRequest(request)
     }
 
