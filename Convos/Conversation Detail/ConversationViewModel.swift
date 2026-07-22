@@ -482,9 +482,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     ///
     /// The agent-template flows ("Chat on a contact" + the
     /// `convos://template/<id>` deep link) take priority and supply the real
-    /// identity (`showsContactCard == true`). The Agent Builder is the
+    /// identity (`showsContactCard == true`). The Agent Builder starts as the
     /// generic "no identity" case (`name`/`emoji` nil, `showsContactCard
-    /// == false`) -- it keeps its own gating in
+    /// == false`) and adopts the direct build's draft preview identity once
+    /// the backend streams one -- it keeps its own gating in
     /// `shouldRenderAsPendingAgentBuilder` and its own summary card. Both
     /// drop the moment a real verified Convos agent joins
     /// `conversation.members`, and both are time-boxed as a backstop.
@@ -501,16 +502,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
-        // Direct builder: the header intentionally stays generic ("Agent" title
-        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
-        // The draft preview identity is revealed progressively by the dedicated
-        // `.agentActivating` card, not the header; the header only adopts the
-        // real name/emoji once the verified agent actually joins. So fall
-        // through to the generic no-identity pending case below.
+        // Direct builder: the header starts generic ("New Agent" title +
+        // add-agent glyph) and adopts the draft preview identity (name +
+        // emoji) as soon as the build streams one, so the header matches the
+        // `.agentActivating` card instead of staying a placeholder while the
+        // agent's name is already on screen. The card keeps owning the
+        // progressive reveal (`showsContactCard` stays false); the repository
+        // retains the last preview through the terminal poll, so the identity
+        // doesn't regress before the agent joins.
         if shouldRenderAsPendingAgentBuilder {
+            let preview: ConvosAPI.AgentPreview? = directBuildGeneration?.preview
+            let previewName: String? = preview?.agentName.flatMap { $0.isEmpty ? nil : $0 }
+            let previewEmoji: String? = preview?.emoji.flatMap { $0.isEmpty ? nil : $0 }
             return PendingAgentPresentation(
-                name: nil,
-                emoji: nil,
+                name: previewName,
+                emoji: previewEmoji,
                 avatarURL: nil,
                 agentDescription: nil,
                 showsContactCard: false
