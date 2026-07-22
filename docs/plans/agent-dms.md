@@ -266,14 +266,13 @@ Deploy order mirrors direct-add: **herald-lite → convos-assistants → convos-
 
    ```proto
    message AgentDmInfo {
-       bytes agentInboxId = 1;               // hex-decoded, same convention as ConversationProfile.inboxId
-       optional bytes originConversationId = 2;  // the primary group this DM was started from
+       optional bytes originConversationId = 1;  // the primary group this DM was started from
    }
    // in ConversationCustomMetadata:
    optional AgentDmInfo agentDm = 8;
    ```
 
-   Presence of `agentDm` drives classification. Hydration only honors the marker when it validates: exactly 2 members AND the other member's inboxId equals `agentInboxId` (prevents a member of any ordinary group from stamping the marker to distort other members' UI). `originConversationId` enables "Agent from [group]" context and lets the app find the primary group locally.
+   Presence of `agentDm` drives classification. The agent's identity comes from the membership itself, not the marker: hydration only honors the marker when the conversation has exactly 2 members AND the other member is an agent (`member_kind == AGENT`, verified via the existing attestation path). That is both stronger than a marker-asserted inboxId (cryptographic vs creator-written) and closes the abuse case of stamping the marker on an ordinary conversation to distort other members' UI. `originConversationId` enables "Agent from [group]" context and lets the app find the primary group locally. Classification may land after the agent's profile message syncs — tolerated (item 5).
 3. **Local DM classification (decided)**: a dedicated `isAgentDm` flag on the (group-kind) conversation row — reuses the shipped 1:1 rendering path unchanged, no `kind == .dm` branch-site audit. UI driven by the flag: hide the add-member "+" button, hide the QR/invite-link surfaces, show the shared-brain disclosure (§5.6). Promote to kind `.dm` later only if DM-specific rendering demands it.
 4. **`accepts_dms` plumbing**: read the metadata key through the existing profile pipeline (additive map — no proto change).
 5. **Push + NSE**: nothing new structurally — the DM group rides standard group topics and welcome handling. Verify the welcome path classifies (marker may arrive with/after the welcome; tolerate late classification).
