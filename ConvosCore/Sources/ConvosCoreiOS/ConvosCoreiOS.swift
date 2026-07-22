@@ -22,7 +22,10 @@
 // }
 // ```
 
+import ConvosConnections
+import ConvosConnectionsHealth
 import Foundation
+import HealthKit
 import UserNotifications
 
 // MARK: - iOS Platform Providers Extension
@@ -38,6 +41,19 @@ extension PlatformProviders {
     /// Must be called from the main actor (typically during app initialization).
     @MainActor
     public static var iOS: PlatformProviders {
+        iOS(deviceConnections: healthDeviceConnections)
+    }
+
+    /// App Clip variant: identical to `.iOS` but opts out of every device
+    /// connection. App Clips cannot use HealthKit, and the clip has no
+    /// connections UI.
+    @MainActor
+    public static var iOSAppClip: PlatformProviders {
+        iOS(deviceConnections: .none)
+    }
+
+    @MainActor
+    private static func iOS(deviceConnections: DeviceConnectionsBundle) -> PlatformProviders {
         let appLifecycle = IOSAppLifecycleProvider()
         let deviceInfo = IOSDeviceInfo()
         let pushNotificationRegistrar = IOSPushNotificationRegistrar()
@@ -53,7 +69,25 @@ extension PlatformProviders {
             pushNotificationRegistrar: pushNotificationRegistrar,
             notificationCenter: UNUserNotificationCenter.current(),
             backgroundUploadManager: BackgroundUploadManager.shared,
-            oauthSessionProvider: IOSOAuthSessionProvider()
+            oauthSessionProvider: IOSOAuthSessionProvider(),
+            deviceConnections: deviceConnections
+        )
+    }
+
+    /// Health is the only device kind the app links. A single `HKHealthStore`
+    /// backs the four background-delivery runtime implementations so anchors,
+    /// observer queries, and delivery toggles all see the same store.
+    private static var healthDeviceConnections: DeviceConnectionsBundle {
+        let store = HKHealthStore()
+        return DeviceConnectionsBundle(
+            dataSources: [HealthDataSource()],
+            dataSinks: [HealthDataSink()],
+            health: HealthRuntimeImpls(
+                backgroundDeliveryGateway: HKHealthStoreBackgroundDeliveryGateway(store: store),
+                backfillReader: HKHealthStoreBackfillReader(store: store),
+                deltaReader: HKHealthStoreDeltaReader(store: store),
+                observerRegistrar: HKHealthStoreObserverRegistrar(store: store)
+            )
         )
     }
 
