@@ -43,7 +43,7 @@ struct DeleteAccountView: View {
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
 
-            disclosureList
+            disclosureSection
 
             errorSection
 
@@ -63,19 +63,20 @@ struct DeleteAccountView: View {
 
     // MARK: - Disclosure
 
-    private var disclosureList: some View {
+    private var disclosureSection: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            DisclosureRow(text: "Your account data is removed right away; anything left in storage is purged within 24 hours.")
-            DisclosureRow(text: "Messages already delivered to other people and the messaging network can't be deleted.")
-            DisclosureRow(text: "Your other devices stop working with this account; their local data stays until deleted there.")
-            DisclosureRow(text: "Some payment records are kept in pseudonymized form where required.")
+            Text("Your other devices stop working with this account; their local data stays until deleted there.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
             subscriptionDisclosure
         }
     }
 
     private var subscriptionDisclosure: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            DisclosureRow(text: "Deleting your account does not cancel any App Store subscription.")
+            Text("Deleting your account does not cancel any App Store subscription.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
             manageSubscriptionsLink
         }
     }
@@ -167,23 +168,6 @@ struct DeleteAccountView: View {
 
     private func deleteAccount() {
         viewModel.deleteAccount(onComplete: onComplete)
-    }
-}
-
-// MARK: - Disclosure Row
-
-private struct DisclosureRow: View {
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
-            Text("\u{2022}")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-        }
     }
 }
 
