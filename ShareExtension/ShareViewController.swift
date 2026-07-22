@@ -328,7 +328,7 @@ final class ShareComposeModel: AgentDraftComposing {
 
             // A database read failure is not "no convos" - surface it as the
             // bootstrap error it is instead of a misleading empty state.
-            let conversations = try client.session.conversationsRepository(for: [.allowed]).fetchAll()
+            let conversations = try await client.session.conversationsRepository(for: [.allowed]).fetchAll()
             let intent = extensionContext?.intent as? INSendMessageIntent
             // When the share came from a donated suggestion, only that exact
             // conversation is an acceptable target - falling back to an
