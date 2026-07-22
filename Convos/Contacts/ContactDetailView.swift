@@ -82,17 +82,11 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
-    // Behind the `Listen (agent participation)` debug flag. The selection is
-    // local to this view; postParticipation pushes it to the runtime.
+    // Behind the `Listen (agent participation)` debug flag. The level belongs
+    // to the conversation this card is scoped to, so it is read from there
+    // rather than remembered per device.
     @State private var showingParticipationMenu: Bool = false
-    @State private var participationLevel: AgentParticipationLevel = .speakFreely
-    // Cooldown override (seconds). The runtime default scales by group size;
-    // this lets a member pin the hold explicitly.
-    @State private var cooldownSeconds: Int = 15
-    // The picker updates local state immediately, so a failed write would
-    // otherwise leave the row showing a level the agent never received.
-    @State private var presentingParticipationError: Bool = false
-    @State private var participationErrorMessage: String?
+    @State private var participation: AgentParticipationStore?
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
@@ -162,6 +156,9 @@ struct ContactDetailView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
+            // The level lives with the conversation, so it is read per
+            // conversation — not per agent, and not from this device's memory.
+            .task(id: mode.conversationId) { await prepareParticipation() }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -219,36 +216,27 @@ struct ContactDetailView: View {
             }
             .alert(
                 "Participation not updated",
-                isPresented: $presentingParticipationError
+                isPresented: Binding(
+                    get: { participation?.errorMessage != nil },
+                    set: { if !$0 { participation?.dismissError() } }
+                )
             ) {
-                Button("OK", role: .cancel) {}
+                Button("OK", role: .cancel) { participation?.dismissError() }
             } message: {
-                Text(participationErrorMessage ?? "Please try again.")
+                Text(participation?.errorMessage ?? "Please try again.")
             }
     }
 
     /// The "Agent participation" menu, presented from the Participation row.
-    /// The pick is pushed straight to the runtime; durable per-conversation
-    /// storage lands with the backend work.
+    /// The level belongs to the conversation, so every agent in it moves
+    /// together and one that joins later inherits the choice.
     private var participationMenuSheet: some View {
-        // Three live levels: Speak freely, Mention-only, Paused. Listen-only,
-        // expiration, and Leave-the-room were cut in product planning.
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
-            AgentParticipationMenu(
-                levels: AgentParticipationLevel.liveCases,
-                selection: participationLevel,
-                showsBackground: false
-            ) { level in
-                participationLevel = level
-                postParticipation(mode: level.wireMode, cooldownSeconds: nil)
-                showingParticipationMenu = false
-            }
-            // Cooldown only applies to Speak freely: that is the level where the
-            // agent follows the group's flow, so pacing its bursts is meaningful.
-            // Mention-only already speaks only when addressed; Paused is offline.
-            if participationLevel == .speakFreely {
-                cooldownControl
-            }
+        AgentParticipationMenu(
+            selection: participation?.level ?? .default,
+            showsBackground: false
+        ) { level in
+            showingParticipationMenu = false
+            Task { await participation?.set(level) }
         }
         .padding(.horizontal, DesignConstants.Spacing.step6x)
         .padding(.top, DesignConstants.Spacing.step8x)
@@ -256,65 +244,17 @@ struct ContactDetailView: View {
         .presentationDetents([.medium])
     }
 
-    /// Explicit override for the burst-hold the runtime applies before it
-    /// replies once. Left alone, that hold scales with group size (engages at
-    /// 4+ members, +3s each, capped at 30s); picking a value here pins it.
-    /// "Off" means no hold beyond the base coalesce window.
-    private var cooldownControl: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Text("Cooldown")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-            Picker("Cooldown", selection: $cooldownSeconds) {
-                Text("Off").tag(0)
-                Text("5s").tag(5)
-                Text("15s").tag(15)
-                Text("30s").tag(30)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: cooldownSeconds) { _, newValue in
-                postParticipation(mode: nil, cooldownSeconds: newValue)
-            }
-            Text("How long the agent holds a burst of messages before replying once.")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// Builds the store for the conversation this card is scoped to and reads
+    /// the level it is in. Anyone may have set it, so the row has to render
+    /// shared state rather than whatever this device last chose.
+    private func prepareParticipation() async {
+        guard let conversationId = mode.conversationId else {
+            participation = nil
+            return
         }
-    }
-
-    /// Sends the chosen level to the backend, which holds the assistant
-    /// control-plane key and forwards it. Paused needs that hop: the level has
-    /// to reach the control plane to be recorded, otherwise the agent is still
-    /// woken for a message it will only discard.
-    ///
-    /// Fire-and-forget against optimistic local state. The row already shows
-    /// the new level, and a failed write leaves the app claiming a level the
-    /// agent is not honouring, which is why the failure is surfaced rather
-    /// than only logged.
-    private func postParticipation(mode: String?, cooldownSeconds: Int?) {
-        guard let instanceId = contact.agentInstanceId else { return }
-        let apiClient = ConvosAPIClientFactory.client(
-            environment: ConfigManager.shared.currentEnvironment
-        )
-        Task {
-            do {
-                _ = try await apiClient.setAgentParticipation(
-                    instanceId: instanceId,
-                    mode: mode,
-                    cooldownSeconds: cooldownSeconds
-                )
-                Log.info(
-                    "participation set mode=\(mode ?? "-") cooldown=\(cooldownSeconds.map(String.init) ?? "-")"
-                )
-            } catch {
-                Log.error("participation update failed: \(error)")
-                await MainActor.run {
-                    participationErrorMessage =
-                        "Couldn't update participation. The agent is still on its previous setting."
-                    presentingParticipationError = true
-                }
-            }
-        }
+        let store = AgentParticipationStore(conversationId: conversationId)
+        participation = store
+        await store.load()
     }
 
     /// Existing conversation pushed when a "Convos with you" row is tapped.
@@ -484,7 +424,7 @@ struct ContactDetailView: View {
                     showParticipation: FeatureFlags.shared.isListenParticipationEnabled
                         && (isVerifiedAgent || isAgentTemplate)
                         && mode.isScopedToConversation,
-                    participationLevel: participationLevel,
+                    participationLevel: participation?.level ?? .default,
                     onPickParticipation: { showingParticipationMenu = true },
                     showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,

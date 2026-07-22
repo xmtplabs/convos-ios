@@ -107,6 +107,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
+    // Injected by the host on conversations that hold an agent; nil elsewhere,
+    // and the bubble simply isn't drawn.
+    @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
 
     public init(
         profile: Profile,
@@ -467,6 +470,18 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+            // Only where there is an agent to govern. It sits ahead of the
+            // attachment control because it is a property of the room rather
+            // than of the message being written.
+            if let participation = agentParticipation {
+                AgentParticipationBubble(
+                    level: participation.level,
+                    action: participation.onTap
+                )
+                .glassEffectID("participation", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
+            }
+
             if isMessageInputFocused {
                 Button {
                     withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {

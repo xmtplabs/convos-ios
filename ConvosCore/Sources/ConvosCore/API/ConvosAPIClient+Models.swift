@@ -332,41 +332,31 @@ public enum ConvosAPI {
         }
     }
 
-    // MARK: - v2/agents/:instanceId/participation
+    // MARK: - v2/conversations/:conversationId/participation
 
-    /// Partial update: send the level, the cooldown, or both. Omitted fields
-    /// are left as they are, so changing the cooldown does not disturb the
-    /// level and vice versa.
+    /// How much the agents in a conversation may speak. The level belongs to
+    /// the conversation, not to one agent: a room with several agents has one
+    /// setting that governs all of them, and an agent that joins later
+    /// inherits it.
     public struct AgentParticipationRequest: Codable {
         /// "speak", "mention" or "paused".
-        public let mode: String?
-        /// Explicit burst hold in seconds. 0 turns the explicit hold off and
-        /// returns the agent to the automatic, member-scaled window.
-        public let cooldownSeconds: Int?
+        public let mode: String
 
-        public init(mode: String? = nil, cooldownSeconds: Int? = nil) {
+        public init(mode: String) {
             self.mode = mode
-            self.cooldownSeconds = cooldownSeconds
         }
     }
 
     public struct AgentParticipationResponse: Codable {
         public let success: Bool
-        public let instanceId: String
-        /// Echo of what was applied; nil for a field the request left alone.
-        public let mode: String?
-        public let cooldownSeconds: Int?
+        public let conversationId: String
+        /// The level now in force — echoed on a write, read on a fetch.
+        public let mode: String
 
-        public init(
-            success: Bool,
-            instanceId: String,
-            mode: String? = nil,
-            cooldownSeconds: Int? = nil
-        ) {
+        public init(success: Bool, conversationId: String, mode: String) {
             self.success = success
-            self.instanceId = instanceId
+            self.conversationId = conversationId
             self.mode = mode
-            self.cooldownSeconds = cooldownSeconds
         }
     }
 

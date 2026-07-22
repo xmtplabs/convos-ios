@@ -47,19 +47,28 @@ extension ConvosAPIClientProtocol {
         )
     }
 
-    /// Default for the participation write so pre-existing stubs don't re-stub
-    /// it. Echoes the request, matching the real endpoint. Tests that exercise
-    /// participation should override this on their fixture.
+    /// Defaults for the participation read/write so pre-existing stubs don't
+    /// re-stub them. The write echoes the request, matching the real endpoint;
+    /// the read reports the product default. Tests that exercise participation
+    /// should override these on their fixture.
     func setAgentParticipation(
-        instanceId: String,
-        mode: String?,
-        cooldownSeconds: Int?
+        conversationId: String,
+        mode: String
     ) async throws -> ConvosAPI.AgentParticipationResponse {
         ConvosAPI.AgentParticipationResponse(
             success: true,
-            instanceId: instanceId,
-            mode: mode,
-            cooldownSeconds: cooldownSeconds
+            conversationId: conversationId,
+            mode: mode
+        )
+    }
+
+    func getAgentParticipation(
+        conversationId: String
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        ConvosAPI.AgentParticipationResponse(
+            success: true,
+            conversationId: conversationId,
+            mode: "speak"
         )
     }
 

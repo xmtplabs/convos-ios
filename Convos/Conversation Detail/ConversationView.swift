@@ -51,6 +51,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
+    /// Agent participation for this conversation, behind the Listen debug flag.
+    /// It lives here rather than in the composer because the level belongs to
+    /// the conversation; the composer only draws the control.
+    @State private var participation: AgentParticipationStore?
+    @State private var showingParticipationMenu: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
@@ -375,6 +380,64 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+        // Only where there is an agent to govern, and only while the Listen
+        // flag is on. Absent, the composer draws no bubble at all.
+        .environment(\.agentParticipation, participationContext)
+        .task(id: viewModel.conversation.id) { await prepareParticipation() }
+        .sheet(isPresented: $showingParticipationMenu) {
+            participationMenuSheet
+        }
+        .alert(
+            "Participation not updated",
+            isPresented: Binding(
+                get: { participation?.errorMessage != nil },
+                set: { if !$0 { participation?.dismissError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) { participation?.dismissError() }
+        } message: {
+            Text(participation?.errorMessage ?? "Please try again.")
+        }
+    }
+
+    /// What the composer needs to draw the bubble: the level, and the tap.
+    /// `nil` in a conversation with no agent — a control for agents has no
+    /// business in a room without one.
+    private var participationContext: AgentParticipationContext? {
+        guard let participation else { return nil }
+        return AgentParticipationContext(level: participation.level) {
+            showingParticipationMenu = true
+        }
+    }
+
+    private var participationMenuSheet: some View {
+        AgentParticipationMenu(
+            selection: participation?.level ?? .default,
+            showsBackground: false
+        ) { level in
+            showingParticipationMenu = false
+            Task { await participation?.set(level) }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step8x)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium])
+    }
+
+    /// Builds the store for this conversation and reads its current level.
+    /// Skipped where the control would be meaningless, so a conversation
+    /// without agents never spends a request on it.
+    private func prepareParticipation() async {
+        guard FeatureFlags.shared.isListenParticipationEnabled,
+              viewModel.conversation.members.contains(where: \.isAgent) else {
+            participation = nil
+            return
+        }
+        let store = AgentParticipationStore(
+            conversationId: viewModel.conversation.id
+        )
+        participation = store
+        await store.load()
     }
 
     @ToolbarContentBuilder

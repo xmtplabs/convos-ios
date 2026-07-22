@@ -1,69 +1,77 @@
+#if canImport(UIKit)
 import SwiftUI
 
 // MARK: - Agent participation
 
-/// How much an agent talks in a specific conversation. The owner/members pick a
-/// level; the agent keeps *working* at every level short of leaving — only how
-/// much it *speaks* changes.
+/// How much the agents in a conversation talk. Members pick a level; the agents
+/// keep *working* at every level short of Pause — only how much they *speak*
+/// changes.
 ///
-/// NOTE (spec, 2026-07-20): product planning trimmed this to three live levels —
-/// `speakFreely`, `mentionsOnly`, `paused`. `listenOnly` (+ its "mute for…"
-/// duration) and `leaveRoom` are rendered here to match the current Figma while
-/// the final set is decided; gate them behind `Self.liveCases` when we lock it.
-enum AgentParticipationLevel: String, CaseIterable, Identifiable {
+/// The level belongs to the conversation, not to one agent: a room holding
+/// several agents has a single setting that governs all of them, and an agent
+/// that joins later inherits it.
+public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendable {
     case speakFreely
     case mentionsOnly
-    case listenOnly
     case paused
-    case leaveRoom
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    /// The subset shipping in v1 per the current spec. Swap the menu's data
-    /// source to this to drop Listen-only + Leave-the-room without touching layout.
-    static let liveCases: [AgentParticipationLevel] = [.speakFreely, .mentionsOnly, .paused]
-
-    var title: String {
+    public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
         case .mentionsOnly: "Mentions only"
-        case .listenOnly: "Listen only"
-        case .paused: "Paused"
-        case .leaveRoom: "Leave the room"
+        case .paused: "Pause"
         }
     }
 
-    var caption: String {
+    public var caption: String {
         switch self {
         case .speakFreely: "Chime in any time"
         case .mentionsOnly: "Speak when you see your name"
-        case .listenOnly: "Mute for …"
-        case .paused: "Offline, uses no credits"
-        case .leaveRoom: "Until invited back"
+        case .paused: "Go offline, use no credits"
         }
     }
 
-    /// Opens a follow-up step (the duration picker) rather than selecting inline.
-    var hasDisclosure: Bool { self == .listenOnly }
+    /// The mark for this level. It carries the level on its own in the
+    /// composer, where there is no room for the title — so each one has to read
+    /// as its own idea at a glance: sound, a name, a stop.
+    public var iconSystemName: String {
+        switch self {
+        case .speakFreely: "speaker.wave.2"
+        case .mentionsOnly: "at"
+        case .paused: "pause.circle"
+        }
+    }
 
-    /// Wire value sent to the runtime's /convos/participation (speak/mention/paused).
-    var wireMode: String {
+    /// Wire value for the control plane (speak / mention / paused).
+    public var wireMode: String {
         switch self {
         case .speakFreely: "speak"
         case .mentionsOnly: "mention"
         case .paused: "paused"
-        // Not in the live set; map to speak so a stray value never gates.
-        case .listenOnly, .leaveRoom: "speak"
+        }
+    }
+
+    /// The level a conversation is in until someone sets one. Matches the
+    /// control plane's default, so an unset room and an explicit Speak freely
+    /// render identically — because they behave identically.
+    public static let `default`: AgentParticipationLevel = .speakFreely
+
+    public init?(wireMode: String) {
+        switch wireMode {
+        case "speak": self = .speakFreely
+        case "mention": self = .mentionsOnly
+        case "paused": self = .paused
+        default: return nil
         }
     }
 }
 
 /// The floating "Agent participation" menu: a frosted card of levels with a
-/// leading check on the current one and a disclosure on any level that opens a
-/// follow-up step. Presentation-agnostic — drop it in a popover, a sheet, or a
-/// `.contextMenu`-style overlay from the agent's profile.
-struct AgentParticipationMenu: View {
-    let levels: [AgentParticipationLevel]
+/// leading check on the current one. Presentation-agnostic — drop it in a
+/// popover, a sheet, or an overlay from the composer or the agent's profile.
+public struct AgentParticipationMenu: View {
     let selection: AgentParticipationLevel
     /// Draws the frosted card + shadow around the rows. Set `false` when the
     /// host already provides a surface (e.g. inside a sheet) so the panel isn't
@@ -71,26 +79,24 @@ struct AgentParticipationMenu: View {
     let showsBackground: Bool
     let onSelect: (AgentParticipationLevel) -> Void
 
-    init(
-        levels: [AgentParticipationLevel] = AgentParticipationLevel.allCases,
+    public init(
         selection: AgentParticipationLevel,
         showsBackground: Bool = true,
         onSelect: @escaping (AgentParticipationLevel) -> Void
     ) {
-        self.levels = levels
         self.selection = selection
         self.showsBackground = showsBackground
         self.onSelect = onSelect
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
             Text("Agent participation")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
-                ForEach(levels) { level in
+                ForEach(AgentParticipationLevel.allCases) { level in
                     row(for: level)
                 }
             }
@@ -98,8 +104,11 @@ struct AgentParticipationMenu: View {
         .padding(showsBackground ? DesignConstants.Spacing.step6x : 0)
         .background {
             if showsBackground {
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLargest, style: .continuous)
-                    .fill(.regularMaterial)
+                RoundedRectangle(
+                    cornerRadius: DesignConstants.CornerRadius.mediumLargest,
+                    style: .continuous
+                )
+                .fill(.regularMaterial)
             }
         }
         // Tight, single-direction lift — reads as a floating menu, not a halo.
@@ -116,13 +125,14 @@ struct AgentParticipationMenu: View {
         Button {
             onSelect(level)
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step3x) {
-                // Fixed check gutter so titles align whether or not selected.
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
+            HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+                // The icon is the same mark the composer bubble shows, so the
+                // control the member taps and the level they picked are visibly
+                // the same thing.
+                Image(systemName: level.iconSystemName)
+                    .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(.colorTextPrimary)
-                    .opacity(level == selection ? 1 : 0)
-                    .frame(width: DesignConstants.Spacing.step6x, alignment: .leading)
+                    .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                     Text(level.title)
@@ -135,11 +145,13 @@ struct AgentParticipationMenu: View {
 
                 Spacer(minLength: DesignConstants.Spacing.step2x)
 
-                if level.hasDisclosure {
-                    Image(systemName: "chevron.right")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.colorTextSecondary)
-                }
+                // Fixed check gutter so every row's text sits on the same axis
+                // whether or not it is the selected one.
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .opacity(level == selection ? 1 : 0)
+                    .frame(width: DesignConstants.Spacing.step6x, alignment: .trailing)
             }
             .contentShape(Rectangle())
         }
@@ -175,23 +187,4 @@ struct AgentParticipationMenu: View {
     }
     return Harness()
 }
-
-/// The trimmed three-level set (current spec) — same layout, no Listen-only /
-/// Leave-the-room.
-#Preview("Participation menu (3-level spec)") {
-    struct Harness: View {
-        @State private var selection: AgentParticipationLevel = .mentionsOnly
-        var body: some View {
-            ZStack {
-                Color(.systemGray5).ignoresSafeArea()
-                AgentParticipationMenu(
-                    levels: AgentParticipationLevel.liveCases,
-                    selection: selection
-                ) { selection = $0 }
-                .frame(maxWidth: 360)
-                .padding()
-            }
-        }
-    }
-    return Harness()
-}
+#endif
