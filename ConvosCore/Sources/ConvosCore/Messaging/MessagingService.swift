@@ -30,6 +30,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     internal let coreActions: any CoreActions
+    /// Single shared instance so render-path resolvers (`contact(for:)`)
+    /// hit one warm in-memory contacts cache instead of constructing a
+    /// fresh repository per SwiftUI body evaluation.
+    private let sharedContactsRepository: ContactsRepository
     private var cancellables: Set<AnyCancellable> = []
 
     // swiftlint:disable:next function_parameter_count
@@ -89,6 +93,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
@@ -120,6 +125,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = ""
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.sharedContactsRepository = ContactsRepository(databaseReader: databaseReader)
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
@@ -335,7 +341,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: Contacts
 
     func contactsRepository() -> any ContactsRepositoryProtocol {
-        ContactsRepository(databaseReader: databaseReader)
+        sharedContactsRepository
     }
 
     func contactsWriter() -> any ContactsWriterProtocol {
@@ -646,6 +652,34 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             signingKey: identity.keys.signingKey,
             installationIds: [installationId]
         )
+    }
+
+    func requestHistorySync() async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        try await result.client.requestHistorySync()
+        scheduleHistorySyncBackfill()
+    }
+
+    /// The archive a peer sends back is imported straight into libxmtp's
+    /// local database - no stream events, and the messages carry their
+    /// original timestamps, which sit behind every catch-up cursor this
+    /// fresh installation has already stamped. Without an explicit
+    /// cursor-ignoring re-ingest they never reach the app database. The
+    /// app can't observe when the import lands (observed ~3s after the
+    /// request on simulators; slower on real networks), so run a few
+    /// spaced passes - re-ingesting already-persisted rows is a no-op.
+    private func scheduleHistorySyncBackfill() {
+        let stateManager = sessionStateManager
+        Task.detached(priority: .utility) {
+            var elapsedSeconds: Double = 0
+            for fireAtSeconds in [5.0, 20.0, 60.0, 150.0] {
+                try? await Task.sleep(for: .seconds(fireAtSeconds - elapsedSeconds))
+                elapsedSeconds = fireAtSeconds
+                if Task.isCancelled { return }
+                await stateManager.runHistorySyncBackfill()
+                Log.info("MessagingService: history sync backfill pass ran (t+\(Int(fireAtSeconds))s)")
+            }
+        }
     }
 }
 

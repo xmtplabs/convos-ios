@@ -19,6 +19,10 @@ let package = Package(
             targets: ["ConvosCoreiOS"]
         ),
         .library(
+            name: "ConvosComposer",
+            targets: ["ConvosComposer"]
+        ),
+        .library(
             name: "ConvosConnectionsXMTP",
             targets: ["ConvosConnectionsXMTP"]
         ),
@@ -27,9 +31,10 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.11.0-nightly.20260711.9358d22"
+            revision: "ios-4.11.0-nightly.20260722.727dd7a"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
+        .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
@@ -75,6 +80,27 @@ let package = Package(
             path: "Sources/ConvosCoreiOS",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .define("DEBUG", .when(configuration: .debug)),
+                .unsafeFlags(["-Onone"], .when(configuration: .debug)),
+            ]
+        ),
+        .target(
+            name: "ConvosComposer",
+            dependencies: [
+                .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
+                .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "DifferenceKit", package: "DifferenceKit", condition: .when(platforms: [.iOS])),
+                .product(name: "ConvosLogging", package: "ConvosLogging", condition: .when(platforms: [.iOS])),
+                .product(name: "ConvosInvites", package: "ConvosInvites", condition: .when(platforms: [.iOS])),
+            ],
+            path: "Sources/ConvosComposer",
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: [
+                // Swift 5 mode to match the app target the composer code is moved
+                // from; avoids strict-concurrency churn across the moved files.
+                .swiftLanguageMode(.v5),
                 .define("DEBUG", .when(configuration: .debug)),
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ]

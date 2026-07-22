@@ -1,5 +1,5 @@
 {
-  "originHash" : "1df5b4ee6fed5d5b871e1d15a8c8645e2c0b749f3301c7918d30ddcf35a967ad",
+  "originHash" : "3e62d21768fe925827a3661d9cbb98928ffd5071149bb6f84f00d717e287aaf7",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -53,6 +53,15 @@
       "state" : {
         "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
         "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "differencekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ra1028/DifferenceKit.git",
+      "state" : {
+        "revision" : "073b9671ce2b9b5b96398611427a1f929927e428",
+        "version" : "1.3.0"
       }
     },
     {
@@ -150,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.11.0-nightly.20260711.9358d22",
-        "revision" : "88b7cb0207210f1f7c0f46360d75c186143f41ce"
+        "branch" : "ios-4.11.0-nightly.20260722.727dd7a",
+        "revision" : "633b7f520183b95410598ea5464d749edda170ee"
       }
     },
     {

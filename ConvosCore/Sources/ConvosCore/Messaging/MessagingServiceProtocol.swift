@@ -135,4 +135,11 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     /// Revokes a single named installation. Used by the per-row "Delete"
     /// affordance in Devices. Throws if the id is the current device.
     func revokeInstallation(installationId: String) async throws
+
+    /// Asks the inbox's other live installations to upload a message
+    /// history archive via the device-sync group; libxmtp imports it
+    /// automatically once a peer responds. Called on the joiner right
+    /// after pairing adoption, when the initiator device is known to be
+    /// online. Waits for the inbox to be ready first.
+    func requestHistorySync() async throws
 }

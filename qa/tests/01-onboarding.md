@@ -13,7 +13,7 @@ Verify that a first-time user is offered the first-launch "Hello / My name is" p
 ### Launch into first-launch profile setup
 
 1. Launch the app. It lands on the home shell (Chats tab, compose button visible).
-2. The "Hello / My name is" profile setup sheet self-presents over the Chats tab. Poll for `profile-setup-name-field` with `sim_wait_for_element` (timeout: 20s — the sheet waits for the inbox and global profile load on a cold fresh install).
+2. The "Hello / My name is" profile setup sheet self-presents over the Chats tab. Poll for `profile-setup-name-field` with `sim_wait_for_element` (timeout: 20s — the sheet waits for the inbox and global profile load on a cold fresh install). It presents on every launch while the user has no name or photo set — including users who completed onboarding before this sheet existed — and cannot be swiped away while "Come in" is disabled. On a true fresh install it presents immediately; after a reinstall it waits for the restored profile to load.
 3. Verify the sheet's empty state:
    - A name field (`profile-setup-name-field`) with placeholder "Name", an avatar on the left (`profile-setup-avatar`) showing the `person.crop.circle.fill` icon, and photo/camera buttons on the right (`profile-setup-photo-button`, `profile-setup-camera-button`).
    - The "I agree to Convos Privacy & Terms" row with a toggle (`profile-setup-terms-toggle`), ON by default.
@@ -45,13 +45,14 @@ Verify that a first-time user is offered the first-launch "Hello / My name is" p
 13. Navigate back to the conversations list.
 14. Verify the conversation you created appears in the list.
 
-## Fallback flow (01b): sheet dismissed without saving
+## Dismissal gating (01b)
 
-The in-conversation onboarding flow still exists as a fallback. To exercise it:
+The sheet cannot be swiped away while "Come in" is disabled, and it re-presents on every launch until a profile is set:
 
-1. On a fresh install, swipe the first-launch sheet down without saving.
-2. Create a conversation. The legacy `setup-profile-button` prompt appears in the conversation's bottom bar, and the flow continues as before (quick-edit name field → "Profile saved" pill → notification prompt).
-3. The first-launch sheet does not re-appear on later launches (it shows once).
+1. On a fresh install with the name field empty, try to swipe the sheet down — it must bounce back (interactive dismissal is disabled while the save gate is unsatisfied).
+2. Type a name (terms toggle already on) so "Come in" enables, then swipe the sheet down without saving. Dismissal now succeeds.
+3. Create a conversation. No profile prompt appears in the conversation (the inline "Add your name and pic" flow was removed; the Nametag sheet is the only profile-setup surface) — the user simply chats as "Somebody".
+4. Relaunch the app without ever saving a profile — the sheet self-presents again (it gates on the profile being unset, not on having been shown before). Once a name or photo is saved, it stops appearing.
 
 ## Pass/Fail Criteria
 

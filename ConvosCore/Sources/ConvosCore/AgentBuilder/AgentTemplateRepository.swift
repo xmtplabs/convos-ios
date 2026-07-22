@@ -45,8 +45,10 @@ public struct AgentTemplateGeneration: Sendable, Equatable {
 /// Performs the agent-join for a finished template. Routed through
 /// `SessionManager.addAgentToConversation` (not the raw API client) so the
 /// direct-add provision/add runs and the agent is added to the conversation
-/// the build targeted.
-public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String, _ variantId: String?) async throws -> Void
+/// the build targeted. `joinIdempotencyKey` is the persisted key the
+/// repository mints per logical join; the handler must send it on the join
+/// POST so a retried join dedups server-side.
+public typealias AgentTemplateJoinHandler = @Sendable (_ conversationId: String, _ templateId: String, _ variantId: String?, _ joinIdempotencyKey: ConvosAPI.JoinIdempotencyKey?) async throws -> Void
 
 /// Errors an `AgentTemplateJoinHandler` can throw when it cannot perform the
 /// join. Surfacing these as thrown errors (rather than returning) keeps the
@@ -82,7 +84,11 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
     /// `variantId` is the dev-only agent variant slug captured once at build
     /// start (`nil` for default builds); it is persisted on the row and reused
     /// for the generation, join, and join-status-poll calls.
-    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?)
+    /// Returns once the generation row is durably persisted (the row is what
+    /// `resumePendingGenerations` re-drives, so callers may treat the return
+    /// as the delivery handoff); the submit/poll pipeline continues in the
+    /// background.
+    func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async
 
     /// Latest generation for a conversation, observed reactively.
     func generationPublisher(conversationId: String) -> AnyPublisher<AgentTemplateGeneration?, Never>
@@ -105,8 +111,8 @@ public protocol AgentTemplateRepositoryProtocol: Sendable {
 
 public extension AgentTemplateRepositoryProtocol {
     /// Text-only convenience for callers with no attachments or connections.
-    func startGeneration(prompt: String, conversationId: String, slug: String) {
-        startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [], variantId: nil)
+    func startGeneration(prompt: String, conversationId: String, slug: String) async {
+        await startGeneration(prompt: prompt, conversationId: conversationId, slug: slug, attachments: [], connections: [], variantId: nil)
     }
 }
 
@@ -134,18 +140,27 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
     /// API client when unset (e.g. in tests).
     private let joinHandler: OSAllocatedUnfairLock<AgentTemplateJoinHandler?> = .init(initialState: nil)
 
+    /// Sleep between retry attempts. Injectable so tests drive the backoff
+    /// without real waits (mirrors `awaitProvisionedAgentInbox`'s injectable
+    /// sleep); the default sleeps for real.
+    private let backoffSleep: @Sendable (TimeInterval) async -> Void
+
     public init(
         apiClient: any ConvosAPIClientProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         source: String,
-        clientDeviceIdProvider: @escaping @Sendable () -> String?
+        clientDeviceIdProvider: @escaping @Sendable () -> String?,
+        backoffSleep: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        }
     ) {
         self.apiClient = apiClient
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.source = source
         self.clientDeviceIdProvider = clientDeviceIdProvider
+        self.backoffSleep = backoffSleep
     }
 
     // MARK: - Public
@@ -154,7 +169,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         joinHandler.withLock { $0 = handler }
     }
 
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async {
         let idempotencyKey: String = UUID().uuidString
         let now: Date = Date()
         let storedAttachments: [StoredGenerationAttachment]
@@ -180,17 +195,20 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
             updatedAt: now
         )
         Log.info("AgentTemplateRepository: starting generation \(idempotencyKey) for conversation \(conversationId)")
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.databaseWriter.write { db in
-                    try row.insert(db)
-                }
-            } catch {
-                Log.error("AgentTemplateRepository: failed to persist generation row: \(error.localizedDescription)")
-                return
+        // The insert is awaited so the caller's return means the row is
+        // durable: staged share-extension records are cleared on this
+        // return, and a fire-and-forget insert left a kill window where
+        // neither record existed (review finding on PR #1191).
+        do {
+            try await databaseWriter.write { db in
+                try row.insert(db)
             }
-            await self.drive(idempotencyKey: idempotencyKey)
+        } catch {
+            Log.error("AgentTemplateRepository: failed to persist generation row: \(error.localizedDescription)")
+            return
+        }
+        Task { [weak self] in
+            await self?.drive(idempotencyKey: idempotencyKey)
         }
     }
 
@@ -368,15 +386,60 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
         return await markFailed(idempotencyKey: row.idempotencyKey, message: "Timed out")
     }
 
+    /// Returns the row's persisted join idempotency key, minting and
+    /// persisting one first when absent (or when the persisted value is not a
+    /// valid key). Persisting before the POST is the point: a retry after a
+    /// lost response - including a relaunch resume - resends the same key and
+    /// the server adopts the in-flight instance instead of provisioning a
+    /// duplicate.
+    ///
+    /// Returns `nil` only when the generation row no longer exists (e.g.
+    /// `clearGeneration` ran while the pipeline was between steps); the invite
+    /// is moot then and the caller exits. A persist that fails while the row
+    /// still exists proceeds with the in-memory key instead of blocking the
+    /// join: in-process retries still reuse it, and the residual relaunch
+    /// window degrades to the pre-key behavior rather than failing a build
+    /// that can succeed now.
+    private func ensureJoinIdempotencyKey(row: DBAgentTemplateGeneration) async -> ConvosAPI.JoinIdempotencyKey? {
+        if let persisted = row.joinIdempotencyKey,
+           let key = ConvosAPI.JoinIdempotencyKey(rawValue: persisted) {
+            Log.info("AgentTemplateRepository: join key reused from persistence \(key.rawValue) for generation \(row.idempotencyKey)")
+            return key
+        }
+        let minted = ConvosAPI.JoinIdempotencyKey.mint()
+        let persistedRow = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = minted.rawValue }
+        if persistedRow != nil {
+            Log.info("AgentTemplateRepository: join key minted and persisted \(minted.rawValue) for generation \(row.idempotencyKey)")
+            return minted
+        }
+        // updateRow returning nil conflates "row gone" with "write failed";
+        // distinguish them so a cleared build stops here instead of joining.
+        guard await fetchRow(idempotencyKey: row.idempotencyKey) != nil else {
+            Log.info("AgentTemplateRepository: generation \(row.idempotencyKey) row gone before invite; skipping join")
+            return nil
+        }
+        Log.warning("AgentTemplateRepository: join key \(minted.rawValue) minted but persist failed for generation \(row.idempotencyKey); proceeding unpersisted (a relaunch resume would re-mint)")
+        return minted
+    }
+
     /// Invite the finished template into the conversation. Provision/pool
     /// errors are retried (the template exists, so a retry is cheap); archived
-    /// / not-found are terminal.
+    /// / not-found are terminal. Retries reuse the persisted join idempotency
+    /// key on ambiguous failures (timeout, lost connection) so the server
+    /// adopts the in-flight instance, and mint a fresh key after an explicit
+    /// provision failure because the server retains the failed instance under
+    /// the old key.
     private func invite(row: DBAgentTemplateGeneration) async {
         guard let templateId = row.templateId else {
             _ = await markFailed(idempotencyKey: row.idempotencyKey, message: "Missing template id")
             return
         }
-        Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId)")
+        guard let ensuredKey = await ensureJoinIdempotencyKey(row: row) else {
+            // Row cleared while the pipeline was between steps; nothing to invite.
+            return
+        }
+        var joinKey: ConvosAPI.JoinIdempotencyKey = ensuredKey
+        Log.info("AgentTemplateRepository: inviting template \(templateId) into conversation \(row.conversationId) with join key \(joinKey.rawValue)")
         var attempt: Int = 0
         while attempt < Constant.maxInviteAttempts {
             do {
@@ -387,29 +450,63 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                 // to the raw client when unset (tests).
                 let handler = joinHandler.withLock { $0 }
                 if let handler {
-                    try await handler(row.conversationId, templateId, row.variantId)
+                    try await handler(row.conversationId, templateId, row.variantId, joinKey)
                 } else {
                     // Reaching this outside tests means the agent gets provisioned
                     // but never direct-added, so it silently never joins.
                     Log.warning("AgentTemplateRepository: join handler unset; raw join without direct-add for template \(templateId)")
                     let options = row.variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
                     _ = try await apiClient.requestAgentJoin(
-                        slug: nil,
-                        conversationId: row.conversationId,
-                        templateId: templateId,
-                        options: options,
-                        timezone: nil,
+                        ConvosAPI.AgentJoinRequest(
+                            conversationId: row.conversationId,
+                            templateId: templateId,
+                            idempotencyKey: joinKey,
+                            options: options
+                        ),
                         forceErrorCode: nil
                     )
                 }
-                Log.info("AgentTemplateRepository: invite succeeded for template \(templateId) in conversation \(row.conversationId)")
+                Log.info("AgentTemplateRepository: invite succeeded for template \(templateId) in conversation \(row.conversationId) with join key \(joinKey.rawValue)")
                 Self.cleanupAttachments(idempotencyKey: row.idempotencyKey)
                 _ = await updateRow(idempotencyKey: row.idempotencyKey) { $0.status = DBAgentTemplateGeneration.Status.invited.rawValue }
                 return
             } catch let error as APIError {
                 switch error {
-                case .noAgentsAvailable, .agentPoolTimeout, .agentProvisionFailed, .serverError:
-                    Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId): \(error) - \(error.localizedDescription)")
+                case .agentProvisionFailed:
+                    // Explicit provision failure: the server retains the failed
+                    // instance under this key, so a same-key retry would adopt
+                    // the corpse. Mint a fresh key for the next attempt.
+                    let corpseKey = joinKey.rawValue
+                    joinKey = ConvosAPI.JoinIdempotencyKey.mint()
+                    let reminted = joinKey.rawValue
+                    Log.error("AgentTemplateRepository: invite provision failed for template \(templateId); join key re-minted \(corpseKey) -> \(reminted): \(error.localizedDescription)")
+                    let remintPersisted = await updateRow(idempotencyKey: row.idempotencyKey) { $0.joinIdempotencyKey = reminted }
+                    if remintPersisted == nil, await fetchRow(idempotencyKey: row.idempotencyKey) == nil {
+                        // Row cleared mid-invite; stop retrying a build that
+                        // no longer exists.
+                        Log.info("AgentTemplateRepository: generation \(row.idempotencyKey) row gone during invite; skipping retry")
+                        return
+                    }
+                    attempt += 1
+                    await backoff(attempt: attempt)
+                    continue
+                case .noAgentsAvailable, .agentPoolTimeout, .serverError:
+                    // Ambiguous or no-instance failures: reuse the key so a
+                    // provision that did land server-side is adopted, not
+                    // duplicated.
+                    Log.error("AgentTemplateRepository: invite retryable failure for template \(templateId); reusing join key \(joinKey.rawValue): \(error) - \(error.localizedDescription)")
+                    attempt += 1
+                    await backoff(attempt: attempt)
+                    continue
+                case .forbidden:
+                    // A cold-launch resume can reach the backend before the
+                    // SIWE-bound JWT is ready, surfacing 403 "Account required"
+                    // as a readiness race rather than a real authorization
+                    // verdict. Retry with backoff reusing the key: once auth is
+                    // ready, the same key adopts any instance an earlier attempt
+                    // already provisioned. A genuinely unauthorized caller still
+                    // fails terminally once attempts are exhausted.
+                    Log.error("AgentTemplateRepository: invite got 403 (auth may not be ready yet); retrying with join key \(joinKey.rawValue): \(error.localizedDescription)")
                     attempt += 1
                     await backoff(attempt: attempt)
                     continue
@@ -419,7 +516,11 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
                     return
                 }
             } catch {
-                Log.error("AgentTemplateRepository: invite threw for template \(templateId): \(error.localizedDescription)")
+                // Transport-level failure (timeout, lost connection) - the
+                // ambiguous case the key exists for. Reuse it so the server
+                // adopts the possibly-provisioned instance.
+                let urlErrorCode = (error as? URLError).map { " urlError=\($0.code.rawValue)" } ?? ""
+                Log.error("AgentTemplateRepository: invite threw (ambiguous) for template \(templateId); reusing join key \(joinKey.rawValue)\(urlErrorCode): \(error.localizedDescription)")
                 attempt += 1
                 await backoff(attempt: attempt)
                 continue
@@ -628,7 +729,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 
     private func backoff(attempt: Int) async {
         let seconds: Double = min(Constant.baseBackoffSeconds * Double(attempt), Constant.maxBackoffSeconds)
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        await backoffSleep(seconds)
     }
 
     private static let terminalStatuses: [String] = [
@@ -649,7 +750,7 @@ public final class AgentTemplateRepository: AgentTemplateRepositoryProtocol {
 /// No-op repository used as the `SessionManagerProtocol` default so test mocks
 /// and non-builder conformers don't need bespoke wiring.
 public final class NoOpAgentTemplateRepository: AgentTemplateRepositoryProtocol {
-    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) {}
+    public func startGeneration(prompt: String, conversationId: String, slug: String, attachments: [AgentBuildAttachmentInput], connections: [String], variantId: String?) async {}
 
     public init() {}
 

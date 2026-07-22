@@ -78,6 +78,12 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         syncPreferencesCallCount += 1
     }
 
+    public private(set) var requestHistorySyncCallCount: Int = 0
+
+    public func requestHistorySync() async throws {
+        requestHistorySyncCallCount += 1
+    }
+
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
         // No-op for mock
     }

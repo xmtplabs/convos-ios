@@ -135,6 +135,13 @@ public protocol XMTPClientProvider: AnyObject {
     /// original timestamps, so denies made while this device was
     /// uninstalled are preserved instead of overridden.
     func syncPreferences() async throws
+    /// Asks the inbox's other live installations (via the device-sync
+    /// group) to upload a history archive - conversations and messages
+    /// this installation has never seen. The device-sync worker on this
+    /// client downloads and imports the archive automatically once a
+    /// peer responds. Used by the joiner right after pairing, when the
+    /// initiator device is guaranteed online.
+    func requestHistorySync() async throws
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
@@ -262,6 +269,10 @@ extension XMTPiOS.Client: XMTPClientProvider {
 
     public func syncPreferences() async throws {
         try await preferences.sync()
+    }
+
+    public func requestHistorySync() async throws {
+        try await sendSyncRequest()
     }
 
     public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {

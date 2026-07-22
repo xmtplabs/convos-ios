@@ -78,11 +78,24 @@ public protocol PhotoAttachmentServiceProtocol: Sendable {
         filename: String
     ) async throws -> PreparedBackgroundUpload
 
+    func prepareForBackgroundUpload(
+        compressedData: Data,
+        apiClient: any ConvosAPIClientProtocol,
+        filename: String
+    ) async throws -> PreparedBackgroundUpload
+
     func generateFilename() -> String
     func localCacheURL(for filename: String) throws -> URL
 }
 
 public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Sendable {
+    /// App-group identifier for the sent-photos cache, set once at client
+    /// bootstrap. Sent photos are written by whichever process sends (main
+    /// app or share extension) and rendered by both, so the cache must live
+    /// in the shared container - a message row pointing into the share
+    /// extension's private caches renders as "Failed to load" in the app.
+    nonisolated(unsafe) public static var sharedContainerAppGroupIdentifier: String?
+
     public init() {}
 
     public func generateFilename() -> String {
@@ -90,11 +103,36 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     public func localCacheURL(for filename: String) throws -> URL {
+        let appGroupURL = try Self.sentPhotosDirectory().appendingPathComponent(filename)
+        guard !FileManager.default.fileExists(atPath: appGroupURL.path) else {
+            return appGroupURL
+        }
+        // Photos sent before the cache moved into the app-group container
+        // still live in the old per-process cache; fall back so upgraded
+        // installs keep rendering them from disk. New filenames exist in
+        // neither location and default to the app-group path.
+        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let legacyURL = cacheDir
+                .appendingPathComponent("SentPhotos", isDirectory: true)
+                .appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+        }
+        return appGroupURL
+    }
+
+    private static func sentPhotosDirectory() throws -> URL {
+        if let appGroup = sharedContainerAppGroupIdentifier,
+           let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return container
+                .appendingPathComponent("Library/Caches", isDirectory: true)
+                .appendingPathComponent("SentPhotos", isDirectory: true)
+        }
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             throw PhotoAttachmentError.persistentStorageUnavailable
         }
-        let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
-        return photosDir.appendingPathComponent(filename)
+        return cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
     }
 
     public func saveLocally(image: ImageType, filename: String) throws -> LocallySavedPhoto {
@@ -159,7 +197,23 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
         guard let compressedData = ImageCompression.compressForPhotoAttachment(image) else {
             throw PhotoAttachmentError.compressionFailed
         }
+        return try await prepareForBackgroundUpload(
+            compressedData: compressedData,
+            apiClient: apiClient,
+            filename: filename
+        )
+    }
 
+    /// Prepares an already-compressed JPEG for upload without touching the
+    /// image pipeline. Used when the send path staged the compressed bytes to
+    /// disk at enqueue time - re-compressing from the in-memory image would
+    /// repeat the most expensive allocation of the send, which the share
+    /// extension's 120 MB memory ceiling cannot afford.
+    public func prepareForBackgroundUpload(
+        compressedData: Data,
+        apiClient: any ConvosAPIClientProtocol,
+        filename: String
+    ) async throws -> PreparedBackgroundUpload {
         let attachment = Attachment(
             filename: filename,
             mimeType: "image/jpeg",
@@ -198,6 +252,16 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     private func pendingUploadsDirectory() throws -> URL {
+        // Same shared-container rule as sentPhotosDirectory: the encrypted
+        // upload staging file must stay readable when the process that
+        // created it (share extension) dies before its background upload
+        // task finishes.
+        if let appGroup = Self.sharedContainerAppGroupIdentifier,
+           let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return container
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent("PendingUploads", isDirectory: true)
+        }
         guard let appSupportDir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -218,10 +282,7 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     private func saveToLocalCache(data: Data, filename: String) throws -> URL {
-        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            throw PhotoAttachmentError.compressionFailed
-        }
-        let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
+        let photosDir = try Self.sentPhotosDirectory()
 
         try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
 

@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import ConvosMetrics
@@ -364,12 +365,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             ConversationOnboardingView(
                                 coordinator: onboardingCoordinator,
                                 focusCoordinator: focusCoordinator,
-                                onTapSetupProfile: {
-                                    onboardingCoordinator.didTapProfilePhoto()
-                                    viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-                                },
-                                onUseProfile: viewModel.onUseProfile(_:_:),
-                                onPresentProfileSettings: viewModel.onProfileSettings,
                                 coreActions: viewModel.coreActions
                             )
                             .transition(.blurReplace)

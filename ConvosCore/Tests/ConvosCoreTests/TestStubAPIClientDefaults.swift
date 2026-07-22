@@ -47,18 +47,14 @@ extension ConvosAPIClientProtocol {
         throw SubscriptionClaimError.notFound
     }
 
-    /// Default for the post-`options:` `requestAgentJoin` signature so
+    /// Default for the request-struct `requestAgentJoin` signature so
     /// pre-existing test mocks (which still carry the old
     /// `slug:templateId:forceErrorCode:` shape) don't have to re-stub it
-    /// every time the protocol gains a parameter. Tests that exercise
+    /// every time the request body gains a field. Tests that exercise
     /// `requestAgentJoin` specifically should still override this on
     /// their fixture.
     func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         ConvosAPI.AgentJoinResponse(
@@ -220,11 +216,7 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     /// Declared on the base class (not just the protocol-extension default) so
     /// the direct agent-builder repository's fixtures can `override` it.
     func requestAgentJoin(
-        slug: String?,
-        conversationId: String?,
-        templateId: String?,
-        options: ConvosAPI.AgentJoinOptions?,
-        timezone: String?,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse {
         ConvosAPI.AgentJoinResponse(

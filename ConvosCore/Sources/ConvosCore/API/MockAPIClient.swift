@@ -109,11 +109,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func requestAgentJoin(
-        slug: String? = nil,
-        conversationId: String? = nil,
-        templateId: String? = nil,
-        options: ConvosAPI.AgentJoinOptions? = nil,
-        timezone: String? = nil,
+        _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int? = nil
     ) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true, instanceId: "mock-instance", inboxId: "mock-agent-inbox")

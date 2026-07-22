@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import ConvosMetrics
@@ -73,6 +74,7 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+            Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
