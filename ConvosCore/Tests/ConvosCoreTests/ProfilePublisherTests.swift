@@ -125,6 +125,64 @@ private actor FailingNextReadyPublishStore: ProfilePublishStoreProtocol {
     func deleteAll() async throws { try await inner.deleteAll() }
 }
 
+/// Wraps the in-memory store and parks the first `claimJob` call *after* the
+/// inner claim has committed (pending -> uploading) but before it returns to
+/// the publisher actor - the exact suspension window in which a concurrent
+/// drain's stalled-job reclaim could see the row as stranded. Tests park the
+/// inline claim there, run a full drain, then release the gate.
+private actor GatedClaimPublishStore: ProfilePublishStoreProtocol {
+    private let inner: InMemoryProfilePublishStore
+    private var gateArmed: Bool = true
+    private var gateOpen: Bool = false
+    private(set) var parkedInClaim: Bool = false
+
+    init(wrapping inner: InMemoryProfilePublishStore) {
+        self.inner = inner
+    }
+
+    func openGate() {
+        gateOpen = true
+    }
+
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob? {
+        let claimed = try await inner.claimJob(id: id, updatedAt: updatedAt)
+        if gateArmed {
+            gateArmed = false
+            parkedInClaim = true
+            while !gateOpen {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        return claimed
+    }
+
+    func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
+        try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
+    func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
+    func enqueue(_ job: DBProfilePublishJob) async throws { try await inner.enqueue(job) }
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob {
+        try await inner.enqueueNext(makeJob)
+    }
+    func update(_ job: DBProfilePublishJob) async throws { try await inner.update(job) }
+    func job(id: String) async throws -> DBProfilePublishJob? { try await inner.job(id: id) }
+    func nextReadyJob(now: Date) async throws -> DBProfilePublishJob? { try await inner.nextReadyJob(now: now) }
+    func reclaimStalledJobs(excluding: Set<String>) async throws { try await inner.reclaimStalledJobs(excluding: excluding) }
+    func activeJobs() async throws -> [DBProfilePublishJob] { try await inner.activeJobs() }
+    func jobs(conversationId: String) async throws -> [DBProfilePublishJob] { try await inner.jobs(conversationId: conversationId) }
+    func nextSeq() async throws -> Int64 { try await inner.nextSeq() }
+    func earliestNextAttempt() async throws -> Date? { try await inner.earliestNextAttempt() }
+    func deleteJob(id: String) async throws { try await inner.deleteJob(id: id) }
+    func deleteJobs(conversationId: String) async throws { try await inner.deleteJobs(conversationId: conversationId) }
+    func supersedeOlderThan(conversationId: String, seq: Int64) async throws {
+        try await inner.supersedeOlderThan(conversationId: conversationId, seq: seq)
+    }
+    func deleteAll() async throws { try await inner.deleteAll() }
+}
+
 /// Monotonic clock the tests advance by hand for deterministic backoff retries.
 private final class TestClock: @unchecked Sendable {
     private let lock = NSLock()
@@ -611,6 +669,33 @@ struct ProfilePublisherTests {
         #expect(sends.isEmpty)
         let armed = await sleepCount.value
         #expect(armed == 0, "a failed drain pass must not arm the retry timer")
+    }
+
+    @Test("a drain interleaved inside the inline claim window cannot reclaim and double-process the job")
+    func drainInsideInlineClaimWindowDoesNotDoubleProcess() async throws {
+        let inner = InMemoryProfilePublishStore()
+        let store = GatedClaimPublishStore(wrapping: inner)
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: store, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // Park the inline publish inside claimJob, after the row committed to
+        // `uploading` but before the publisher actor resumed - the window in
+        // which the job id must already be registered as in-flight.
+        let inlinePublish = Task { try await publisher.publishConversation("c1") }
+        try await waitFor { await store.parkedInClaim }
+
+        // A drain running in that window reclaims stalled jobs. It must treat
+        // the parked claim as live (excluded), not stranded - or it would flip
+        // the job back to pending, re-claim it, and send a duplicate.
+        await publisher.drainReadyJobs()
+        await store.openGate()
+        try await inlinePublish.value
+
+        try await waitFor { try await inner.activeJobs().isEmpty }
+        let sends = await session.sends
+        #expect(sends.count == 1)
     }
 
     @Test("a job whose XMTP conversation is gone is dropped, not retried forever")

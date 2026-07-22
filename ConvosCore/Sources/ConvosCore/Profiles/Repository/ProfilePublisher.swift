@@ -123,6 +123,14 @@ actor ProfilePublisher {
             profileUpdatedAt: selfProfile?.updatedAt
         )
         if let session {
+            // Registered before the claim write, not after it returns: a
+            // concurrent drain snapshots this set for its stalled-job reclaim,
+            // and in the suspension window between the claim committing
+            // (pending -> uploading) and this actor resuming, an unregistered
+            // id would look stranded - the reclaim would flip it back to
+            // pending and the drain would process it a second time.
+            inFlightJobIds.insert(job.id)
+            defer { inFlightJobIds.remove(job.id) }
             // A claim failure is logged, not thrown: the job is already
             // durably enqueued, so the background drain retries it, and the
             // pre-send hook must not fail the user's message over a transient
@@ -135,8 +143,6 @@ actor ProfilePublisher {
                 Log.error("ProfilePublisher: failed to claim inline job \(job.id): \(error)")
             }
             if let claimed {
-                inFlightJobIds.insert(claimed.id)
-                defer { inFlightJobIds.remove(claimed.id) }
                 await process(claimed, session: session, selfInboxId: selfInboxId)
             }
         }
