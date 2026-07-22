@@ -142,7 +142,7 @@ Run `./Scripts/get-version.sh` to see the current app version, or check the buil
 
 2. **CI/CD Integration:**
    ```bash
-   # Bitrise builds use environment-specific configurations
+   # CI builds use environment-specific configurations
    xcodebuild -scheme "Convos Dev" -configuration Dev archive
    xcodebuild -scheme "Convos Prod" -configuration Release archive
    ```
