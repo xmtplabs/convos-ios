@@ -11,7 +11,7 @@ import UIKit
 /// never exposed); the rendered tile image rides along only as the share
 /// sheet preview thumbnail, never as a second shared file. Markdown shares
 /// the underlying file, adding the rendered thumbnail image once it resolves.
-struct AttachmentSharePayload {
+public struct AttachmentSharePayload {
     let items: [URL]
     let title: String
     let previewImage: UIImage?
@@ -138,7 +138,7 @@ struct AttachmentSharePayload {
         return result.image
     }
 
-    static func sanitizeFilename(_ raw: String) -> String {
+    public static func sanitizeFilename(_ raw: String) -> String {
         let allowed: CharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
         var output: String = ""
         for scalar in raw.unicodeScalars {
@@ -211,7 +211,7 @@ struct AttachmentSharePayload {
     /// missing or non-html (e.g. `report.txt`); force `html` unless the source
     /// already carries a valid HTML extension, so recipients never get an HTML
     /// payload that opens as plain text.
-    static func htmlShareExtension(for fileURL: URL) -> String {
+    public static func htmlShareExtension(for fileURL: URL) -> String {
         let htmlExtensions: Set<String> = ["html", "htm"]
         let rawExtension: String = fileURL.pathExtension.lowercased()
         return htmlExtensions.contains(rawExtension) ? rawExtension : "html"
