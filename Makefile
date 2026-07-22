@@ -39,7 +39,7 @@ help: ## Print comprehensive help for all commands
 	@echo "   1. Feature branches → dev"
 	@echo "   2. Create release: make release (triggers CI workflow, creates PR)"
 	@echo "   3. Merge the release PR (CI auto-creates tag, GitHub Release, and promotes to main)"
-	@echo "   4. Bitrise builds from main → App Store"
+	@echo "   4. GitHub Actions builds and uploads to TestFlight / App Store"
 
 .PHONY: setup
 setup: ## Setup dependencies and developer environment
@@ -47,7 +47,7 @@ setup: ## Setup dependencies and developer environment
 
 .PHONY: secrets
 secrets: ## Generate Secrets.swift (auto-detects CI environment)
-	@if [ -n "$$CI" ] || [ -n "$$BITRISE_BUILD_NUMBER" ]; then \
+	@if [ -n "$$CI" ]; then \
 		echo "🔧 CI/CD environment detected, generating minimal secrets..."; \
 		./Scripts/generate-secrets-secure.sh; \
 	else \
@@ -84,7 +84,7 @@ status: ## Show project status (version, secrets, git)
 	@echo "📱 Project Status"
 	@echo "=================="
 	@echo "Version: $$(./Scripts/get-version.sh)"
-	@echo "Build Number: Managed by Bitrise (BITRISE_BUILD_NUMBER)"
+	@echo "Build Number: Managed by CI (git commit count)"
 	@echo "Secrets: $$(if [ -f Convos/Config/Secrets.swift ]; then echo "✅ Generated"; else echo "❌ Missing"; fi)"
 	@echo "Git: $$(git rev-parse --abbrev-ref HEAD) ($$(git rev-parse --short HEAD))"
 	@echo "Environment: $$(if [ -f .env ]; then echo "✅ .env exists"; else echo "❌ No .env"; fi)"
@@ -130,7 +130,7 @@ release: ## Trigger the Create Release workflow on GitHub Actions
 	echo "  - Create the git tag"; \
 	echo "  - Generate release notes and create a GitHub Release"; \
 	echo "  - Fast-forward main to dev (production releases only)"; \
-	echo "  - Bitrise builds and deploys to TestFlight"; \
+	echo "  - GitHub Actions builds and deploys to TestFlight"; \
 	echo ""; \
 	read -p "Continue? (y/N): " CONFIRM; \
 	if [[ ! "$$CONFIRM" =~ ^[Yy]$$ ]]; then \
