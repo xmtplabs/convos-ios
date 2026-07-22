@@ -117,6 +117,35 @@ print("🔑 Secrets loaded: \(Secrets.CONVOS_API_BASE_URL.isEmpty ? "No" : "Yes"
 ### Quick Environment Check
 Run `./Scripts/get-version.sh` to see the current app version, or check the build logs for environment information.
 
+## 🚨 Pointing a build at a local backend
+
+Three behaviours here are easy to misread, because each one fails somewhere
+other than the setting that caused it.
+
+**An empty value in `.env` is not an empty value in `Secrets.swift`.** For
+`XMTP_CUSTOM_HOST`, blank means "auto-detect this machine's LAN IP", and the app
+dials any non-empty host it is given — so a blank line silently points XMTP at a
+local node that is probably not running. To genuinely mean "no custom host, use
+the network the config selects", write `USE_CONFIG`. The same applies to
+`CONVOS_API_BASE_URL`, where blank falls back to `http://<LAN-IP>:4000/api`.
+
+**The scheme decides which Firebase app you are.** `Local` builds as
+`org.convos.ios-local`, `Dev` as `org.convos.ios-preview` (see the `.xcconfig`
+files). App Check debug tokens are registered per app, so building a scheme you
+have not used before produces a bundle Firebase does not recognise; the client
+then cannot obtain an App Check token and never issues the auth request at all.
+The symptom is not an auth error — it is silence, with every authenticated call
+401ing and no `/v2/auth/token` reaching the backend.
+
+**A `.env` edit does nothing until you rebuild.** The build phase regenerates
+`Secrets.swift` on every build, so the value the app uses is whatever the last
+build baked in — and the build phase can overwrite what
+`generate-secrets-local.sh` just produced.
+
+When installing to a simulator by hand, `xcrun simctl ... booted` picks an
+arbitrary one if several are running. Target the device by UDID
+(`xcrun simctl list devices booted`) instead.
+
 ## 🚨 Important Notes
 
 - **Secrets are generated from environment variables** → `Secrets.swift` (not tracked in Git)
