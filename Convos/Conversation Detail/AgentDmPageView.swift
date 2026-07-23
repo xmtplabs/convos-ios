@@ -161,7 +161,10 @@ struct AgentDmPageView: View {
                 AgentDmEmptyStateView(agentName: agentName)
             }
         }
-        .background(Color.colorBackgroundRaisedSecondary)
+        // The standard chat canvas: incoming bubbles fill with the raised
+        // color, which disappears against a raised page background (the
+        // Brainstorm page uses raised deliberately for its thought bubbles).
+        .background(Color.colorBackgroundSurfaceless)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             composer
         }
