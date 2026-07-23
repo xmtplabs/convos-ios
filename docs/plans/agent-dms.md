@@ -196,7 +196,7 @@ direct Herald client, which resolves every send against the pinned
 conversation (`herald/client.py` `_messages_url` reads
 `self.conversation_id`). The job records no origin conversation.
 
-Implementation map for the fix (validated against the code, not yet built):
+**Status: implemented and verified on the local stack (2026-07-23)** — a job scheduled from a DM now fires back into that DM. The map below was the design; two build-time findings joined it: the tool executor runs tools off the turn's task, so the origin needs a thread-visible mirror beside the ContextVar (turns are serialized under the agent lock, making a module attribute race-safe), and wrangler dev does not rebuild container images on source changes — local Hermes iteration must rebuild over wrangler's cached tag manually. Jobs freeze their target at creation; pre-fix jobs keep firing into the primary.
 
 - `events.py`: additive `origin_conversation_id: str | None` on
   `InboundMessage`. Do NOT stamp `conversation_id` with the true id —
