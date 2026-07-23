@@ -1,0 +1,95 @@
+# Fast, unsigned compile check for the app target. The package tests
+# (ConvosCore Tests) compile the Swift packages; the signed Firebase build is
+# the only thing that compiles the app itself — and it's slow. This builds the
+# app scheme for the simulator (no signing, no certificates) so app-level
+# compile breakage is caught on every PR in minutes, not only at build time.
+name: App Compile Check
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-compile-check:
+    name: Compile app (simulator, unsigned)
+    runs-on: warp-macos-26-arm64-12x
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show environment
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Cache Swift Package dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ConvosCore/.build
+            ConvosAppData/.build
+            ConvosInvites/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-appcompile-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-appcompile-spm-
+
+      - name: Compile app target
+        id: compile
+        run: |
+          set -o pipefail
+          # Build the app scheme for the simulator with signing disabled: this
+          # compiles the app and its embedded extensions without needing
+          # certificates or provisioning profiles. `-skip*Validation` keeps the
+          # macro/plugin trust prompts from blocking a non-interactive run.
+          xcodebuild build \
+            -project Convos.xcodeproj \
+            -scheme "Convos (Dev)" \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee xcodebuild.log
+
+      - name: Extract compile errors
+        if: always()
+        run: |
+          # Compact, de-duplicated list of the actual compiler errors — the
+          # signal an agent (or a human) iterates on, without the log noise.
+          grep -E ": (error|fatal error):" xcodebuild.log | sort -u > compile-errors.txt || true
+          if [[ -s compile-errors.txt ]]; then
+            {
+              echo "### App compile errors"
+              echo ""
+              echo '```'
+              cat compile-errors.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No compile errors extracted." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload build log and errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-compile-check
+          path: |
+            xcodebuild.log
+            compile-errors.txt
+          retention-days: 7
+          if-no-files-found: ignore
