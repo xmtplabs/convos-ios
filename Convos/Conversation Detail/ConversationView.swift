@@ -792,6 +792,8 @@ extension ConversationView {
         guard !effectiveReadOnly, headerMode == .standard else { return false }
         let conversation = viewModel.conversation
         guard !conversation.isDraft else { return false }
+        // Agent DMs are private 2-member conversations; never offer invites.
+        guard !conversation.isAgentDm else { return false }
         return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
     }
 

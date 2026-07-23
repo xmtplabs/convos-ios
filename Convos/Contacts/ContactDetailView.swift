@@ -340,13 +340,14 @@ struct ContactDetailView: View {
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
-                    // A non-template verified agent (Convos / OAuth-verified)
-                    // doesn't accept 1:1 DMs today, so its Chat CTA stays
-                    // disabled - the agent rows below it remain the way to
-                    // interact. A template-backed agent overrides this: Chat
-                    // spawns a fresh instance into a new conversation (see
-                    // `handleChatWithAgentTemplate`).
-                    canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
+                    // A template-backed agent's Chat spawns a fresh instance
+                    // into a new conversation (see `handleChatWithAgentTemplate`).
+                    // A non-template verified agent gets a private DM with the
+                    // existing instance when the agent-DM prototype is enabled
+                    // (see `handleChatWithAgentDm`); otherwise its Chat CTA
+                    // stays disabled and the agent rows below it remain the
+                    // way to interact.
+                    canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
@@ -362,7 +363,9 @@ struct ContactDetailView: View {
                     agentVerification: contact.agentVerification,
                     agentTemplateConversations: agentTemplateConversations,
                     onSelectConversation: handleSelectAgentTemplateConversation,
-                    onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
+                    onSendMessage: isAgentTemplate
+                        ? handleChatWithAgentTemplate
+                        : (canStartAgentDm ? handleChatWithAgentDm : handleSendMessage),
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -472,6 +475,43 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Actions
+
+    /// Agent-DM prototype gate: a verified, non-template agent viewed from
+    /// inside a shared conversation can be DM'd directly. Non-production
+    /// only while the runtime side of agent DMs is in development.
+    private var canStartAgentDm: Bool {
+        session != nil
+            && isVerifiedAgent
+            && !isAgentTemplate
+            && mode.isScopedToConversation
+            && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    private func handleChatWithAgentDm() {
+        guard let session else { return }
+        Task {
+            do {
+                let conversationId = try await AgentDmFlow.startOrFindDm(
+                    agentInboxId: contact.inboxId,
+                    originConversationId: mode.conversationId,
+                    session: session
+                )
+                await MainActor.run {
+                    presentingNewConvo = NewConversationViewModel(
+                        session: session,
+                        mode: .existingConversation(conversationId: conversationId),
+                        coreActions: coreActions
+                    )
+                }
+            } catch {
+                Log.error("Failed to start agent DM: \(error.localizedDescription)")
+                await MainActor.run {
+                    sendMessageErrorMessage = "We couldn't start a DM with this agent. Please try again."
+                    presentingSendMessageError = true
+                }
+            }
+        }
+    }
 
     private func handleSendMessage() {
         Task {

@@ -12,6 +12,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws
+    func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws
     func promoteToAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
@@ -415,6 +416,37 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     // MARK: - Member Management
+
+    func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let originIdData = originConversationId.flatMap { Self.hexDecoded($0) }
+        try await group.markAsAgentDm(originConversationId: originIdData)
+
+        try await databaseWriter.write { db in
+            try DBConversation
+                .filter(key: conversationId)
+                .updateAll(db, DBConversation.Columns.isAgentDm.set(to: true))
+        }
+    }
+
+    private static func hexDecoded(_ hex: String) -> Data? {
+        guard hex.count.isMultiple(of: 2) else { return nil }
+        var data = Data(capacity: hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
+    }
 
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()

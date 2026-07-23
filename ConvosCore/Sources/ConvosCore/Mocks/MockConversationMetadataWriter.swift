@@ -35,6 +35,9 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
         addedMembers.append((memberIds: memberInboxIds, conversationId: conversationId))
     }
 
+    public func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {
+    }
+
     public func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
         removedMembers.append((memberIds: memberInboxIds, conversationId: conversationId))
     }
