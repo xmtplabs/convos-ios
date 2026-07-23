@@ -22,16 +22,22 @@ final class AgentDmPageModel {
     @ObservationIgnored private var writer: (any OutgoingMessageWriterProtocol)?
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
+    /// The agent as a member of the origin conversation; drives the list
+    /// repository's agent-message styling in the DM.
+    @ObservationIgnored var verifiedAgent: ConversationMember?
+
     init(
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         originConversationId: String,
-        agentInboxId: String
+        agentInboxId: String,
+        verifiedAgent: ConversationMember?
     ) {
         self.session = session
         self.messagingService = messagingService
         self.originConversationId = originConversationId
         self.agentInboxId = agentInboxId
+        self.verifiedAgent = verifiedAgent
         refresh()
     }
 
@@ -81,6 +87,10 @@ final class AgentDmPageModel {
             hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversationId
         )
+        // Mirror the main view model's repo configuration: a DM has one other
+        // member, and the agent member drives agent-message styling.
+        listRepo.currentOtherMemberCount = 1
+        listRepo.verifiedAgent = verifiedAgent
         listRepository = listRepo
         listRepo.messagesListPublisher
             .receive(on: DispatchQueue.main)
@@ -161,7 +171,8 @@ struct AgentDmPageView: View {
                     session: viewModel.session,
                     messagingService: viewModel.messagingService,
                     originConversationId: viewModel.conversation.id,
-                    agentInboxId: agentInboxId
+                    agentInboxId: agentInboxId,
+                    verifiedAgent: agent
                 )
             } else {
                 model?.refresh()
@@ -258,11 +269,17 @@ struct AgentDmPageView: View {
             isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
             hasBottomBar: true,
-            topContentInset: 0.0,
+            topContentInset: Constant.topContentInset,
             scrollToBottomTrigger: { _ in },
             messageInputFocusTrigger: { _ in }
         )
         .ignoresSafeArea()
+    }
+
+    private enum Constant {
+        /// Approximates ConversationView's floating header (status bar plus
+        /// the title capsule) so scrolled content doesn't slide under it.
+        static let topContentInset: CGFloat = 120.0
     }
 }
 
