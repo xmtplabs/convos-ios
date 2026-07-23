@@ -1,6 +1,7 @@
 import Combine
 import ConvosComposer
 import ConvosCore
+import PhotosUI
 import SwiftUI
 
 /// The agent-DM page inside `ConversationPager`: the user's private DM with
@@ -46,18 +47,30 @@ final class AgentDmPageModel {
 
     func send(text: String) async {
         do {
-            if dmConversationId == nil {
-                let conversationId = try await AgentDmFlow.startOrFindDm(
-                    agentInboxId: agentInboxId,
-                    originConversationId: originConversationId,
-                    session: session
-                )
-                bind(to: conversationId)
-            }
+            try await ensureDmExists()
             try await writer?.send(text: text)
         } catch {
             Log.error("Agent DM send failed: \(error.localizedDescription)")
         }
+    }
+
+    func send(image: UIImage) async {
+        do {
+            try await ensureDmExists()
+            try await writer?.send(image: image)
+        } catch {
+            Log.error("Agent DM image send failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func ensureDmExists() async throws {
+        guard dmConversationId == nil else { return }
+        let conversationId = try await AgentDmFlow.startOrFindDm(
+            agentInboxId: agentInboxId,
+            originConversationId: originConversationId,
+            session: session
+        )
+        bind(to: conversationId)
     }
 
     private func bind(to conversationId: String) {
@@ -72,17 +85,31 @@ final class AgentDmPageModel {
         listRepo.messagesListPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] items in
-                self?.items = items
+                self?.items = Self.filteredDmItems(items)
             }
             .store(in: &cancellables)
         listRepo.startObserving()
         if let initial = try? listRepo.fetchInitial() {
-            items = initial
+            items = Self.filteredDmItems(initial)
         }
         writer = messagingService.messageWriter(
             for: conversationId,
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
+    }
+
+    /// The DM page renders chat content only: membership/system rows (the
+    /// agent-joined "Invited by You" cell, invite cards, conversation info)
+    /// belong to standalone conversations, not a page inside the origin.
+    private static func filteredDmItems(_ items: [MessagesListItemType]) -> [MessagesListItemType] {
+        items.filter { item in
+            switch item {
+            case .update, .agentPresentInfo, .conversationInfo, .invite, .agentJoinStatus:
+                return false
+            default:
+                return true
+            }
+        }
     }
 }
 
@@ -98,6 +125,9 @@ struct AgentDmPageView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
     @State private var messageText: String = ""
     @State private var bottomBarHeight: CGFloat = 0.0
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var isCameraPresented: Bool = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -111,9 +141,13 @@ struct AgentDmPageView: View {
         !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var showsEmptyState: Bool {
+        model?.dmConversationId == nil
+    }
+
     var body: some View {
         ZStack {
-            if let model, !model.items.isEmpty {
+            if let model, !showsEmptyState {
                 messagesBody(model: model)
             } else {
                 AgentDmEmptyStateView(agentName: agentName)
@@ -122,6 +156,18 @@ struct AgentDmPageView: View {
         .background(Color.colorBackgroundRaisedSecondary)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             composer
+        }
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotos,
+            maxSelectionCount: 1,
+            matching: .images
+        )
+        .onChange(of: selectedPhotos) { _, newValue in
+            handleSelectedPhotosChanged(to: newValue)
+        }
+        .fullScreenCover(isPresented: $isCameraPresented) {
+            cameraPicker
         }
         .onAppear {
             if model == nil {
@@ -137,6 +183,31 @@ struct AgentDmPageView: View {
         }
     }
 
+    private var cameraPicker: some View {
+        CameraPickerView(
+            onImageCaptured: { image in
+                isCameraPresented = false
+                guard let model else { return }
+                Task { await model.send(image: image) }
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    private func handleSelectedPhotosChanged(to items: [PhotosPickerItem]) {
+        guard let item = items.first else { return }
+        selectedPhotos = []
+        guard let model else { return }
+        Task {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                Log.error("Agent DM photo selection could not be loaded")
+                return
+            }
+            await model.send(image: image)
+        }
+    }
+
     private func handleSendMessage() {
         let text = messageText
         messageText = ""
@@ -145,23 +216,33 @@ struct AgentDmPageView: View {
     }
 
     private var composer: some View {
-        MessagesInputView(
-            displayName: .constant(""),
-            emptyDisplayNamePlaceholder: "",
-            messageText: $messageText,
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: sendButtonEnabled,
-            focusState: $focusState,
-            messagesTextFieldEnabled: true,
-            onSendMessage: handleSendMessage,
-            onClearInvite: {},
-            fileAttachmentPreview: { _ in EmptyView() },
-            agentShareChip: { EmptyView() }
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .clipShape(.rect(cornerRadius: 26.0))
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+        let placeholder: String = "Chat with \(agentName)"
+        return HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+            MessagesMediaButtonsView(
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                isCameraPresented: $isCameraPresented,
+                onVoiceMemoTap: handleVoiceMemoTap,
+                onFilePickerTap: handleFilePickerTap
+            )
+            MessagesInputView(
+                displayName: .constant(""),
+                emptyDisplayNamePlaceholder: "",
+                messagePlaceholder: placeholder,
+                messageText: $messageText,
+                pendingInviteConvoName: .constant(""),
+                pendingInviteImage: .constant(nil),
+                sendButtonEnabled: sendButtonEnabled,
+                focusState: $focusState,
+                messagesTextFieldEnabled: true,
+                onSendMessage: handleSendMessage,
+                onClearInvite: {},
+                fileAttachmentPreview: { _ in EmptyView() },
+                agentShareChip: { EmptyView() }
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .clipShape(.rect(cornerRadius: 26.0))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+        }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -169,6 +250,14 @@ struct AgentDmPageView: View {
         } action: { newHeight in
             bottomBarHeight = newHeight
         }
+    }
+
+    private func handleVoiceMemoTap() {
+        Log.info("Agent DM voice memo not wired yet")
+    }
+
+    private func handleFilePickerTap() {
+        Log.info("Agent DM file picker not wired yet")
     }
 
     private func messagesBody(model: AgentDmPageModel) -> some View {
