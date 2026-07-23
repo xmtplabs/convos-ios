@@ -186,6 +186,41 @@ Inventory of single-conversation state to make per-channel, all in `runtime/herm
 - **Read receipts**: send per conversation, batched within a conversation only (the ticket calls this out; the read-receipt endpoint is conversation-scoped already).
 - **Attestation republish**: the 12h `update_profile` refresh (`runtime.py:362-404`) iterates all active channels instead of only the primary; endpoints are unchanged (group profile publish works in DM groups). Initial DM publish rides the attach (§5.2), same as the primary join.
 - **Prompt updates**: rules written for one thread ("don't send more than two messages in a row unless tagged") become per-channel rules; add channel-behavior guidance (see §5.6 for the confidentiality rules). Response-discipline evals extend across channels (§9).
+
+### 5.4.1 Scheduled/self-initiated sends: findings from the local prototype
+
+Confirmed live: a message scheduled from a DM delivers to the primary
+conversation. Replies are conversation-correct (the DO's outbound box
+override routes them), but cron fires deliver inside the runtime via the
+direct Herald client, which resolves every send against the pinned
+conversation (`herald/client.py` `_messages_url` reads
+`self.conversation_id`). The job records no origin conversation.
+
+Implementation map for the fix (validated against the code, not yet built):
+
+- `events.py`: additive `origin_conversation_id: str | None` on
+  `InboundMessage`. Do NOT stamp `conversation_id` with the true id —
+  `channel.py` keys the Hermes session on `msg.conversation_id`
+  (`session_key=`, ~line 1886), so truthful stamping forks a session per DM,
+  which is exactly the multi-session model D1 rejected.
+- `herald/runtime.py` `_handle_message` (~line 648): populate the new field
+  from the webhook payload's `conversationId` when it differs from the
+  pinned conversation.
+- `channel.py`: capture the current turn's origin; cron job creation stamps
+  it on the job (the `deliver` field is already colon-namespaced —
+  `convos:<conversationId>` is the natural encoding, see
+  `convos_cron/targeting.py`); `dispatch_system_trigger` gains an optional
+  conversation override threaded to the response send.
+- `herald/runtime.py` `send_message` + `herald/client.py`: optional
+  per-call conversation override down to the URL builder.
+- Requires a Hermes container image rebuild; regression risk concentrates in
+  `dispatch_system_trigger` (also used by notify + onboarding) — default
+  every new parameter to current behavior.
+
+Related worker-side leftover: the webhook classifier stamps
+`conversation_id` only on `message` events, so DM typing indicators reach
+the runtime attributed to the primary (cosmetic locally; fix alongside).
+
 - **Renames** (D9): `HERALD_CONVERSATION_ID` → `PRIMARY_CONVERSATION_ID` (env), `herald_conversation_id` → `primary_conversation_id` (DO store), `assistants.conversation_id` → semantic "primary" (D1). Keep read-side aliases for one deploy cycle; the direct-add cross-repo deploy order (worker → backend → apps) is the template.
 
 ### 5.5 Revocation: two independent layers (D6)
