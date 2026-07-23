@@ -155,6 +155,7 @@ struct AgentDmPageView: View {
             conversationImage: $dmVm.conversationImage,
             displayName: $dmVm.myProfileViewModel.editingDisplayName,
             messageText: $dmVm.messageText,
+            messagePlaceholder: "Chat with \(agentName)",
             pendingMediaAttachments: dmVm.pendingMediaAttachments,
             composerLinkPreview: dmVm.pastedLinkPreview,
             pendingInviteConvoName: $dmVm.pendingInviteConvoName,
