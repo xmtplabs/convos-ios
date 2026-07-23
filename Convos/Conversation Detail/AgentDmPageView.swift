@@ -25,10 +25,10 @@ struct AgentDmPageView: View {
     @State private var draftText: String = ""
     @State private var isCreatingDm: Bool = false
     @State private var draftPhotoPickerPresented: Bool = false
-    /// The first message, shown as a pending bubble the instant it is sent so
-    /// the user gets immediate feedback while the DM conversation is created
-    /// (several network round-trips). Cleared once the real transcript binds.
-    @State private var pendingFirstMessage: String?
+    /// A message typed into the draft composer before eager creation finished.
+    /// Handed to the real view model (whose optimistic UI renders it) as soon
+    /// as the DM binds, so nothing waits on the network round-trips.
+    @State private var queuedDraftMessage: String?
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -51,12 +51,17 @@ struct AgentDmPageView: View {
 
     private func bindExistingDm() {
         guard dmViewModel == nil else { return }
-        guard let existing = try? viewModel.session
+        if let existing = try? viewModel.session
             .conversationsRepository(for: [.allowed, .unknown])
-            .findAgentDm(with: agentInboxId) else {
+            .findAgentDm(with: agentInboxId) {
+            dmViewModel = makeDmViewModel(for: existing)
             return
         }
-        dmViewModel = makeDmViewModel(for: existing)
+        // The agent is already in the origin conversation, so the DM should
+        // exist without waiting for a first message: create it eagerly on
+        // appear. By the time the user types, the real view model is bound and
+        // its own optimistic-send UI handles the message.
+        ensureDm(thenSend: nil)
     }
 
     private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
@@ -75,36 +80,13 @@ struct AgentDmPageView: View {
     /// first cell.
     private var emptyStateWithComposer: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
-                    .padding(.top, DesignConstants.Spacing.step16x)
-                if let pendingFirstMessage {
-                    pendingBubble(pendingFirstMessage)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        .padding(.top, DesignConstants.Spacing.step4x)
-                }
-            }
+            AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
+                .padding(.top, DesignConstants.Spacing.step16x)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.colorBackgroundSurfaceless)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             draftComposer
-        }
-    }
-
-    /// A minimal outgoing bubble matching MessageContainer's sent style
-    /// (right-aligned, `colorBubble` fill, inverted text). Dimmed to read as
-    /// "sending" until the DM exists and the real transcript takes over.
-    private func pendingBubble(_ text: String) -> some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 50.0)
-            Text(text)
-                .foregroundColor(.colorTextPrimaryInverted)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, 10.0)
-                .background(Color.colorBubble)
-                .clipShape(RoundedRectangle(cornerRadius: 20.0, style: .continuous))
-                .opacity(0.6)
         }
     }
 
@@ -163,7 +145,24 @@ struct AgentDmPageView: View {
     private func handleDraftSend() {
         let text = draftText
         draftText = ""
-        pendingFirstMessage = text
+        // Eager creation usually has the DM bound by now: send straight through
+        // the real view model's optimistic-send path. Otherwise queue the text
+        // and let the in-flight creation send it the moment it binds.
+        if let dmVm = dmViewModel {
+            dmVm.messageText = text
+            dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+            return
+        }
+        ensureDm(thenSend: text)
+    }
+
+    /// Idempotent, single-in-flight DM creation. Called eagerly on appear
+    /// (`thenSend` nil) and by the draft composer (`thenSend` text) if the user
+    /// sends before creation lands. Binds the real view model and sends any
+    /// queued draft through its optimistic-send UI once the DM exists.
+    private func ensureDm(thenSend text: String?) {
+        if let text { queuedDraftMessage = text }
+        guard !isCreatingDm else { return }
         isCreatingDm = true
         Task {
             defer { isCreatingDm = false }
@@ -177,21 +176,28 @@ struct AgentDmPageView: View {
                     .conversationsRepository(for: [.allowed, .unknown])
                     .findAgentDm(with: agentInboxId), conversation.id == conversationId else {
                     Log.error("Agent DM created but not found for binding")
-                    pendingFirstMessage = nil
-                    draftText = text
+                    restoreQueuedDraft()
                     return
                 }
-                let dmVm = makeDmViewModel(for: conversation)
-                dmVm.messageText = text
-                dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+                let dmVm = dmViewModel ?? makeDmViewModel(for: conversation)
+                if let queued = queuedDraftMessage {
+                    dmVm.messageText = queued
+                    dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+                    queuedDraftMessage = nil
+                }
                 dmViewModel = dmVm
-                pendingFirstMessage = nil
             } catch {
                 Log.error("Failed to start agent DM: \(error.localizedDescription)")
-                pendingFirstMessage = nil
-                draftText = text
+                restoreQueuedDraft()
             }
         }
+    }
+
+    private func restoreQueuedDraft() {
+        if let queued = queuedDraftMessage, draftText.isEmpty {
+            draftText = queued
+        }
+        queuedDraftMessage = nil
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
