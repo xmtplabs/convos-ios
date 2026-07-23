@@ -233,6 +233,37 @@ The ticket's hardest requirement: "when a user is removed from a conversation we
 - **UX comes for free:** the user sees the agent leave the conversation — a comprehensible ending, not a ghost town. An optional farewell message before the leave is a product choice (§10).
 - The revoked DM's *past* content remains in the transcript — same standing as the group history the member saw while present. What's cut off is the live channel. (Called out in §5.6 and for product sign-off.)
 
+### 5.5.1 Revocation: implemented and verified on the local stack (2026-07-23)
+
+Verified end to end with a real second member (convos-cli identity joined the
+primary via its invite slug, opened an agent DM, then was removed):
+
+- **Accept** — Herald observed the CLI-created group; the worker confirmed the
+  peer was a primary member and attached it (registry `active`). Real second
+  member, not synthetic.
+- **Revoke** — `member_removed` for the peer left the DM and flipped its
+  registry row to `revoked`, selectively: co-member DMs stayed `active`.
+- **Enforce (guaranteed layer)** — a message from the revoked peer was still
+  streamed by Herald and reached the worker (the leave was pending), but the
+  DO refused it before enqueue (`isDmDeliverable` → no pending delivery, no
+  reply). This is the cutoff that does not depend on the peer.
+
+Two findings the live test produced, now reflected in the code and doctrine:
+
+1. **Herald `leave` is peer-committed** (reconfirms the S3 finding): the agent
+   stays a DM member until the peer's client commits `requestRemoval`. Enforcement
+   therefore cannot rely on the leave — the DO-side refusal is the guaranteed
+   layer (added after the first implementation shipped only the leave + flip).
+2. **Dev-network membership propagation lags**: a convos-cli self-removal did
+   not reach the agent's Herald stream within minutes, so the organic
+   `group_updated → member_removed` emission was driven with a signed webhook
+   instead. The Herald router transform is a pure function; a unit test should
+   lock it in. Production removals by an admin, and the reconciliation sweep,
+   cover the organic path.
+
+Still open: alarm-driven reconciliation cadence (currently opportunistic), and
+a unit test for the Herald `member_removed` transform.
+
 ### 5.6 Confidentiality stance: shared brain, disclosed (D7 — needs product sign-off)
 
 One transcript means member A can try to extract what member B told the agent privately. Prompt rules cannot make an LLM keep secrets against a motivated extractor — we must not pretend otherwise.
