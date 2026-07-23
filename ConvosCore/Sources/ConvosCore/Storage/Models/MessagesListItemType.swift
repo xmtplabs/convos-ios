@@ -57,7 +57,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentActivating(AgentActivatingCardContent)
     /// The agent-DM disclosure header: always the first cell of an agent-DM
     /// transcript (and its empty state). See docs/plans/agent-dms.md.
-    case agentDmInfo(agentName: String)
+    case agentDmInfo(agentProfile: Profile?, agentName: String)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {

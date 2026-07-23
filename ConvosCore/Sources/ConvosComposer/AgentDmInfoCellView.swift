@@ -5,9 +5,11 @@ import SwiftUI
 /// transcript, doubling as its empty state. Names the space and carries the
 /// shared-memory disclosure (see docs/plans/agent-dms.md).
 public struct AgentDmInfoCellView: View {
+    let agentProfile: Profile?
     let agentName: String
 
-    public init(agentName: String) {
+    public init(agentProfile: Profile?, agentName: String) {
+        self.agentProfile = agentProfile
         self.agentName = agentName
     }
 
@@ -40,14 +42,29 @@ public struct AgentDmInfoCellView: View {
         .padding(.horizontal, DesignConstants.Spacing.step6x)
     }
 
+    @ViewBuilder
     private var avatarCircle: some View {
-        ZStack {
-            Circle()
-                .fill(Color.colorFillTertiary)
-                .frame(width: 56.0, height: 56.0)
-            Text(String(agentName.prefix(1)).uppercased())
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.colorTextSecondary)
+        if let agentProfile {
+            ProfileAvatarView(
+                profile: agentProfile,
+                profileImage: nil,
+                useSystemPlaceholder: false,
+                size: Constant.avatarSize
+            )
+            .frame(width: Constant.avatarSize, height: Constant.avatarSize)
+        } else {
+            ZStack {
+                Circle()
+                    .fill(Color.colorFillTertiary)
+                    .frame(width: Constant.avatarSize, height: Constant.avatarSize)
+                Text(String(agentName.prefix(1)).uppercased())
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+            }
         }
+    }
+
+    private enum Constant {
+        static let avatarSize: CGFloat = 56.0
     }
 }

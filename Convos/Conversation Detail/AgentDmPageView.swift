@@ -71,7 +71,7 @@ struct AgentDmPageView: View {
     /// first cell.
     private var emptyStateWithComposer: some View {
         ScrollView {
-            AgentDmInfoCellView(agentName: agentName)
+            AgentDmInfoCellView(agentProfile: agent?.profile, agentName: agentName)
                 .padding(.top, DesignConstants.Spacing.step16x)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,7 +100,7 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        items.insert(.agentDmInfo(agentName: agentName), at: 0)
+        items.insert(.agentDmInfo(agentProfile: agent?.profile, agentName: agentName), at: 0)
         return items
     }
 
