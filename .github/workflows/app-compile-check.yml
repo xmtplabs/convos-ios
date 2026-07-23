@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   app-compile-check:
-    name: Compile app (simulator, unsigned)
+    name: Compile app (device, unsigned)
     runs-on: warp-macos-26-arm64-12x
     timeout-minutes: 25
 
@@ -50,20 +50,22 @@ jobs:
         id: compile
         run: |
           set -o pipefail
-          # Build the app scheme for the simulator with signing disabled: this
-          # compiles the app and its embedded extensions without needing
-          # certificates or provisioning profiles. `-skip*Validation` keeps the
-          # macro/plugin trust prompts from blocking a non-interactive run.
+          # Build the app scheme for a device (arm64) with signing disabled: this
+          # compiles the app and its embedded extensions without certificates or
+          # profiles. Device, not simulator — a generic iOS Simulator destination
+          # builds arm64+x86_64, but the LibXMTPSwiftFFI xcframework's simulator slice
+          # is arm64-only, and excluding x86_64 left the destination arch unresolved.
+          # `generic/platform=iOS` resolves a single arm64 arch cleanly. `-skip*Validation`
+          # keeps macro/plugin trust prompts from blocking a non-interactive run.
           xcodebuild build \
             -project Convos.xcodeproj \
             -scheme "Convos (Dev)" \
             -configuration Debug \
-            -destination "generic/platform=iOS Simulator" \
+            -destination "generic/platform=iOS" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            EXCLUDED_ARCHS=x86_64 \
             2>&1 | tee xcodebuild.log
 
       - name: Extract compile errors
