@@ -788,14 +788,6 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let conversationEmoji = try? conversation.conversationEmoji
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
 
-        // An agent DM is a 2-member group carrying the marker. Requiring exactly
-        // two members keeps a marker stamped on a larger group (accidental or
-        // malicious) from hiding it, and lets a DM whose agent left (count drops
-        // to 1) fall back out of the hidden set instead of being orphaned.
-        let hasAgentDmMarker = (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
-        let memberCount = (try? await conversation.members.count) ?? 0
-        let isAgentDm = hasAgentDmMarker && memberCount == 2
-
         return ConversationMetadata(
             kind: .group,
             name: try conversation.name(),
@@ -809,7 +801,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             debugInfo: debugInfo,
             isLocked: isLocked,
             hasHadVerifiedAgent: false,
-            isAgentDm: isAgentDm
+            isAgentDm: (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
         )
     }
 
@@ -898,6 +890,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
+
+        // One-way latch: concurrent custom-metadata writers at creation time
+        // (invite tag, emoji) do read-modify-write on the same appData blob
+        // and can briefly rewrite it without the agent-DM marker, so an
+        // extraction reading false must not un-mark a row that was ever
+        // marked locally.
+        if existingConversation?.isAgentDm == true && !conversationToSave.isAgentDm {
+            conversationToSave = conversationToSave.with(isAgentDm: true)
+        }
 
         if dbConversation.inviteTag.isEmpty,
            let existingConversation,

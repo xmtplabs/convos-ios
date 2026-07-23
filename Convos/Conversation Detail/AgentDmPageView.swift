@@ -25,10 +25,6 @@ struct AgentDmPageView: View {
     @State private var draftText: String = ""
     @State private var isCreatingDm: Bool = false
     @State private var draftPhotoPickerPresented: Bool = false
-    /// A message typed into the draft composer before eager creation finished.
-    /// Handed to the real view model (whose optimistic UI renders it) as soon
-    /// as the DM binds, so nothing waits on the network round-trips.
-    @State private var queuedDraftMessage: String?
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -51,17 +47,12 @@ struct AgentDmPageView: View {
 
     private func bindExistingDm() {
         guard dmViewModel == nil else { return }
-        if let existing = try? viewModel.session
+        guard let existing = try? viewModel.session
             .conversationsRepository(for: [.allowed, .unknown])
-            .findAgentDm(with: agentInboxId) {
-            dmViewModel = makeDmViewModel(for: existing)
+            .findAgentDm(with: agentInboxId) else {
             return
         }
-        // The agent is already in the origin conversation, so the DM should
-        // exist without waiting for a first message: create it eagerly on
-        // appear. By the time the user types, the real view model is bound and
-        // its own optimistic-send UI handles the message.
-        ensureDm(thenSend: nil)
+        dmViewModel = makeDmViewModel(for: existing)
     }
 
     private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
@@ -145,24 +136,6 @@ struct AgentDmPageView: View {
     private func handleDraftSend() {
         let text = draftText
         draftText = ""
-        // Eager creation usually has the DM bound by now: send straight through
-        // the real view model's optimistic-send path. Otherwise queue the text
-        // and let the in-flight creation send it the moment it binds.
-        if let dmVm = dmViewModel {
-            dmVm.messageText = text
-            dmVm.onSendMessage(focusCoordinator: focusCoordinator)
-            return
-        }
-        ensureDm(thenSend: text)
-    }
-
-    /// Idempotent, single-in-flight DM creation. Called eagerly on appear
-    /// (`thenSend` nil) and by the draft composer (`thenSend` text) if the user
-    /// sends before creation lands. Binds the real view model and sends any
-    /// queued draft through its optimistic-send UI once the DM exists.
-    private func ensureDm(thenSend text: String?) {
-        if let text { queuedDraftMessage = text }
-        guard !isCreatingDm else { return }
         isCreatingDm = true
         Task {
             defer { isCreatingDm = false }
@@ -176,28 +149,17 @@ struct AgentDmPageView: View {
                     .conversationsRepository(for: [.allowed, .unknown])
                     .findAgentDm(with: agentInboxId), conversation.id == conversationId else {
                     Log.error("Agent DM created but not found for binding")
-                    restoreQueuedDraft()
                     return
                 }
-                let dmVm = dmViewModel ?? makeDmViewModel(for: conversation)
-                if let queued = queuedDraftMessage {
-                    dmVm.messageText = queued
-                    dmVm.onSendMessage(focusCoordinator: focusCoordinator)
-                    queuedDraftMessage = nil
-                }
+                let dmVm = makeDmViewModel(for: conversation)
                 dmViewModel = dmVm
+                dmVm.messageText = text
+                dmVm.onSendMessage(focusCoordinator: focusCoordinator)
             } catch {
                 Log.error("Failed to start agent DM: \(error.localizedDescription)")
-                restoreQueuedDraft()
+                await MainActor.run { draftText = text }
             }
         }
-    }
-
-    private func restoreQueuedDraft() {
-        if let queued = queuedDraftMessage, draftText.isEmpty {
-            draftText = queued
-        }
-        queuedDraftMessage = nil
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
