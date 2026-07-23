@@ -55,6 +55,22 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the prototype smiley-only home screen (see
+    /// `SmileyPrototypeHomeView`), which replaces the entire tab shell with a
+    /// single giant smiley button that builds and joins a smiley-only agent.
+    /// Toggle from App Settings -> Debug. Hard-locked off in production so the
+    /// prototype surface can never replace the real home screen for end users.
+    var isSmileyPrototypeEnabled: Bool {
+        get {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.smileyPrototypeEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            UserDefaults.standard.set(newValue, forKey: Constant.smileyPrototypeEnabledKey)
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -96,5 +112,6 @@ final class FeatureFlags {
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
+        static let smileyPrototypeEnabledKey: String = "featureFlags.smileyPrototypeEnabled"
     }
 }

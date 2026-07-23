@@ -269,20 +269,31 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        bodyCore
-            .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
-            .environment(promptHints)
-            .task {
-                await promptHints.loadOnLaunch()
+        Group {
+            if FeatureFlags.shared.isSmileyPrototypeEnabled {
+                // Prototype: replace the entire tab shell with the
+                // smiley-only home screen. See `SmileyPrototypeHomeView`.
+                SmileyPrototypeHomeView(
+                    session: conversationsViewModel.session,
+                    coreActions: coreActions
+                )
+            } else {
+                bodyCore
+                    .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
+                    .environment(promptHints)
+                    .task {
+                        await promptHints.loadOnLaunch()
+                    }
+                    .onAppear {
+                        ensureNavigators()
+                        tabRootNavState.markScreenAppeared()
+                        navStateForTab(activeTab).markScreenAppeared()
+                        conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
+                        conversationsViewModel.isChatsTabActive = activeTab == .chats
+                    }
+                    .modifier(metricsObserversModifier)
             }
-            .onAppear {
-                ensureNavigators()
-                tabRootNavState.markScreenAppeared()
-                navStateForTab(activeTab).markScreenAppeared()
-                conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
-                conversationsViewModel.isChatsTabActive = activeTab == .chats
-            }
-            .modifier(metricsObserversModifier)
+        }
     }
 
     @ViewBuilder
