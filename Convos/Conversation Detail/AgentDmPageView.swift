@@ -85,12 +85,19 @@ struct AgentDmPageView: View {
     /// origin-conversation concepts; the DM leads with the disclosure cell
     /// instead (see docs/plans/agent-dms.md).
     private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
-        var items = dmVm.messagesWithThinkingIndicators.filter { item in
+        var items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
             switch item {
             case .invite, .update, .agentPresentInfo, .conversationInfo, .agentJoinStatus:
-                return false
+                return nil
+            case .messages(var group):
+                // The processor pins the agent contact card to the agent's
+                // first group (synthesizing an empty one when needed) — an
+                // origin-conversation affordance the info cell replaces here.
+                group.agentContactCard = nil
+                guard !group.messages.isEmpty else { return nil }
+                return .messages(group)
             default:
-                return true
+                return item
             }
         }
         items.insert(.agentDmInfo(agentName: agentName), at: 0)
@@ -249,7 +256,9 @@ struct AgentDmPageView: View {
             profileSheetForMember: { _ in AnyView(EmptyView()) },
             memberContactOverride: contactOverride(for: dmVm),
             isAgentJoinPending: false,
-            headerMode: .hidden,
+            // .suppressed is the one mode that hides every leading affordance
+            // (.hidden still renders the "Invite members" pill).
+            headerMode: .suppressed,
             onVoiceMemoTap: { dmVm.onVoiceMemoTapped() },
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
