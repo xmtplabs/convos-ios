@@ -57,6 +57,10 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// -- until a verified agent actually joins. See
     /// `isPendingAgentBuilderDraft`.
     public let wasCreatedFromAgentBuilder: Bool
+    /// True when this conversation carries the agent-DM custom-metadata
+    /// marker: a private 2-member conversation with an agent. Drives DM
+    /// presentation and hides group affordances (add member, invite QR).
+    public var isAgentDm: Bool = false
 }
 
 public extension Conversation {
@@ -122,7 +126,8 @@ public extension Conversation {
             isLocked: isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -164,7 +169,8 @@ public extension Conversation {
             isLocked: isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
+            isAgentDm: isAgentDm
         )
     }
 

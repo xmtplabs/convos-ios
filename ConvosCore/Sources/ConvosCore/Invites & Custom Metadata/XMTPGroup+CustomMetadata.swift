@@ -83,6 +83,30 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Whether this conversation carries the agent-DM marker. The agent's
+    /// identity comes from the membership itself (member kind plus
+    /// attestation), not from the marker; callers gating UI should also
+    /// require exactly 2 members with an agent as the other member.
+    public var isAgentDm: Bool {
+        get throws {
+            try currentCustomMetadata.hasAgentDm
+        }
+    }
+
+    /// Stamps this conversation as a private DM with an agent. Called once by
+    /// the device that creates the DM conversation, before adding the agent.
+    public func markAsAgentDm(originConversationId: Data? = nil) async throws {
+        try await atomicUpdateMetadata(operation: "markAsAgentDm") { metadata in
+            var info = AgentDmInfo()
+            if let originConversationId {
+                info.originConversationID = originConversationId
+            }
+            metadata.agentDm = info
+        } verify: { metadata in
+            metadata.hasAgentDm
+        }
+    }
+
     // MARK: - Connections (per-sender-profile)
 
     /// Returns the JSON grants payload stored on a specific sender's profile.

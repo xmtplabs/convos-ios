@@ -774,6 +774,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
+        let isAgentDm: Bool
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -798,7 +799,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            isAgentDm: (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
         )
     }
 
@@ -841,7 +843,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
+            isAgentDm: metadata.isAgentDm
         )
     }
 

@@ -22,6 +22,15 @@ message ConversationCustomMetadata {
     // Field 7 was a short-lived group-level connectionsJson blob; connections
     // now live on each sender's ConversationProfile.connections (field 5).
     reserved 7;
+    optional AgentDmInfo agentDm = 8;  // Present when this conversation is a DM with an agent
+}
+
+// AgentDmInfo marks a 2-member conversation as a private DM with an agent.
+// The agent's identity comes from the membership itself (member_kind plus
+// attestation), not from this marker; clients only honor the marker when the
+// conversation has exactly 2 members and the other member is an agent.
+message AgentDmInfo {
+    optional bytes originConversationId = 1;  // The primary group this DM was started from
 }
 
 // EncryptedImageRef stores encrypted image metadata

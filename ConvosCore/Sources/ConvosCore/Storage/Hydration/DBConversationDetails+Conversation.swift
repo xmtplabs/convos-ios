@@ -83,7 +83,8 @@ extension DBConversationDetails {
             isLocked: conversation.isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
+            isAgentDm: conversation.isAgentDm
         )
     }
 

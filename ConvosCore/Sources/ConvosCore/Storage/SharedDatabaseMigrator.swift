@@ -1008,6 +1008,12 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createAgentTemplateContactTable") { db in
             try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
         }
+
+        migrator.registerMigration("addConversationIsAgentDm") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isAgentDm", .boolean).notNull().defaults(to: false)
+            }
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
