@@ -1,0 +1,4 @@
+prototypeId: "home-screen-shows-only-a-large-smiley-face-tapping-it-joins-a-co"
+side: "app"
+requestedLifetime: "2026-07-30T05:16:53.621Z"
+whatToTest: "Home screen shows only a large smiley face; tapping it joins a conversation with an agent that responds only with smiley face emojis"
