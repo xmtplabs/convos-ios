@@ -6,10 +6,16 @@ import SwiftUI
 /// shared-memory disclosure (see docs/plans/agent-dms.md).
 public struct AgentDmInfoCellView: View {
     let agentProfile: Profile?
+    let agentVerification: AgentVerification
     let agentName: String
 
-    public init(agentProfile: Profile?, agentName: String) {
+    public init(
+        agentProfile: Profile?,
+        agentVerification: AgentVerification,
+        agentName: String
+    ) {
         self.agentProfile = agentProfile
+        self.agentVerification = agentVerification
         self.agentName = agentName
     }
 
@@ -49,6 +55,7 @@ public struct AgentDmInfoCellView: View {
                 profile: agentProfile,
                 profileImage: nil,
                 useSystemPlaceholder: false,
+                agentVerification: agentVerification,
                 size: Constant.avatarSize
             )
             .frame(width: Constant.avatarSize, height: Constant.avatarSize)

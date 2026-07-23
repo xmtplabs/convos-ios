@@ -175,8 +175,12 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case let .agentDmInfo(agentProfile, agentName):
-                    AgentDmInfoCellView(agentProfile: agentProfile, agentName: agentName)
+                case let .agentDmInfo(agentProfile, agentVerification, agentName):
+                    AgentDmInfoCellView(
+                        agentProfile: agentProfile,
+                        agentVerification: agentVerification,
+                        agentName: agentName
+                    )
 
                 case .typingIndicator:
                     EmptyView()
