@@ -363,9 +363,9 @@ struct ContactDetailView: View {
                     agentVerification: contact.agentVerification,
                     agentTemplateConversations: agentTemplateConversations,
                     onSelectConversation: handleSelectAgentTemplateConversation,
-                    onSendMessage: isAgentTemplate
-                        ? handleChatWithAgentTemplate
-                        : (canStartAgentDm ? handleChatWithAgentDm : handleSendMessage),
+                    onSendMessage: canStartAgentDm
+                        ? handleChatWithAgentDm
+                        : (isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage),
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -482,7 +482,6 @@ struct ContactDetailView: View {
     private var canStartAgentDm: Bool {
         session != nil
             && isVerifiedAgent
-            && !isAgentTemplate
             && mode.isScopedToConversation
             && !ConfigManager.shared.currentEnvironment.isProduction
     }
