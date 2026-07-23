@@ -80,6 +80,17 @@ public final class AgentFilesLinksRepository: Sendable {
             .eraseToAnyPublisher()
     }
 
+    /// Returns the newest living canvas from a files observation.
+    ///
+    /// Files normally arrive newest first and are already deduplicated by
+    /// canonical filename. Comparing dates here keeps the selection correct
+    /// for callers that provide an independently assembled collection.
+    public static func canvasFile(in files: [AgentFile]) -> AgentFile? {
+        files
+            .filter { QuietArtifactUpdate.canonicalFilename($0.filename) == "canvas.html" }
+            .max { $0.date < $1.date }
+    }
+
     /// Agent-sent files for a conversation.
     ///
     /// The sender check reads `profile`, the unified per-inbox table, because

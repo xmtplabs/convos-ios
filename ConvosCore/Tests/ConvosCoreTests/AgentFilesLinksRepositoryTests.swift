@@ -20,7 +20,10 @@ struct AgentFilesLinksRepositoryTests {
     nonisolated private static func seedAgentAttachment(
         db: Database,
         verifiedKindOnUnifiedProfile: DBMemberKind?,
-        kindOnLegacyMemberProfile: DBMemberKind?
+        kindOnLegacyMemberProfile: DBMemberKind?,
+        messageId: String = "msg-1",
+        filename: String = "notes.html",
+        date: Date = Date(timeIntervalSince1970: 0)
     ) throws {
         try DBMember(inboxId: Self.agentInboxId).save(db, onConflict: .ignore)
         try DBMember(inboxId: "creator").save(db, onConflict: .ignore)
@@ -68,12 +71,12 @@ struct AgentFilesLinksRepositoryTests {
             .save(db)
         }
         try DBMessage(
-            id: "msg-1",
-            clientMessageId: "msg-1",
+            id: messageId,
+            clientMessageId: messageId,
             conversationId: Self.conversationId,
             senderId: Self.agentInboxId,
-            dateNs: 1,
-            date: Date(timeIntervalSince1970: 0),
+            dateNs: Int64(date.timeIntervalSince1970 * 1_000_000_000),
+            date: date,
             sortId: nil,
             status: .published,
             messageType: .original,
@@ -85,7 +88,7 @@ struct AgentFilesLinksRepositoryTests {
             sourceMessageId: nil,
             // A row with no attachment key is dropped before the sender
             // check is reached, which would make this test pass for the wrong reason.
-            attachmentUrls: ["notes.html"],
+            attachmentUrls: ["file:///tmp/\(messageId)_\(filename)"],
             update: nil
         ).insert(db)
     }
@@ -145,6 +148,63 @@ struct AgentFilesLinksRepositoryTests {
             )
         }
         #expect(await files(fixtures).isEmpty)
+    }
+
+    @Test("the canvas is selected by canonical filename")
+    func canvasSelectedByCanonicalFilename() async throws {
+        let fixtures = try await makeTestFixtures()
+        try await fixtures.dbWriter.write { db in
+            try Self.seedAgentAttachment(
+                db: db,
+                verifiedKindOnUnifiedProfile: .verifiedConvos,
+                kindOnLegacyMemberProfile: .agent,
+                filename: "canvas~quiet.html"
+            )
+        }
+
+        let canvas = AgentFilesLinksRepository.canvasFile(in: await files(fixtures))
+        #expect(canvas?.id == "msg-1")
+        #expect(canvas?.displayName == "canvas.html")
+    }
+
+    @Test("the newest canvas update wins")
+    func newestCanvasWins() async throws {
+        let fixtures = try await makeTestFixtures()
+        try await fixtures.dbWriter.write { db in
+            try Self.seedAgentAttachment(
+                db: db,
+                verifiedKindOnUnifiedProfile: .verifiedConvos,
+                kindOnLegacyMemberProfile: .agent,
+                messageId: "canvas-old",
+                filename: "canvas.html",
+                date: Date(timeIntervalSince1970: 1)
+            )
+            try Self.seedAgentAttachment(
+                db: db,
+                verifiedKindOnUnifiedProfile: .verifiedConvos,
+                kindOnLegacyMemberProfile: .agent,
+                messageId: "canvas-new",
+                filename: "canvas~quiet.html",
+                date: Date(timeIntervalSince1970: 2)
+            )
+        }
+
+        let canvas = AgentFilesLinksRepository.canvasFile(in: await files(fixtures))
+        #expect(canvas?.id == "canvas-new")
+    }
+
+    @Test("canvas selection is nil when the conversation has no canvas")
+    func canvasAbsent() async throws {
+        let fixtures = try await makeTestFixtures()
+        try await fixtures.dbWriter.write { db in
+            try Self.seedAgentAttachment(
+                db: db,
+                verifiedKindOnUnifiedProfile: .verifiedConvos,
+                kindOnLegacyMemberProfile: .agent
+            )
+        }
+
+        #expect(AgentFilesLinksRepository.canvasFile(in: await files(fixtures)) == nil)
     }
 
     // MARK: - Test Helpers
