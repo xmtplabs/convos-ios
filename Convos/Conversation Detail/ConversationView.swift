@@ -432,16 +432,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     @ViewBuilder
-    // Only the agent that actually has a pager page can be navigated to via the
-    // segment. Any other agent (a second agent in the group) has no page, so
-    // pass nil and let the contact card fall back to its direct-create path
-    // rather than navigating to a page that isn't in the pager (a silent no-op).
+    // Every verified agent in the group has its own DM pager page, so the
+    // contact card navigates to that agent's segment. A member with no page
+    // (not a verified agent) passes nil and falls back to direct-create.
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
         MemberContactDetailSheetContent(
             viewModel: viewModel,
             member: member,
             profileSettingsViewModel: profileSettingsViewModel,
-            onStartAgentDm: member.profile.inboxId == agentDmPageInboxId ? { agentInboxId in
+            onStartAgentDm: agentDmPageInboxIds.contains(member.profile.inboxId) ? { agentInboxId in
                 viewModel.presentingProfileForMember = nil
                 withAnimation(.easeInOut(duration: 0.25)) {
                     pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
@@ -531,22 +530,25 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
-    /// The inbox of the conversation's DM-able agent, when the agent-DM
-    /// prototype should offer a DM page: verified agent member, not already
+    /// Inboxes of the conversation's DM-able agents, one per verified agent
+    /// member, when the agent-DM prototype should offer DM pages: not already
     /// inside a DM, non-production only (matches ContactDetailView's gate).
-    private var agentDmPageInboxId: String? {
+    /// Sorted so the pages keep a stable order across member-list reloads.
+    private var agentDmPageInboxIds: [String] {
         guard !ConfigManager.shared.currentEnvironment.isProduction,
-              !viewModel.conversation.isAgentDm,
-              let agent = viewModel.conversation.members.first(where: { $0.isVerifiedAgent }) else {
-            return nil
+              !viewModel.conversation.isAgentDm else {
+            return []
         }
-        return agent.profile.inboxId
+        return viewModel.conversation.members
+            .filter { $0.isVerifiedAgent }
+            .map { $0.profile.inboxId }
+            .sorted()
     }
 
     private var pagerPages: [ConversationPagerPage] {
         var pages: [ConversationPagerPage] = [.messages]
-        if let agentDmPageInboxId {
-            pages.append(.agentDm(agentInboxId: agentDmPageInboxId))
+        for agentInboxId in agentDmPageInboxIds {
+            pages.append(.agentDm(agentInboxId: agentInboxId))
         }
         pages.append(.things)
         return pages
