@@ -18,7 +18,7 @@ struct AbilitiesListView: View {
             .searchable(text: $viewModel.searchText, prompt: "Search abilities")
             .overlay { listOverlay }
             .task { await viewModel.refresh() }
-            .sheet(item: $viewModel.pendingAuthorization) { context in
+            .sheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
                 authorizationSheet(context)
             }
     }
@@ -263,6 +263,13 @@ struct AbilitiesListView: View {
             onAuthorize: { viewModel.completeAuthorization(context) },
             onCancel: { viewModel.cancelAuthorization() }
         )
+    }
+
+    /// Fires for every dismissal of the authorization sheet -- Cancel tap,
+    /// swipe-down, or programmatic -- so all paths share one cancel
+    /// lifecycle in the view model.
+    private func handleAuthorizationDismissed() {
+        viewModel.handleAuthorizationDismissed()
     }
 }
 

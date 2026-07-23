@@ -65,8 +65,8 @@ struct ConversationAbilitiesSection: View {
     }
 
     /// An opt-in whose entitlement is no longer active: no usable toggle,
-    /// a status badge, and the whole row deep-links to the abilities list
-    /// to reconnect.
+    /// a badge, and the whole row deep-links to the abilities list to
+    /// reconnect.
     private func needsAttentionRow(
         _ row: ConversationAbilitiesViewModel.Row,
         status: AbilitiesAPI.EntitlementStatus?
@@ -74,10 +74,23 @@ struct ConversationAbilitiesSection: View {
         let reconnectAction = { viewModel.needsEntitlementAbility = row.ability }
         return Button(action: reconnectAction) {
             featureRow(row) {
-                AbilityStatusBadge(status: status ?? .revoked)
+                attentionBadge(status: status)
             }
         }
         .buttonStyle(.plain)
+    }
+
+    /// A server-owned status renders its badge; an opt-in with no
+    /// entitlement at all (authoritative null) gets a neutral "Not
+    /// connected" badge -- the server never said "revoked", so the UI
+    /// must not either.
+    @ViewBuilder
+    private func attentionBadge(status: AbilitiesAPI.EntitlementStatus?) -> some View {
+        if let status {
+            AbilityStatusBadge(status: status)
+        } else {
+            AbilityNeutralBadge(label: "Not connected")
+        }
     }
 
     private func featureRow(
@@ -120,7 +133,8 @@ struct ConversationAbilitiesSection: View {
         case .expired: "Expired, tap to reconnect"
         case .needsReauth: "Needs reauthorization, tap to fix"
         case .pendingAuth: "Authorization pending, tap to finish"
-        case .revoked, .none: "Disconnected, tap to reconnect"
+        case .revoked: "Disconnected, tap to reconnect"
+        case .none: "Not connected, tap to reconnect"
         case .active: ""
         }
     }

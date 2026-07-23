@@ -22,6 +22,10 @@ final class AbilitiesListViewModel {
     /// Non-nil presents the authorization sheet for a pending entitlement.
     var pendingAuthorization: AbilityAuthorizationContext?
 
+    /// Set when the sheet's approve action takes over the lifecycle, so
+    /// the dismissal callback does not also run the cancel path.
+    private var isCompletingAuthorization: Bool = false
+
     private let service: any AbilitiesServiceProtocol
 
     init(service: any AbilitiesServiceProtocol) {
@@ -107,6 +111,7 @@ final class AbilitiesListViewModel {
     /// The authorization step succeeded (in Track A, the stub sheet's
     /// approve; later, the OAuth callback): verify and activate.
     func completeAuthorization(_ context: AbilityAuthorizationContext) {
+        isCompletingAuthorization = true
         pendingAuthorization = nil
         busyAbilityIds.insert(context.ability.id)
         Task {
@@ -120,11 +125,24 @@ final class AbilitiesListViewModel {
         }
     }
 
-    /// The user backed out of authorization. The entitlement stays
-    /// `pendingAuth`; its row offers Continue (re-runs `connect`, begin is
-    /// idempotent) and Disconnect (revokes the pending entitlement).
+    /// The Cancel button: dismisses the sheet. The actual cancel
+    /// lifecycle runs in `handleAuthorizationDismissed`, the single funnel
+    /// every dismissal path (button, swipe-down, programmatic) goes
+    /// through.
     func cancelAuthorization() {
         pendingAuthorization = nil
+    }
+
+    /// Runs on every dismissal of the authorization sheet. Unless
+    /// approval already took over, the entitlement stays `pendingAuth`
+    /// server-side, so refresh: the row then offers Continue (re-runs
+    /// `connect`, begin is idempotent) and Disconnect (revokes the pending
+    /// entitlement) instead of a stale Connect.
+    func handleAuthorizationDismissed() {
+        guard !isCompletingAuthorization else {
+            isCompletingAuthorization = false
+            return
+        }
         Task {
             await refresh()
         }

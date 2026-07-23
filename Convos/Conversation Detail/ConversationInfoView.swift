@@ -72,9 +72,18 @@ struct FeatureRowItem<AccessoryView: View>: View {
 }
 
 struct ConversationInfoView: View {
+    /// Which agent-access section this view renders, latched once per view
+    /// lifetime from the Abilities V2 flag so a flag flip while the view
+    /// survives cannot switch rendering mid-flight.
+    private enum AgentAccessMode {
+        case abilitiesV2
+        case connectionsV1
+    }
+
     @Bindable var viewModel: ConversationViewModel
     let focusCoordinator: FocusCoordinator
 
+    @State private var agentAccessMode: AgentAccessMode?
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
     @State private var abilitiesViewModel: ConversationAbilitiesViewModel?
 
@@ -498,31 +507,50 @@ struct ConversationInfoView: View {
         }
     }
 
-    /// The per-conversation agent access rows: the V2 abilities section
-    /// behind the Abilities V2 flag, the V1 connections section otherwise.
-    /// The matching view model is prepared in `prepareAgentAccessViewModels`.
+    /// The per-conversation agent access rows: the V2 abilities section or
+    /// the V1 connections section, chosen by the mode latched in
+    /// `prepareAgentAccessViewModels` -- never by which optional view model
+    /// happens to exist.
     @ViewBuilder
     private var agentAccessSection: some View {
         if viewModel.conversation.hasAgent {
-            if let abilitiesViewModel {
-                ConversationAbilitiesSection(viewModel: abilitiesViewModel)
-            } else if let connectionsViewModel {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            switch agentAccessMode {
+            case .abilitiesV2:
+                if let abilitiesViewModel {
+                    ConversationAbilitiesSection(viewModel: abilitiesViewModel)
+                }
+            case .connectionsV1:
+                if let connectionsViewModel {
+                    ConversationConnectionsSection(viewModel: connectionsViewModel)
+                }
+            case nil:
+                EmptyView()
             }
         }
     }
 
-    /// Branches on the current flag value and clears the opposite mode's
-    /// view model, so a flag flip while this view identity survives can
-    /// never leave both models alive with the stale one rendering.
+    /// Latches the agent access mode from the Abilities V2 flag on first
+    /// run and creates that mode's view model. Rendering always follows
+    /// the latched mode, so a flag flip while this view identity survives
+    /// changes nothing until the next presentation.
     private func prepareAgentAccessViewModels() {
         guard viewModel.conversation.hasAgent else { return }
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
+        let mode: AgentAccessMode
+        if let agentAccessMode {
+            mode = agentAccessMode
+        } else if FeatureFlags.shared.isAbilitiesV2Enabled {
+            mode = .abilitiesV2
+        } else {
+            mode = .connectionsV1
+        }
+        agentAccessMode = mode
+        switch mode {
+        case .abilitiesV2:
             connectionsViewModel = nil
             if abilitiesViewModel == nil {
                 abilitiesViewModel = makeConversationAbilitiesViewModel()
             }
-        } else {
+        case .connectionsV1:
             abilitiesViewModel = nil
             if connectionsViewModel == nil {
                 connectionsViewModel = viewModel.makeConversationConnectionsViewModel()

@@ -68,14 +68,14 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         try await simulateLatency()
         if servesEntitlementsUnavailable {
             let stripped: [AbilitiesAPI.Ability] = abilities.map { $0.withEntitlementState(.unknown) }
-            let response = AbilitiesAPI.CatalogResponse(
+            let response = try AbilitiesAPI.CatalogResponse(
                 catalogVersion: Constant.catalogVersion,
                 entitlementsUnavailable: true,
                 abilities: stripped
             )
             return AbilitiesCatalog.resolving(response: response, lastKnown: lastKnownCatalog)
         }
-        let response = AbilitiesAPI.CatalogResponse(catalogVersion: Constant.catalogVersion, abilities: abilities)
+        let response = try AbilitiesAPI.CatalogResponse(catalogVersion: Constant.catalogVersion, abilities: abilities)
         let catalog = AbilitiesCatalog.resolving(response: response, lastKnown: lastKnownCatalog)
         lastKnownCatalog = catalog
         return catalog
@@ -89,11 +89,11 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         }
         switch abilities[index].auth.type {
         case .none:
-            let entitlement = AbilitiesAPI.Entitlement(status: .active, expiresAt: nil, extensionCount: extensionCount(for: abilityId))
+            let entitlement = try AbilitiesAPI.Entitlement(status: .active, expiresAt: nil, extensionCount: extensionCount(for: abilityId))
             setEntitlementState(.entitled(entitlement), at: index)
             return AbilityEntitlementInitiation(status: .active)
         case .oauth:
-            let entitlement = AbilitiesAPI.Entitlement(status: .pendingAuth, expiresAt: nil, extensionCount: extensionCount(for: abilityId))
+            let entitlement = try AbilitiesAPI.Entitlement(status: .pendingAuth, expiresAt: nil, extensionCount: extensionCount(for: abilityId))
             setEntitlementState(.entitled(entitlement), at: index)
             return AbilityEntitlementInitiation(status: .pendingAuth, redirectUrl: "https://mock.convos.org/oauth/\(abilityId)")
         }
@@ -105,7 +105,7 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         guard let index = abilities.firstIndex(where: { $0.id == abilityId }) else {
             throw AbilitiesServiceError.unknownAbility(abilityId: abilityId)
         }
-        let entitlement = AbilitiesAPI.Entitlement(
+        let entitlement = try AbilitiesAPI.Entitlement(
             status: .active,
             expiresAt: Date().addingTimeInterval(Constant.mockCredentialLifetime),
             extensionCount: extensionCount(for: abilityId)
@@ -146,7 +146,7 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         rows.removeAll { $0.key == key }
         rows.append(ConversationAbility(abilityId: abilityId, agentInboxId: agentInboxId, bundleIds: bundleIds))
         extensionsByConversation[conversationId] = rows
-        refreshExtensionCount(for: abilityId, at: index)
+        try refreshExtensionCount(for: abilityId, at: index)
     }
 
     public func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {
@@ -157,7 +157,7 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         rows.removeAll { $0.key == key }
         extensionsByConversation[conversationId] = rows
         if let index = abilities.firstIndex(where: { $0.id == abilityId }) {
-            refreshExtensionCount(for: abilityId, at: index)
+            try refreshExtensionCount(for: abilityId, at: index)
         }
     }
 
@@ -186,9 +186,9 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
             .count
     }
 
-    private func refreshExtensionCount(for abilityId: String, at index: Int) {
+    private func refreshExtensionCount(for abilityId: String, at index: Int) throws {
         guard let current = abilities[index].entitlement else { return }
-        let entitlement = AbilitiesAPI.Entitlement(
+        let entitlement = try AbilitiesAPI.Entitlement(
             status: current.status,
             expiresAt: current.expiresAt,
             extensionCount: extensionCount(for: abilityId)
@@ -200,9 +200,21 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
 
     /// The six launch abilities, with the standard scenario's entitlement
     /// states baked in: Google Calendar active, Spotify expired, Gmail
-    /// pending auth, the rest catalog-only.
+    /// pending auth, the rest catalog-only. Non-throwing for previews: the
+    /// fixture is known-valid, and a wire-validation failure here is a
+    /// programmer error surfaced by the fixture tests, not a recoverable
+    /// condition.
     public static func standardCatalog() -> [AbilitiesAPI.Ability] {
-        [
+        do {
+            return try makeStandardCatalog()
+        } catch {
+            Log.error("Invalid mock abilities fixture: \(error)")
+            return []
+        }
+    }
+
+    private static func makeStandardCatalog() throws -> [AbilitiesAPI.Ability] {
+        return try [
             AbilitiesAPI.Ability(
                 id: "googlecalendar",
                 version: 2,

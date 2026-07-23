@@ -20,6 +20,9 @@ struct AbilityAuthorizationSheet: View {
         }
         .padding(.vertical, DesignConstants.Spacing.step6x)
         .presentationDetents([.medium])
+        // Swipe-down stays allowed: the presenting sheet's onDismiss
+        // routes it through the same cancel lifecycle as the Cancel
+        // button (`AbilitiesListViewModel.handleAuthorizationDismissed`).
         .interactiveDismissDisabled(false)
     }
 

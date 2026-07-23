@@ -72,11 +72,12 @@ struct AbilitiesCatalogContractTests {
 
     private func makeAbility(
         id: String = "spotify",
+        version: Int = 1,
         entitlementState: AbilitiesAPI.EntitlementState = .notEntitled
-    ) -> AbilitiesAPI.Ability {
-        AbilitiesAPI.Ability(
+    ) throws -> AbilitiesAPI.Ability {
+        try AbilitiesAPI.Ability(
             id: id,
-            version: 1,
+            version: version,
             displayName: AbilitiesAPI.LocalizedText(en: "Spotify"),
             subtitle: AbilitiesAPI.LocalizedText(en: "Control playback"),
             auth: AbilitiesAPI.AbilityAuth(type: .oauth),
@@ -199,6 +200,44 @@ struct AbilitiesCatalogContractTests {
         }
     }
 
+    @Test("Explicit entitlementsUnavailable null is rejected, never read as absent")
+    func rejectsExplicitNullFlag() throws {
+        let json = """
+        {
+          "catalogVersion": 1,
+          "entitlementsUnavailable": null,
+          "abilities": []
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(json)
+        }
+    }
+
+    @Test("Icon with an invalid URL string is rejected")
+    func rejectsInvalidIconUrl() throws {
+        let json = """
+        {
+          "catalogVersion": 1,
+          "abilities": [
+            {
+              "id": "spotify",
+              "version": 1,
+              "displayName": { "en": "Spotify" },
+              "subtitle": { "en": "Control playback" },
+              "icon": { "iosUrl": "not a url", "androidUrl": "https://cdn.convos.org/spotify-android.png" },
+              "auth": { "type": "oauth" },
+              "bundles": [],
+              "entitlement": null
+            }
+          ]
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(json)
+        }
+    }
+
     @Test("Flag/key coherence is enforced both ways")
     func rejectsIncoherentResponses() throws {
         // Authoritative response with a missing entitlement key.
@@ -261,17 +300,54 @@ struct AbilitiesCatalogContractTests {
     }
 
     @Test("LocalizedText resolves with the en fallback chain")
-    func localizedTextFallback() {
-        let text = AbilitiesAPI.LocalizedText(values: ["en": "Events", "fr": "Evenements"])
+    func localizedTextFallback() throws {
+        let text = try AbilitiesAPI.LocalizedText(values: ["en": "Events", "fr": "Evenements"])
         #expect(text.resolved(for: Locale(identifier: "fr_FR")) == "Evenements")
         #expect(text.resolved(for: Locale(identifier: "de_DE")) == "Events")
+    }
+
+    // MARK: - Programmatic construction
+
+    @Test("Initializers enforce decode's invariants, so invalid shapes can never reach encode")
+    func constructionValidatesWireInvariants() throws {
+        #expect(throws: AbilitiesAPI.WireValidationError.missingEnglishText) {
+            _ = try AbilitiesAPI.LocalizedText(values: ["fr": "Spotify"])
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.invalidIconUrl("not a url")) {
+            _ = try AbilitiesAPI.AbilityIcon(iosUrl: "not a url", androidUrl: "https://cdn.convos.org/spotify-android.png")
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.invalidIconUrl("")) {
+            _ = try AbilitiesAPI.AbilityIcon(iosUrl: "https://cdn.convos.org/spotify-ios.png", androidUrl: "")
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.negativeExtensionCount(-1)) {
+            _ = try AbilitiesAPI.Entitlement(status: .active, extensionCount: -1)
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.negativeVersion(-2)) {
+            _ = try self.makeAbility(version: -2)
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.negativeCatalogVersion(-1)) {
+            _ = try AbilitiesAPI.CatalogResponse(catalogVersion: -1, abilities: [])
+        }
+    }
+
+    @Test("Incoherent flag/state combinations cannot be constructed, in either direction")
+    func constructionRejectsIncoherentResponses() throws {
+        let notEntitled = try makeAbility(entitlementState: .notEntitled)
+        #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
+            _ = try AbilitiesAPI.CatalogResponse(catalogVersion: 1, entitlementsUnavailable: true, abilities: [notEntitled])
+        }
+
+        let unknown = try makeAbility(entitlementState: .unknown)
+        #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
+            _ = try AbilitiesAPI.CatalogResponse(catalogVersion: 1, abilities: [unknown])
+        }
     }
 
     // MARK: - Encoding
 
     @Test("Authoritative not-entitled encodes an explicit null, unknown omits the key")
     func encodingPreservesNullVersusAbsent() throws {
-        let authoritative = AbilitiesAPI.CatalogResponse(
+        let authoritative = try AbilitiesAPI.CatalogResponse(
             catalogVersion: 1,
             abilities: [makeAbility(entitlementState: .notEntitled)]
         )
@@ -282,7 +358,7 @@ struct AbilitiesCatalogContractTests {
         #expect(authoritativeAbility["entitlement"] is NSNull)
         #expect(authoritativeObject["entitlementsUnavailable"] == nil)
 
-        let unavailable = AbilitiesAPI.CatalogResponse(
+        let unavailable = try AbilitiesAPI.CatalogResponse(
             catalogVersion: 1,
             entitlementsUnavailable: true,
             abilities: [makeAbility(entitlementState: .unknown)]
@@ -311,13 +387,13 @@ struct AbilitiesCatalogContractTests {
 
     @Test("Resolving under the flag carries last-known entitlements forward")
     func resolvingKeepsLastKnownState() throws {
-        let entitled = makeAbility(
+        let entitled = try makeAbility(
             id: "googlecalendar",
             entitlementState: .entitled(AbilitiesAPI.Entitlement(status: .active, extensionCount: 2))
         )
         let lastKnown = AbilitiesCatalog(catalogVersion: 3, abilities: [entitled])
 
-        let outage = AbilitiesAPI.CatalogResponse(
+        let outage = try AbilitiesAPI.CatalogResponse(
             catalogVersion: 4,
             entitlementsUnavailable: true,
             abilities: [entitled.withEntitlementState(.unknown)]
@@ -335,8 +411,8 @@ struct AbilitiesCatalogContractTests {
     }
 
     @Test("Resolving a cold-start outage leaves states unknown")
-    func resolvingColdStartStaysUnknown() {
-        let outage = AbilitiesAPI.CatalogResponse(
+    func resolvingColdStartStaysUnknown() throws {
+        let outage = try AbilitiesAPI.CatalogResponse(
             catalogVersion: 1,
             entitlementsUnavailable: true,
             abilities: [makeAbility(entitlementState: .unknown)]
@@ -348,12 +424,12 @@ struct AbilitiesCatalogContractTests {
     }
 
     @Test("Resolving does not touch authoritative responses")
-    func resolvingLeavesAuthoritativeAlone() {
-        let stale = AbilitiesCatalog(
+    func resolvingLeavesAuthoritativeAlone() throws {
+        let stale = try AbilitiesCatalog(
             catalogVersion: 1,
             abilities: [makeAbility(entitlementState: .entitled(AbilitiesAPI.Entitlement(status: .active)))]
         )
-        let authoritative = AbilitiesAPI.CatalogResponse(catalogVersion: 2, abilities: [makeAbility(entitlementState: .notEntitled)])
+        let authoritative = try AbilitiesAPI.CatalogResponse(catalogVersion: 2, abilities: [makeAbility(entitlementState: .notEntitled)])
 
         let resolved = AbilitiesCatalog.resolving(response: authoritative, lastKnown: stale)
         // The authoritative null is the truth: the user is no longer

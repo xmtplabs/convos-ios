@@ -89,6 +89,24 @@ struct AbilityStatusBadge: View {
     }
 }
 
+/// Capsule badge for client-derived presentation states ("Not connected")
+/// with no server-owned entitlement status behind them. Visually matches
+/// `AbilityStatusBadge` in a neutral color, so the UI never has to
+/// fabricate a server status just to render a badge.
+struct AbilityNeutralBadge: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, DesignConstants.Spacing.stepHalf)
+            .background(Capsule().fill(Color.colorFillMinimal))
+            .accessibilityLabel("Status: \(label)")
+    }
+}
+
 #Preview("Badges") {
     VStack(spacing: DesignConstants.Spacing.step2x) {
         AbilityStatusBadge(status: .active)
@@ -96,6 +114,7 @@ struct AbilityStatusBadge: View {
         AbilityStatusBadge(status: .needsReauth)
         AbilityStatusBadge(status: .expired)
         AbilityStatusBadge(status: .revoked)
+        AbilityNeutralBadge(label: "Not connected")
     }
     .padding(DesignConstants.Spacing.step4x)
 }

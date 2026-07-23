@@ -15,14 +15,41 @@ import Foundation
 /// validated on decode and reproduced on encode. Clients branch on the
 /// flag, never on key presence; last-known state handling lives in
 /// `AbilitiesCatalog`.
+///
+/// Strictness is bidirectional: the public initializers enforce the same
+/// invariants decoding does (throwing `WireValidationError`), so a
+/// schema-invalid response can neither be decoded nor constructed
+/// programmatically and encoded.
 public enum AbilitiesAPI {
+    /// Typed failures thrown by the wire models' public initializers,
+    /// which enforce the same schema invariants decoding does.
+    public enum WireValidationError: Error, Sendable, Equatable {
+        /// A localized string map without the required "en" key.
+        case missingEnglishText
+        /// An icon URL string that does not parse as a URL with a scheme.
+        case invalidIconUrl(String)
+        /// A negative per-ability version.
+        case negativeVersion(Int)
+        /// A negative catalog version.
+        case negativeCatalogVersion(Int)
+        /// A negative entitlement extension count.
+        case negativeExtensionCount(Int)
+        /// The flag/key coherence invariant: under
+        /// `entitlementsUnavailable` every ability must be `.unknown`;
+        /// authoritative responses must carry no `.unknown` ability.
+        case incoherentEntitlementState
+    }
+
     /// A localized string map keyed by language code. The schema requires
-    /// the "en" key (the guaranteed fallback); decoding rejects maps
-    /// without it.
+    /// the "en" key (the guaranteed fallback); decoding and programmatic
+    /// construction both reject maps without it.
     public struct LocalizedText: Codable, Sendable, Hashable {
         public let values: [String: String]
 
-        public init(values: [String: String]) {
+        public init(values: [String: String]) throws {
+            guard values["en"] != nil else {
+                throw WireValidationError.missingEnglishText
+            }
             self.values = values
         }
 
@@ -60,14 +87,53 @@ public enum AbilitiesAPI {
 
     /// Per-platform icon URLs. The object itself is optional (the backend
     /// omits it until its asset story lands; clients fall back to a local
-    /// symbol), but when present the schema requires both URLs.
+    /// symbol), but when present the schema requires both URLs, and both
+    /// must parse as URLs with a scheme -- on decode and on construction.
     public struct AbilityIcon: Codable, Sendable, Hashable {
         public let iosUrl: String
         public let androidUrl: String
 
-        public init(iosUrl: String, androidUrl: String) {
+        public init(iosUrl: String, androidUrl: String) throws {
+            guard Self.isValidUrl(iosUrl) else {
+                throw WireValidationError.invalidIconUrl(iosUrl)
+            }
+            guard Self.isValidUrl(androidUrl) else {
+                throw WireValidationError.invalidIconUrl(androidUrl)
+            }
             self.iosUrl = iosUrl
             self.androidUrl = androidUrl
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let iosUrl = try container.decode(String.self, forKey: .iosUrl)
+            guard Self.isValidUrl(iosUrl) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .iosUrl,
+                    in: container,
+                    debugDescription: "iosUrl must be a valid URL"
+                )
+            }
+            let androidUrl = try container.decode(String.self, forKey: .androidUrl)
+            guard Self.isValidUrl(androidUrl) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .androidUrl,
+                    in: container,
+                    debugDescription: "androidUrl must be a valid URL"
+                )
+            }
+            self.iosUrl = iosUrl
+            self.androidUrl = androidUrl
+        }
+
+        private static func isValidUrl(_ urlString: String) -> Bool {
+            guard let url = URL(string: urlString), url.scheme != nil else { return false }
+            return true
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case iosUrl
+            case androidUrl
         }
     }
 
@@ -140,7 +206,10 @@ public enum AbilitiesAPI {
         /// per-conversation abilities endpoint.
         public let extensionCount: Int
 
-        public init(status: EntitlementStatus, expiresAt: Date? = nil, extensionCount: Int = 0) {
+        public init(status: EntitlementStatus, expiresAt: Date? = nil, extensionCount: Int = 0) throws {
+            guard extensionCount >= 0 else {
+                throw WireValidationError.negativeExtensionCount(extensionCount)
+            }
             self.status = status
             self.expiresAt = expiresAt
             self.extensionCount = extensionCount
@@ -209,7 +278,10 @@ public enum AbilitiesAPI {
             auth: AbilityAuth,
             bundles: [AbilityBundle],
             entitlementState: EntitlementState = .notEntitled
-        ) {
+        ) throws {
+            guard version >= 0 else {
+                throw WireValidationError.negativeVersion(version)
+            }
             self.id = id
             self.version = version
             self.displayName = displayName
@@ -267,18 +339,23 @@ public enum AbilitiesAPI {
             }
         }
 
+        /// Non-validating path for copies of an already-validated ability:
+        /// swapping the entitlement state cannot violate any per-ability
+        /// invariant, so no throwing round-trip is needed.
+        private init(copying other: Ability, entitlementState: EntitlementState) {
+            self.id = other.id
+            self.version = other.version
+            self.displayName = other.displayName
+            self.subtitle = other.subtitle
+            self.icon = other.icon
+            self.auth = other.auth
+            self.bundles = other.bundles
+            self.entitlementState = entitlementState
+        }
+
         /// A copy of this ability with `entitlementState` replaced.
         public func withEntitlementState(_ entitlementState: EntitlementState) -> Ability {
-            Ability(
-                id: id,
-                version: version,
-                displayName: displayName,
-                subtitle: subtitle,
-                icon: icon,
-                auth: auth,
-                bundles: bundles,
-                entitlementState: entitlementState
-            )
+            Ability(copying: self, entitlementState: entitlementState)
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -309,10 +386,28 @@ public enum AbilitiesAPI {
         public let entitlementsUnavailable: Bool
         public let abilities: [Ability]
 
-        public init(catalogVersion: Int, entitlementsUnavailable: Bool = false, abilities: [Ability]) {
+        public init(catalogVersion: Int, entitlementsUnavailable: Bool = false, abilities: [Ability]) throws {
+            guard catalogVersion >= 0 else {
+                throw WireValidationError.negativeCatalogVersion(catalogVersion)
+            }
+            try Self.validateCoherence(entitlementsUnavailable: entitlementsUnavailable, abilities: abilities)
             self.catalogVersion = catalogVersion
             self.entitlementsUnavailable = entitlementsUnavailable
             self.abilities = abilities
+        }
+
+        /// The schema's flag/key coherence invariant, shared by the public
+        /// initializer and decoding.
+        private static func validateCoherence(entitlementsUnavailable: Bool, abilities: [Ability]) throws {
+            if entitlementsUnavailable {
+                guard abilities.allSatisfy({ $0.entitlementState == .unknown }) else {
+                    throw WireValidationError.incoherentEntitlementState
+                }
+            } else {
+                guard abilities.allSatisfy({ $0.entitlementState != .unknown }) else {
+                    throw WireValidationError.incoherentEntitlementState
+                }
+            }
         }
 
         public init(from decoder: Decoder) throws {
@@ -326,7 +421,17 @@ public enum AbilitiesAPI {
                 )
             }
             self.catalogVersion = version
-            if let flag = try container.decodeIfPresent(Bool.self, forKey: .entitlementsUnavailable) {
+            if container.contains(.entitlementsUnavailable) {
+                // Explicit null is not the same as absent: the wire flag is
+                // present-true or absent, never null or false.
+                guard try !container.decodeNil(forKey: .entitlementsUnavailable) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .entitlementsUnavailable,
+                        in: container,
+                        debugDescription: "entitlementsUnavailable must not be null; the wire is present-true or absent"
+                    )
+                }
+                let flag = try container.decode(Bool.self, forKey: .entitlementsUnavailable)
                 guard flag else {
                     throw DecodingError.dataCorruptedError(
                         forKey: .entitlementsUnavailable,
