@@ -1,13 +1,14 @@
 import ConvosCore
 import SwiftUI
 
-/// Prototype home screen (see `FeatureFlags.isSmileyPrototypeEnabled`): the
-/// entire app surface is a single giant smiley button. Tapping it builds and
-/// joins a fresh agent whose only instruction is to reply with smiley face
-/// emoji, reusing the same direct-build pipeline the real "Make an agent"
-/// composer uses (`AgentBuilderViewModel.commit`), then morphs into the
-/// standard `ConversationView` once the draft group is ready -- identical to
-/// the normal builder flow, just pre-seeded and auto-committed instead of
+/// Throwaway shared-prototype view -- see `prototype.yml`. Prototype home
+/// screen (see `FeatureFlags.isSmileyPrototypeEnabled`): the entire app
+/// surface is a single giant smiley button. Tapping it builds and joins a
+/// fresh agent whose only instruction is to reply with smiley face emoji,
+/// reusing the same direct-build pipeline the real "Make an agent" composer
+/// uses (`AgentBuilderViewModel.commit`), then morphs into the standard
+/// `ConversationView` once the draft group is ready -- identical to the
+/// normal builder flow, just pre-seeded and auto-committed instead of
 /// waiting on typed input.
 struct SmileyPrototypeHomeView: View {
     let session: any SessionManagerProtocol
