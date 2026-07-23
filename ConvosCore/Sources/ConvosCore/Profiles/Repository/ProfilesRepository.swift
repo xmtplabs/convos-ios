@@ -262,21 +262,11 @@ public actor ProfilesRepository {
         guard let selfId = await resolveSelfInboxId() else {
             throw ProfilesRepositoryError.selfInboxUnavailable
         }
-        // Load the current row first so an edit before warm-up carries forward
-        // the existing name/metadata rather than starting from a blank profile.
-        // The store additionally preserves image fields atomically on save.
-        let existing: DBMyProfile
-        if let cachedSelf {
-            existing = cachedSelf
-        } else {
-            // Propagate a load error rather than falling back to a blank row: a
-            // transient read failure must not overwrite the stored name,
-            // metadata, and image with an empty profile. A genuinely absent row
-            // (nil) starts fresh.
-            existing = try await selfProfileStore.load() ?? DBMyProfile(inboxId: selfId)
-        }
-        let updated = edit.applied(to: existing, updatedAt: Date())
-        try await selfProfileStore.save(updated)
+        // The read-apply-write runs inside one store transaction. Basing the
+        // edit on a snapshot held across suspension points (the old cachedSelf
+        // path) let a rename and a concurrent metadata publish start from the
+        // same stale row and silently revert each other's field.
+        let updated = try await selfProfileStore.update(edit, updatedAt: Date())
         cachedSelf = updated
         changesRelay.subject.send(selfId)
     }

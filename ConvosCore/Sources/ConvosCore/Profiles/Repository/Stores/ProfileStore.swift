@@ -6,17 +6,24 @@ import GRDB
 /// only. All merge/precedence logic lives in `ProfilesRepository`, and reactive
 /// observation is done by the repository via GRDB `ValueObservation`, so this
 /// protocol exposes no change stream.
-///
-/// Not wired into the app yet; introduced ahead of `ProfilesRepository`.
 protocol ProfileStoreProtocol: Sendable {
     // Identity
     func saveIdentity(_ profile: DBProfile) async throws
     func identity(inboxId: String) async throws -> DBProfile?
     func identities(inboxIds: [String]) async throws -> [DBProfile]
     func allIdentities() async throws -> [DBProfile]
+    /// Saves every row in one write transaction, isolating per-row failures:
+    /// a row that cannot be saved is logged and skipped rather than aborting
+    /// the batch. For bulk writers (backfill) that must not pay one
+    /// transaction per row nor lose the whole batch to one bad row.
+    func saveIdentities(_ profiles: [DBProfile]) async throws
 
     // Avatars
     func saveAvatar(_ avatar: DBProfileAvatar) async throws
+    /// Batch analog of `saveAvatar`; see `saveIdentities`. A common per-row
+    /// failure here is the conversation FK: a legacy avatar row can reference
+    /// a conversation that no longer exists.
+    func saveAvatars(_ avatars: [DBProfileAvatar]) async throws
     func avatar(inboxId: String, conversationId: String) async throws -> DBProfileAvatar?
     func avatars(inboxId: String) async throws -> [DBProfileAvatar]
     func avatars(inboxIds: [String]) async throws -> [DBProfileAvatar]
@@ -43,6 +50,19 @@ final class GRDBProfileStore: ProfileStoreProtocol {
         }
     }
 
+    func saveIdentities(_ profiles: [DBProfile]) async throws {
+        guard !profiles.isEmpty else { return }
+        try await databaseWriter.write { db in
+            for profile in profiles {
+                do {
+                    try profile.save(db)
+                } catch {
+                    Log.error("ProfileStore: skipping identity \(profile.inboxId) in batch save: \(error)")
+                }
+            }
+        }
+    }
+
     func identity(inboxId: String) async throws -> DBProfile? {
         try await databaseReader.read { db in
             try DBProfile.fetchOne(db, inboxId: inboxId)
@@ -64,6 +84,19 @@ final class GRDBProfileStore: ProfileStoreProtocol {
     func saveAvatar(_ avatar: DBProfileAvatar) async throws {
         try await databaseWriter.write { db in
             try avatar.save(db)
+        }
+    }
+
+    func saveAvatars(_ avatars: [DBProfileAvatar]) async throws {
+        guard !avatars.isEmpty else { return }
+        try await databaseWriter.write { db in
+            for avatar in avatars {
+                do {
+                    try avatar.save(db)
+                } catch {
+                    Log.error("ProfileStore: skipping avatar \(avatar.inboxId)/\(avatar.conversationId) in batch save: \(error)")
+                }
+            }
         }
     }
 
@@ -126,6 +159,12 @@ actor InMemoryProfileStore: ProfileStoreProtocol {
         identitiesByInbox[profile.inboxId] = profile
     }
 
+    func saveIdentities(_ profiles: [DBProfile]) {
+        for profile in profiles {
+            identitiesByInbox[profile.inboxId] = profile
+        }
+    }
+
     func identity(inboxId: String) -> DBProfile? {
         identitiesByInbox[inboxId]
     }
@@ -140,6 +179,12 @@ actor InMemoryProfileStore: ProfileStoreProtocol {
 
     func saveAvatar(_ avatar: DBProfileAvatar) {
         avatarsByKey[avatarKey(avatar.inboxId, avatar.conversationId)] = avatar
+    }
+
+    func saveAvatars(_ avatars: [DBProfileAvatar]) {
+        for avatar in avatars {
+            avatarsByKey[avatarKey(avatar.inboxId, avatar.conversationId)] = avatar
+        }
     }
 
     func avatar(inboxId: String, conversationId: String) -> DBProfileAvatar? {

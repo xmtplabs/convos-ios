@@ -11,6 +11,14 @@ protocol SelfProfileStoreProtocol: Sendable {
     func load() async throws -> DBMyProfile?
     func clear() async throws
 
+    /// Applies the edit to the stored row atomically - read, apply, write in
+    /// one transaction - starting from a blank row when none exists, and
+    /// returns the persisted result. The only safe way to edit name/metadata:
+    /// basing the edit on a snapshot read before an `await` lets two concurrent
+    /// edits (a rename and an automatic metadata publish) start from the same
+    /// stale row and silently revert each other's field.
+    func update(_ edit: SelfProfileEdit, updatedAt: Date) async throws -> DBMyProfile
+
     /// The current user's conversation-scoped metadata map (cloud connection
     /// grants, agent timezone) for one conversation, or nil when none was ever
     /// published there. Scoped keys are merged over the global metadata at send
@@ -68,6 +76,22 @@ final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
         }
     }
 
+    func update(_ edit: SelfProfileEdit, updatedAt: Date) async throws -> DBMyProfile {
+        guard let inboxId = await selfInboxIdProvider() else {
+            throw SelfProfileStoreError.selfInboxUnavailable
+        }
+        return try await databaseWriter.write { db in
+            let existing = try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db) ?? DBMyProfile(inboxId: inboxId)
+            // `applied(to:)` carries the image fields from the row read inside
+            // this same transaction, so the edit cannot wipe the photo either.
+            let updated = edit.applied(to: existing, updatedAt: updatedAt)
+            try updated.save(db)
+            return updated
+        }
+    }
+
     func clear() async throws {
         guard let inboxId = await selfInboxIdProvider() else { return }
         try await databaseWriter.write { db in
@@ -107,8 +131,13 @@ final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
 }
 
 actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
+    private let inboxId: String
     private var current: DBMyProfile?
     private var scopedByInbox: [String: [String: ProfileMetadata]] = [:]
+
+    init(inboxId: String = "me") {
+        self.inboxId = inboxId
+    }
 
     func save(_ profile: DBMyProfile) {
         current = profile
@@ -116,6 +145,13 @@ actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
 
     func load() -> DBMyProfile? {
         current
+    }
+
+    func update(_ edit: SelfProfileEdit, updatedAt: Date) -> DBMyProfile {
+        let existing = current ?? DBMyProfile(inboxId: inboxId)
+        let updated = edit.applied(to: existing, updatedAt: updatedAt)
+        current = updated
+        return updated
     }
 
     func clear() {
@@ -134,4 +170,8 @@ actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
         }
         scopedByInbox[inboxId, default: [:]][conversationId] = metadata
     }
+}
+
+enum SelfProfileStoreError: Error {
+    case selfInboxUnavailable
 }

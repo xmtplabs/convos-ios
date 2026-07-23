@@ -14,6 +14,7 @@ private struct RecordedSend: Sendable {
 private actor FakeProfilePublishSession: ProfilePublishSession {
     nonisolated let inboxId: String
     private let imageKeys: [String: Data]
+    private let missingConversations: Set<String>
     private var uploadFailuresRemaining: Int
     private var sendFailuresRemaining: Int
     private(set) var uploadAttempts: Int = 0
@@ -24,12 +25,14 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
         inboxId: String,
         imageKeys: [String: Data],
         uploadFailures: Int = 0,
-        sendFailures: Int = 0
+        sendFailures: Int = 0,
+        missingConversations: Set<String> = []
     ) {
         self.inboxId = inboxId
         self.imageKeys = imageKeys
         self.uploadFailuresRemaining = uploadFailures
         self.sendFailuresRemaining = sendFailures
+        self.missingConversations = missingConversations
     }
 
     func imageKey(conversationId: String) -> Data? { imageKeys[conversationId] }
@@ -49,6 +52,9 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
     }
 
     func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) throws {
+        if missingConversations.contains(conversationId) {
+            throw ProfilePublishSessionError.conversationNotFound(conversationId: conversationId)
+        }
         if sendFailuresRemaining > 0 {
             sendFailuresRemaining -= 1
             throw FakeSessionError.send
@@ -60,6 +66,121 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
 private enum FakeSessionError: Error {
     case upload
     case send
+    case storeFetch
+}
+
+private actor Counter {
+    private(set) var value: Int = 0
+    func increment() { value += 1 }
+}
+
+/// Wraps the in-memory store and, once `startFailing` is called, throws from
+/// `nextReadyJob` - simulating a persistent row-read failure so tests can
+/// assert the drain stops instead of hot-looping through the retry timer.
+private actor FailingNextReadyPublishStore: ProfilePublishStoreProtocol {
+    private let inner: InMemoryProfilePublishStore
+    private var failing: Bool = false
+
+    init(wrapping inner: InMemoryProfilePublishStore) {
+        self.inner = inner
+    }
+
+    func startFailing() {
+        failing = true
+    }
+
+    func nextReadyJob(now: Date) async throws -> DBProfilePublishJob? {
+        if failing {
+            throw FakeSessionError.storeFetch
+        }
+        return try await inner.nextReadyJob(now: now)
+    }
+
+    func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
+        try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
+    func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
+    func enqueue(_ job: DBProfilePublishJob) async throws { try await inner.enqueue(job) }
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob {
+        try await inner.enqueueNext(makeJob)
+    }
+    func update(_ job: DBProfilePublishJob) async throws { try await inner.update(job) }
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob? {
+        try await inner.claimJob(id: id, updatedAt: updatedAt)
+    }
+    func job(id: String) async throws -> DBProfilePublishJob? { try await inner.job(id: id) }
+    func reclaimStalledJobs(excluding: Set<String>) async throws { try await inner.reclaimStalledJobs(excluding: excluding) }
+    func activeJobs() async throws -> [DBProfilePublishJob] { try await inner.activeJobs() }
+    func jobs(conversationId: String) async throws -> [DBProfilePublishJob] { try await inner.jobs(conversationId: conversationId) }
+    func nextSeq() async throws -> Int64 { try await inner.nextSeq() }
+    func earliestNextAttempt() async throws -> Date? { try await inner.earliestNextAttempt() }
+    func deleteJob(id: String) async throws { try await inner.deleteJob(id: id) }
+    func deleteJobs(conversationId: String) async throws { try await inner.deleteJobs(conversationId: conversationId) }
+    func supersedeOlderThan(conversationId: String, seq: Int64) async throws {
+        try await inner.supersedeOlderThan(conversationId: conversationId, seq: seq)
+    }
+    func deleteAll() async throws { try await inner.deleteAll() }
+}
+
+/// Wraps the in-memory store and parks the first `claimJob` call *after* the
+/// inner claim has committed (pending -> uploading) but before it returns to
+/// the publisher actor - the exact suspension window in which a concurrent
+/// drain's stalled-job reclaim could see the row as stranded. Tests park the
+/// inline claim there, run a full drain, then release the gate.
+private actor GatedClaimPublishStore: ProfilePublishStoreProtocol {
+    private let inner: InMemoryProfilePublishStore
+    private var gateArmed: Bool = true
+    private var gateOpen: Bool = false
+    private(set) var parkedInClaim: Bool = false
+
+    init(wrapping inner: InMemoryProfilePublishStore) {
+        self.inner = inner
+    }
+
+    func openGate() {
+        gateOpen = true
+    }
+
+    func claimJob(id: String, updatedAt: Date) async throws -> DBProfilePublishJob? {
+        let claimed = try await inner.claimJob(id: id, updatedAt: updatedAt)
+        if gateArmed {
+            gateArmed = false
+            parkedInClaim = true
+            while !gateOpen {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        return claimed
+    }
+
+    func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
+    func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
+        try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
+    func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
+    func enqueue(_ job: DBProfilePublishJob) async throws { try await inner.enqueue(job) }
+    @discardableResult
+    func enqueueNext(_ makeJob: @Sendable @escaping (Int64) -> DBProfilePublishJob) async throws -> DBProfilePublishJob {
+        try await inner.enqueueNext(makeJob)
+    }
+    func update(_ job: DBProfilePublishJob) async throws { try await inner.update(job) }
+    func job(id: String) async throws -> DBProfilePublishJob? { try await inner.job(id: id) }
+    func nextReadyJob(now: Date) async throws -> DBProfilePublishJob? { try await inner.nextReadyJob(now: now) }
+    func reclaimStalledJobs(excluding: Set<String>) async throws { try await inner.reclaimStalledJobs(excluding: excluding) }
+    func activeJobs() async throws -> [DBProfilePublishJob] { try await inner.activeJobs() }
+    func jobs(conversationId: String) async throws -> [DBProfilePublishJob] { try await inner.jobs(conversationId: conversationId) }
+    func nextSeq() async throws -> Int64 { try await inner.nextSeq() }
+    func earliestNextAttempt() async throws -> Date? { try await inner.earliestNextAttempt() }
+    func deleteJob(id: String) async throws { try await inner.deleteJob(id: id) }
+    func deleteJobs(conversationId: String) async throws { try await inner.deleteJobs(conversationId: conversationId) }
+    func supersedeOlderThan(conversationId: String, seq: Int64) async throws {
+        try await inner.supersedeOlderThan(conversationId: conversationId, seq: seq)
+    }
+    func deleteAll() async throws { try await inner.deleteAll() }
 }
 
 /// Monotonic clock the tests advance by hand for deterministic backoff retries.
@@ -88,12 +209,16 @@ struct ProfilePublisherTests {
     private let nonce = Data(repeating: 2, count: 12)
     private let key = Data(repeating: 3, count: 32)
 
+    /// The default sleeper parks forever so the retry timer never fires on its
+    /// own mid-test; tests that exercise the timer inject a sleeper that
+    /// advances the fake clock instead.
     private func makePublisher(
         publishStore: any ProfilePublishStoreProtocol,
         profileStore: any ProfileStoreProtocol,
         selfProfileStore: any SelfProfileStoreProtocol,
         clock: TestClock,
-        conversationLocalStateWriter: any ConversationLocalStateWriterProtocol = MockConversationLocalStateWriter()
+        conversationLocalStateWriter: any ConversationLocalStateWriterProtocol = MockConversationLocalStateWriter(),
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in try await Task.sleep(nanoseconds: .max) }
     ) -> ProfilePublisher {
         ProfilePublisher(
             publishStore: publishStore,
@@ -102,8 +227,20 @@ struct ProfilePublisherTests {
             conversationLocalStateWriter: conversationLocalStateWriter,
             selfInboxIdProvider: { "me" },
             now: { clock.current },
-            backoff: PublishBackoff(base: 1, cap: 5, jitterFraction: 0)
+            backoff: PublishBackoff(base: 1, cap: 5, jitterFraction: 0),
+            sleep: sleep
         )
+    }
+
+    /// Polls until `condition` holds or ~5s elapse; the publisher's background
+    /// drain and retry timer run off the caller's execution path, so tests
+    /// await their effects rather than their completion.
+    private func waitFor(_ condition: @Sendable () async throws -> Bool) async throws {
+        for _ in 0..<100 {
+            if try await condition() { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(try await condition())
     }
 
     @Test("publish enqueues, encrypts/uploads/sends per conversation, and writes local slots")
@@ -148,10 +285,13 @@ struct ProfilePublisherTests {
         #expect(attemptsAfterFailure == 1)
 
         clock.advance(by: 2)
-        await publisher.drainReadyJobs()
+        // Drain in a poll: a single call can no-op against the `draining`
+        // guard while the publish's own kicked background drain is mid-run.
+        try await waitFor {
+            await publisher.drainReadyJobs()
+            return await session.uploadAttempts == 2
+        }
 
-        let attempts = await session.uploadAttempts
-        #expect(attempts == 2)
         let sends = await session.sends
         #expect(sends.count == 1)
         let remaining = try await publishStore.activeJobs()
@@ -401,5 +541,176 @@ struct ProfilePublisherTests {
         }
         let stored = try await selfProfileStore.scopedMetadata(inboxId: "me", conversationId: "c1")
         #expect(stored == nil)
+    }
+
+    @Test("the stamp is the enqueue-time profile updatedAt, so an edit after enqueue stays publishable")
+    func stampsEnqueueTimeProfileUpdatedAt() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let selfProfileStore = InMemorySelfProfileStore()
+        let localState = MockConversationLocalStateWriter()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(
+            publishStore: publishStore,
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: selfProfileStore,
+            clock: clock,
+            conversationLocalStateWriter: localState
+        )
+
+        // Enqueue with the profile at t=1000 (no session bound, so the job
+        // waits), then edit the profile before the job is processed.
+        let enqueueTime = Date(timeIntervalSince1970: 1_000)
+        let editTime = Date(timeIntervalSince1970: 2_000)
+        try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Me", updatedAt: enqueueTime))
+        try await publisher.publishConversation("c1")
+        try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Me Edited", updatedAt: editTime))
+
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // The send happened, but the stamp is the enqueue-time value: the
+        // post-enqueue edit must leave the conversation stale (stamp < edit)
+        // so the change-aware sync re-publishes it, instead of marking the
+        // conversation current for content that reflected a decision made
+        // before the edit.
+        try await waitFor { await session.sends.count == 1 }
+        #expect(localState.publishedProfileUpdatedAtStates["c1"] == enqueueTime)
+    }
+
+    @Test("a rescheduled job retries via the timer without any external trigger")
+    func retryTimerFiresWithoutExternalTrigger() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(
+            publishStore: publishStore,
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: InMemorySelfProfileStore(),
+            clock: clock,
+            // The timer's sleeper advances the fake clock past the backoff
+            // deadline, standing in for real elapsed time.
+            sleep: { delay in clock.advance(by: delay) }
+        )
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], uploadFailures: 1)
+        await publisher.attach(session: session)
+
+        try await publisher.updateAvatarSource(Data([1]))
+        try await publisher.publishConversation("c1")
+
+        // No manual drain and no clock manipulation here: the armed timer
+        // must wake the queue and complete the retry on its own.
+        try await waitFor {
+            let attempts = await session.uploadAttempts
+            let remaining = try await publishStore.activeJobs()
+            return attempts == 2 && remaining.isEmpty
+        }
+        let sends = await session.sends
+        #expect(sends.count == 1)
+    }
+
+    @Test("a message-send publish processes its own conversation first, never behind the queue")
+    func inlinePublishDoesNotWaitBehindQueue() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // An older, ready job for another conversation sits at the head of
+        // the queue (seeded directly so the attach drain doesn't consume it).
+        try await publishStore.enqueue(DBProfilePublishJob(
+            id: "queued-first", seq: 0, conversationId: "c-other",
+            nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
+        ))
+
+        // The pre-send hook's publish returns with its own conversation
+        // already delivered - it must not drain c-other first.
+        try await publisher.publishConversation("c-mine")
+        let firstSend = await session.sends.first
+        #expect(firstSend?.conversationId == "c-mine")
+
+        // The background drain still delivers the rest.
+        try await waitFor { await session.sends.count == 2 }
+        let all = await session.sends
+        #expect(Set(all.map(\.conversationId)) == ["c-mine", "c-other"])
+    }
+
+    @Test("a store fetch error stops the drain without arming the timer (no hot loop)")
+    func fetchErrorStopsDrainWithoutTimer() async throws {
+        let inner = InMemoryProfilePublishStore()
+        let store = FailingNextReadyPublishStore(wrapping: inner)
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let sleepCount = Counter()
+        let publisher = makePublisher(
+            publishStore: store,
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: InMemorySelfProfileStore(),
+            clock: clock,
+            sleep: { _ in
+                await sleepCount.increment()
+                try await Task.sleep(nanoseconds: .max)
+            }
+        )
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // A ready pending job exists, but every fetch throws. With `try?`
+        // semantics this looked like an empty queue, and the past-deadline
+        // pending job armed a zero-delay timer that re-entered the failing
+        // drain forever. The drain must stop and arm nothing.
+        try await inner.enqueue(DBProfilePublishJob(
+            id: "stuck", seq: 1, conversationId: "c1",
+            nextAttemptAt: Date(timeIntervalSince1970: 0),
+            createdAt: clock.current, updatedAt: clock.current
+        ))
+        await store.startFailing()
+        await publisher.drainReadyJobs()
+
+        let sends = await session.sends
+        #expect(sends.isEmpty)
+        let armed = await sleepCount.value
+        #expect(armed == 0, "a failed drain pass must not arm the retry timer")
+    }
+
+    @Test("a drain interleaved inside the inline claim window cannot reclaim and double-process the job")
+    func drainInsideInlineClaimWindowDoesNotDoubleProcess() async throws {
+        let inner = InMemoryProfilePublishStore()
+        let store = GatedClaimPublishStore(wrapping: inner)
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: store, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        await publisher.attach(session: session)
+
+        // Park the inline publish inside claimJob, after the row committed to
+        // `uploading` but before the publisher actor resumed - the window in
+        // which the job id must already be registered as in-flight.
+        let inlinePublish = Task { try await publisher.publishConversation("c1") }
+        try await waitFor { await store.parkedInClaim }
+
+        // A drain running in that window reclaims stalled jobs. It must treat
+        // the parked claim as live (excluded), not stranded - or it would flip
+        // the job back to pending, re-claim it, and send a duplicate.
+        await publisher.drainReadyJobs()
+        await store.openGate()
+        try await inlinePublish.value
+
+        try await waitFor { try await inner.activeJobs().isEmpty }
+        let sends = await session.sends
+        #expect(sends.count == 1)
+    }
+
+    @Test("a job whose XMTP conversation is gone is dropped, not retried forever")
+    func dropsJobForMissingXMTPConversation() async throws {
+        let publishStore = InMemoryProfilePublishStore()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:], missingConversations: ["gone"])
+        await publisher.attach(session: session)
+
+        try await publisher.publishConversation("gone")
+
+        let sends = await session.sends
+        #expect(sends.isEmpty)
+        let remaining = try await publishStore.activeJobs()
+        #expect(remaining.isEmpty)
     }
 }
