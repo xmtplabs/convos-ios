@@ -24,7 +24,7 @@ public final class AgentParticipationStore {
     /// Bumped on every local `set()`. `load()` captures it before its network
     /// read and bails if it changed meanwhile, so a tap that lands mid-read is
     /// never clobbered by the older server value the read was already fetching.
-    private var writeGeneration = 0
+    private var writeGeneration: Int = 0
 
     public init(conversationId: String) {
         self.conversationId = conversationId

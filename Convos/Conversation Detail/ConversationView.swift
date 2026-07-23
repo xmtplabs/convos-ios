@@ -452,43 +452,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    /// What the composer needs to draw the bubble: the level, and the tap.
-    /// `nil` in a conversation with no agent — a control for agents has no
-    /// business in a room without one.
-    private var participationContext: AgentParticipationContext? {
-        guard let participation else { return nil }
-        return AgentParticipationContext(level: participation.level) {
-            withAnimation(.snappy(duration: 0.2)) {
-                showingParticipationMenu.toggle()
-            }
-        }
-    }
-
-    /// Keys the participation `.task` on the conversation AND on whether it has
-    /// an agent, so an agent that joins an already-open conversation re-runs
-    /// `prepareParticipation` and surfaces the control — keying on the
-    /// conversation id alone would miss that transition.
-    private var participationTaskKey: String {
-        let hasAgent = viewModel.conversation.members.contains(where: \.isAgent)
-        return "\(viewModel.conversation.id)-\(hasAgent)"
-    }
-
-    /// Builds the store for this conversation and reads its current level.
-    /// Skipped where the control would be meaningless, so a conversation
-    /// without agents never spends a request on it.
-    private func prepareParticipation() async {
-        guard FeatureFlags.shared.isListenParticipationEnabled,
-              viewModel.conversation.members.contains(where: \.isAgent) else {
-            participation = nil
-            return
-        }
-        let store = AgentParticipationStore(
-            conversationId: viewModel.conversation.id
-        )
-        participation = store
-        await store.load()
-    }
-
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
@@ -987,5 +950,44 @@ extension ConversationView {
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
             onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
+    }
+}
+
+private extension ConversationView {
+    /// What the composer needs to draw the bubble: the level, and the tap.
+    /// `nil` in a conversation with no agent — a control for agents has no
+    /// business in a room without one.
+    var participationContext: AgentParticipationContext? {
+        guard let participation else { return nil }
+        return AgentParticipationContext(level: participation.level) {
+            withAnimation(.snappy(duration: 0.2)) {
+                showingParticipationMenu.toggle()
+            }
+        }
+    }
+
+    /// Keys the participation `.task` on the conversation AND on whether it has
+    /// an agent, so an agent that joins an already-open conversation re-runs
+    /// `prepareParticipation` and surfaces the control — keying on the
+    /// conversation id alone would miss that transition.
+    var participationTaskKey: String {
+        let hasAgent = viewModel.conversation.members.contains(where: \.isAgent)
+        return "\(viewModel.conversation.id)-\(hasAgent)"
+    }
+
+    /// Builds the store for this conversation and reads its current level.
+    /// Skipped where the control would be meaningless, so a conversation
+    /// without agents never spends a request on it.
+    func prepareParticipation() async {
+        guard FeatureFlags.shared.isListenParticipationEnabled,
+              viewModel.conversation.members.contains(where: \.isAgent) else {
+            participation = nil
+            return
+        }
+        let store = AgentParticipationStore(
+            conversationId: viewModel.conversation.id
+        )
+        participation = store
+        await store.load()
     }
 }
