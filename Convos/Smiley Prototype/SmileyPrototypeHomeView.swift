@@ -17,10 +17,12 @@ struct SmileyPrototypeHomeView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
     var body: some View {
-        ZStack {
+        let tapAction: () -> Void = { startSmileyConversation() }
+        let exitAction: () -> Void = { FeatureFlags.shared.isSmileyPrototypeEnabled = false }
+        ZStack(alignment: .topTrailing) {
             Color.colorBackgroundSurfaceless.ignoresSafeArea()
 
-            Button(action: startSmileyConversation) {
+            Button(action: tapAction) {
                 Text("😀")
                     .font(.system(size: 220))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -29,6 +31,22 @@ struct SmileyPrototypeHomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Start a conversation with the smiley agent")
             .accessibilityIdentifier("smiley-prototype-home-button")
+
+            // Escape hatch: without this the prototype has no navigation path
+            // back to Debug settings (this screen replaces the entire tab
+            // shell, including the App Settings sheet that hosts the toggle),
+            // so a tester could only exit by clearing UserDefaults. Flagged in
+            // review -- flip the flag directly instead of requiring that.
+            Button(action: exitAction) {
+                Text("Exit prototype")
+                    .font(.footnote)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .padding(.vertical, DesignConstants.Spacing.step2x)
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, DesignConstants.Spacing.step5x)
+            .padding(.trailing, DesignConstants.Spacing.step3x)
+            .accessibilityIdentifier("smiley-prototype-exit-button")
         }
         .sheet(item: $builderViewModel) { viewModel in
             AgentBuilderView(viewModel: viewModel, profileSettingsViewModel: .shared)
@@ -46,7 +64,7 @@ struct SmileyPrototypeHomeView: View {
     /// call right away; the short sleep just lets the sheet finish mounting
     /// before the reveal animation kicks off.
     private func startSmileyConversation() {
-        let viewModel = AgentBuilderViewModel(session: session, coreActions: coreActions)
+        let viewModel: AgentBuilderViewModel = AgentBuilderViewModel(session: session, coreActions: coreActions)
         viewModel.composerText = Constant.smileyPrompt
         builderViewModel = viewModel
         Task { @MainActor in
