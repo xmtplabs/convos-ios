@@ -898,7 +898,7 @@ private struct ContactDetailActions: View {
 
     private var chatButton: some View {
         let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
-        let chatLabel: String = isAgent ? "New chat" : "Chat"
+        let chatLabel: String = "Chat"
         return Button(action: onSendMessage) {
             Text(chatLabel)
                 .font(.body.weight(.medium))

@@ -16,7 +16,7 @@ public enum AgentDmFlow {
     ) async throws -> String {
         if let existing = try? session
             .conversationsRepository(for: [.allowed, .unknown])
-            .findOneToOne(with: agentInboxId, excluding: nil) {
+            .findAgentDm(with: agentInboxId) {
             return existing.id
         }
 

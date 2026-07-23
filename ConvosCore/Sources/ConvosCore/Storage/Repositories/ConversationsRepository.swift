@@ -23,6 +23,10 @@ public protocol ConversationsRepositoryProtocol {
     /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
 
+    /// The user's agent DM with this inbox, if one exists (conversations
+    /// carrying the agent-DM marker only).
+    func findAgentDm(with inboxId: String) throws -> Conversation?
+
     /// Conversations that contain an agent provisioned from `templateId`,
     /// split by who added that agent: `addedByCurrentUser` when the agent
     /// member's `invitedBy` is one of the current user's inboxes, otherwise
@@ -77,6 +81,21 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                 with: inboxId,
                 excluding: excludedConversationId,
                 consent: consent
+            )
+        }
+    }
+
+    /// The user's DM with this agent, if one exists. Unlike `findOneToOne`
+    /// this only matches conversations carrying the agent-DM marker, so an
+    /// ordinary 2-member conversation with the agent (e.g. the builder
+    /// conversation the agent was made in) never shadows the DM.
+    func findAgentDm(with inboxId: String) throws -> Conversation? {
+        try dbReader.read { [consent] db in
+            try db.composeOneToOne(
+                with: inboxId,
+                excluding: nil,
+                consent: consent,
+                onlyAgentDms: true
             )
         }
     }
@@ -173,7 +192,8 @@ fileprivate extension Database {
     func composeOneToOne(
         with otherInboxId: String,
         excluding excludedConversationId: String?,
-        consent: [Consent]
+        consent: [Consent],
+        onlyAgentDms: Bool = false
     ) throws -> Conversation? {
         // SQL-pushed predicate so we don't hydrate every conversation
         // the user has just to find the 1:1 with one specific inbox.
@@ -216,6 +236,9 @@ fileprivate extension Database {
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)
+        }
+        if onlyAgentDms {
+            request = request.filter(DBConversation.Columns.isAgentDm == true)
         }
         let dbConversationDetails = try request
             .detailedConversationQuery()
