@@ -223,6 +223,40 @@ the runtime attributed to the primary (cosmetic locally; fix alongside).
 
 - **Renames** (D9): `HERALD_CONVERSATION_ID` → `PRIMARY_CONVERSATION_ID` (env), `herald_conversation_id` → `primary_conversation_id` (DO store), `assistants.conversation_id` → semantic "primary" (D1). Keep read-side aliases for one deploy cycle; the direct-add cross-repo deploy order (worker → backend → apps) is the template.
 
+### 5.4.2 Outbound routing audit — every self-initiated send path (2026-07-23)
+
+A DM turn must never deliver into the group. The pinned-conversation
+assumption hid in many send paths, surfaced two at a time (scheduled sends,
+then a delegated media guide). A full sweep of runtime outbound sites and
+their status:
+
+| Path | Mechanism | Status |
+|---|---|---|
+| Direct reply to the turn's message | reply_to on the triggering msg | correct by construction |
+| Text chunks | `runtime.send_message` | routed (`_effective_conversation`) |
+| Media / remote attachments | `runtime.send_attachment` | **fixed** — was pinned to primary |
+| Link markers (+ captions) | `runtime.send_message` | routed |
+| Reactions / tap-backs | `runtime.react` | **fixed** — was pinned to primary |
+| Read receipts | conversation-aware receipt | routed (earlier) |
+| Diag stamps | `runtime.send_message` | routed (inherits the chokepoint) |
+| Scheduled / cron fires | `deliver: convos:<id>` → trigger origin | fixed (§5.4.1) |
+| Async delegation completions | origin captured at dispatch → trigger | fixed (delegate/origin_registry) |
+| Onboarding kickoff | `dispatch_system_trigger`, primary by nature | safe (DMs are never onboarded) |
+| Push `/convos/notify` | `dispatch_system_trigger`, origin defaults None | **review** if notify ever targets a DM |
+| Attestation republish (12h) | `update_profile` → primary | primary-only by design; **missing**: should also publish into active DMs so the verified badge refreshes there (feature gap, not a leak) |
+
+The fix is one chokepoint: `HeraldRuntime._effective_conversation(override)`
+resolves explicit override → the current turn's origin ContextVar (non-None
+only for agent-DM turns, set per turn in channel.py) → the pinned primary.
+Every runtime send resolves through it, so present and future per-turn sends
+follow the DM automatically. Cross-thread paths (cron tool executor,
+delegation dispatch) can't see the ContextVar, so they capture the origin at
+spawn and re-inject it on the turn — the two `dispatch_system_trigger` entry
+points that carry an explicit `origin_conversation_id`.
+
+Remaining follow-ups from this audit: confirm `/convos/notify` targeting, and
+publish attestation into active DMs.
+
 ### 5.5 Revocation: two independent layers (D6)
 
 The ticket's hardest requirement: "when a user is removed from a conversation we need to invalidate its DM session with the agent or we have a serious privacy problem."
