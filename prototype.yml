@@ -1,0 +1,4 @@
+prototypeId: "agent-first-app"
+side: "app"
+requestedLifetime: "2026-07-30T21:23:34.192Z"
+whatToTest: "Agent-first new-conversation UX: creating a new convo starts it with an agent already present by default (agent joins immediately at creation, not added after); humans get invited into that convo afterward — inverting today's human-first-then-add-agent flow. Validate the create → agent-join → invite-humans sequence experientially."
