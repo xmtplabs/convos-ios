@@ -75,6 +75,7 @@ struct DebugViewSection: View {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
+            Toggle("Abilities V2 (mock catalog)", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
