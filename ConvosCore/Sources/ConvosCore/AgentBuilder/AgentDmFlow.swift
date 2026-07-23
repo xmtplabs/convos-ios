@@ -28,6 +28,11 @@ public enum AgentDmFlow {
         // (our own devices included) classifies the conversation correctly.
         try await metadataWriter.markAsAgentDm(conversationId, originConversationId: originConversationId)
         try await metadataWriter.addMembers([agentInboxId], to: conversationId)
+        // The creation pipeline's own metadata writers (invite tag, emoji)
+        // race the marker's read-modify-write and can rewrite appData without
+        // it. Re-stamp after the add so the on-wire state settles with the
+        // marker; the local row is additionally latched by the writer.
+        try await metadataWriter.markAsAgentDm(conversationId, originConversationId: originConversationId)
         return conversationId
     }
 }

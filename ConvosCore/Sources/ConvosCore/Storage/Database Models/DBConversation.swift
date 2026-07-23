@@ -785,6 +785,34 @@ extension DBConversation {
         )
     }
 
+    func with(isAgentDm: Bool) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
+        )
+    }
+
     func with(hasHadVerifiedAgent: Bool) -> Self {
         .init(
             id: id,

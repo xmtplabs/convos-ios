@@ -891,6 +891,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
 
+        // One-way latch: concurrent custom-metadata writers at creation time
+        // (invite tag, emoji) do read-modify-write on the same appData blob
+        // and can briefly rewrite it without the agent-DM marker, so an
+        // extraction reading false must not un-mark a row that was ever
+        // marked locally.
+        if existingConversation?.isAgentDm == true && !conversationToSave.isAgentDm {
+            conversationToSave = conversationToSave.with(isAgentDm: true)
+        }
+
         if dbConversation.inviteTag.isEmpty,
            let existingConversation,
            !existingConversation.inviteTag.isEmpty {
