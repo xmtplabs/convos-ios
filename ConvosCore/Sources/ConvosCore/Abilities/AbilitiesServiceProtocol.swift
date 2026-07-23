@@ -1,8 +1,10 @@
 import Foundation
 
 /// Result of creating or restarting an entitlement for an ability.
-/// OAuth abilities come back `pendingAuth` with a redirect URL to complete
-/// in a browser session; auth-less abilities come back `active` immediately.
+/// OAuth abilities come back `pendingAuth` with a redirect URL the client
+/// must complete in a browser session before calling
+/// `completeEntitlement`; auth-less abilities come back `active`
+/// immediately.
 public struct AbilityEntitlementInitiation: Sendable, Hashable {
     public let status: AbilitiesAPI.EntitlementStatus
     public let redirectUrl: String?
@@ -10,6 +12,19 @@ public struct AbilityEntitlementInitiation: Sendable, Hashable {
     public init(status: AbilitiesAPI.EntitlementStatus, redirectUrl: String? = nil) {
         self.status = status
         self.redirectUrl = redirectUrl
+    }
+}
+
+/// Identity of one (ability, agent) opt-in. Both components are opaque
+/// server strings, so identity is a composite value, never a joined
+/// string (a delimiter is not contractually excluded from either part).
+public struct ConversationAbilityKey: Sendable, Hashable {
+    public let abilityId: String
+    public let agentInboxId: String
+
+    public init(abilityId: String, agentInboxId: String) {
+        self.abilityId = abilityId
+        self.agentInboxId = agentInboxId
     }
 }
 
@@ -24,7 +39,11 @@ public struct ConversationAbility: Sendable, Hashable, Identifiable {
     public let agentInboxId: String
     public let bundleIds: [String]
 
-    public var id: String { "\(abilityId)|\(agentInboxId)" }
+    public var key: ConversationAbilityKey {
+        ConversationAbilityKey(abilityId: abilityId, agentInboxId: agentInboxId)
+    }
+
+    public var id: ConversationAbilityKey { key }
 
     public init(abilityId: String, agentInboxId: String, bundleIds: [String]) {
         self.abilityId = abilityId
@@ -33,7 +52,7 @@ public struct ConversationAbility: Sendable, Hashable, Identifiable {
     }
 }
 
-/// Typed failures for ability mutations, mirroring the backend's error
+/// Typed failures for ability operations, mirroring the backend's error
 /// vocabulary.
 public enum AbilitiesServiceError: Error, Sendable, Equatable {
     /// A conversation extension was requested without an active
@@ -42,6 +61,23 @@ public enum AbilitiesServiceError: Error, Sendable, Equatable {
     case needsEntitlement(abilityId: String)
     /// The ability id is not in the served catalog.
     case unknownAbility(abilityId: String)
+    /// The caller's JWT carries no account (device-only): the catalog is
+    /// browsable but entitlements cannot be created or mutated until the
+    /// user signs in.
+    case accountRequired
+}
+
+extension AbilitiesServiceError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .needsEntitlement:
+            "Connect this ability before sharing it with a convo."
+        case .unknownAbility:
+            "This ability is no longer available."
+        case .accountRequired:
+            "Sign in to connect abilities."
+        }
+    }
 }
 
 /// Backend-owned abilities: catalog enumeration, account-level entitlement
@@ -51,13 +87,16 @@ public enum AbilitiesServiceError: Error, Sendable, Equatable {
 /// live transport lands.
 public protocol AbilitiesServiceProtocol: Sendable {
     /// Fetches the full catalog crossed with the caller's entitlement
-    /// state. Implementations apply the availability contract: a response
-    /// carrying `entitlementsUnavailable` keeps last-known entitlement
-    /// state instead of downgrading abilities to "not connected".
-    func fetchCatalog() async throws -> AbilitiesAPI.CatalogResponse
+    /// state, resolved per the availability contract: a response carrying
+    /// `entitlementsUnavailable` keeps last-known entitlement state, and
+    /// abilities without last-known state come back `.unknown` (see
+    /// `AbilitiesCatalog.resolving`).
+    func fetchCatalog() async throws -> AbilitiesCatalog
 
     /// Creates or restarts the caller's entitlement for `abilityId`.
-    /// Idempotent per (account, ability).
+    /// Idempotent per (account, ability). OAuth abilities return
+    /// `pendingAuth` plus the redirect URL to authorize in a browser
+    /// session; only after that callback may `completeEntitlement` run.
     func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation
 
     /// Completes a pending OAuth entitlement after the browser callback

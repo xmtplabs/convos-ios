@@ -512,14 +512,21 @@ struct ConversationInfoView: View {
         }
     }
 
+    /// Branches on the current flag value and clears the opposite mode's
+    /// view model, so a flag flip while this view identity survives can
+    /// never leave both models alive with the stale one rendering.
     private func prepareAgentAccessViewModels() {
         guard viewModel.conversation.hasAgent else { return }
         if FeatureFlags.shared.isAbilitiesV2Enabled {
+            connectionsViewModel = nil
             if abilitiesViewModel == nil {
                 abilitiesViewModel = makeConversationAbilitiesViewModel()
             }
-        } else if connectionsViewModel == nil {
-            connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+        } else {
+            abilitiesViewModel = nil
+            if connectionsViewModel == nil {
+                connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+            }
         }
     }
 

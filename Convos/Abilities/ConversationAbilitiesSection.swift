@@ -7,9 +7,12 @@ import SwiftUI
 ///
 /// One toggle per ability per agent: single-agent conversations render one
 /// plain toggle per ability, multi-agent conversations label each row with
-/// the agent it extends to. Toggling on a multi-bundle ability opens the
-/// bundle picker; toggling an ability without an active entitlement opens
-/// the abilities list to connect it first.
+/// the agent it extends to. Rows honor the entitlement lifecycle: an
+/// opt-in backed by a non-active entitlement renders its status badge and
+/// deep-links to the abilities list instead of presenting a usable toggle.
+/// Toggling on a multi-bundle ability opens the bundle picker; toggling an
+/// ability without an active entitlement opens the abilities list to
+/// connect it first.
 struct ConversationAbilitiesSection: View {
     @Bindable var viewModel: ConversationAbilitiesViewModel
 
@@ -21,7 +24,7 @@ struct ConversationAbilitiesSection: View {
                     .foregroundStyle(.colorCaution)
             }
             ForEach(viewModel.rows) { row in
-                abilityToggleRow(row)
+                abilityRow(row)
             }
         } header: {
             Text("Abilities")
@@ -38,12 +41,50 @@ struct ConversationAbilitiesSection: View {
 
     // MARK: - Rows
 
-    private func abilityToggleRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
-        let binding = Binding(
+    @ViewBuilder
+    private func abilityRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
+        switch row.lifecycle {
+        case .needsAttention(let status):
+            needsAttentionRow(row, status: status)
+        case .ready, .needsEntitlement, .unknown:
+            toggleRow(row)
+        }
+    }
+
+    private func toggleRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
+        let binding: Binding<Bool> = Binding(
             get: { row.isOn },
             set: { _ in viewModel.toggle(row) }
         )
-        return FeatureRowItem(
+        let isDisabled: Bool = viewModel.isBusy || row.lifecycle == .unknown
+        return featureRow(row) {
+            Toggle("", isOn: binding)
+                .labelsHidden()
+                .disabled(isDisabled)
+        }
+    }
+
+    /// An opt-in whose entitlement is no longer active: no usable toggle,
+    /// a status badge, and the whole row deep-links to the abilities list
+    /// to reconnect.
+    private func needsAttentionRow(
+        _ row: ConversationAbilitiesViewModel.Row,
+        status: AbilitiesAPI.EntitlementStatus?
+    ) -> some View {
+        let reconnectAction = { viewModel.needsEntitlementAbility = row.ability }
+        return Button(action: reconnectAction) {
+            featureRow(row) {
+                AbilityStatusBadge(status: status ?? .revoked)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func featureRow(
+        _ row: ConversationAbilitiesViewModel.Row,
+        @ViewBuilder accessory: @escaping () -> some View
+    ) -> some View {
+        FeatureRowItem(
             imageName: nil,
             symbolName: AbilityIconView.symbolName(for: row.ability.id),
             title: row.ability.displayName.resolved(),
@@ -51,25 +92,37 @@ struct ConversationAbilitiesSection: View {
             iconBackgroundColor: .colorFillMinimal,
             iconForegroundColor: .colorTextPrimary
         ) {
-            Toggle("", isOn: binding)
-                .labelsHidden()
-                .disabled(viewModel.isBusy)
+            accessory()
         }
-        .accessibilityIdentifier("conversation-ability-\(row.id)")
+        .accessibilityIdentifier("conversation-ability-\(row.ability.id)-\(row.agent.inboxId)")
     }
 
     /// Single-agent rows read like the V1 section; multi-agent rows name
-    /// the agent the toggle extends to. An ability without an active
-    /// entitlement advertises the connect-first step.
+    /// the agent the toggle extends to. Lifecycle problems always surface,
+    /// in both layouts.
     private func subtitle(for row: ConversationAbilitiesViewModel.Row) -> String {
-        let needsEntitlement: Bool = row.ability.entitlement?.status != .active
-        if !viewModel.isSingleAgent {
-            return "For \(row.agent.displayName)"
+        let base: String = viewModel.isSingleAgent ? row.ability.subtitle.resolved() : "For \(row.agent.displayName)"
+        switch row.lifecycle {
+        case .ready:
+            return base
+        case .needsAttention(let status):
+            let warning: String = attentionWarning(for: status)
+            return viewModel.isSingleAgent ? warning : "\(base) - \(warning)"
+        case .needsEntitlement:
+            return viewModel.isSingleAgent ? "Connect to use in this convo" : "\(base) - not connected"
+        case .unknown:
+            return viewModel.isSingleAgent ? "Status unavailable" : "\(base) - status unavailable"
         }
-        if needsEntitlement, !row.isOn {
-            return "Connect to use in this convo"
+    }
+
+    private func attentionWarning(for status: AbilitiesAPI.EntitlementStatus?) -> String {
+        switch status {
+        case .expired: "Expired, tap to reconnect"
+        case .needsReauth: "Needs reauthorization, tap to fix"
+        case .pendingAuth: "Authorization pending, tap to finish"
+        case .revoked, .none: "Disconnected, tap to reconnect"
+        case .active: ""
         }
-        return row.ability.subtitle.resolved()
     }
 
     // MARK: - Sheets
@@ -136,6 +189,20 @@ struct ConversationAbilitiesSection: View {
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
                 ],
                 service: MockAbilitiesService(scenario: .entitlementsUnavailable)
+            )
+        )
+    }
+}
+
+#Preview("Cold-start outage") {
+    List {
+        ConversationAbilitiesSection(
+            viewModel: ConversationAbilitiesViewModel(
+                conversationId: "mock-conversation-1",
+                agents: [
+                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
+                ],
+                service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)
             )
         )
     }

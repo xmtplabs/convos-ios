@@ -10,6 +10,11 @@ struct AbilitiesCatalogContractTests {
         return decoder
     }
 
+    private func decodeCatalog(_ json: String) throws -> AbilitiesAPI.CatalogResponse {
+        let data = try #require(json.data(using: .utf8))
+        return try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: data)
+    }
+
     private let authoritativeJSON = """
     {
       "catalogVersion": 3,
@@ -65,10 +70,26 @@ struct AbilitiesCatalogContractTests {
     }
     """
 
-    @Test("Authoritative response decodes: entitlement object and explicit null")
+    private func makeAbility(
+        id: String = "spotify",
+        entitlementState: AbilitiesAPI.EntitlementState = .notEntitled
+    ) -> AbilitiesAPI.Ability {
+        AbilitiesAPI.Ability(
+            id: id,
+            version: 1,
+            displayName: AbilitiesAPI.LocalizedText(en: "Spotify"),
+            subtitle: AbilitiesAPI.LocalizedText(en: "Control playback"),
+            auth: AbilitiesAPI.AbilityAuth(type: .oauth),
+            bundles: [],
+            entitlementState: entitlementState
+        )
+    }
+
+    // MARK: - Decoding
+
+    @Test("Authoritative response decodes: entitlement object and explicit null stay distinct")
     func decodesAuthoritativeResponse() throws {
-        let data = try #require(authoritativeJSON.data(using: .utf8))
-        let response = try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: data)
+        let response = try decodeCatalog(authoritativeJSON)
 
         #expect(response.catalogVersion == 3)
         #expect(!response.entitlementsUnavailable)
@@ -84,38 +105,143 @@ struct AbilitiesCatalogContractTests {
         #expect(gcal.bundles.first?.defaultEnabled == true)
 
         let spotify = try #require(response.abilities.first { $0.id == "spotify" })
+        #expect(spotify.entitlementState == .notEntitled)
         #expect(spotify.entitlement == nil)
         #expect(spotify.icon == nil)
     }
 
-    @Test("Unavailable response decodes: flag true, no entitlement keys")
+    @Test("Unavailable response decodes: flag true, omitted keys become unknown, never notEntitled")
     func decodesUnavailableResponse() throws {
-        let data = try #require(unavailableJSON.data(using: .utf8))
-        let response = try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: data)
+        let response = try decodeCatalog(unavailableJSON)
 
         #expect(response.entitlementsUnavailable)
         #expect(response.abilities.count == 1)
+        #expect(response.abilities.first?.entitlementState == .unknown)
         #expect(response.abilities.first?.entitlement == nil)
     }
 
-    @Test("Absent flag decodes as false")
-    func absentFlagDecodesFalse() throws {
-        let data = try #require(authoritativeJSON.data(using: .utf8))
-        let response = try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: data)
-        #expect(!response.entitlementsUnavailable)
+    @Test("Localized map without an en key is rejected")
+    func rejectsMissingEnglish() throws {
+        let json = """
+        {
+          "catalogVersion": 1,
+          "abilities": [
+            {
+              "id": "spotify",
+              "version": 1,
+              "displayName": { "fr": "Spotify" },
+              "subtitle": { "en": "Control playback" },
+              "auth": { "type": "oauth" },
+              "bundles": [],
+              "entitlement": null
+            }
+          ]
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(json)
+        }
     }
 
-    @Test("Encoding omits the flag when false and writes it when true")
-    func encodingMatchesWireShape() throws {
-        let authoritative = AbilitiesAPI.CatalogResponse(catalogVersion: 1, abilities: [])
-        let authoritativeData = try JSONEncoder().encode(authoritative)
-        let authoritativeObject = try #require(try JSONSerialization.jsonObject(with: authoritativeData) as? [String: Any])
-        #expect(authoritativeObject["entitlementsUnavailable"] == nil)
+    @Test("Icon with a missing platform URL is rejected")
+    func rejectsPartialIcon() throws {
+        let json = """
+        {
+          "catalogVersion": 1,
+          "abilities": [
+            {
+              "id": "spotify",
+              "version": 1,
+              "displayName": { "en": "Spotify" },
+              "subtitle": { "en": "Control playback" },
+              "icon": { "iosUrl": "https://cdn.convos.org/spotify-ios.png" },
+              "auth": { "type": "oauth" },
+              "bundles": [],
+              "entitlement": null
+            }
+          ]
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(json)
+        }
+    }
 
-        let unavailable = AbilitiesAPI.CatalogResponse(catalogVersion: 1, entitlementsUnavailable: true, abilities: [])
-        let unavailableData = try JSONEncoder().encode(unavailable)
-        let unavailableObject = try #require(try JSONSerialization.jsonObject(with: unavailableData) as? [String: Any])
-        #expect(unavailableObject["entitlementsUnavailable"] as? Bool == true)
+    @Test("Negative catalogVersion, ability version, and extensionCount are rejected")
+    func rejectsNegativeIntegers() throws {
+        let negativeCatalogVersion = authoritativeJSON.replacingOccurrences(of: "\"catalogVersion\": 3", with: "\"catalogVersion\": -1")
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(negativeCatalogVersion)
+        }
+
+        let negativeAbilityVersion = authoritativeJSON.replacingOccurrences(of: "\"version\": 2", with: "\"version\": -2")
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(negativeAbilityVersion)
+        }
+
+        let negativeExtensionCount = authoritativeJSON.replacingOccurrences(of: "\"extensionCount\": 2", with: "\"extensionCount\": -2")
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(negativeExtensionCount)
+        }
+    }
+
+    @Test("Explicit entitlementsUnavailable false is rejected (wire is present-true or absent)")
+    func rejectsExplicitFalseFlag() throws {
+        let json = """
+        {
+          "catalogVersion": 1,
+          "entitlementsUnavailable": false,
+          "abilities": []
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(json)
+        }
+    }
+
+    @Test("Flag/key coherence is enforced both ways")
+    func rejectsIncoherentResponses() throws {
+        // Authoritative response with a missing entitlement key.
+        let missingKey = """
+        {
+          "catalogVersion": 1,
+          "abilities": [
+            {
+              "id": "spotify",
+              "version": 1,
+              "displayName": { "en": "Spotify" },
+              "subtitle": { "en": "Control playback" },
+              "auth": { "type": "oauth" },
+              "bundles": []
+            }
+          ]
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(missingKey)
+        }
+
+        // Unavailable response carrying an entitlement key.
+        let forbiddenKey = """
+        {
+          "catalogVersion": 1,
+          "entitlementsUnavailable": true,
+          "abilities": [
+            {
+              "id": "spotify",
+              "version": 1,
+              "displayName": { "en": "Spotify" },
+              "subtitle": { "en": "Control playback" },
+              "auth": { "type": "oauth" },
+              "bundles": [],
+              "entitlement": null
+            }
+          ]
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try decodeCatalog(forbiddenKey)
+        }
     }
 
     @Test("All five contract statuses decode; unknown collapses to expired")
@@ -139,29 +265,64 @@ struct AbilitiesCatalogContractTests {
         let text = AbilitiesAPI.LocalizedText(values: ["en": "Events", "fr": "Evenements"])
         #expect(text.resolved(for: Locale(identifier: "fr_FR")) == "Evenements")
         #expect(text.resolved(for: Locale(identifier: "de_DE")) == "Events")
-        let empty = AbilitiesAPI.LocalizedText(values: [:])
-        #expect(empty.resolved(for: Locale(identifier: "en_US")).isEmpty)
     }
 
-    @Test("Merging under the flag carries last-known entitlements forward")
-    func mergeKeepsLastKnownState() throws {
-        let entitled = AbilitiesAPI.Ability(
-            id: "googlecalendar",
-            version: 2,
-            displayName: AbilitiesAPI.LocalizedText(en: "Google Calendar"),
-            subtitle: AbilitiesAPI.LocalizedText(en: "Read and edit events"),
-            auth: AbilitiesAPI.AbilityAuth(type: .oauth),
-            bundles: [],
-            entitlement: AbilitiesAPI.Entitlement(status: .active, extensionCount: 2)
+    // MARK: - Encoding
+
+    @Test("Authoritative not-entitled encodes an explicit null, unknown omits the key")
+    func encodingPreservesNullVersusAbsent() throws {
+        let authoritative = AbilitiesAPI.CatalogResponse(
+            catalogVersion: 1,
+            abilities: [makeAbility(entitlementState: .notEntitled)]
         )
-        let lastKnown = AbilitiesAPI.CatalogResponse(catalogVersion: 3, abilities: [entitled])
+        let authoritativeData = try JSONEncoder().encode(authoritative)
+        let authoritativeObject = try #require(try JSONSerialization.jsonObject(with: authoritativeData) as? [String: Any])
+        let authoritativeAbility = try #require((authoritativeObject["abilities"] as? [[String: Any]])?.first)
+        #expect(authoritativeAbility.keys.contains("entitlement"))
+        #expect(authoritativeAbility["entitlement"] is NSNull)
+        #expect(authoritativeObject["entitlementsUnavailable"] == nil)
+
+        let unavailable = AbilitiesAPI.CatalogResponse(
+            catalogVersion: 1,
+            entitlementsUnavailable: true,
+            abilities: [makeAbility(entitlementState: .unknown)]
+        )
+        let unavailableData = try JSONEncoder().encode(unavailable)
+        let unavailableObject = try #require(try JSONSerialization.jsonObject(with: unavailableData) as? [String: Any])
+        let unavailableAbility = try #require((unavailableObject["abilities"] as? [[String: Any]])?.first)
+        #expect(!unavailableAbility.keys.contains("entitlement"))
+        #expect(unavailableObject["entitlementsUnavailable"] as? Bool == true)
+    }
+
+    @Test("Both wire shapes round-trip through encode and decode")
+    func roundTrips() throws {
+        let authoritative = try decodeCatalog(authoritativeJSON)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let redecodedAuthoritative = try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: encoder.encode(authoritative))
+        #expect(redecodedAuthoritative == authoritative)
+
+        let unavailable = try decodeCatalog(unavailableJSON)
+        let redecodedUnavailable = try decoder().decode(AbilitiesAPI.CatalogResponse.self, from: encoder.encode(unavailable))
+        #expect(redecodedUnavailable == unavailable)
+    }
+
+    // MARK: - Resolution against last-known state
+
+    @Test("Resolving under the flag carries last-known entitlements forward")
+    func resolvingKeepsLastKnownState() throws {
+        let entitled = makeAbility(
+            id: "googlecalendar",
+            entitlementState: .entitled(AbilitiesAPI.Entitlement(status: .active, extensionCount: 2))
+        )
+        let lastKnown = AbilitiesCatalog(catalogVersion: 3, abilities: [entitled])
 
         let outage = AbilitiesAPI.CatalogResponse(
             catalogVersion: 4,
             entitlementsUnavailable: true,
-            abilities: [entitled.withEntitlement(nil)]
+            abilities: [entitled.withEntitlementState(.unknown)]
         )
-        let merged = outage.keepingLastKnownEntitlements(from: lastKnown)
+        let merged = AbilitiesCatalog.resolving(response: outage, lastKnown: lastKnown)
 
         #expect(merged.entitlementsUnavailable)
         #expect(merged.abilities.first?.entitlement?.status == .active)
@@ -169,31 +330,36 @@ struct AbilitiesCatalogContractTests {
 
         // A merged result used as last-known keeps carrying state through
         // back-to-back outages.
-        let secondOutage = outage.keepingLastKnownEntitlements(from: merged)
-        #expect(secondOutage.abilities.first?.entitlement?.status == .active)
+        let secondMerge = AbilitiesCatalog.resolving(response: outage, lastKnown: merged)
+        #expect(secondMerge.abilities.first?.entitlement?.status == .active)
     }
 
-    @Test("Merging does not touch authoritative responses")
-    func mergeLeavesAuthoritativeAlone() {
-        let ability = AbilitiesAPI.Ability(
-            id: "spotify",
-            version: 1,
-            displayName: AbilitiesAPI.LocalizedText(en: "Spotify"),
-            subtitle: AbilitiesAPI.LocalizedText(en: "Control playback"),
-            auth: AbilitiesAPI.AbilityAuth(type: .oauth),
-            bundles: [],
-            entitlement: nil
-        )
-        let stale = AbilitiesAPI.CatalogResponse(
+    @Test("Resolving a cold-start outage leaves states unknown")
+    func resolvingColdStartStaysUnknown() {
+        let outage = AbilitiesAPI.CatalogResponse(
             catalogVersion: 1,
-            abilities: [ability.withEntitlement(AbilitiesAPI.Entitlement(status: .active))]
+            entitlementsUnavailable: true,
+            abilities: [makeAbility(entitlementState: .unknown)]
         )
-        let authoritative = AbilitiesAPI.CatalogResponse(catalogVersion: 2, abilities: [ability])
+        let resolved = AbilitiesCatalog.resolving(response: outage, lastKnown: nil)
 
-        let result = authoritative.keepingLastKnownEntitlements(from: stale)
+        #expect(resolved.entitlementsUnavailable)
+        #expect(resolved.abilities.first?.entitlementState == .unknown)
+    }
+
+    @Test("Resolving does not touch authoritative responses")
+    func resolvingLeavesAuthoritativeAlone() {
+        let stale = AbilitiesCatalog(
+            catalogVersion: 1,
+            abilities: [makeAbility(entitlementState: .entitled(AbilitiesAPI.Entitlement(status: .active)))]
+        )
+        let authoritative = AbilitiesAPI.CatalogResponse(catalogVersion: 2, abilities: [makeAbility(entitlementState: .notEntitled)])
+
+        let resolved = AbilitiesCatalog.resolving(response: authoritative, lastKnown: stale)
         // The authoritative null is the truth: the user is no longer
         // entitled, and stale state must not resurrect it.
-        #expect(result.abilities.first?.entitlement == nil)
+        #expect(resolved.abilities.first?.entitlementState == .notEntitled)
+        #expect(!resolved.entitlementsUnavailable)
     }
 }
 
@@ -214,7 +380,7 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.extensionCount == 2)
         #expect(catalog.abilities.first { $0.id == "spotify" }?.entitlement?.status == .expired)
         #expect(catalog.abilities.first { $0.id == "gmail" }?.entitlement?.status == .pendingAuth)
-        #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlement == nil)
+        #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlementState == .notEntitled)
     }
 
     @Test("Unavailable scenario serves the flag and keeps last-known state")
@@ -226,16 +392,43 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.status == .active)
     }
 
-    @Test("Device-only scenario serves the catalog with no entitlements")
+    @Test("Cold-start outage serves the flag with every state unknown")
+    func coldStartOutageServesUnknown() async throws {
+        let service = makeService(scenario: .entitlementsUnavailableColdStart)
+        let catalog = try await service.fetchCatalog()
+
+        #expect(catalog.entitlementsUnavailable)
+        #expect(catalog.abilities.count == 6)
+        #expect(catalog.abilities.allSatisfy { $0.entitlementState == .unknown })
+    }
+
+    @Test("Device-only scenario serves the catalog with explicit null entitlements")
     func deviceOnlyScenario() async throws {
         let service = makeService(scenario: .deviceOnly)
         let catalog = try await service.fetchCatalog()
 
         #expect(catalog.abilities.count == 6)
-        #expect(catalog.abilities.allSatisfy { $0.entitlement == nil })
+        #expect(catalog.abilities.allSatisfy { $0.entitlementState == .notEntitled })
     }
 
-    @Test("OAuth connect goes pending with a redirect, then completes to active")
+    @Test("Device-only callers cannot begin or extend entitlements")
+    func deviceOnlyRejectsMutations() async throws {
+        let service = makeService(scenario: .deviceOnly)
+
+        await #expect(throws: AbilitiesServiceError.accountRequired) {
+            _ = try await service.beginEntitlement(abilityId: "coinbase")
+        }
+        await #expect(throws: AbilitiesServiceError.accountRequired) {
+            try await service.extendAbility(
+                conversationId: "conversation-a",
+                abilityId: "coinbase",
+                agentInboxId: "agent-1",
+                bundleIds: ["coinbase.portfolio"]
+            )
+        }
+    }
+
+    @Test("OAuth connect goes pending with a redirect; completion is a separate step")
     func oauthLifecycle() async throws {
         let service = makeService()
 
@@ -298,7 +491,7 @@ struct MockAbilitiesServiceTests {
         try await service.revokeEntitlement(abilityId: "googlecalendar")
 
         let catalog = try await service.fetchCatalog()
-        #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement == nil)
+        #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlementState == .notEntitled)
 
         let conversationOne = try await service.conversationAbilities(conversationId: "mock-conversation-1")
         #expect(conversationOne.allSatisfy { $0.abilityId != "googlecalendar" })

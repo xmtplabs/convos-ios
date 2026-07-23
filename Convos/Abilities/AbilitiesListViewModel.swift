@@ -1,13 +1,26 @@
 import ConvosCore
 import SwiftUI
 
+/// Context for the authorization step between `beginEntitlement` and
+/// `completeEntitlement`: the redirect URL the user must approve. Track A
+/// presents it in a stubbed sheet; the live transport hands the same URL
+/// to the OAuth session machinery and calls the same completion path.
+struct AbilityAuthorizationContext: Identifiable, Hashable {
+    let ability: AbilitiesAPI.Ability
+    let redirectUrl: String
+
+    var id: String { ability.id }
+}
+
 @MainActor @Observable
 final class AbilitiesListViewModel {
-    private(set) var catalog: AbilitiesAPI.CatalogResponse?
+    private(set) var catalog: AbilitiesCatalog?
     private(set) var isLoading: Bool = false
     private(set) var busyAbilityIds: Set<String> = []
     private(set) var errorMessage: String?
     var searchText: String = ""
+    /// Non-nil presents the authorization sheet for a pending entitlement.
+    var pendingAuthorization: AbilityAuthorizationContext?
 
     private let service: any AbilitiesServiceProtocol
 
@@ -29,14 +42,26 @@ final class AbilitiesListViewModel {
 
     /// Abilities the caller holds an entitlement for, in any lifecycle
     /// state. Under `entitlementsUnavailable` this reflects last-known
-    /// state, already merged by the service.
+    /// state, already resolved by the service.
     var entitledAbilities: [AbilitiesAPI.Ability] {
         filteredAbilities.filter { $0.entitlement != nil }
     }
 
-    /// Catalog-only abilities the caller can connect.
+    /// Abilities the caller is authoritatively not entitled to and can
+    /// connect. Unknown states are deliberately excluded: an outage with
+    /// no last-known state must never render as "Available".
     var availableAbilities: [AbilitiesAPI.Ability] {
-        filteredAbilities.filter { $0.entitlement == nil }
+        filteredAbilities.filter { $0.entitlementState == .notEntitled }
+    }
+
+    /// Abilities whose entitlement state could not be determined (outage
+    /// with no last-known state). Rendered without connect controls.
+    var unknownStateAbilities: [AbilitiesAPI.Ability] {
+        filteredAbilities.filter { $0.entitlementState == .unknown }
+    }
+
+    var hasVisibleAbilities: Bool {
+        !entitledAbilities.isEmpty || !availableAbilities.isEmpty || !unknownStateAbilities.isEmpty
     }
 
     func isBusy(_ ability: AbilitiesAPI.Ability) -> Bool {
@@ -56,10 +81,11 @@ final class AbilitiesListViewModel {
         isLoading = false
     }
 
-    /// Starts (or restarts, for expired and needs-reauth states) the
-    /// entitlement. The transport returning `pendingAuth` hands its
-    /// redirect URL to the OAuth session machinery; the mock service has
-    /// no browser to bounce through, so completion follows immediately.
+    /// Starts (or restarts, for expired/needs-reauth/revoked states) the
+    /// entitlement. A `pendingAuth` initiation with a redirect URL opens
+    /// the authorization step; completion only ever runs from
+    /// `completeAuthorization`, after the user approved it, mirroring the
+    /// browser-callback boundary the live transport has.
     func connect(_ ability: AbilitiesAPI.Ability) {
         guard !isBusy(ability) else { return }
         busyAbilityIds.insert(ability.id)
@@ -67,14 +93,40 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 let initiation = try await service.beginEntitlement(abilityId: ability.id)
-                if initiation.status == .pendingAuth {
-                    try await service.completeEntitlement(abilityId: ability.id)
+                if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
+                    pendingAuthorization = AbilityAuthorizationContext(ability: ability, redirectUrl: redirectUrl)
                 }
                 catalog = try await service.fetchCatalog()
             } catch {
                 errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(ability.id)
+        }
+    }
+
+    /// The authorization step succeeded (in Track A, the stub sheet's
+    /// approve; later, the OAuth callback): verify and activate.
+    func completeAuthorization(_ context: AbilityAuthorizationContext) {
+        pendingAuthorization = nil
+        busyAbilityIds.insert(context.ability.id)
+        Task {
+            do {
+                try await service.completeEntitlement(abilityId: context.ability.id)
+                catalog = try await service.fetchCatalog()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            busyAbilityIds.remove(context.ability.id)
+        }
+    }
+
+    /// The user backed out of authorization. The entitlement stays
+    /// `pendingAuth`; its row offers Continue (re-runs `connect`, begin is
+    /// idempotent) and Disconnect (revokes the pending entitlement).
+    func cancelAuthorization() {
+        pendingAuthorization = nil
+        Task {
+            await refresh()
         }
     }
 
@@ -99,7 +151,7 @@ final class AbilitiesListViewModel {
 
     private var filteredAbilities: [AbilitiesAPI.Ability] {
         guard let catalog else { return [] }
-        let sorted: [AbilitiesAPI.Ability] = catalog.abilities.sorted { lhs, rhs in
+        let sorted: [AbilitiesAPI.Ability] = catalog.abilities.sorted { (lhs: AbilitiesAPI.Ability, rhs: AbilitiesAPI.Ability) -> Bool in
             lhs.displayName.resolved().localizedCaseInsensitiveCompare(rhs.displayName.resolved()) == .orderedAscending
         }
         let query = trimmedQuery

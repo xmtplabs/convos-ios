@@ -14,6 +14,16 @@ struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
 
     var body: some View {
+        catalogList
+            .searchable(text: $viewModel.searchText, prompt: "Search abilities")
+            .overlay { listOverlay }
+            .task { await viewModel.refresh() }
+            .sheet(item: $viewModel.pendingAuthorization) { context in
+                authorizationSheet(context)
+            }
+    }
+
+    private var catalogList: some View {
         List {
             headerSection
             if viewModel.entitlementsUnavailable {
@@ -24,12 +34,10 @@ struct AbilitiesListView: View {
             }
             entitledSection
             availableSection
+            unknownStateSection
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
-        .searchable(text: $viewModel.searchText, prompt: "Search abilities")
-        .overlay { listOverlay }
-        .task { await viewModel.refresh() }
         .accessibilityIdentifier("abilities-list")
     }
 
@@ -57,7 +65,8 @@ struct AbilitiesListView: View {
     }
 
     /// Shown when the backend served the catalog without entitlement
-    /// state; the rows below carry last-known state, never "not connected".
+    /// state. Rows carry last-known state; rows with no last-known state
+    /// render in the state-unknown section, never as "not connected".
     private var unavailableBanner: some View {
         Section {
             HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -83,7 +92,7 @@ struct AbilitiesListView: View {
     private var listOverlay: some View {
         if viewModel.isLoading, !viewModel.hasLoadedOnce {
             ProgressView()
-        } else if viewModel.isSearching, viewModel.entitledAbilities.isEmpty, viewModel.availableAbilities.isEmpty {
+        } else if viewModel.isSearching, !viewModel.hasVisibleAbilities {
             ContentUnavailableView.search(text: viewModel.searchText)
         }
     }
@@ -116,6 +125,21 @@ struct AbilitiesListView: View {
         }
     }
 
+    /// Outage with no last-known state: the catalog stays browsable but
+    /// connect controls are withheld until an authoritative response.
+    @ViewBuilder
+    private var unknownStateSection: some View {
+        if !viewModel.unknownStateAbilities.isEmpty {
+            Section {
+                ForEach(viewModel.unknownStateAbilities) { ability in
+                    unknownStateRow(ability)
+                }
+            } header: {
+                sectionHeader("Abilities")
+            }
+        }
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.footnote.weight(.medium))
@@ -133,6 +157,12 @@ struct AbilitiesListView: View {
     private func availableRow(_ ability: AbilitiesAPI.Ability) -> some View {
         abilityRowContent(ability, subtitle: ability.subtitle.resolved()) {
             availableAccessory(ability)
+        }
+    }
+
+    private func unknownStateRow(_ ability: AbilitiesAPI.Ability) -> some View {
+        abilityRowContent(ability, subtitle: "Status unavailable") {
+            EmptyView()
         }
     }
 
@@ -184,12 +214,16 @@ struct AbilitiesListView: View {
     }
 
     private func entitledMenu(_ ability: AbilitiesAPI.Ability, status: AbilitiesAPI.EntitlementStatus) -> some View {
-        let needsReconnect: Bool = status == .expired || status == .needsReauth
-        let reconnectAction = { viewModel.connect(ability) }
+        let continueAction = { viewModel.connect(ability) }
         let disconnectAction = { viewModel.disconnect(ability) }
         return Menu {
-            if needsReconnect {
-                Button("Reconnect", action: reconnectAction)
+            switch status {
+            case .pendingAuth:
+                Button("Continue connecting", action: continueAction)
+            case .expired, .needsReauth, .revoked:
+                Button("Reconnect", action: continueAction)
+            case .active:
+                EmptyView()
             }
             Button("Disconnect", role: .destructive, action: disconnectAction)
         } label: {
@@ -220,6 +254,16 @@ struct AbilitiesListView: View {
             .accessibilityIdentifier("ability-connect-\(ability.id)")
         }
     }
+
+    // MARK: - Sheets
+
+    private func authorizationSheet(_ context: AbilityAuthorizationContext) -> some View {
+        AbilityAuthorizationSheet(
+            context: context,
+            onAuthorize: { viewModel.completeAuthorization(context) },
+            onCancel: { viewModel.cancelAuthorization() }
+        )
+    }
 }
 
 // MARK: - Previews
@@ -236,6 +280,14 @@ struct AbilitiesListView: View {
     NavigationStack {
         AbilitiesListView(
             viewModel: AbilitiesListViewModel(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
+        )
+    }
+}
+
+#Preview("Cold-start outage") {
+    NavigationStack {
+        AbilitiesListView(
+            viewModel: AbilitiesListViewModel(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
         )
     }
 }
