@@ -126,8 +126,6 @@ struct AgentDmPageView: View {
     @State private var messageText: String = ""
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var isPhotoPickerPresented: Bool = false
-    @State private var isCameraPresented: Bool = false
-    @State private var selectedPhotos: [PhotosPickerItem] = []
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -157,18 +155,6 @@ struct AgentDmPageView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             composer
         }
-        .photosPicker(
-            isPresented: $isPhotoPickerPresented,
-            selection: $selectedPhotos,
-            maxSelectionCount: 1,
-            matching: .images
-        )
-        .onChange(of: selectedPhotos) { _, newValue in
-            handleSelectedPhotosChanged(to: newValue)
-        }
-        .fullScreenCover(isPresented: $isCameraPresented) {
-            cameraPicker
-        }
         .onAppear {
             if model == nil {
                 model = AgentDmPageModel(
@@ -183,31 +169,6 @@ struct AgentDmPageView: View {
         }
     }
 
-    private var cameraPicker: some View {
-        CameraPickerView(
-            onImageCaptured: { image in
-                isCameraPresented = false
-                guard let model else { return }
-                Task { await model.send(image: image) }
-            }
-        )
-        .ignoresSafeArea()
-    }
-
-    private func handleSelectedPhotosChanged(to items: [PhotosPickerItem]) {
-        guard let item = items.first else { return }
-        selectedPhotos = []
-        guard let model else { return }
-        Task {
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data) else {
-                Log.error("Agent DM photo selection could not be loaded")
-                return
-            }
-            await model.send(image: image)
-        }
-    }
-
     private func handleSendMessage() {
         let text = messageText
         messageText = ""
@@ -215,49 +176,51 @@ struct AgentDmPageView: View {
         Task { await model.send(text: text) }
     }
 
+    private func handlePhotoSelected(_ image: UIImage) {
+        guard let model else { return }
+        Task { await model.send(image: image) }
+    }
+
+    /// The exact bottom bar the messages page uses, scoped to the DM: sends
+    /// route to the DM writer, photo/camera selections send immediately
+    /// (no staging pipeline in the DM yet), video/file/voice are visible via
+    /// the shared component but unwired in the DM for now.
     private var composer: some View {
-        let placeholder: String = "Chat with \(agentName)"
-        return HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            MessagesMediaButtonsView(
-                isPhotoPickerPresented: $isPhotoPickerPresented,
-                isCameraPresented: $isCameraPresented,
-                onVoiceMemoTap: handleVoiceMemoTap,
-                onFilePickerTap: handleFilePickerTap
-            )
-            MessagesInputView(
-                displayName: .constant(""),
-                emptyDisplayNamePlaceholder: "",
-                messagePlaceholder: placeholder,
-                messageText: $messageText,
-                pendingInviteConvoName: .constant(""),
-                pendingInviteImage: .constant(nil),
-                sendButtonEnabled: sendButtonEnabled,
-                focusState: $focusState,
-                messagesTextFieldEnabled: true,
-                onSendMessage: handleSendMessage,
-                onClearInvite: {},
-                fileAttachmentPreview: { _ in EmptyView() },
-                agentShareChip: { EmptyView() }
-            )
-            .fixedSize(horizontal: false, vertical: true)
-            .clipShape(.rect(cornerRadius: 26.0))
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { newHeight in
-            bottomBarHeight = newHeight
-        }
-    }
-
-    private func handleVoiceMemoTap() {
-        Log.info("Agent DM voice memo not wired yet")
-    }
-
-    private func handleFilePickerTap() {
-        Log.info("Agent DM file picker not wired yet")
+        MessagesBottomBar(
+            profile: viewModel.profile,
+            displayName: $viewModel.myProfileViewModel.editingDisplayName,
+            messageText: $messageText,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: sendButtonEnabled,
+            profileImage: $viewModel.myProfileViewModel.profileImage,
+            isPhotoPickerPresented: $isPhotoPickerPresented,
+            focusState: $focusState,
+            focusCoordinator: focusCoordinator,
+            messagesTextFieldEnabled: true,
+            messagePlaceholder: "Chat with \(agentName)",
+            onSendMessage: handleSendMessage,
+            onClearInvite: {},
+            onClearLinkPreview: {},
+            onClearMediaAttachment: { _ in },
+            onDisplayNameEndedEditing: {},
+            onPhotoSelected: handlePhotoSelected(_:),
+            onVideoSelected: { _ in Log.info("Agent DM video send not wired yet") },
+            onFileSelected: { _, _, _, _ in Log.info("Agent DM file send not wired yet") },
+            onProfileSettings: {},
+            onVoiceMemoTap: { Log.info("Agent DM voice memo not wired yet") },
+            voiceMemoRecorder: viewModel.voiceMemoRecorder,
+            onSendVoiceMemo: {},
+            onBaseHeightChanged: { height in
+                bottomBarHeight = height
+            },
+            bottomBarContent: { EmptyView() },
+            quickEditView: { _, _ in EmptyView() },
+            fileAttachmentPreview: { file in
+                ComposerFileAttachmentPreview(file: file)
+            },
+            agentShareChip: { EmptyView() }
+        )
     }
 
     private func messagesBody(model: AgentDmPageModel) -> some View {
