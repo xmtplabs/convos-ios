@@ -100,7 +100,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         imageLastRenewed: Date?,
         isUnused: Bool,
         hasHadVerifiedAgent: Bool,
-        isAgentDm: Bool = false
+        isAgentDm: Bool
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -330,7 +330,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -357,7 +358,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -384,7 +386,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -411,7 +414,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -438,7 +442,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -467,7 +472,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -494,7 +500,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -521,7 +528,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -548,7 +556,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -575,7 +584,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -602,7 +612,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -629,7 +640,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -656,7 +668,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -683,7 +696,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -710,7 +724,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -737,7 +752,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -764,7 +780,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -791,7 +808,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 

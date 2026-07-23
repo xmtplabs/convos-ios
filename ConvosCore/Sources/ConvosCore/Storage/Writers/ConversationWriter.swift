@@ -194,7 +194,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAgent: false
+                hasHadVerifiedAgent: false,
+                isAgentDm: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
