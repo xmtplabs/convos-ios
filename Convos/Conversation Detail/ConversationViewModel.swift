@@ -4042,10 +4042,15 @@ extension ConversationViewModel {
     /// The dev-selected agent variant slug to route an agent join, or `nil`.
     /// Gated on the selector flag so a stale persisted selection can't route
     /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    /// A selector pick (when the selector is enabled) wins; otherwise fall back to
+    /// a build-time pinned slug from config so a prototype build routes to its
+    /// paired variant with no manual selection. Nil when neither is set.
     private static func selectedAgentVariantSlug() -> String? {
-        FeatureFlags.shared.isAgentVariantSelectorEnabled
-            ? FeatureFlags.shared.selectedAgentVariant?.slug
-            : nil
+        if FeatureFlags.shared.isAgentVariantSelectorEnabled,
+           let selected = FeatureFlags.shared.selectedAgentVariant?.slug {
+            return selected
+        }
+        return ConfigManager.shared.pinnedAgentVariantSlug
     }
 
     private static func performAgentJoinCall(
