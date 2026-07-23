@@ -76,6 +76,7 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
+    @State private var abilitiesViewModel: ConversationAbilitiesViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -487,10 +488,7 @@ struct ConversationInfoView: View {
 
             preferencesSection
 
-            if viewModel.conversation.hasAgent,
-               let connectionsViewModel {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
-            }
+            agentAccessSection
 
             if viewModel.canLeaveConversation {
                 leaveSection
@@ -498,6 +496,47 @@ struct ConversationInfoView: View {
 
             debugInfoSection
         }
+    }
+
+    /// The per-conversation agent access rows: the V2 abilities section
+    /// behind the Abilities V2 flag, the V1 connections section otherwise.
+    /// The matching view model is prepared in `prepareAgentAccessViewModels`.
+    @ViewBuilder
+    private var agentAccessSection: some View {
+        if viewModel.conversation.hasAgent {
+            if let abilitiesViewModel {
+                ConversationAbilitiesSection(viewModel: abilitiesViewModel)
+            } else if let connectionsViewModel {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
+        }
+    }
+
+    private func prepareAgentAccessViewModels() {
+        guard viewModel.conversation.hasAgent else { return }
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            if abilitiesViewModel == nil {
+                abilitiesViewModel = makeConversationAbilitiesViewModel()
+            }
+        } else if connectionsViewModel == nil {
+            connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+        }
+    }
+
+    /// Snapshot of the conversation's agents at construction, mirroring
+    /// `makeConversationConnectionsViewModel`; the section is recreated per
+    /// conversation-info presentation, so membership changes pick up then.
+    private func makeConversationAbilitiesViewModel() -> ConversationAbilitiesViewModel {
+        let agents: [ConversationAgentDescriptor] = viewModel.conversation.members
+            .filter { $0.isAgent }
+            .map { (member: ConversationMember) -> ConversationAgentDescriptor in
+                ConversationAgentDescriptor(inboxId: member.profile.inboxId, displayName: member.profile.displayName)
+            }
+        return ConversationAbilitiesViewModel(
+            conversationId: viewModel.conversation.id,
+            agents: agents,
+            service: AbilitiesServices.shared
+        )
     }
 
     private var leaveSection: some View {
@@ -559,9 +598,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
-                        connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
-                    }
+                    prepareAgentAccessViewModels()
                 }
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
                     TextField("Invite tag", text: $restoreInviteTagText)
