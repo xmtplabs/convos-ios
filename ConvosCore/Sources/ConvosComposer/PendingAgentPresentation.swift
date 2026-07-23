@@ -7,10 +7,12 @@ import SwiftUI
 /// Two flows produce one of these and every indicator render site consumes
 /// it (see `ConversationViewModel.pendingAgentPresentation`):
 ///
-/// - Agent Builder: the "no identity" case. The builder has no real agent
-///   identity at Make time, so it emits a generic presentation (`name` /
-///   `emoji` nil -> "New Agent" + the add-agent glyph) and shows its own
-///   summary card rather than a contact card (`showsContactCard == false`).
+/// - Agent Builder: starts as the "no identity" case. The builder has no
+///   real agent identity at Make time, so it emits a generic presentation
+///   (`name` / `emoji` nil -> "New Agent" + the add-agent glyph) until the
+///   build streams a draft preview, whose name/emoji then take over. It shows
+///   its own summary card rather than a contact card
+///   (`showsContactCard == false`).
 /// - Agent template (chat-on-a-contact or `convos://template/<id>` deep
 ///   link): the "with identity" case. The template name + emoji/photo are
 ///   painted immediately with verified styling, and the agent contact card is

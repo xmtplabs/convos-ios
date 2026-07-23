@@ -201,6 +201,12 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         request: lastMessageRequest
     )
 
+    /// The text columns are capped with substr so a pathological message
+    /// body (XMTP allows just under 1MB, roughly 250 SQLite overflow pages
+    /// per row) cannot drag overflow pages for every conversation's last
+    /// message through the page cache on each list read. 4096 characters
+    /// covers the longest preview and the ConnectionEventSummary JSON that
+    /// `hydrateMessagePreview` decodes out of `text`.
     nonisolated(unsafe) static let lastMessageWithSourceCTE: CommonTableExpression<DBLastMessageWithSource> =
         CommonTableExpression<DBLastMessageWithSource>(
             named: "conversationLastMessageWithSource",
@@ -208,8 +214,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 SELECT
                     m.id, m.clientMessageId, m.conversationId, m.senderId,
                     m.dateNs, m.date, m.status, m.messageType, m.contentType,
-                    m.text, m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
-                    src.text as sourceMessageText
+                    substr(m.text, 1, 4096) as text,
+                    m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
+                    substr(src.text, 1, 4096) as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
                 WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)

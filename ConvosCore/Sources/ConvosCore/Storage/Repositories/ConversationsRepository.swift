@@ -5,6 +5,10 @@ import GRDB
 public protocol ConversationsRepositoryProtocol {
     var conversationsPublisher: AnyPublisher<[Conversation], Never> { get }
     func fetchAll() throws -> [Conversation]
+    /// Async variant of `fetchAll()`. Runs the read on GRDB's reader pool
+    /// instead of blocking the calling thread, so main-actor callers can
+    /// prime the conversations list without hanging the main thread.
+    func fetchAll() async throws -> [Conversation]
     /// Returns the most-recently-active conversation that consists of
     /// exactly the current user and the supplied inbox - i.e. the
     /// existing 1:1 to route "Chat" taps from a contact card into so
@@ -58,6 +62,12 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         try dbReader.read { [weak self] db in
             guard let self else { return [] }
             return try db.composeAllConversations(consent: consent)
+        }
+    }
+
+    func fetchAll() async throws -> [Conversation] {
+        try await dbReader.read { [consent] db in
+            try db.composeAllConversations(consent: consent)
         }
     }
 

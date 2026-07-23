@@ -1,4 +1,5 @@
 @testable import Convos
+import ConvosComposer
 import XCTest
 
 final class AttachmentSharePayloadTests: XCTestCase {
