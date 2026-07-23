@@ -136,6 +136,44 @@ struct CreditBalanceWriterTests {
         #expect(rowAfterEnd != nil, "The next account's refresh must write normally after the latch ends")
     }
 
+    @Test("overlapping wipe fences keep the writer latched until the last endAccountWipe")
+    func testOverlappingWipeFencesStayLatchedUntilLastEnd() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient: StubCreditBalanceAPIClient = StubCreditBalanceAPIClient()
+        let writer: CreditBalanceWriter = CreditBalanceWriter(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: apiClient
+        )
+
+        // Two independent wipe flows overlap (e.g. account-deletion teardown
+        // and the pairing-adoption row wipe). The first flow ending must NOT
+        // reopen the writer while the second flow's delete is still pending.
+        await writer.beginAccountWipe()
+        await writer.beginAccountWipe()
+        writer.endAccountWipe()
+
+        await writer.refresh(force: true)
+        let countAfterFirstEnd = await apiClient.callCount
+        #expect(
+            countAfterFirstEnd == 0,
+            "The first overlapping wipe ending must not drop the fence while the second wipe is still running"
+        )
+        let rowAfterFirstEnd: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterFirstEnd == nil, "No row may land while any overlapping wipe is still in flight")
+
+        writer.endAccountWipe()
+
+        await writer.refresh(force: true)
+        let countAfterLastEnd = await apiClient.callCount
+        #expect(countAfterLastEnd == 1, "The last overlapping wipe ending must reopen the writer")
+        let rowAfterLastEnd: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterLastEnd != nil, "The next account's refresh must write normally after the final end")
+    }
+
     @Test("API failure does not advance the TTL window")
     func testFailureDoesNotAdvanceTTL() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

@@ -20,15 +20,20 @@ public actor CreditBalanceWriter {
     /// started for a deleted account can't re-insert that account's
     /// balance after the account-scoped rows were wiped.
     private var epoch: UInt64 = 0
-    /// Wipe-in-progress latch, set by `beginAccountWipe()` and cleared by
-    /// `endAccountWipe()`. While set, every refresh is a rejected no-op
-    /// (no HTTP call, no DB write, no TTL stamp), closing the gap between
-    /// quiescence and the actual row deletion: a refresh entering that gap
-    /// would otherwise capture the already-bumped epoch and write after
-    /// the delete. Lock-backed (not actor state) so `endAccountWipe()` is
-    /// synchronous and the wipe paths can guarantee it in a `defer` even
+    /// Wipe-in-progress depth, incremented by `beginAccountWipe()` and
+    /// decremented by `endAccountWipe()`. While nonzero, every refresh is
+    /// a rejected no-op (no HTTP call, no DB write, no TTL stamp), closing
+    /// the gap between quiescence and the actual row deletion: a refresh
+    /// entering that gap would otherwise capture the already-bumped epoch
+    /// and write after the delete. Reference-counted rather than Boolean
+    /// because independent wipe flows can overlap - the deletion/local-reset
+    /// teardown and the pairing-adoption row wipe both fence through here
+    /// without a shared serializer - and the first `endAccountWipe()` of a
+    /// Boolean latch would reopen the writer while the other wipe's delete
+    /// is still pending. Lock-backed (not actor state) so `endAccountWipe()`
+    /// is synchronous and the wipe paths can guarantee it in a `defer` even
     /// when the deletion throws.
-    private nonisolated let wipeLatch: OSAllocatedUnfairLock<Bool> = .init(initialState: false)
+    private nonisolated let wipeDepth: OSAllocatedUnfairLock<Int> = .init(initialState: 0)
 
     public init(
         databaseWriter: any DatabaseWriter,
@@ -39,7 +44,7 @@ public actor CreditBalanceWriter {
     }
 
     public func refresh(force: Bool) async {
-        guard !wipeLatch.withLock({ $0 }) else { return }
+        guard wipeDepth.withLock({ $0 }) == 0 else { return }
         if let refreshTask {
             _ = await refreshTask.value
             return
@@ -66,7 +71,7 @@ public actor CreditBalanceWriter {
     /// `endAccountWipe()` after the row deletion - in a `defer`, so a
     /// failed wipe can't leave credits refresh permanently disabled.
     public func beginAccountWipe() async {
-        wipeLatch.withLock { $0 = true }
+        wipeDepth.withLock { $0 += 1 }
         epoch += 1
         lastFetchedAt = nil
         if let refreshTask {
@@ -75,16 +80,18 @@ public actor CreditBalanceWriter {
     }
 
     /// Account-deletion fence, second half: reopens the writer for the
-    /// next account. Synchronous so wipe paths can call it from `defer`.
+    /// next account once the LAST overlapping wipe has finished (the depth
+    /// is clamped at zero so an unpaired end cannot underflow). Synchronous
+    /// so wipe paths can call it from `defer`.
     public nonisolated func endAccountWipe() {
-        wipeLatch.withLock { $0 = false }
+        wipeDepth.withLock { $0 = max(0, $0 - 1) }
     }
 
     private func performRefresh() async -> Bool {
         let epochAtStart: UInt64 = epoch
         do {
             let balance = try await apiClient.getCreditBalance()
-            guard epoch == epochAtStart, !wipeLatch.withLock({ $0 }) else { return false }
+            guard epoch == epochAtStart, wipeDepth.withLock({ $0 }) == 0 else { return false }
             try await write(balance)
             return true
         } catch {
