@@ -399,7 +399,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
-        .task(id: viewModel.conversation.id) { await prepareParticipation() }
+        .task(id: participationTaskKey) { await prepareParticipation() }
         // The participation card floats just ABOVE the composer, placed against
         // the composer's real bounds — so it never reflows the message list,
         // never scrolls with it, and never covers the input. A full-screen scrim
@@ -462,6 +462,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showingParticipationMenu.toggle()
             }
         }
+    }
+
+    /// Keys the participation `.task` on the conversation AND on whether it has
+    /// an agent, so an agent that joins an already-open conversation re-runs
+    /// `prepareParticipation` and surfaces the control — keying on the
+    /// conversation id alone would miss that transition.
+    private var participationTaskKey: String {
+        let hasAgent = viewModel.conversation.members.contains(where: \.isAgent)
+        return "\(viewModel.conversation.id)-\(hasAgent)"
     }
 
     /// Builds the store for this conversation and reads its current level.

@@ -21,6 +21,11 @@ public final class AgentParticipationStore {
 
     private let conversationId: String
 
+    /// Bumped on every local `set()`. `load()` captures it before its network
+    /// read and bails if it changed meanwhile, so a tap that lands mid-read is
+    /// never clobbered by the older server value the read was already fetching.
+    private var writeGeneration = 0
+
     public init(conversationId: String) {
         self.conversationId = conversationId
     }
@@ -36,10 +41,14 @@ public final class AgentParticipationStore {
     /// Quiet on failure: the default is a safe thing to show, and an error for
     /// a read the member never asked for is noise.
     public func load() async {
+        let generationAtStart = writeGeneration
         do {
             let response = try await client().getAgentParticipation(
                 conversationId: conversationId
             )
+            // A set() that landed while this read was in flight is newer than the
+            // value the server just returned; don't overwrite it with stale data.
+            guard writeGeneration == generationAtStart else { return }
             if let loaded = AgentParticipationLevel(wireMode: response.mode) {
                 level = loaded
             }
@@ -58,6 +67,7 @@ public final class AgentParticipationStore {
         let previous = level
         guard newLevel != previous else { return }
         level = newLevel
+        writeGeneration += 1
         do {
             _ = try await client().setAgentParticipation(
                 conversationId: conversationId,

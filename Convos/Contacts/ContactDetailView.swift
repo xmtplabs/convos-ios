@@ -82,11 +82,6 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
-    // Behind the `Listen (agent participation)` debug flag. The level belongs
-    // to the conversation this card is scoped to, so it is read from there
-    // rather than remembered per device.
-    @State private var showingParticipationMenu: Bool = false
-    @State private var participation: AgentParticipationStore?
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
@@ -156,9 +151,6 @@ struct ContactDetailView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
-            // The level lives with the conversation, so it is read per
-            // conversation — not per agent, and not from this device's memory.
-            .task(id: mode.conversationId) { await prepareParticipation() }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -211,41 +203,6 @@ struct ContactDetailView: View {
                         : "This removes them from the conversation."
                 )
             }
-            .alert(
-                "Participation not updated",
-                isPresented: Binding(
-                    get: { participation?.errorMessage != nil },
-                    set: { if !$0 { participation?.dismissError() } }
-                )
-            ) {
-                Button("OK", role: .cancel) { participation?.dismissError() }
-            } message: {
-                Text(participation?.errorMessage ?? "Please try again.")
-            }
-            // Screen-relative floating card — same bubble, same behavior as the
-            // chat composer. Anchored to the screen, not to the row's scroll
-            // position, so it always lands in the same place with free space
-            // below it regardless of where the Participation row is scrolled.
-            .agentParticipationMenu(
-                isPresented: $showingParticipationMenu,
-                selection: participation?.level ?? .default,
-                bottomInset: DesignConstants.Spacing.step4x
-            ) { level in
-                Task { await participation?.set(level) }
-            }
-    }
-
-    /// Builds the store for the conversation this card is scoped to and reads
-    /// the level it is in. Anyone may have set it, so the row has to render
-    /// shared state rather than whatever this device last chose.
-    private func prepareParticipation() async {
-        guard let conversationId = mode.conversationId else {
-            participation = nil
-            return
-        }
-        let store = AgentParticipationStore(conversationId: conversationId)
-        participation = store
-        await store.load()
     }
 
     /// Existing conversation pushed when a "Convos with you" row is tapped.
@@ -410,16 +367,6 @@ struct ContactDetailView: View {
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
-                    // Any member can change participation (not owner-gated); it
-                    // only needs to be an agent scoped to this conversation.
-                    showParticipation: FeatureFlags.shared.isListenParticipationEnabled
-                        && (isVerifiedAgent || isAgentTemplate)
-                        && mode.isScopedToConversation,
-                    participationLevel: participation?.level ?? .default,
-                    showingParticipationMenu: $showingParticipationMenu,
-                    onSelectParticipation: { level in
-                        Task { await participation?.set(level) }
-                    },
                     showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
@@ -853,15 +800,6 @@ private struct ContactDetailActions: View {
     let isAgent: Bool
     let showShare: Bool
     let showRemove: Bool
-    /// Gated by the `Listen (agent participation)` debug flag; opens the
-    /// participation menu. Any member (not owner-only) sees it.
-    let showParticipation: Bool
-    let participationLevel: AgentParticipationLevel
-    /// Drives the floating menu anchored to the participation row. Held by the
-    /// parent (which owns the participation store); the popover lives here so it
-    /// anchors to the row rather than to the whole card.
-    @Binding var showingParticipationMenu: Bool
-    let onSelectParticipation: (AgentParticipationLevel) -> Void
     let showBlock: Bool
     let contactDisplayName: String
     /// Agent's email address from its profile metadata. Renders the
@@ -900,9 +838,6 @@ private struct ContactDetailActions: View {
             }
             if showChat {
                 chatButton
-            }
-            if showParticipation {
-                participationRow
             }
             if showShare {
                 shareRow
@@ -968,23 +903,6 @@ private struct ContactDetailActions: View {
         )
     }
 
-    private var participationRow: some View {
-        ContactDetailActionRow(
-            label: "Participation",
-            footer: "\(participationLevel.title) · In this convo",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Agent participation: \(participationLevel.title)",
-            accessibilityIdentifier: "agent-participation-button",
-            leadingSystemImage: participationLevel.iconSystemName,
-            action: {
-                withAnimation(.snappy(duration: 0.2)) {
-                    showingParticipationMenu.toggle()
-                }
-            }
-        )
-    }
-
     private var removeRow: some View {
         ContactDetailActionRow(
             label: "Remove",
@@ -1028,24 +946,14 @@ private struct ContactDetailActionRow: View {
     let isDisabled: Bool
     let accessibilityLabel: String
     let accessibilityIdentifier: String
-    /// Optional leading glyph inside the capsule, before the label. Used by the
-    /// participation row to show which level is in force at a glance.
-    var leadingSystemImage: String? = nil
     let action: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             Button(action: action) {
-                HStack(spacing: DesignConstants.Spacing.step3x) {
-                    if let leadingSystemImage {
-                        Image(systemName: leadingSystemImage)
-                            .font(.body)
-                            .foregroundStyle(color)
-                    }
-                    Text(label)
-                        .font(.body)
-                        .foregroundStyle(color)
-                }
+                Text(label)
+                    .font(.body)
+                    .foregroundStyle(color)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, DesignConstants.Spacing.step4x)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)

@@ -162,57 +162,6 @@ public struct AgentParticipationMenu: View {
     }
 }
 
-// MARK: - Screen-relative floating presentation
-
-public extension View {
-    /// Presents the participation menu as a **screen-relative** floating card,
-    /// anchored to the bottom of the screen — never tied to scroll position and
-    /// never clipped by a composer or a list row. A full-screen scrim behind it
-    /// dismisses on an outside tap; the card floats above the scrim, so the
-    /// scrim never eats the menu's own taps. Applied at the ROOT of a screen so
-    /// the overlay spans the whole viewport.
-    ///
-    /// `bottomInset` is the free space to leave below the card — the composer's
-    /// height on the chat screen, a comfortable margin on the agent profile —
-    /// so the same bubble lands consistently in both places.
-    func agentParticipationMenu(
-        isPresented: Binding<Bool>,
-        selection: AgentParticipationLevel,
-        bottomInset: CGFloat,
-        onSelect: @escaping (AgentParticipationLevel) -> Void
-    ) -> some View {
-        overlay {
-            if isPresented.wrappedValue {
-                ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .contentShape(.rect)
-                        .onTapGesture {
-                            withAnimation(.snappy(duration: 0.2)) {
-                                isPresented.wrappedValue = false
-                            }
-                        }
-
-                    AgentParticipationMenu(
-                        selection: selection,
-                        showsBackground: true
-                    ) { level in
-                        withAnimation(.snappy(duration: 0.2)) {
-                            isPresented.wrappedValue = false
-                        }
-                        onSelect(level)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .padding(.bottom, bottomInset)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Previews
 
 /// Interactive: tap a level and the check moves. Backed by a mock chat gradient
