@@ -470,18 +470,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            // Only where there is an agent to govern. It sits ahead of the
-            // attachment control because it is a property of the room rather
-            // than of the message being written.
-            if let participation = agentParticipation {
-                AgentParticipationBubble(
-                    level: participation.level,
-                    action: participation.onTap
-                )
-                .glassEffectID("participation", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-            }
-
             if isMessageInputFocused {
                 Button {
                     withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {

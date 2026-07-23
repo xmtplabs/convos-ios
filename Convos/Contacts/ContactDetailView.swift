@@ -198,9 +198,6 @@ struct ContactDetailView: View {
                 pushedConversationView(vm)
             }
             .overlay { agentShareOverlay }
-            .sheet(isPresented: $showingParticipationMenu) {
-                participationMenuSheet
-            }
             .alert(
                 "Remove \(contact.resolvedDisplayName)?",
                 isPresented: $presentingRemoveConfirmation
@@ -225,23 +222,17 @@ struct ContactDetailView: View {
             } message: {
                 Text(participation?.errorMessage ?? "Please try again.")
             }
-    }
-
-    /// The "Agent participation" menu, presented from the Participation row.
-    /// The level belongs to the conversation, so every agent in it moves
-    /// together and one that joins later inherits the choice.
-    private var participationMenuSheet: some View {
-        AgentParticipationMenu(
-            selection: participation?.level ?? .default,
-            showsBackground: false
-        ) { level in
-            showingParticipationMenu = false
-            Task { await participation?.set(level) }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.top, DesignConstants.Spacing.step8x)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium])
+            // Screen-relative floating card — same bubble, same behavior as the
+            // chat composer. Anchored to the screen, not to the row's scroll
+            // position, so it always lands in the same place with free space
+            // below it regardless of where the Participation row is scrolled.
+            .agentParticipationMenu(
+                isPresented: $showingParticipationMenu,
+                selection: participation?.level ?? .default,
+                bottomInset: DesignConstants.Spacing.step4x
+            ) { level in
+                Task { await participation?.set(level) }
+            }
     }
 
     /// Builds the store for the conversation this card is scoped to and reads
@@ -425,7 +416,10 @@ struct ContactDetailView: View {
                         && (isVerifiedAgent || isAgentTemplate)
                         && mode.isScopedToConversation,
                     participationLevel: participation?.level ?? .default,
-                    onPickParticipation: { showingParticipationMenu = true },
+                    showingParticipationMenu: $showingParticipationMenu,
+                    onSelectParticipation: { level in
+                        Task { await participation?.set(level) }
+                    },
                     showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
@@ -863,7 +857,11 @@ private struct ContactDetailActions: View {
     /// participation menu. Any member (not owner-only) sees it.
     let showParticipation: Bool
     let participationLevel: AgentParticipationLevel
-    let onPickParticipation: () -> Void
+    /// Drives the floating menu anchored to the participation row. Held by the
+    /// parent (which owns the participation store); the popover lives here so it
+    /// anchors to the row rather than to the whole card.
+    @Binding var showingParticipationMenu: Bool
+    let onSelectParticipation: (AgentParticipationLevel) -> Void
     let showBlock: Bool
     let contactDisplayName: String
     /// Agent's email address from its profile metadata. Renders the
@@ -978,7 +976,12 @@ private struct ContactDetailActions: View {
             isDisabled: false,
             accessibilityLabel: "Agent participation: \(participationLevel.title)",
             accessibilityIdentifier: "agent-participation-button",
-            action: onPickParticipation
+            leadingSystemImage: participationLevel.iconSystemName,
+            action: {
+                withAnimation(.snappy(duration: 0.2)) {
+                    showingParticipationMenu.toggle()
+                }
+            }
         )
     }
 
@@ -1025,18 +1028,28 @@ private struct ContactDetailActionRow: View {
     let isDisabled: Bool
     let accessibilityLabel: String
     let accessibilityIdentifier: String
+    /// Optional leading glyph inside the capsule, before the label. Used by the
+    /// participation row to show which level is in force at a glance.
+    var leadingSystemImage: String? = nil
     let action: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             Button(action: action) {
-                Text(label)
-                    .font(.body)
-                    .foregroundStyle(color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .background(Capsule().fill(.colorFillMinimal))
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    if let leadingSystemImage {
+                        Image(systemName: leadingSystemImage)
+                            .font(.body)
+                            .foregroundStyle(color)
+                    }
+                    Text(label)
+                        .font(.body)
+                        .foregroundStyle(color)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .background(Capsule().fill(.colorFillMinimal))
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)

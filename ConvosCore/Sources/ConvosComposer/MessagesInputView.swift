@@ -40,6 +40,9 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var poofingAttachmentIds: Set<UUID> = []
     @State private var isPoofingInvite: Bool = false
+    // Set by the host on conversations with an agent; nil elsewhere. Rendered as
+    // a leading accessory inside the input field — see `participationAccessory`.
+    @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
 
     public init(
         displayName: Binding<String>,
@@ -158,12 +161,38 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View>: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
+                participationAccessory
                 messageTextField
                 sendButton
             }
         }
         .padding(DesignConstants.Spacing.step2x)
         .frame(alignment: .bottom)
+    }
+
+    /// The agent-participation control, living inside the input field as a
+    /// leading accessory just before the placeholder. A property of the
+    /// conversation, so it sits with the field the members type into rather than
+    /// among the attachment buttons. Bare — no glass — because it is already
+    /// inside the input's own capsule; a second glass shape here would read as a
+    /// chip stuck on the field. Bottom-aligned so it stays on the placeholder
+    /// line as the field grows to multiple lines.
+    @ViewBuilder
+    private var participationAccessory: some View {
+        if let participation = agentParticipation {
+            Button(action: participation.onTap) {
+                Image(systemName: participation.level.iconSystemName)
+                    .font(.callout)
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(height: Self.defaultHeight)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Agent participation: \(participation.level.title)")
+            .accessibilityHint("Change how much the agents speak here")
+            .accessibilityIdentifier("agent-participation-button")
+        }
     }
 
     @ViewBuilder

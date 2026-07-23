@@ -4,6 +4,16 @@ import ConvosCoreiOS
 import ConvosMetrics
 import SwiftUI
 
+/// Publishes the composer's bounds up to the root so the floating participation
+/// card can be placed exactly above it — never reflowing the message list,
+/// never scrolling with it, never covering the input.
+private struct ComposerBoundsKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
@@ -378,14 +388,56 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
+                // Publish the bottom bar's bounds so the card can float exactly
+                // above it from the root overlay — never tied to scroll.
+                .anchorPreference(
+                    key: ComposerBoundsKey.self,
+                    value: .bounds
+                ) { $0 }
             }
         )
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: viewModel.conversation.id) { await prepareParticipation() }
-        .sheet(isPresented: $showingParticipationMenu) {
-            participationMenuSheet
+        // The participation card floats just ABOVE the composer, placed against
+        // the composer's real bounds — so it never reflows the message list,
+        // never scrolls with it, and never covers the input. A full-screen scrim
+        // behind it dismisses on an outside tap without eating the card's taps.
+        .overlayPreferenceValue(ComposerBoundsKey.self) { anchor in
+            GeometryReader { proxy in
+                if showingParticipationMenu, let participation, let anchor {
+                    let composerRect = proxy[anchor]
+                    ZStack(alignment: .bottomLeading) {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    showingParticipationMenu = false
+                                }
+                            }
+
+                        AgentParticipationMenu(
+                            selection: participation.level,
+                            showsBackground: true
+                        ) { level in
+                            withAnimation(.snappy(duration: 0.2)) {
+                                showingParticipationMenu = false
+                            }
+                            Task { await participation.set(level) }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        .padding(
+                            .bottom,
+                            proxy.size.height - composerRect.minY + DesignConstants.Spacing.step3x
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+            }
         }
         .alert(
             "Participation not updated",
@@ -406,22 +458,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var participationContext: AgentParticipationContext? {
         guard let participation else { return nil }
         return AgentParticipationContext(level: participation.level) {
-            showingParticipationMenu = true
+            withAnimation(.snappy(duration: 0.2)) {
+                showingParticipationMenu.toggle()
+            }
         }
-    }
-
-    private var participationMenuSheet: some View {
-        AgentParticipationMenu(
-            selection: participation?.level ?? .default,
-            showsBackground: false
-        ) { level in
-            showingParticipationMenu = false
-            Task { await participation?.set(level) }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.top, DesignConstants.Spacing.step8x)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium])
     }
 
     /// Builds the store for this conversation and reads its current level.
