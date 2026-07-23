@@ -50,6 +50,10 @@ fileprivate extension Database {
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(kinds.contains(DBConversation.Columns.kind))
             .filter(consent.contains(DBConversation.Columns.consent))
+            // Agent DMs are hidden from the conversations list, so they must not
+            // count toward it either (this drives the onboarding "more than one
+            // convo" gate).
+            .filter(DBConversation.Columns.isAgentDm == false)
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .fetchCount(self)
     }

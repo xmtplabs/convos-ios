@@ -432,17 +432,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     @ViewBuilder
+    // Only the agent that actually has a pager page can be navigated to via the
+    // segment. Any other agent (a second agent in the group) has no page, so
+    // pass nil and let the contact card fall back to its direct-create path
+    // rather than navigating to a page that isn't in the pager (a silent no-op).
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
         MemberContactDetailSheetContent(
             viewModel: viewModel,
             member: member,
             profileSettingsViewModel: profileSettingsViewModel,
-            onStartAgentDm: { agentInboxId in
+            onStartAgentDm: member.profile.inboxId == agentDmPageInboxId ? { agentInboxId in
                 viewModel.presentingProfileForMember = nil
                 withAnimation(.easeInOut(duration: 0.25)) {
                     pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
                 }
-            }
+            } : nil
         )
     }
 
@@ -533,7 +537,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var agentDmPageInboxId: String? {
         guard !ConfigManager.shared.currentEnvironment.isProduction,
               !viewModel.conversation.isAgentDm,
-              let agent = viewModel.conversation.members.first(where: { $0.isAgent }) else {
+              let agent = viewModel.conversation.members.first(where: { $0.isVerifiedAgent }) else {
             return nil
         }
         return agent.profile.inboxId
