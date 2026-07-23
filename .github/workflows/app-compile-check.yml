@@ -63,6 +63,7 @@ jobs:
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            EXCLUDED_ARCHS=x86_64 \
             2>&1 | tee xcodebuild.log
 
       - name: Extract compile errors
