@@ -1,141 +1,30 @@
-import Combine
 import ConvosComposer
 import ConvosCore
-import PhotosUI
 import SwiftUI
 
 /// The agent-DM page inside `ConversationPager`: the user's private DM with
 /// the conversation's agent, rendered as a page of the origin conversation.
-/// The DM is a real 2-member conversation (see docs/plans/agent-dms.md); this
-/// page binds to it when it exists and creates it lazily on first send.
-@MainActor
-@Observable
-final class AgentDmPageModel {
-    private let session: any SessionManagerProtocol
-    private let messagingService: any MessagingServiceProtocol
-    private let originConversationId: String
-    let agentInboxId: String
-
-    private(set) var items: [MessagesListItemType] = []
-    private(set) var dmConversationId: String?
-    @ObservationIgnored private var listRepository: (any MessagesListRepositoryProtocol)?
-    @ObservationIgnored private var writer: (any OutgoingMessageWriterProtocol)?
-    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
-
-    /// The agent as a member of the origin conversation; drives the list
-    /// repository's agent-message styling in the DM.
-    @ObservationIgnored var verifiedAgent: ConversationMember?
-
-    init(
-        session: any SessionManagerProtocol,
-        messagingService: any MessagingServiceProtocol,
-        originConversationId: String,
-        agentInboxId: String,
-        verifiedAgent: ConversationMember?
-    ) {
-        self.session = session
-        self.messagingService = messagingService
-        self.originConversationId = originConversationId
-        self.agentInboxId = agentInboxId
-        self.verifiedAgent = verifiedAgent
-        refresh()
-    }
-
-    /// Binds to an existing DM if one is already in the local database.
-    func refresh() {
-        guard dmConversationId == nil else { return }
-        let existing = try? session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .findAgentDm(with: agentInboxId)
-        guard let existing else { return }
-        bind(to: existing.id)
-    }
-
-    func send(text: String) async {
-        do {
-            try await ensureDmExists()
-            try await writer?.send(text: text)
-        } catch {
-            Log.error("Agent DM send failed: \(error.localizedDescription)")
-        }
-    }
-
-    func send(image: UIImage) async {
-        do {
-            try await ensureDmExists()
-            try await writer?.send(image: image)
-        } catch {
-            Log.error("Agent DM image send failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func ensureDmExists() async throws {
-        guard dmConversationId == nil else { return }
-        let conversationId = try await AgentDmFlow.startOrFindDm(
-            agentInboxId: agentInboxId,
-            originConversationId: originConversationId,
-            session: session
-        )
-        bind(to: conversationId)
-    }
-
-    private func bind(to conversationId: String) {
-        dmConversationId = conversationId
-        let listRepo = MessagesListRepository(
-            messagesRepository: session.messagesRepository(for: conversationId),
-            transcriptRepository: session.voiceMemoTranscriptRepository(),
-            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
-            conversationId: conversationId
-        )
-        // Mirror the main view model's repo configuration: a DM has one other
-        // member, and the agent member drives agent-message styling.
-        listRepo.currentOtherMemberCount = 1
-        listRepo.verifiedAgent = verifiedAgent
-        listRepository = listRepo
-        listRepo.messagesListPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] items in
-                self?.items = Self.filteredDmItems(items)
-            }
-            .store(in: &cancellables)
-        listRepo.startObserving()
-        if let initial = try? listRepo.fetchInitial() {
-            items = Self.filteredDmItems(initial)
-        }
-        writer = messagingService.messageWriter(
-            for: conversationId,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-    }
-
-    /// The DM page renders chat content only: membership/system rows (the
-    /// agent-joined "Invited by You" cell, invite cards, conversation info)
-    /// belong to standalone conversations, not a page inside the origin.
-    private static func filteredDmItems(_ items: [MessagesListItemType]) -> [MessagesListItemType] {
-        items.filter { item in
-            switch item {
-            case .update, .agentPresentInfo, .conversationInfo, .invite, .agentJoinStatus:
-                return false
-            default:
-                return true
-            }
-        }
-    }
-}
-
+/// The DM is a real 2-member conversation (see docs/plans/agent-dms.md).
+///
+/// Once the DM exists this page hosts a full `ConversationViewModel` for it
+/// and renders the same `MessagesView` the chat page uses, so list layout,
+/// filtering, composer, and interactions behave identically. Before the DM
+/// exists it shows the disclosure empty state with a lightweight composer;
+/// the first send creates the DM and swaps the full chat in.
 struct AgentDmPageView: View {
     @Bindable var viewModel: ConversationViewModel
     let agentInboxId: String
 
-    @State private var model: AgentDmPageModel?
+    @State private var dmViewModel: ConversationViewModel?
+    @State private var contextMenuState: MessageContextMenuState = .init()
     /// Local focus state, deliberately not shared with the chat composer:
     /// every pager page stays mounted in the paging HStack, so a shared
     /// focus value would fight with the chat page's text field.
     @FocusState private var focusState: MessagesViewInputFocus?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
-    @State private var messageText: String = ""
-    @State private var bottomBarHeight: CGFloat = 0.0
-    @State private var isPhotoPickerPresented: Bool = false
+    @State private var draftText: String = ""
+    @State private var isCreatingDm: Bool = false
+    @State private var draftPhotoPickerPresented: Bool = false
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -145,144 +34,208 @@ struct AgentDmPageView: View {
         agent?.profile.displayName ?? "Assistant"
     }
 
-    private var sendButtonEnabled: Bool {
-        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var showsEmptyState: Bool {
-        model?.dmConversationId == nil
-    }
-
     var body: some View {
-        ZStack {
-            if let model, !showsEmptyState {
-                messagesBody(model: model)
+        Group {
+            if let dmViewModel {
+                dmMessagesView(dmViewModel)
             } else {
-                AgentDmEmptyStateView(agentName: agentName)
+                emptyStateWithComposer
             }
         }
-        // The standard chat canvas: incoming bubbles fill with the raised
-        // color, which disappears against a raised page background (the
-        // Brainstorm page uses raised deliberately for its thought bubbles).
-        .background(Color.colorBackgroundSurfaceless)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            composer
+        .onAppear(perform: bindExistingDm)
+    }
+
+    private func bindExistingDm() {
+        guard dmViewModel == nil else { return }
+        guard let existing = try? viewModel.session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .findAgentDm(with: agentInboxId) else {
+            return
         }
-        .onAppear {
-            if model == nil {
-                model = AgentDmPageModel(
-                    session: viewModel.session,
-                    messagingService: viewModel.messagingService,
-                    originConversationId: viewModel.conversation.id,
-                    agentInboxId: agentInboxId,
-                    verifiedAgent: agent
-                )
-            } else {
-                model?.refresh()
-            }
-        }
+        dmViewModel = makeDmViewModel(for: existing)
     }
 
-    private func handleSendMessage() {
-        let text = messageText
-        messageText = ""
-        guard let model else { return }
-        Task { await model.send(text: text) }
-    }
-
-    private func handlePhotoSelected(_ image: UIImage) {
-        guard let model else { return }
-        Task { await model.send(image: image) }
-    }
-
-    /// The exact bottom bar the messages page uses, scoped to the DM: sends
-    /// route to the DM writer, photo/camera selections send immediately
-    /// (no staging pipeline in the DM yet), video/file/voice are visible via
-    /// the shared component but unwired in the DM for now.
-    private var composer: some View {
-        MessagesBottomBar(
-            profile: viewModel.profile,
-            displayName: $viewModel.myProfileViewModel.editingDisplayName,
-            messageText: $messageText,
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: sendButtonEnabled,
-            profileImage: $viewModel.myProfileViewModel.profileImage,
-            isPhotoPickerPresented: $isPhotoPickerPresented,
-            focusState: $focusState,
-            focusCoordinator: focusCoordinator,
-            messagesTextFieldEnabled: true,
-            messagePlaceholder: "Chat with \(agentName)",
-            onSendMessage: handleSendMessage,
-            onClearInvite: {},
-            onClearLinkPreview: {},
-            onClearMediaAttachment: { _ in },
-            onDisplayNameEndedEditing: {},
-            onPhotoSelected: handlePhotoSelected(_:),
-            onVideoSelected: { _ in Log.info("Agent DM video send not wired yet") },
-            onFileSelected: { _, _, _, _ in Log.info("Agent DM file send not wired yet") },
-            onProfileSettings: {},
-            onVoiceMemoTap: { Log.info("Agent DM voice memo not wired yet") },
-            voiceMemoRecorder: viewModel.voiceMemoRecorder,
-            onSendVoiceMemo: {},
-            onBaseHeightChanged: { height in
-                bottomBarHeight = height
-            },
-            bottomBarContent: { EmptyView() },
-            quickEditView: { _, _ in EmptyView() },
-            fileAttachmentPreview: { file in
-                ComposerFileAttachmentPreview(file: file)
-            },
-            agentShareChip: { EmptyView() }
+    private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
+        ConversationViewModel(
+            conversation: conversation,
+            session: viewModel.session,
+            messagingService: viewModel.messagingService,
+            coreActions: viewModel.coreActions
         )
     }
 
-    private func messagesBody(model: AgentDmPageModel) -> some View {
-        MessagesViewRepresentable(
-            conversation: viewModel.conversation,
-            messages: model.items,
-            invite: .empty,
-            onUserInteraction: {},
-            hasLoadedAllMessages: false,
+    // MARK: - Pre-creation
+
+    private var emptyStateWithComposer: some View {
+        AgentDmEmptyStateView(agentName: agentName)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                draftComposer
+            }
+    }
+
+    private var draftSendEnabled: Bool {
+        !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingDm
+    }
+
+    /// Minimal composer for the not-yet-created DM; the first send creates
+    /// the conversation and hands the text to the full view model.
+    private var draftComposer: some View {
+        MessagesInputView(
+            displayName: .constant(""),
+            emptyDisplayNamePlaceholder: "",
+            messagePlaceholder: "Chat with \(agentName)",
+            messageText: $draftText,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: draftSendEnabled,
+            focusState: $focusState,
+            messagesTextFieldEnabled: !isCreatingDm,
+            onSendMessage: handleDraftSend,
+            onClearInvite: {},
+            fileAttachmentPreview: { _ in EmptyView() },
+            agentShareChip: { EmptyView() }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.rect(cornerRadius: 26.0))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.bottom, DesignConstants.Spacing.step3x)
+    }
+
+    private func handleDraftSend() {
+        let text = draftText
+        draftText = ""
+        isCreatingDm = true
+        Task {
+            defer { isCreatingDm = false }
+            do {
+                let conversationId = try await AgentDmFlow.startOrFindDm(
+                    agentInboxId: agentInboxId,
+                    originConversationId: viewModel.conversation.id,
+                    session: viewModel.session
+                )
+                guard let conversation = try viewModel.session
+                    .conversationsRepository(for: [.allowed, .unknown])
+                    .findAgentDm(with: agentInboxId), conversation.id == conversationId else {
+                    Log.error("Agent DM created but not found for binding")
+                    return
+                }
+                let dmVm = makeDmViewModel(for: conversation)
+                dmViewModel = dmVm
+                dmVm.messageText = text
+                dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+            } catch {
+                Log.error("Failed to start agent DM: \(error.localizedDescription)")
+                await MainActor.run { draftText = text }
+            }
+        }
+    }
+
+    // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
+
+    private func contactOverride(for dmVm: ConversationViewModel) -> @Sendable (String) -> Contact? {
+        Contact.memberAwareResolver(
+            members: dmVm.conversation.members,
+            contactLookup: dmVm.messagingService.contactsRepository().contact(for:)
+        )
+    }
+
+    private func dmMessagesView(_ dmVm: ConversationViewModel) -> some View {
+        @Bindable var dmVm = dmVm
+        return MessagesView(
+            contextMenuState: contextMenuState,
+            conversation: dmVm.conversation,
+            messages: dmVm.messagesWithThinkingIndicators,
+            invite: dmVm.invite,
+            hasLoadedAllMessages: dmVm.hasLoadedAllMessages,
+            profile: dmVm.profile,
+            untitledConversationPlaceholder: dmVm.untitledConversationPlaceholder,
+            conversationNamePlaceholder: dmVm.conversationNamePlaceholder,
+            conversationName: $dmVm.editingConversationName,
+            conversationImage: $dmVm.conversationImage,
+            displayName: $dmVm.myProfileViewModel.editingDisplayName,
+            messageText: $dmVm.messageText,
+            pendingMediaAttachments: dmVm.pendingMediaAttachments,
+            composerLinkPreview: dmVm.pastedLinkPreview,
+            pendingInviteConvoName: $dmVm.pendingInviteConvoName,
+            pendingInviteImage: $dmVm.pendingInviteImage,
+            sendButtonEnabled: dmVm.sendButtonEnabled,
+            profileImage: $dmVm.myProfileViewModel.profileImage,
+            onboardingCoordinator: dmVm.onboardingCoordinator,
+            focusState: $focusState,
             focusCoordinator: focusCoordinator,
+            messagesTextFieldEnabled: true,
+            onUserInteraction: {
+                dmVm.dismissQuickEditor()
+                focusCoordinator.dismissQuickEditor()
+            },
+            onSendMessage: {
+                dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+            },
+            onClearInvite: dmVm.clearPendingInvite,
+            onClearLinkPreview: { dmVm.pastedLinkPreview = nil },
+            onClearMediaAttachment: dmVm.removeMediaAttachment(id:),
             onTapAvatar: { _ in },
-            onLoadPreviousMessages: {},
             onTapInvite: { _ in },
-            onReaction: { _, _ in },
-            onToggleReaction: { _, _ in },
-            onTapReactions: { _ in },
-            onTapReadReceipts: { _ in },
-            onTapThinkingIndicator: { _ in },
-            onReply: { _ in },
-            onOpenMessageDetail: { _ in },
-            contextMenuState: .init(),
-            onPhotoDimensionsLoaded: { _, _, _ in },
-            onAgentOutOfCredits: {},
-            creditsDepleted: false,
+            agentShareResolver: dmVm.agentShareResolver,
+            onReaction: dmVm.onReaction(emoji:messageId:),
+            onToggleReaction: dmVm.onReaction(emoji:messageId:),
+            onTapReactions: dmVm.onTapReactions(_:),
+            onTapReadReceipts: dmVm.onTapReadReceipts(_:),
+            onTapThinkingIndicator: { descriptor in
+                dmVm.presentingThinkingDetail = descriptor
+            },
+            onReply: { message in
+                dmVm.onReply(message)
+                focusCoordinator.moveFocus(to: .message)
+            },
+            onOpenMessageDetail: { message in
+                dmVm.presentingMessageDetail = message
+            },
+            expandedMessageIds: dmVm.expandedMessageIds,
+            onToggleMessageExpanded: { messageId in
+                dmVm.toggleMessageExpanded(messageId)
+            },
+            replyingToMessage: dmVm.replyingToMessage,
+            replyingToAudioTranscriptText: dmVm.replyingToAudioTranscriptText,
+            onCancelReply: dmVm.cancelReply,
+            onDisplayNameEndedEditing: {
+                dmVm.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
+            },
+            onProfileSettings: dmVm.onProfileSettings,
+            onLoadPreviousMessages: dmVm.loadPreviousMessages,
+            onPhotoDimensionsLoaded: dmVm.onPhotoDimensionsLoaded(_:width:height:),
+            onPhotoSelected: dmVm.addPhotoAttachment(_:),
+            onVideoSelected: dmVm.addVideoAttachment(url:),
+            onFileSelected: dmVm.addFileAttachment(url:filename:mimeType:fileSize:),
+            onAboutAgents: {},
+            onAgentOutOfCredits: { dmVm.presentingPaywall = true },
+            creditsDepleted: dmVm.creditsDepleted,
             onTapUpdateMember: { _ in },
-            onRetryMessage: { _ in },
-            onDeleteMessage: { _ in },
+            onRetryMessage: dmVm.retryMessage(_:),
+            onDeleteMessage: dmVm.deleteMessage(_:),
             onRetryAgentJoin: {},
             onCopyInviteLink: {},
             onConvoCode: {},
             onInviteAgent: {},
-            onRetryTranscript: { _ in },
+            onRetryTranscript: { item in
+                dmVm.retryTranscript(for: item)
+            },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
-            memberContactOverride: { _ in nil },
+            memberContactOverride: contactOverride(for: dmVm),
             isAgentJoinPending: false,
-            bottomBarHeight: bottomBarHeight,
-            hasBottomBar: true,
-            topContentInset: Constant.topContentInset,
-            scrollToBottomTrigger: { _ in },
-            messageInputFocusTrigger: { _ in }
+            headerMode: .hidden,
+            onVoiceMemoTap: { dmVm.onVoiceMemoTapped() },
+            voiceMemoRecorder: dmVm.voiceMemoRecorder,
+            onSendVoiceMemo: { dmVm.sendVoiceMemo() },
+            extraBottomInset: Constant.pagerDotsInset,
+            bottomBarContent: { EmptyView() }
         )
-        .ignoresSafeArea()
     }
 
     private enum Constant {
-        /// Approximates ConversationView's floating header (status bar plus
-        /// the title capsule) so scrolled content doesn't slide under it.
-        static let topContentInset: CGFloat = 120.0
+        /// Clearance for the pager dots floating under the composer.
+        static let pagerDotsInset: CGFloat = 24.0
     }
 }
 
