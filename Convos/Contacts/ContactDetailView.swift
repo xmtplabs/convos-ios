@@ -72,6 +72,11 @@ struct ContactDetailView: View {
     private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
+    /// When set (member sheets presented from a conversation), Chat on a
+    /// DM-able agent hands the agent inboxId back to the presenter, which
+    /// dismisses this sheet and selects the conversation's agent-DM page.
+    /// When nil, Chat creates/opens the DM conversation directly.
+    private let onStartAgentDm: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isBlocked: Bool
@@ -120,7 +125,8 @@ struct ContactDetailView: View {
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         pushedConversationInsetsTopSafeArea: Bool = false,
-        onRemove: (() -> Void)? = nil
+        onRemove: (() -> Void)? = nil,
+        onStartAgentDm: ((String) -> Void)? = nil
     ) {
         self.contact = contact
         self.variantStamp = variantStamp
@@ -133,6 +139,7 @@ struct ContactDetailView: View {
         self.showsCloseButton = showsCloseButton
         self.pushedConversationInsetsTopSafeArea = pushedConversationInsetsTopSafeArea
         self.onRemove = onRemove
+        self.onStartAgentDm = onStartAgentDm
         _isBlocked = State(initialValue: contact.isBlocked)
         // Suggested-agent contacts carry the description, so it renders
         // immediately; saved agent contacts seed nil and resolve it on appear.
@@ -487,6 +494,10 @@ struct ContactDetailView: View {
     }
 
     private func handleChatWithAgentDm() {
+        if let onStartAgentDm {
+            onStartAgentDm(contact.inboxId)
+            return
+        }
         guard let session else { return }
         Task {
             do {

@@ -433,7 +433,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ViewBuilder
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
-        MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel)
+        MemberContactDetailSheetContent(
+            viewModel: viewModel,
+            member: member,
+            profileSettingsViewModel: profileSettingsViewModel,
+            onStartAgentDm: { agentInboxId in
+                viewModel.presentingProfileForMember = nil
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -517,13 +527,38 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    /// The inbox of the conversation's DM-able agent, when the agent-DM
+    /// prototype should offer a DM page: verified agent member, not already
+    /// inside a DM, non-production only (matches ContactDetailView's gate).
+    private var agentDmPageInboxId: String? {
+        guard !ConfigManager.shared.currentEnvironment.isProduction,
+              !viewModel.conversation.isAgentDm,
+              let agent = viewModel.conversation.members.first(where: { $0.isAgent }) else {
+            return nil
+        }
+        return agent.profile.inboxId
+    }
+
+    private var pagerPages: [ConversationPagerPage] {
+        var pages: [ConversationPagerPage] = [.messages]
+        if let agentDmPageInboxId {
+            pages.append(.agentDm(agentInboxId: agentDmPageInboxId))
+        }
+        pages.append(.things)
+        return pages
+    }
+
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
+            pages: pagerPages,
             showsPageDots: !isKeyboardVisible,
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
+            agentDmPage: { agentInboxId in
+                AgentDmPageView(viewModel: viewModel, agentInboxId: agentInboxId)
+            },
             thingsPage: { thingsPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -703,6 +738,7 @@ struct MemberContactDetailSheetContent: View {
     let viewModel: ConversationViewModel
     let member: ConversationMember
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    var onStartAgentDm: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -734,7 +770,8 @@ struct MemberContactDetailSheetContent: View {
                 session: viewModel.session,
                 coreActions: viewModel.coreActions,
                 profileSettingsViewModel: profileSettingsViewModel,
-                onRemove: onRemove
+                onRemove: onRemove,
+                onStartAgentDm: onStartAgentDm
             )
         }
     }

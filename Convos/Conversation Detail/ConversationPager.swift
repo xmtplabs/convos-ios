@@ -2,15 +2,28 @@ import ConvosCore
 import SwiftUI
 import SwiftUIIntrospect
 
-enum ConversationPagerPage: Int, CaseIterable, Identifiable {
+enum ConversationPagerPage: Hashable, Identifiable {
     case messages
+    /// The user's private DM with the conversation's agent, rendered as a
+    /// page of the origin conversation rather than a separate chat.
+    case agentDm(agentInboxId: String)
     case things
 
-    var id: Int { rawValue }
+    var id: String {
+        switch self {
+        case .messages: return "messages"
+        case .agentDm(let agentInboxId): return "agent-dm-\(agentInboxId)"
+        case .things: return "things"
+        }
+    }
 }
 
-struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
+struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
+    /// Ordered pages to render: `.messages` first, an `.agentDm` page when
+    /// the conversation has a DM-able agent, `.things` last. Built by
+    /// `ConversationView`.
+    let pages: [ConversationPagerPage]
     /// Whether the dots are mounted at all. Drives the `safeAreaInset`
     /// itself, so flipping this resizes the pager content — only set it
     /// based on keyboard presence, which already animates via the
@@ -23,25 +36,23 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
     /// presented so the dots fade out without resizing anything around
     /// them.
     var dotsHidden: Bool = false
-    /// When true, horizontal paging between `messages` and `things` is
-    /// blocked. Used while the message long-press context menu is
-    /// presented — without it the user can drag past the menu into the
-    /// things page mid-interaction.
+    /// When true, horizontal paging between pages is blocked. Used while
+    /// the message long-press context menu is presented — without it the
+    /// user can drag past the menu into another page mid-interaction.
     var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
+    @ViewBuilder let agentDmPage: (String) -> AgentDmPage
     @ViewBuilder let thingsPage: () -> ThingsPage
 
     var body: some View {
         GeometryReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
-                    messagesPage()
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .id(ConversationPagerPage.messages)
-
-                    thingsPage()
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .id(ConversationPagerPage.things)
+                    ForEach(pages) { page in
+                        pageContent(for: page)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .id(page)
+                    }
                 }
                 .scrollTargetLayout()
             }
@@ -59,7 +70,7 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsPageDots {
-                ConversationPagerDots(selectedPage: $selectedPage)
+                ConversationPagerDots(selectedPage: $selectedPage, pages: pages)
                     .opacity(dotsHidden ? 0 : 1)
                     .scaleEffect(dotsHidden ? 0.85 : 1)
                     .allowsHitTesting(!dotsHidden)
@@ -67,14 +78,27 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func pageContent(for page: ConversationPagerPage) -> some View {
+        switch page {
+        case .messages:
+            messagesPage()
+        case .agentDm(let agentInboxId):
+            agentDmPage(agentInboxId)
+        case .things:
+            thingsPage()
+        }
+    }
 }
 
 private struct ConversationPagerDots: View {
     @Binding var selectedPage: ConversationPagerPage
+    let pages: [ConversationPagerPage]
 
     var body: some View {
         HStack(spacing: 10.0) {
-            ForEach(ConversationPagerPage.allCases) { page in
+            ForEach(pages) { page in
                 let isSelected: Bool = page == selectedPage
                 let action = {
                     withAnimation(.easeInOut(duration: 0.25)) {
@@ -106,6 +130,13 @@ private struct ConversationPagerDots: View {
                 bottomTrailing: 8.0,
                 topTrailing: 8.0
             ))
+        case .agentDm:
+            return UnevenRoundedRectangle(cornerRadii: .init(
+                topLeading: 8.0,
+                bottomLeading: 8.0,
+                bottomTrailing: 8.0,
+                topTrailing: 8.0
+            ))
         case .things:
             return UnevenRoundedRectangle(cornerRadii: .init(
                 topLeading: 2.0,
@@ -119,6 +150,7 @@ private struct ConversationPagerDots: View {
     private func label(for page: ConversationPagerPage) -> String {
         switch page {
         case .messages: return "Messages"
+        case .agentDm: return "Agent chat"
         case .things: return "Things"
         }
     }

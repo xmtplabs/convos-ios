@@ -154,6 +154,9 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            // Agent DMs render as a page inside their origin conversation,
+            // never as their own row in the conversations list.
+            .filter(DBConversation.Columns.isAgentDm == false)
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
@@ -239,6 +242,10 @@ fileprivate extension Database {
         }
         if onlyAgentDms {
             request = request.filter(DBConversation.Columns.isAgentDm == true)
+        } else {
+            // Plain 1:1 lookups must never resolve to an agent DM (it renders
+            // inside its origin conversation, not as a standalone chat).
+            request = request.filter(DBConversation.Columns.isAgentDm == false)
         }
         let dbConversationDetails = try request
             .detailedConversationQuery()
