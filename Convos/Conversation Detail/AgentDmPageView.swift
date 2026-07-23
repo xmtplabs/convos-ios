@@ -66,11 +66,35 @@ struct AgentDmPageView: View {
 
     // MARK: - Pre-creation
 
+    /// The same disclosure cell the transcript leads with, standing alone
+    /// before the DM exists — so the empty state is literally the list's
+    /// first cell.
     private var emptyStateWithComposer: some View {
-        AgentDmEmptyStateView(agentName: agentName)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                draftComposer
+        ScrollView {
+            AgentDmInfoCellView(agentName: agentName)
+                .padding(.top, DesignConstants.Spacing.step16x)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.colorBackgroundSurfaceless)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            draftComposer
+        }
+    }
+
+    /// The DM transcript: membership, invite, and agent-presence cells are
+    /// origin-conversation concepts; the DM leads with the disclosure cell
+    /// instead (see docs/plans/agent-dms.md).
+    private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
+        var items = dmVm.messagesWithThinkingIndicators.filter { item in
+            switch item {
+            case .invite, .update, .agentPresentInfo, .conversationInfo, .agentJoinStatus:
+                return false
+            default:
+                return true
             }
+        }
+        items.insert(.agentDmInfo(agentName: agentName), at: 0)
+        return items
     }
 
     private var draftSendEnabled: Bool {
@@ -145,7 +169,7 @@ struct AgentDmPageView: View {
         return MessagesView(
             contextMenuState: contextMenuState,
             conversation: dmVm.conversation,
-            messages: dmVm.messagesWithThinkingIndicators,
+            messages: dmItems(dmVm),
             invite: dmVm.invite,
             hasLoadedAllMessages: dmVm.hasLoadedAllMessages,
             profile: dmVm.profile,
@@ -240,50 +264,3 @@ struct AgentDmPageView: View {
     }
 }
 
-/// Empty state for an agent DM with no messages yet: names the space and
-/// carries the shared-memory disclosure (docs/plans/agent-dms.md, "shared
-/// brain, disclosed").
-private struct AgentDmEmptyStateView: View {
-    let agentName: String
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            avatarCircle
-            Text("\(agentName) 1:1 chat")
-                .font(.title3)
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step4x)
-            Text("Chat here to work with \(agentName) without blowing up the groupchat.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.step4x)
-            Text("This space is not confidential.")
-                .font(.body.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step4x)
-            Text("\(agentName) can share anything it knows.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.stepX)
-            Spacer(minLength: 0)
-        }
-        .offset(y: -DesignConstants.Spacing.step6x)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .background(.colorBackgroundSurfaceless)
-    }
-
-    private var avatarCircle: some View {
-        ZStack {
-            Circle()
-                .fill(Color.colorFillTertiary)
-                .frame(width: 64.0, height: 64.0)
-            Text(String(agentName.prefix(1)).uppercased())
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.colorTextSecondary)
-        }
-    }
-}

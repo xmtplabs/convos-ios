@@ -55,6 +55,9 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case capabilityConnect(id: String, prompt: CapabilityConnectPrompt, agentName: String, origin: AnyMessage.Origin)
     case agentBuilderSummary(AgentBuilderCardContent)
     case agentActivating(AgentActivatingCardContent)
+    /// The agent-DM disclosure header: always the first cell of an agent-DM
+    /// transcript (and its empty state). See docs/plans/agent-dms.md.
+    case agentDmInfo(agentName: String)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -90,6 +93,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-builder-summary-\(content.id)"
         case .agentActivating(let content):
             return "agent-activating-\(content.id)"
+        case .agentDmInfo:
+            return "agent-dm-info"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -128,7 +133,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -178,6 +183,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-agentBuilderSummary"
         case .agentActivating:
             return "MessagesListItemTypeCell-agentActivating"
+        case .agentDmInfo:
+            return "MessagesListItemTypeCell-agentDmInfo"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -197,6 +204,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-capabilityConnect",
             "MessagesListItemTypeCell-agentBuilderSummary",
             "MessagesListItemTypeCell-agentActivating",
+            "MessagesListItemTypeCell-agentDmInfo",
             "TypingIndicatorCollectionCell",
         ]
     }
