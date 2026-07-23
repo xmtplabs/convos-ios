@@ -407,6 +407,42 @@ Deploy order mirrors direct-add: **herald-lite → convos-assistants → convos-
 
 No required v1 changes. Optional fast-follows: per-conversation ledger scope (§5.7); a `dm` capability surfaced on agent-template metadata if the gallery ever wants "DM-able" filtering.
 
+### 6.4.1 iOS adversarial audit — outcome (2026-07-23)
+
+An independent adversarial pass over the client implementation. The feature is
+non-production-gated, so blast radius is dev/internal. Fixed:
+
+- **Verified-agent gate on the pager DM page** — the pager dot (the real entry
+  point) gated only on `isAgent`, bypassing the CTA's verified requirement; now
+  requires `isVerifiedAgent`.
+- **Classification requires 2 members; one-way latch removed** — a marker on a
+  larger group no longer hides it, and a DM whose agent left (count → 1)
+  reappears instead of being permanently hidden/orphaned. The latch had traded
+  a minor flicker for those worse bugs; the re-stamp self-heals the flicker.
+- **Conversations count excludes agent DMs** — was inflating the onboarding
+  "more than one convo" gate.
+- **Multi-agent nav** — only the agent with a pager page gets segment nav; a
+  second agent falls back to direct-create instead of a silent no-op.
+
+Deferred (tracked):
+
+- **`accepts_dms` capability is never checked** (plan D-decision / §5.8). No
+  Swift reference exists; the CTA and pager gate on verified + scoped only, so a
+  user can open a DM against an agent whose runtime can't service it. Wire the
+  metadata key into both gates.
+- **Revoked / agent-left DM UX** — the composer stays enabled on a 1-member
+  dead DM and the "agent left" update is filtered out of `dmItems`, so the user
+  gets no signal. Disable the composer and surface a banner when the agent
+  leaves.
+- **Classification "other member is a verified agent"** — currently only member
+  *count* is gated; a 2-member human 1:1 could still carry the marker. Add the
+  agent-kind check (needs member-kind/verification at classification time).
+- Low: `handleChatWithAgentDm` direct path lacks an in-flight guard (latent,
+  the empty-state path is guarded); a day with only filtered content leaves a
+  dangling date header; `originConversationID` is stamped but never read; a
+  second `ConversationViewModel` is eagerly built per open conversation with a
+  DM-able agent (lazy-bind on first visit).
+
 ## 7. Phasing and PR sequencing
 
 - **Phase 0 — protocol validation spike** (throwaway code, local stack): S1 confirm Herald can observe a welcome for a 2-member group it was never asked to attach (conversation stream) and measure add→observation latency; S2 confirm attach-then-stream works for such a group end to end (profile publish renders + verifies on iOS, agent replies land); S3 exercise the membership edges — third member added (revocation fires), peer removed from primary (revocation fires), agent removed from the DM (channel closes, instance survives); S4 confirm `ConversationCustomMetadata` classification syncs to a second device of the same user; S5 confirm fleet convergence — a rebooted container of a pre-deploy instance boots the *new* Hermes image. Exit criteria: all five demonstrably true, add→first-reply latency acceptable (< ~10s including container wake). *This closes CON-761 with a viability verdict and hard numbers.*
