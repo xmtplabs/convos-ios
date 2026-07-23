@@ -421,8 +421,10 @@ non-production-gated, so blast radius is dev/internal. Fixed:
   a minor flicker for those worse bugs; the re-stamp self-heals the flicker.
 - **Conversations count excludes agent DMs** — was inflating the onboarding
   "more than one convo" gate.
-- **Multi-agent nav** — only the agent with a pager page gets segment nav; a
-  second agent falls back to direct-create instead of a silent no-op.
+- **Multi-agent pages** — every verified agent in the group gets its own DM
+  pager segment (sorted by inbox for stable order), and the contact card
+  navigates to each agent's own page. Previously only the first verified agent
+  got a page; a second agent's contact-card button was a silent no-op.
 
 Deferred (tracked):
 
