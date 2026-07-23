@@ -271,7 +271,7 @@ struct AttachmentHTMLContent: UIViewRepresentable {
     private func configureScrolling(_ webView: WKWebView) {
         // Directional locking lets the canvas keep vertical momentum while a
         // deliberate horizontal drag can continue into ConversationPager.
-        webView.scrollView.directionalLockEnabled = true
+        webView.scrollView.isDirectionalLockEnabled = true
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.showsHorizontalScrollIndicator = false
     }
