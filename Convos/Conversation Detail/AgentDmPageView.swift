@@ -25,6 +25,10 @@ struct AgentDmPageView: View {
     @State private var draftText: String = ""
     @State private var isCreatingDm: Bool = false
     @State private var draftPhotoPickerPresented: Bool = false
+    /// The first message, shown as a pending bubble the instant it is sent so
+    /// the user gets immediate feedback while the DM conversation is created
+    /// (several network round-trips). Cleared once the real transcript binds.
+    @State private var pendingFirstMessage: String?
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -71,13 +75,36 @@ struct AgentDmPageView: View {
     /// first cell.
     private var emptyStateWithComposer: some View {
         ScrollView {
-            AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
-                .padding(.top, DesignConstants.Spacing.step16x)
+            VStack(spacing: 0) {
+                AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
+                    .padding(.top, DesignConstants.Spacing.step16x)
+                if let pendingFirstMessage {
+                    pendingBubble(pendingFirstMessage)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        .padding(.top, DesignConstants.Spacing.step4x)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.colorBackgroundSurfaceless)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             draftComposer
+        }
+    }
+
+    /// A minimal outgoing bubble matching MessageContainer's sent style
+    /// (right-aligned, `colorBubble` fill, inverted text). Dimmed to read as
+    /// "sending" until the DM exists and the real transcript takes over.
+    private func pendingBubble(_ text: String) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 50.0)
+            Text(text)
+                .foregroundColor(.colorTextPrimaryInverted)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.vertical, 10.0)
+                .background(Color.colorBubble)
+                .clipShape(RoundedRectangle(cornerRadius: 20.0, style: .continuous))
+                .opacity(0.6)
         }
     }
 
@@ -136,6 +163,7 @@ struct AgentDmPageView: View {
     private func handleDraftSend() {
         let text = draftText
         draftText = ""
+        pendingFirstMessage = text
         isCreatingDm = true
         Task {
             defer { isCreatingDm = false }
@@ -149,15 +177,19 @@ struct AgentDmPageView: View {
                     .conversationsRepository(for: [.allowed, .unknown])
                     .findAgentDm(with: agentInboxId), conversation.id == conversationId else {
                     Log.error("Agent DM created but not found for binding")
+                    pendingFirstMessage = nil
+                    draftText = text
                     return
                 }
                 let dmVm = makeDmViewModel(for: conversation)
-                dmViewModel = dmVm
                 dmVm.messageText = text
                 dmVm.onSendMessage(focusCoordinator: focusCoordinator)
+                dmViewModel = dmVm
+                pendingFirstMessage = nil
             } catch {
                 Log.error("Failed to start agent DM: \(error.localizedDescription)")
-                await MainActor.run { draftText = text }
+                pendingFirstMessage = nil
+                draftText = text
             }
         }
     }
