@@ -213,6 +213,16 @@ public final class ConfigManager: @unchecked Sendable {
         return name
     }
 
+    /// Agent-variant slug pinned at build time via config.json. When set, agent
+    /// joins fall back to this variant, so a build carrying the key routes to its
+    /// paired agent variant without the tester choosing one in the selector. Absent
+    /// or empty in ordinary builds, which leaves routing to the default agent.
+    public var pinnedAgentVariantSlug: String? {
+        guard let slug = config["pinnedAgentVariantSlug"] as? String else { return nil }
+        let trimmed = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// PostHog ingestion host from config.json. Same value across environments today
     public var posthogHost: String? {
         // an absent posthog host simply does not report metrics events
