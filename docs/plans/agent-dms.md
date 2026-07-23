@@ -149,6 +149,29 @@ Policy check detail: membership is verified from **on-network state** (Herald's 
 
 Sender-side gating (iOS) hides the CTA when the viewer isn't a current co-member, but the worker check is the enforcement; the CTA is UX.
 
+### 5.2.1 One DM per peer — dedup (2-member groups have no stitching)
+
+Native XMTP DMs stitch duplicates automatically; our 2-member groups don't, so
+duplicate [user, agent] groups must be prevented in the app. Three layers:
+
+- **iOS lookup-first** — `AgentDmFlow` reuses an existing agent DM via
+  `findAgentDm`. Handles the common case but has sync-timing holes (the marker
+  may not have classified yet; a fresh device before sync).
+- **Single-inbox** (ADR 011) — both of a user's devices share one inbox, so the
+  DM group is visible to both; lookup-first on device B finds it once synced.
+- **Worker registry uniqueness** (authoritative) — on `conversation_added` the
+  DO **atomically reserves** the peer's slot (a single synchronous conditional
+  INSERT) *before* the async attach; the loser of a race leaves its group.
+  Pending→active on attach success, pending row deleted on failure. Verified
+  live: a second group for a peer with an active DM is left, registry unchanged.
+
+The reserve is required because a plain check-then-attach-then-register races:
+DO input gates only serialize around storage, so during the attach `fetch` a
+second handler for the same peer interleaved and both registered active
+(caught by adversarial review). Residual UX: the race loser sees a dead
+conversation (agent left) — client convergence (redirect to the surviving DM)
+is a follow-up.
+
 ### 5.3 Session model: one Hermes session + channel metadata (D1, D2)
 
 Per the ticket thread: one Hermes sessionID; every message entering the transcript carries a channel tag. Hermes has no `channel_id` field, so the worker/DO owns the mapping and the delivery path injects it. The concrete contract:
