@@ -243,7 +243,8 @@ their status:
 | Async delegation completions | origin captured at dispatch → trigger | fixed (delegate/origin_registry) |
 | Onboarding kickoff | `dispatch_system_trigger`, primary by nature | safe (DMs are never onboarded) |
 | Push `/convos/notify` | `dispatch_system_trigger`, origin defaults None | **review** if notify ever targets a DM |
-| Attestation republish (12h) | `update_profile` → primary | primary-only by design; **missing**: should also publish into active DMs so the verified badge refreshes there (feature gap, not a leak) |
+| Identity on DM attach | worker attach with profile + attestation | **done** — the DM attach now publishes the same profile + attestation triple as the primary join (verified live: attestation + member_kind=AGENT land in the DM) |
+| Attestation *refresh* (12h) | `update_profile` → primary | primary-only; **remaining**: the periodic refresh should also iterate active DMs so attestation stays fresh before the verifier's 24h maxAge (runtime-side, needs a Hermes rebuild) |
 
 The fix is one chokepoint: `HeraldRuntime._effective_conversation(override)`
 resolves explicit override → the current turn's origin ContextVar (non-None
