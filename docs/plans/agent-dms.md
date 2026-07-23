@@ -242,7 +242,7 @@ their status:
 | Scheduled / cron fires | `deliver: convos:<id>` → trigger origin | fixed (§5.4.1) |
 | Async delegation completions | origin captured at dispatch → trigger | fixed (delegate/origin_registry) |
 | Onboarding kickoff | `dispatch_system_trigger`, primary by nature | safe (DMs are never onboarded) |
-| Push `/convos/notify` | `dispatch_system_trigger`, origin defaults None | **review** if notify ever targets a DM |
+| Push `/convos/notify`, `/convos/conversation/send` | conversation-agnostic HTTP endpoints (text only, no conversation id) → primary by design | **reviewed — safe**: no DM-targeting path exists, so no DM can leak. If DM-targeted background pushes are added later, thread the origin via `dispatch_system_trigger(origin_conversation_id=)` |
 | Identity on DM attach | worker attach with profile + attestation | **done** — the DM attach now publishes the same profile + attestation triple as the primary join (verified live: attestation + member_kind=AGENT land in the DM) |
 | Attestation *refresh* (12h) | `update_profile` → primary | primary-only; **remaining**: the periodic refresh should also iterate active DMs so attestation stays fresh before the verifier's 24h maxAge (runtime-side, needs a Hermes rebuild) |
 
