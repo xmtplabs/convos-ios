@@ -39,7 +39,7 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
-        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "main"),
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "jarod/device-pairing-metrics"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),

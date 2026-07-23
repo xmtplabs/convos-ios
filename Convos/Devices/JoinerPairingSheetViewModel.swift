@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import CryptoKit
 import Observation
 import SwiftUI
@@ -19,7 +20,9 @@ enum JoinerPairingFlowState: Equatable {
 @MainActor
 final class JoinerPairingSheetViewModel: Identifiable {
     nonisolated let id: String
-    var flowState: JoinerPairingFlowState
+    var flowState: JoinerPairingFlowState {
+        didSet { trackFlowState() }
+    }
     var title: String = "Request to pair"
     var canDismiss: Bool = true
     var secondsRemaining: Int
@@ -60,6 +63,9 @@ final class JoinerPairingSheetViewModel: Identifiable {
     /// most once.
     private var didComplete: Bool = false
 
+    @ObservationIgnored
+    private let metrics: DevicePairingMetricsTracker
+
     init(
         pairingId: String,
         expiresAt: Date? = nil,
@@ -68,6 +74,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
         connectingMessage: String? = nil,
         resendJoinRequestInterval: TimeInterval? = nil,
         pairingService: any PairingServiceProtocol,
+        coreActions: any CoreActions = NoOpCoreActions(),
         onPairingAdopted: (@MainActor () async -> Void)? = nil,
         onApplyAdoptedProfile: (@MainActor (_ displayName: String?, _ imageAssetIdentifier: String?) async -> Void)? = nil,
         onDeleteExistingData: (@MainActor () async throws -> Void)? = nil,
@@ -80,6 +87,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
         self.connectingMessage = connectingMessage
         self.resendJoinRequestInterval = resendJoinRequestInterval
         self.pairingService = pairingService
+        self.metrics = DevicePairingMetricsTracker(role: .joiner, coreActions: coreActions)
         self.onPairingAdopted = onPairingAdopted
         self.onApplyAdoptedProfile = onApplyAdoptedProfile
         self.onDeleteExistingData = onDeleteExistingData
@@ -142,7 +150,25 @@ final class JoinerPairingSheetViewModel: Identifiable {
         enteredPin.count == 6
     }
 
+    /// Routes every `flowState` transition into the metrics tracker so all
+    /// paths to a terminal state (stream errors, send failures, countdown
+    /// expiry, identity-share completion) are counted without per-site
+    /// tracking calls.
+    private func trackFlowState() {
+        switch flowState {
+        case .connecting: metrics.reached(.joinRequested)
+        case .needsDataDeletion, .deletingData: metrics.reached(.dataDeletion)
+        case .pinEntry: metrics.reached(.pinEntry)
+        case .waitingForEmoji: metrics.reached(.emojiConfirmation)
+        case .syncing: metrics.reached(.syncing)
+        case .completed: metrics.completed()
+        case .failed: metrics.failed(.error)
+        case .expired: metrics.failed(.expired)
+        }
+    }
+
     func sendJoinRequest() async {
+        metrics.started()
         // Check first whether the device has any real conversation data —
         // i.e. anything the user would actually lose. A placeholder
         // identity + pre-warmed unused convo cache from silent identity
@@ -294,6 +320,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
     }
 
     func cancel() {
+        metrics.cancelled()
         countdownTask?.cancel()
         resendTask?.cancel()
         Task {
