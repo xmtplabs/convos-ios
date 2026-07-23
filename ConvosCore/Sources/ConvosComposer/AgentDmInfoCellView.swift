@@ -20,22 +20,22 @@ public struct AgentDmInfoCellView: View {
                 .font(.title3)
                 .foregroundStyle(.colorTextPrimary)
                 .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step4x)
+                .padding(.top, DesignConstants.Spacing.step6x)
             Text("Chat here to work with \(agentName) without blowing up the groupchat.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.step5x)
+                .padding(.top, DesignConstants.Spacing.step6x)
             Text("This space is not confidential.")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
                 .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step5x)
+                .padding(.top, DesignConstants.Spacing.step6x)
             Text("\(agentName) can share anything it knows.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.stepX)
+                .padding(.top, DesignConstants.Spacing.step2x)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignConstants.Spacing.step8x)
@@ -65,6 +65,6 @@ public struct AgentDmInfoCellView: View {
     }
 
     private enum Constant {
-        static let avatarSize: CGFloat = 56.0
+        static let avatarSize: CGFloat = 40.0
     }
 }
