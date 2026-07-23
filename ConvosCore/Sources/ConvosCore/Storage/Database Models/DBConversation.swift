@@ -201,6 +201,19 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         request: lastMessageRequest
     )
 
+    /// Content types that never surface as a conversation-list preview.
+    /// Bound twice into `lastMessageWithSourceCTE` (once for the grouped-MAX
+    /// subquery, once for the join-back filter); each placeholder list in
+    /// the SQL must stay the same length as this array.
+    private static let previewExcludedContentTypes: [String] = [
+        MessageContentType.update.rawValue,
+        MessageContentType.assistantJoinRequest.rawValue,
+        MessageContentType.connectionGrantRequest.rawValue,
+        MessageContentType.connectionInvocation.rawValue,
+        MessageContentType.connectionInvocationResult.rawValue,
+        MessageContentType.connectionPayload.rawValue,
+    ]
+
     /// The text columns are capped with substr so a pathological message
     /// body (XMTP allows just under 1MB, roughly 250 SQLite overflow pages
     /// per row) cannot drag overflow pages for every conversation's last
@@ -239,20 +252,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     AND m.contentType NOT IN (?, ?, ?, ?, ?, ?)
                 LEFT JOIN message src ON m.sourceMessageId = src.id
                 """,
-            arguments: [
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-            ]
+            arguments: StatementArguments(previewExcludedContentTypes + previewExcludedContentTypes)
         )
 
     /// Same grouped-MAX shape as `lastMessageWithSourceCTE`, served
