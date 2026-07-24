@@ -214,6 +214,13 @@ Root causes found and fixed along the way, in the order they surfaced:
 - **Herald boot lock orphan**: pkill kills Herald's node process but not the
   flock child holding data/herald.lock; the next boot blocks on the lock
   (readyz shows lock_acquired:false). Kill the orphaned `sleep 2147483647`.
+- **waitUntil-killed attach** (the recurring fresh-agent strand): the DM attach
+  runs inside the webhook route's waitUntil, whose budget expires while Herald
+  holds the attach (up to 30s) waiting for a brand-new account's welcome to
+  sync. The fetch dies with no log; the registry row strands at pending and
+  Herald never streams the DM. Fixed by a one-shot DO alarm armed before the
+  attach (retries idempotently at 45s), plus rehydrate-time and
+  conversation_added-re-delivery retries for eviction/restart variants.
 - **Dispatch gave-up window**: Herald retries a webhook 5 times (~12s) and
   permanently drops the event; messages sent while the worker is mid-restart
   are lost until a Herald restart replays catch-up. Restart order matters:
