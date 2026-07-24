@@ -234,6 +234,7 @@ struct AttachmentHTMLContent: UIViewRepresentable {
             prewarmed.webView.navigationDelegate = context.coordinator
             context.coordinator.usingPrewarmedWebView = true
             context.coordinator.loadedFileURL = fileURL
+            configureScrolling(prewarmed.webView)
             DispatchQueue.main.async {
                 self.onBodyBackgroundColor?(prewarmed.bodyBackgroundColor)
             }
@@ -247,6 +248,7 @@ struct AttachmentHTMLContent: UIViewRepresentable {
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
+        configureScrolling(webView)
         return webView
     }
 
@@ -264,6 +266,14 @@ struct AttachmentHTMLContent: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onBodyBackgroundColor: onBodyBackgroundColor)
+    }
+
+    private func configureScrolling(_ webView: WKWebView) {
+        // Directional locking lets the canvas keep vertical momentum while a
+        // deliberate horizontal drag can continue into ConversationPager.
+        webView.scrollView.isDirectionalLockEnabled = true
+        webView.scrollView.alwaysBounceHorizontal = false
+        webView.scrollView.showsHorizontalScrollIndicator = false
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {

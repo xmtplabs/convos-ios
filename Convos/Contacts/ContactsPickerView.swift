@@ -548,7 +548,10 @@ struct ContactsPickerActionsSection: View {
                     action: onSendInvite
                 )
             }
-            if let onMakeAgent = actions.onMakeAgent {
+            // Every picker call site routes its "Make an agent" row through
+            // here, so a no-builder build — which ships without the builder —
+            // drops the row for all of them in one place.
+            if let onMakeAgent = actions.onMakeAgent, !ConfigManager.shared.isNoBuilderBuild {
                 ContactsPickerActionRow(
                     icon: .asset("addAgentIcon"),
                     title: "Make an agent",

@@ -1,0 +1,4 @@
+prototypeId: "agent-first-app"
+side: "app"
+requestedLifetime: "standing — a long-running prototype pair, extended before each expiry"
+whatToTest: "Agent-first Convos: no builder affordances; every new conversation starts with an agent joining, pinned to the paired runtime variant."

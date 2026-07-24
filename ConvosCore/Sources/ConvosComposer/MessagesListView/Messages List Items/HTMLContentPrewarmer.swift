@@ -37,6 +37,21 @@ public final class HTMLContentPrewarmer {
         public let bodyBackgroundColor: Color?
     }
 
+    private struct RequestToken: Hashable {
+        let attachmentKey: String
+        let generation: Int
+    }
+
+    private struct PendingRequest {
+        let token: RequestToken
+        let fileURL: URL
+    }
+
+    private struct ActivePrewarm {
+        let webView: WKWebView
+        let coordinator: PrewarmCoordinator
+    }
+
     private static let cacheLimit: Int = 5
     private static let loadTimeout: TimeInterval = 15.0
     /// Mirrors `HTMLThumbnailRenderer.paintDelay` - the WebView paints a
@@ -55,11 +70,14 @@ public final class HTMLContentPrewarmer {
     /// FIFO of pending `(attachmentKey, fileURL)` requests. We pop one
     /// at a time; appended duplicates are coalesced before they enter
     /// the queue.
-    private var pendingQueue: [(key: String, fileURL: URL)] = []
-    /// Set of keys for entries currently queued or being processed.
-    /// Used to coalesce repeat calls so a single attachment never
-    /// occupies more than one slot end-to-end.
-    private var queuedKeys: Set<String> = []
+    private var pendingQueue: [PendingRequest] = []
+    /// Tokens currently queued or being processed. A generation lets an
+    /// eviction invalidate in-flight work without preventing a later load
+    /// for the same attachment key.
+    private var queuedTokens: Set<RequestToken> = []
+    private var generations: [String: Int] = [:]
+    private var waiters: [RequestToken: [CheckedContinuation<Bool, Never>]] = [:]
+    private var activePrewarms: [RequestToken: ActivePrewarm] = [:]
     private var isProcessing: Bool = false
     /// Reused off-screen host window - same pattern as
     /// `HTMLThumbnailRenderer`. Allocating a fresh window per prewarm
@@ -116,14 +134,24 @@ public final class HTMLContentPrewarmer {
         // Extensions skip prewarming entirely: WKWebView pools blow the appex
         // memory budget and the scene lookup below uses app-only API.
         guard !ComposerHostContext.isAppExtension else { return }
+        enqueue(attachmentKey: attachmentKey, fileURL: fileURL)
+    }
+
+    /// Waits until the requested content has either painted into the cache or
+    /// failed its bounded load. Callers can keep existing content visible
+    /// until this returns, then borrow the resulting WebView without a blank
+    /// transition frame.
+    public func prewarmAndWait(attachmentKey: String, fileURL: URL) async -> Bool {
+        guard !ComposerHostContext.isAppExtension else { return false }
         if cache.contains(where: { $0.key == attachmentKey }) {
             promote(attachmentKey: attachmentKey)
-            return
+            return true
         }
-        if queuedKeys.contains(attachmentKey) { return }
-        queuedKeys.insert(attachmentKey)
-        pendingQueue.append((key: attachmentKey, fileURL: fileURL))
-        processQueueIfIdle()
+        let token = requestToken(for: attachmentKey)
+        return await withCheckedContinuation { continuation in
+            waiters[token, default: []].append(continuation)
+            enqueue(attachmentKey: attachmentKey, fileURL: fileURL, token: token)
+        }
     }
 
     /// Removes and returns the cached `PrewarmedContent` if one exists.
@@ -136,10 +164,66 @@ public final class HTMLContentPrewarmer {
         return entry.content
     }
 
+    /// Invalidates cached, queued, and in-flight content for an attachment
+    /// identity. Any later prewarm receives a fresh generation.
+    public func evict(attachmentKey: String) {
+        generations[attachmentKey] = (generations[attachmentKey] ?? 0) + 1
+
+        let cachedEntries = cache.filter { $0.key == attachmentKey }
+        cache.removeAll { $0.key == attachmentKey }
+        for entry in cachedEntries {
+            entry.content.webView.stopLoading()
+            entry.content.webView.removeFromSuperview()
+        }
+
+        let invalidatedTokens = queuedTokens.filter { $0.attachmentKey == attachmentKey }
+        pendingQueue.removeAll { $0.token.attachmentKey == attachmentKey }
+        queuedTokens.subtract(invalidatedTokens)
+        for token in invalidatedTokens {
+            resumeWaiters(for: token, success: false)
+        }
+
+        let activeTokens = activePrewarms.keys.filter { $0.attachmentKey == attachmentKey }
+        for token in activeTokens {
+            guard let active = activePrewarms.removeValue(forKey: token) else { continue }
+            active.webView.stopLoading()
+            active.webView.removeFromSuperview()
+            active.coordinator.cancel()
+        }
+        if activeTokens.isEmpty {
+            cleanUpGenerationIfUnused(for: attachmentKey)
+        }
+    }
+
     private func promote(attachmentKey: String) {
         guard let index = cache.firstIndex(where: { $0.key == attachmentKey }) else { return }
         let entry = cache.remove(at: index)
         cache.append(entry)
+    }
+
+    private func requestToken(for attachmentKey: String) -> RequestToken {
+        RequestToken(
+            attachmentKey: attachmentKey,
+            generation: generations[attachmentKey] ?? 0
+        )
+    }
+
+    private func enqueue(
+        attachmentKey: String,
+        fileURL: URL,
+        token: RequestToken? = nil
+    ) {
+        if cache.contains(where: { $0.key == attachmentKey }) {
+            promote(attachmentKey: attachmentKey)
+            if let token {
+                resumeWaiters(for: token, success: true)
+            }
+            return
+        }
+        let resolvedToken = token ?? requestToken(for: attachmentKey)
+        guard queuedTokens.insert(resolvedToken).inserted else { return }
+        pendingQueue.append(PendingRequest(token: resolvedToken, fileURL: fileURL))
+        processQueueIfIdle()
     }
 
     private func processQueueIfIdle() {
@@ -148,17 +232,20 @@ public final class HTMLContentPrewarmer {
         let next = pendingQueue.removeFirst()
         isProcessing = true
         Task { @MainActor [weak self] in
-            await self?.performPrewarm(attachmentKey: next.key, fileURL: next.fileURL)
-            self?.queuedKeys.remove(next.key)
-            self?.isProcessing = false
-            self?.processQueueIfIdle()
+            guard let self else { return }
+            let success = await performPrewarm(token: next.token, fileURL: next.fileURL)
+            queuedTokens.remove(next.token)
+            resumeWaiters(for: next.token, success: success)
+            cleanUpGenerationIfUnused(for: next.token.attachmentKey)
+            isProcessing = false
+            processQueueIfIdle()
         }
     }
 
-    private func performPrewarm(attachmentKey: String, fileURL: URL) async {
+    private func performPrewarm(token: RequestToken, fileURL: URL) async -> Bool {
         guard let window = offscreenWindow else {
-            Log.error("HTMLContentPrewarmer: no offscreen window available; skipping prewarm of \(attachmentKey)")
-            return
+            Log.error("HTMLContentPrewarmer: no offscreen window available; skipping prewarm of \(token.attachmentKey)")
+            return false
         }
         let coordinator = PrewarmCoordinator()
         let config = WKWebViewConfiguration()
@@ -174,19 +261,27 @@ public final class HTMLContentPrewarmer {
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = coordinator
         window.addSubview(webView)
+        activePrewarms[token] = ActivePrewarm(webView: webView, coordinator: coordinator)
         let readAccessURL = fileURL.deletingLastPathComponent()
         webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)
         let success: Bool = await coordinator.waitForLoad(timeout: Self.loadTimeout, paintDelay: Self.paintDelay)
+        activePrewarms.removeValue(forKey: token)
         guard success else {
             webView.stopLoading()
             webView.removeFromSuperview()
-            return
+            return false
+        }
+        guard requestToken(for: token.attachmentKey) == token else {
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            return false
         }
         let entry: PrewarmedContent = PrewarmedContent(
             webView: webView,
             bodyBackgroundColor: coordinator.bodyBackgroundColor
         )
-        insert(attachmentKey: attachmentKey, content: entry)
+        insert(attachmentKey: token.attachmentKey, content: entry)
+        return true
     }
 
     private func insert(attachmentKey: String, content: PrewarmedContent) {
@@ -198,15 +293,33 @@ public final class HTMLContentPrewarmer {
             dropped.content.webView.removeFromSuperview()
         }
     }
+
+    private func resumeWaiters(for token: RequestToken, success: Bool) {
+        let continuations = waiters.removeValue(forKey: token) ?? []
+        for continuation in continuations {
+            continuation.resume(returning: success)
+        }
+    }
+
+    private func cleanUpGenerationIfUnused(for attachmentKey: String) {
+        guard !queuedTokens.contains(where: { $0.attachmentKey == attachmentKey }),
+              !activePrewarms.keys.contains(where: { $0.attachmentKey == attachmentKey }),
+              !waiters.keys.contains(where: { $0.attachmentKey == attachmentKey }) else { return }
+        generations.removeValue(forKey: attachmentKey)
+    }
 }
 
 private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private(set) var bodyBackgroundColor: Color?
     private var didFinishContinuation: CheckedContinuation<Bool, Never>?
-    private var finished: Bool = false
+    private var completionResult: Bool?
 
     func waitForLoad(timeout: TimeInterval, paintDelay: TimeInterval) async -> Bool {
         let success: Bool = await withCheckedContinuation { continuation in
+            if let completionResult {
+                continuation.resume(returning: completionResult)
+                return
+            }
             self.didFinishContinuation = continuation
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
                 self?.complete(success: false)
@@ -215,6 +328,10 @@ private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScript
         guard success else { return false }
         try? await Task.sleep(for: .seconds(paintDelay))
         return true
+    }
+
+    func cancel() {
+        complete(success: false)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
@@ -245,8 +362,8 @@ private final class PrewarmCoordinator: NSObject, WKNavigationDelegate, WKScript
     }
 
     private func complete(success: Bool) {
-        guard !finished else { return }
-        finished = true
+        guard completionResult == nil else { return }
+        completionResult = success
         didFinishContinuation?.resume(returning: success)
         didFinishContinuation = nil
     }

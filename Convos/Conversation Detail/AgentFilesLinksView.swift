@@ -39,6 +39,7 @@ class AgentFilesLinksViewModel {
     var searchText: String = ""
     var files: [AgentFile] = []
     var links: [AgentLink] = []
+    var canvasFile: AgentFile?
     var isLoading: Bool = true
     var fileOpenError: String?
 
@@ -52,6 +53,7 @@ class AgentFilesLinksViewModel {
         cancellables.removeAll()
         files = []
         links = []
+        canvasFile = nil
         filter = .all
         searchText = ""
         fileOpenError = nil
@@ -65,6 +67,7 @@ class AgentFilesLinksViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newFiles in
                 self?.files = newFiles
+                self?.canvasFile = AgentFilesLinksRepository.canvasFile(in: newFiles)
                 self?.isLoading = false
             }
             .store(in: &cancellables)
@@ -139,6 +142,12 @@ struct AttachmentPreviewPresentation: Identifiable {
     let sentAt: Date
 }
 
+private struct CanvasPresentation: Identifiable {
+    let id: String
+    let fileURL: URL
+    let prewarmerKey: String
+}
+
 struct AgentFilesLinksView: View {
     let conversationId: String
     let repository: AgentFilesLinksRepository
@@ -151,6 +160,11 @@ struct AgentFilesLinksView: View {
     @State private var presentingPreview: AttachmentPreviewPresentation?
     @State private var navState: AgentFilesLinksNavigatorImpl = .init()
     @State private var navigator: AgentFilesLinksCollector?
+    @State private var canvasPresentation: CanvasPresentation?
+    @State private var canvasLoadTask: Task<Void, Never>?
+    @State private var loadingCanvasPrewarmerKey: String?
+    @State private var canvasLoadGeneration: UUID = .init()
+    @State private var canvasBodyBackgroundColor: Color?
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -174,17 +188,111 @@ struct AgentFilesLinksView: View {
         members.first { $0.profile.inboxId == inboxId }
     }
 
+    private func updateCanvas(to file: AgentFile?) {
+        guard usesInlineHeader else { return }
+
+        canvasLoadTask?.cancel()
+        canvasLoadTask = nil
+        if let loadingCanvasPrewarmerKey {
+            HTMLContentPrewarmer.shared.evict(attachmentKey: loadingCanvasPrewarmerKey)
+            self.loadingCanvasPrewarmerKey = nil
+        }
+
+        let generation = UUID()
+        canvasLoadGeneration = generation
+
+        guard let file else {
+            if let canvasPresentation {
+                HTMLContentPrewarmer.shared.evict(attachmentKey: canvasPresentation.prewarmerKey)
+            }
+            canvasPresentation = nil
+            canvasBodyBackgroundColor = nil
+            return
+        }
+        guard canvasPresentation?.id != file.id else { return }
+
+        let attachment = HydratedAttachment(
+            key: file.attachmentKey,
+            mimeType: file.mimeType,
+            thumbnailDataBase64: file.thumbnailDataBase64,
+            filename: QuietArtifactUpdate.canonicalFilename(file.filename)
+        )
+        let prewarmerKey = "canvas:\(file.id)"
+        loadingCanvasPrewarmerKey = prewarmerKey
+
+        canvasLoadTask = Task { @MainActor in
+            do {
+                let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+                try Task.checkCancellation()
+                let isReady = await HTMLContentPrewarmer.shared.prewarmAndWait(
+                    attachmentKey: prewarmerKey,
+                    fileURL: fileURL
+                )
+                try Task.checkCancellation()
+                guard canvasLoadGeneration == generation,
+                      viewModel.canvasFile?.id == file.id else {
+                    HTMLContentPrewarmer.shared.evict(attachmentKey: prewarmerKey)
+                    return
+                }
+                guard isReady else {
+                    loadingCanvasPrewarmerKey = nil
+                    return
+                }
+
+                if let canvasPresentation {
+                    HTMLContentPrewarmer.shared.evict(attachmentKey: canvasPresentation.prewarmerKey)
+                }
+                canvasPresentation = CanvasPresentation(
+                    id: file.id,
+                    fileURL: fileURL,
+                    prewarmerKey: prewarmerKey
+                )
+                loadingCanvasPrewarmerKey = nil
+            } catch is CancellationError {
+                HTMLContentPrewarmer.shared.evict(attachmentKey: prewarmerKey)
+            } catch {
+                Log.error("Failed to load living canvas: \(error)")
+                if canvasLoadGeneration == generation {
+                    loadingCanvasPrewarmerKey = nil
+                }
+            }
+        }
+    }
+
+    private func resetCanvas() {
+        canvasLoadTask?.cancel()
+        canvasLoadTask = nil
+        canvasLoadGeneration = UUID()
+        if let loadingCanvasPrewarmerKey {
+            HTMLContentPrewarmer.shared.evict(attachmentKey: loadingCanvasPrewarmerKey)
+            self.loadingCanvasPrewarmerKey = nil
+        }
+        if let canvasPresentation {
+            HTMLContentPrewarmer.shared.evict(attachmentKey: canvasPresentation.prewarmerKey)
+            self.canvasPresentation = nil
+        }
+        canvasBodyBackgroundColor = nil
+    }
+
     var body: some View {
         bodyContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.colorBackgroundRaisedSecondary)
+            .background {
+                if canvasPresentation != nil {
+                    canvasBodyBackgroundColor ?? Color.clear
+                } else {
+                    Color.colorBackgroundRaisedSecondary
+                }
+            }
             .applyTitle(usesInlineHeader: usesInlineHeader)
             .safeAreaBar(edge: .bottom) {
-                ThingsSearchBar(
-                    searchText: $viewModel.searchText,
-                    filter: $viewModel.filter,
-                    focusBinding: focusBinding
-                )
+                if !usesInlineHeader || canvasPresentation == nil {
+                    ThingsSearchBar(
+                        searchText: $viewModel.searchText,
+                        filter: $viewModel.filter,
+                        focusBinding: focusBinding
+                    )
+                }
             }
             .sheet(item: $presentingPreview) { preview in
                 AttachmentPreviewSheet(
@@ -210,6 +318,7 @@ struct AgentFilesLinksView: View {
             // whenever the active conversation changes — the same view model
             // instance follows the selection instead of being torn down via `.id`.
             .onChange(of: conversationId, initial: true) {
+                resetCanvas()
                 viewModel.observe(repository)
                 presentingPreview = nil
             }
@@ -220,6 +329,9 @@ struct AgentFilesLinksView: View {
             .onDisappear {
                 navigator?.closed(context: navState.closeContext())
             }
+            .onChange(of: viewModel.canvasFile) { _, newCanvas in
+                updateCanvas(to: newCanvas)
+            }
             .onChange(of: presentingPreview?.id) { oldId, newId in
                 guard oldId == nil, newId != nil else { return }
                 handleAttachmentPreviewChanged(from: nil, to: presentingPreview)
@@ -228,7 +340,7 @@ struct AgentFilesLinksView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if usesInlineHeader {
+        if usesInlineHeader, canvasPresentation == nil {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Things")
                     .font(.largeTitle.bold())
@@ -245,7 +357,19 @@ struct AgentFilesLinksView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isLoading {
+        if usesInlineHeader, let canvasPresentation {
+            AttachmentHTMLContent(
+                fileURL: canvasPresentation.fileURL,
+                attachmentKey: canvasPresentation.prewarmerKey,
+                onBodyBackgroundColor: { color in
+                    guard self.canvasPresentation?.id == canvasPresentation.id else { return }
+                    canvasBodyBackgroundColor = color
+                }
+            )
+            .id(canvasPresentation.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .vertical)
+        } else if viewModel.isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewModel.filteredItems.isEmpty {

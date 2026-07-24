@@ -427,6 +427,12 @@ final class ConversationsViewModel {
     /// the picker would be pointless -- so we skip it and open the
     /// new-conversation view directly, like the pre-picker flow.
     func onStartConvo() {
+        // A no-builder build skips the picker entirely: Compose lands the
+        // user straight in a conversation the agent is already joining.
+        guard !ConfigManager.shared.isNoBuilderBuild else {
+            startConversationWithDefaultAgent()
+            return
+        }
         // Count the contacts the picker would actually show (excludes agents,
         // blocked, and unnamed) -- the raw contact count includes those, so
         // it can't decide whether the picker is worth showing.
@@ -479,8 +485,33 @@ final class ConversationsViewModel {
         newConversationViewModel = viewModel
     }
 
+    /// Primary action of the Chats and Things empty states. With no builder
+    /// to open, the CTA starts a conversation instead -- which arrives with
+    /// an agent already in it, reaching the same place the builder would have.
+    func onEmptyStatePrimaryAction() {
+        if ConfigManager.shared.isNoBuilderBuild {
+            onStartConvo()
+        } else {
+            onStartAgent()
+        }
+    }
+
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
+        guard !ConfigManager.shared.isNoBuilderBuild else { return }
         agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
+    }
+
+    /// Opens a new conversation and, once it is ready, requests the default
+    /// agent into it. The no-builder build's Compose entry point: there is no
+    /// builder to describe an agent with and no template to pick, so the
+    /// conversation simply arrives with an agent in it.
+    private func startConversationWithDefaultAgent() {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            joinsDefaultAgent: true,
+            coreActions: coreActions
+        )
     }
 
     private func join(from inviteCode: String) {

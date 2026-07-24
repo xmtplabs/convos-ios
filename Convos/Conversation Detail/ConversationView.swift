@@ -353,6 +353,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
 
+                    // Openers for an agent still waiting to be told what it is.
+                    // Deliberately not gated on the onboarding view: that goes
+                    // non-idle the moment a creator opens their own new
+                    // conversation, which is every conversation these openers
+                    // exist for, and only clears once profile and notification
+                    // setup resolve. Hiding behind it hid them outright.
+                    if viewModel.showsConversationStarters {
+                        ConversationStartersView(onSelect: sendConversationStarter)
+                            .transition(.blurReplace)
+                    }
+
                     // Capability requests no longer auto-present a card here:
                     // the transcript's connect pill is the single entry point
                     // and opens the approval sheet. The slot keeps the
@@ -375,6 +386,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+    }
+
+    /// Sends a tapped opener as the user's own message. Routed through the
+    /// composer rather than the message writer so the tap behaves exactly like
+    /// typing it: the transcript scrolls, the typing indicator stops, and the
+    /// starters clear themselves once the message lands.
+    private func sendConversationStarter(_ starter: String) {
+        viewModel.messageText = starter
+        viewModel.onSendMessage(focusCoordinator: focusCoordinator)
     }
 
     @ToolbarContentBuilder

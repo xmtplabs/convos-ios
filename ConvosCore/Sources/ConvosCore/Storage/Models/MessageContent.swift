@@ -86,6 +86,12 @@ public enum MessageContent: Hashable, Codable, Sendable {
         switch self {
         case .update(let update):
             return update.showsInMessagesList
+        case .attachments(let attachments):
+            // A quiet artifact update keeps Files & Links and Things current
+            // without spending another card in the transcript. The row still
+            // exists and still wins the filename dedupe on those surfaces —
+            // it just isn't drawn here.
+            return !attachments.contains { QuietArtifactUpdate.isQuiet(filename: $0.filename) }
         default:
             return true
         }

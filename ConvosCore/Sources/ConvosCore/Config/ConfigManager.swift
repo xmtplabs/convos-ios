@@ -213,6 +213,16 @@ public final class ConfigManager: @unchecked Sendable {
         return name
     }
 
+    /// True when this build ships without the agent builder: every new
+    /// conversation is created with an agent already joining it, and the
+    /// "Make an agent" affordances are removed. Read from config.json so a
+    /// single build configuration opts in without a compile-time flag —
+    /// `#if DEBUG` does not propagate into this package, and the runtime
+    /// `environment` is shared with builds that must keep the builder.
+    public var isNoBuilderBuild: Bool {
+        config["noBuilder"] as? Bool ?? false
+    }
+
     /// Agent-variant slug pinned at build time via config.json. When set, agent
     /// joins fall back to this variant, so a build carrying the key routes to its
     /// paired agent variant without the tester choosing one in the selector. Absent

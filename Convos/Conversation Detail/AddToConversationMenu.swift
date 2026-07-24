@@ -37,14 +37,18 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
-            Button(action: onInviteAgent) {
-                Text("New agent")
-                Text(agentSubtitle)
-                Image("addAgentIcon")
-                    .renderingMode(.template)
+            // The row opens the agent builder, which a no-builder build
+            // ships without.
+            if !ConfigManager.shared.isNoBuilderBuild {
+                Button(action: onInviteAgent) {
+                    Text("New agent")
+                    Text(agentSubtitle)
+                    Image("addAgentIcon")
+                        .renderingMode(.template)
+                }
+                .disabled(isAgentActionDisabled)
+                .accessibilityIdentifier("context-menu-add-agent")
             }
-            .disabled(isAgentActionDisabled)
-            .accessibilityIdentifier("context-menu-add-agent")
 
             Button(action: onConvoCode) {
                 Text("Invite friends")
