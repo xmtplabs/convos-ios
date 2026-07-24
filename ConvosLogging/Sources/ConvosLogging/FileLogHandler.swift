@@ -49,6 +49,14 @@ public struct FileLogHandler: LogHandler {
     private static let queue: DispatchQueue = DispatchQueue(label: "com.convos.logging.file", qos: .utility)
     private static let maxFileSize: Int64 = 10 * 1024 * 1024 // 10MB
 
+    /// The directory this handler writes its log files into, for a given
+    /// app-group container. The single source of truth for the location:
+    /// consumers that must find the on-disk logs (e.g. an account-deletion
+    /// wipe) derive the path through this instead of re-spelling it.
+    public static func logsDirectory(in containerURL: URL) -> URL {
+        containerURL.appendingPathComponent("Logs", isDirectory: true)
+    }
+
     public init(label: String, appGroupIdentifier: String) {
         self.label = label
 
@@ -61,7 +69,7 @@ public struct FileLogHandler: LogHandler {
             return
         }
 
-        let logsDirectory = containerURL.appendingPathComponent("Logs")
+        let logsDirectory = Self.logsDirectory(in: containerURL)
 
         // create logs directory
         do {
@@ -224,8 +232,7 @@ public extension FileLogHandler {
             return "Failed to access app group container"
         }
 
-        let logURL = containerURL
-            .appendingPathComponent("Logs")
+        let logURL = logsDirectory(in: containerURL)
             .appendingPathComponent("convos.log")
 
         guard FileManager.default.fileExists(atPath: logURL.path) else {
@@ -317,8 +324,7 @@ public extension FileLogHandler {
             return
         }
 
-        let logURL = containerURL
-            .appendingPathComponent("Logs")
+        let logURL = logsDirectory(in: containerURL)
             .appendingPathComponent("convos.log")
 
         Self.queue.async {

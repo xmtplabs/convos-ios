@@ -56,24 +56,36 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     let databaseWriter: any DatabaseWriter
     let databaseReader: any DatabaseReader
-    private let environment: AppEnvironment
-    private let identityStore: any KeychainIdentityStoreProtocol
+    let environment: AppEnvironment
+    let identityStore: any KeychainIdentityStoreProtocol
     private let coreActions: any CoreActions
     private var initializationTask: Task<Void, Never>?
     private let voiceMemoTranscriptionServiceLock: NSLock = NSLock()
     private var _voiceMemoTranscriptionService: (any VoiceMemoTranscriptionServicing)?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
     private let notificationChangeReporter: any NotificationChangeReporterType
-    private let platformProviders: PlatformProviders
-    private let apiClient: any ConvosAPIClientProtocol
+    let platformProviders: PlatformProviders
+    let apiClient: any ConvosAPIClientProtocol
     private let unusedConversationCache: any UnusedConversationCacheProtocol
     private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
+    /// Durable account-deletion record store; consulted by the provisioning
+    /// gate in `loadOrCreateService` and driven by the deletion flow (see
+    /// `SessionManager+AccountDeletion.swift`).
+    let accountDeletionStore: AccountDeletionStateStore
+    /// App-injected wipe steps for state that lives above ConvosCore
+    /// (StoreKit defaults, analytics identity, UI defaults). Set once at
+    /// app startup via `setAccountDeletionAppHooks`.
+    let accountDeletionAppHooks: OSAllocatedUnfairLock<AccountDeletionAppHooks?> = .init(initialState: nil)
+    /// Single `AccountDeletionService` instance so launch recovery, user
+    /// retries, and the remote-deletion wipe share one single-flight actor
+    /// (see `AccountDeletionService.singleFlight`).
+    let accountDeletionServiceLock: OSAllocatedUnfairLock<AccountDeletionService?> = .init(initialState: nil)
 
     /// Single-inbox means a single cached `MessagingService`. The lock
     /// serializes every construction path — any sync or async caller that
     /// hits a cache miss builds the service under this lock, so two
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
-    private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
+    let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
     /// Whether this launch's first identity resolution found an empty
     /// keychain and registered a fresh identity. Nil until the first
@@ -119,13 +131,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
          platformProviders: PlatformProviders,
          mode: Mode = .fullApp,
-         coreActions: any CoreActions = NoOpCoreActions()) {
+         coreActions: any CoreActions = NoOpCoreActions(),
+         accountDeletionStore: AccountDeletionStateStore? = nil) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
         self.coreActions = coreActions
         self.platformProviders = platformProviders
+        self.accountDeletionStore = accountDeletionStore ?? AccountDeletionStateStore(environment: environment)
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
             platformProviders: platformProviders
@@ -152,6 +166,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         initializationTask = Task { [weak self] in
             guard let self else { return }
+            guard !Task.isCancelled else { return }
+
+            // Resolve any pending account deletion before anything that
+            // could rebuild session state: a wipe interrupted by a crash
+            // must resume, and a `requested` record must retry, before the
+            // bootstrap below can race a fresh identity into existence.
+            await self.recoverPendingAccountDeletionIfNeeded()
             guard !Task.isCancelled else { return }
 
             // Register device on app launch
@@ -384,6 +405,39 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 return (errored, false)
             }
 
+            // Provisioning gate: an empty keychain normally registers a
+            // fresh identity, but while an account-deletion record is
+            // active (any non-completed phase, or a corrupt record whose
+            // phase is unknowable) that would race the half-finished wipe.
+            // Cache a dedicated errored service instead — same pattern as
+            // the keychain-read failure above — and re-check on the next
+            // call; once the wipe completes and clears the record, a fresh
+            // registering service is built.
+            if identity == nil {
+                let deletionState = accountDeletionStore.load()
+                if deletionState.blocksIdentityProvisioning {
+                    if previousWasErrored,
+                       let existing = cached,
+                       case .error(let error) = existing.sessionStateManager.currentState,
+                       error is AccountDeletionInProgressError {
+                        return (existing, false)
+                    }
+                    Log.info("Identity provisioning held: account deletion in flight")
+                    let gated = MessagingService(
+                        identityReadFailure: AccountDeletionInProgressError(),
+                        databaseWriter: databaseWriter,
+                        databaseReader: databaseReader,
+                        identityStore: identityStore,
+                        environment: environment,
+                        deviceInfoProvider: platformProviders.deviceInfo,
+                        backgroundUploadManager: platformProviders.backgroundUploadManager,
+                        coreActions: coreActions
+                    )
+                    cached = gated
+                    return (gated, false)
+                }
+            }
+
             let service = buildMessagingService(for: identity)
             cached = service
             return (service, true)
@@ -552,25 +606,37 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
 
                 do {
-                    // Yield progress events in lockstep with the work they
-                    // describe: the UI reads the stream in order and expects
-                    // each event to correspond to the phase that is about to
-                    // run (or has just run).
-                    continuation.yield(.clearingDeviceRegistration)
-                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
+                    // A local reset must never destroy the identity keys
+                    // while an account deletion is unresolved: a `requested`
+                    // record whose keys are gone can no longer be confirmed
+                    // against the backend. The deletion service actor gates
+                    // the record check and the reset as one atomic run, so a
+                    // deletion cannot persist a record between the check and
+                    // the key destruction below.
+                    try await self.accountDeletionService().performLocalResetIfIdle {
+                        // Yield progress events in lockstep with the work they
+                        // describe: the UI reads the stream in order and expects
+                        // each event to correspond to the phase that is about to
+                        // run (or has just run).
+                        continuation.yield(.clearingDeviceRegistration)
+                        DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
 
-                    let hasService = self.cachedMessagingService.withLock { $0 != nil }
-                    continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
+                        let hasService = self.cachedMessagingService.withLock { $0 != nil }
+                        continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
-                    continuation.yield(.deletingFromDatabase)
-                    try await self.tearDownInbox()
+                        continuation.yield(.deletingFromDatabase)
+                        try await self.tearDownInbox()
 
-                    if hasService {
-                        continuation.yield(.stoppingServices(completed: 1, total: 1))
+                        if hasService {
+                            continuation.yield(.stoppingServices(completed: 1, total: 1))
+                        }
+
+                        continuation.yield(.completed)
                     }
-
-                    continuation.yield(.completed)
                     continuation.finish()
+                } catch let error as AccountDeletionInProgressError {
+                    Log.error("Local reset refused: an account deletion is in flight and must resolve first")
+                    continuation.finish(throwing: error)
                 } catch {
                     // Still clear device registration on the failure path so
                     // we don't leave a dangling APNs record pointed at a
@@ -583,7 +649,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    private func tearDownInbox() async throws {
+    func tearDownInbox() async throws {
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
         // wipe below clears the keychain and the cached service.
@@ -594,14 +660,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         await unusedConversationCache.cancel()
 
-        // Keep the cached service reference live through the entire teardown.
-        // A concurrent `loadOrCreateService()` (push arriving mid-delete,
-        // SwiftUI sync accessor, etc.) will then observe the being-torn-down
-        // service rather than building a second one that would open the same
-        // SQLCipher xmtp-*.db3 files while the first is being deleted. The
-        // cache is cleared only after the XMTP client, keychain, and DBInbox
-        // rows are fully gone — at which point any new caller correctly
-        // builds a fresh registering-state service.
+        // Keep the cached service reference live while the XMTP client is
+        // stopped and its SQLCipher xmtp-*.db3 files are released. A
+        // concurrent `loadOrCreateService()` (push arriving mid-delete,
+        // SwiftUI sync accessor, etc.) then observes the being-torn-down
+        // service rather than building a second one against the same files.
         let existing = cachedMessagingService.withLock { $0 }
 
         if let existing {
@@ -611,14 +674,26 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await existing.waitForDeletionComplete()
         }
 
+        // The client is stopped and its state machine is `.idle` here, so
+        // evict the cache even if the keychain or row wipe below throws: the
+        // deletion manifest repeats those steps and may clear the record, and
+        // a surviving dead `.idle` service would otherwise be returned by
+        // every `messagingService()` access until relaunch (breaking the
+        // completion promise that the next access registers a fresh identity).
+        defer { cachedMessagingService.withLock { $0 = nil } }
+
         try await identityStore.delete()
 
         try await wipeResidualInboxRows()
-
-        cachedMessagingService.withLock { $0 = nil }
     }
 
-    private func wipeResidualInboxRows() async throws {
+    func wipeResidualInboxRows() async throws {
+        // Latch and quiesce the credits writer so a balance refresh - in
+        // flight or starting before the delete below runs - can't
+        // re-insert the wiped account's `credit_balance` row afterwards.
+        // The deferred end reopens the writer even when the delete throws.
+        await CreditsServices.beginAccountWipe()
+        defer { CreditsServices.endAccountWipe() }
         try await databaseWriter.write { db in
             try Self.wipeAccountScopedRows(db)
         }
@@ -761,61 +836,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func wakeInboxForNotification() {
         _ = loadOrCreateService()
-    }
-
-    // MARK: Debug
-
-    public func pendingInviteDetails() throws -> [PendingInviteDetail] {
-        let repository = PendingInviteRepository(databaseReader: databaseReader)
-        return try repository.allPendingInviteDetails()
-    }
-
-    public func deleteExpiredPendingInvites() async throws -> Int {
-        let cutoff = Date().addingTimeInterval(-Self.stalePendingInviteInterval)
-
-        let expiredInvites: [DBConversation] = try await databaseReader.read { db in
-            let sql = """
-                SELECT c.*
-                FROM conversation c
-                WHERE c.id LIKE 'draft-%'
-                    AND c.inviteTag IS NOT NULL
-                    AND length(c.inviteTag) > 0
-                    AND c.createdAt < ?
-                    AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
-                """
-            return try DBConversation.fetchAll(db, sql: sql, arguments: [cutoff])
-        }
-
-        guard !expiredInvites.isEmpty else { return 0 }
-
-        let expiredConversationIds = expiredInvites.map { $0.id }
-        let deletedCount = try await databaseWriter.write { db in
-            try DBConversation
-                .filter(expiredConversationIds.contains(DBConversation.Columns.id))
-                .deleteAll(db)
-        }
-
-        Log.info("Deleted \(deletedCount) expired pending invite draft(s)")
-        return deletedCount
-    }
-
-    /// Returns `true` when an inbox is authorized locally but has no joined
-    /// conversations and no tagged drafts — a sign of an aborted
-    /// registration that can be reset via `deleteAllInboxes`.
-    public func isAccountOrphaned() throws -> Bool {
-        try databaseReader.read { db in
-            guard try DBInbox.currentInboxId(db) != nil else { return false }
-            let nonDraftCount = try Int.fetchOne(
-                db,
-                sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
-            ) ?? 0
-            if nonDraftCount > 0 { return false }
-            let taggedDraftCount = try Int.fetchOne(
-                db,
-                sql: "SELECT COUNT(*) FROM conversation WHERE id LIKE 'draft-%' AND inviteTag IS NOT NULL AND length(inviteTag) > 0"
-            ) ?? 0
-            return taggedDraftCount == 0
-        }
     }
 
     // MARK: Helpers
@@ -966,6 +986,63 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - Debug
+
+extension SessionManager {
+    public func pendingInviteDetails() throws -> [PendingInviteDetail] {
+        let repository = PendingInviteRepository(databaseReader: databaseReader)
+        return try repository.allPendingInviteDetails()
+    }
+
+    public func deleteExpiredPendingInvites() async throws -> Int {
+        let cutoff = Date().addingTimeInterval(-Self.stalePendingInviteInterval)
+
+        let expiredInvites: [DBConversation] = try await databaseReader.read { db in
+            let sql = """
+                SELECT c.*
+                FROM conversation c
+                WHERE c.id LIKE 'draft-%'
+                    AND c.inviteTag IS NOT NULL
+                    AND length(c.inviteTag) > 0
+                    AND c.createdAt < ?
+                    AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
+                """
+            return try DBConversation.fetchAll(db, sql: sql, arguments: [cutoff])
+        }
+
+        guard !expiredInvites.isEmpty else { return 0 }
+
+        let expiredConversationIds = expiredInvites.map { $0.id }
+        let deletedCount = try await databaseWriter.write { db in
+            try DBConversation
+                .filter(expiredConversationIds.contains(DBConversation.Columns.id))
+                .deleteAll(db)
+        }
+
+        Log.info("Deleted \(deletedCount) expired pending invite draft(s)")
+        return deletedCount
+    }
+
+    /// Returns `true` when an inbox is authorized locally but has no joined
+    /// conversations and no tagged drafts — a sign of an aborted
+    /// registration that can be reset via `deleteAllInboxes`.
+    public func isAccountOrphaned() throws -> Bool {
+        try databaseReader.read { db in
+            guard try DBInbox.currentInboxId(db) != nil else { return false }
+            let nonDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
+            ) ?? 0
+            if nonDraftCount > 0 { return false }
+            let taggedDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id LIKE 'draft-%' AND inviteTag IS NOT NULL AND length(inviteTag) > 0"
+            ) ?? 0
+            return taggedDraftCount == 0
         }
     }
 }

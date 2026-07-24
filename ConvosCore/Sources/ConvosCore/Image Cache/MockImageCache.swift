@@ -7,6 +7,10 @@ import Combine
 /// Mock image cache for macOS (used for testing only)
 /// This provides a no-op implementation since image caching is not needed on macOS for tests
 public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
+    /// Test hook: invoked by `removeAllPersistentImagesAndWait` so wiring
+    /// tests can observe (and fail) the awaited wipe path.
+    public var onRemoveAllPersistentImagesAndWait: (@Sendable () async throws -> Void)?
+
     public init() {}
 
     // MARK: - Primary API (object-based with URL tracking)
@@ -56,6 +60,10 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
     public func removePersistentImages(for identifiers: [String]) {}
 
     public func removeAllPersistentImages() {}
+
+    public func removeAllPersistentImagesAndWait() async throws {
+        try await onRemoveAllPersistentImagesAndWait?()
+    }
 
     // MARK: - Observation
 

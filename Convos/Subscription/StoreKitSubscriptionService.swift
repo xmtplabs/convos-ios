@@ -1,6 +1,7 @@
 import Combine
 import ConvosCore
 import Foundation
+import os
 import StoreKit
 
 public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
@@ -28,6 +29,33 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// in this process. See `refreshFromEntitlements()` for why per-launch
     /// forwarding (not persisted) is the right granularity.
     private var forwardedTransactionIds: Set<UInt64> = []
+    /// Claim candidate plus the account-state generation, in one lock so
+    /// fenced mutations check the generation and mutate atomically.
+    ///
+    /// The candidate is the entitlement whose verify most recently
+    /// rejected with a claimable ownership mismatch (the provider key
+    /// belongs to a deleted or transferable account). It carries the
+    /// subscription lineage ID (`Transaction.originalID`) alongside the
+    /// JWS so verify outcomes for unrelated entitlements can't wipe it,
+    /// while any transaction in the same lineage (renewals included) can.
+    ///
+    /// The generation is bumped by `wipeAccountScopedState()`. In-flight
+    /// operations capture it before suspending and drop their results when
+    /// it has moved, so work started for the previous account can't commit
+    /// candidate or subscription state across the deletion boundary.
+    /// Lock-backed so the protocol's synchronous
+    /// `reclaimCandidateAvailable` can read it without an actor hop.
+    private nonisolated let claimState: OSAllocatedUnfairLock<ClaimState> = .init(initialState: ClaimState(candidate: nil, generation: 0))
+    /// Timer that re-verifies once a pending claim's contest window ends
+    /// (no push comes to the claimant). Rescheduled on every pending
+    /// outcome and on launch when a persisted marker is still in the
+    /// future; cancelled in deinit.
+    nonisolated(unsafe) private var pendingClaimReverifyTask: Task<Void, Never>?
+
+    /// Current account-state generation; see `claimState`.
+    private nonisolated var accountGeneration: UInt64 {
+        claimState.withLock { $0.generation }
+    }
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -43,6 +71,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         self.subscriptionSubject = CurrentValueSubject(Self.loadCachedSubscription())
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
+            // A pending-claim marker whose window already ended reconciles
+            // through this first refresh; one still in the future re-arms
+            // the re-verify timer.
+            await self.reconcileExpiredPendingClaim()
+            await self.schedulePendingClaimReverifyIfNeeded()
             await self.refreshFromEntitlements()
             await self.listenForTransactionUpdates()
         }
@@ -51,6 +84,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     deinit {
         updateListenerTask?.cancel()
+        pendingClaimReverifyTask?.cancel()
     }
 
     /// Single funnel for every subscription-state publish. Sends on the
@@ -114,7 +148,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         switch result {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
-            await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
+            await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transaction: transaction)
             // The verified transaction from `.success` IS the authoritative
             // new entitlement. Publish it directly and skip the
             // `refreshFromEntitlements()` reconciliation that used to follow.
@@ -169,7 +203,8 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
-            await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
+            let generation: UInt64 = accountGeneration
+            await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transaction: transaction)
             // Publish from the verified transaction directly, for the same
             // reason as in `purchase()`: re-querying
             // `Transaction.currentEntitlements` here races with Apple's
@@ -180,7 +215,18 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // is authoritative for this update — including refunds /
             // revocations, where `userSubscription(from:)` returns a
             // non-nil snapshot with status `.revoked` or `.expired`.
-            if let sub = await userSubscription(from: transaction) {
+            let sub: UserSubscription? = await userSubscription(from: transaction)
+            // An account wipe while this update was suspended means the
+            // derived state belongs to the previous account: finish the
+            // transaction but publish nothing. The listener itself stays
+            // alive for the next account, whose first
+            // `refreshFromEntitlements()` re-forwards the entitlement (the
+            // wipe cleared `forwardedTransactionIds`).
+            guard accountGeneration == generation else {
+                await transaction.finish()
+                continue
+            }
+            if let sub {
                 publish(sub)
             }
             // Apple-side transition (renew, refund, tier change) → tier or
@@ -203,13 +249,159 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// are logged but never propagate — `Transaction.currentEntitlements`
     /// is still authoritative for local UI state.
     @discardableResult
-    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async -> Bool {
+    private func sendToBackendVerify(jwsRepresentation: String, transaction: Transaction) async -> Bool {
+        let transactionId: UInt64 = transaction.id
+        let lineageId: UInt64 = transaction.originalID
+        let generation: UInt64 = accountGeneration
         do {
             _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
+            // Clear only a candidate from this same subscription lineage:
+            // `refreshFromEntitlements()` verifies every entitlement in
+            // sequence, and a later entitlement's success must not wipe a
+            // claimable candidate captured for an earlier one. Matching on
+            // `originalID` rather than `id` lets a renewal (new transaction
+            // ID, same lineage) clear its own lineage's stale candidate.
+            // The generation check drops the mutation when an account wipe
+            // ran while the verify was in flight; the outcome belongs to
+            // the previous account.
+            claimState.withLock { state in
+                guard state.generation == generation else { return }
+                if state.candidate?.originalTransactionId == lineageId {
+                    state.candidate = nil
+                }
+            }
             return true
+        } catch APIError.conflict(let details) where details.code == BackendErrorCode.subscriptionAccountMismatch {
+            // Ownership mismatch. When the backend signals the claim may
+            // succeed for this caller (deleted prior owner, no cooldown
+            // block), remember the proof so an explicit Restore act can
+            // offer the reclaim. Informative only - the claim endpoint
+            // re-evaluates authoritatively.
+            let claimable = details.claimable == true
+            claimState.withLock { state in
+                guard state.generation == generation else { return }
+                if claimable {
+                    state.candidate = ClaimCandidate(jws: jwsRepresentation, originalTransactionId: lineageId)
+                } else if state.candidate?.originalTransactionId == lineageId {
+                    state.candidate = nil
+                }
+            }
+            Log.warning("Backend verify 409 subscription_account_mismatch for transaction \(transactionId) (claimable: \(claimable))")
+            return false
         } catch {
             Log.error("Backend verify failed for transaction \(transactionId): \(error)")
             return false
+        }
+    }
+
+    // MARK: - Reclaim (explicit user act)
+
+    nonisolated public var reclaimCandidateAvailable: Bool {
+        claimState.withLock { $0.candidate != nil }
+    }
+
+    nonisolated public var pendingClaimContestEndsAt: Date? {
+        UserDefaults.standard.object(forKey: Constant.pendingClaimContestEndsAtKey) as? Date
+    }
+
+    public func reclaimSubscription() async throws -> SubscriptionClaimOutcome {
+        guard let jws = claimState.withLock({ $0.candidate?.jws }) else {
+            throw SubscriptionClaimError.noCandidate
+        }
+        // Fresh limited-use attestation per attempt: the server consumes
+        // it, so a retried claim must never reuse a token.
+        let appCheckToken = try await FirebaseHelperCore.getLimitedUseAppCheckToken()
+        do {
+            let outcome = try await apiClient.claimSubscription(jwsRepresentation: jws, appCheckToken: appCheckToken)
+            clearClaimCandidate(ifStillSubmitted: jws)
+            switch outcome {
+            case .transferred(let subscription):
+                UserDefaults.standard.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+                publish(subscription)
+                await CreditsServices.shared.refresh(force: true)
+            case .pending(let contestEndsAt):
+                if let contestEndsAt {
+                    UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+                    scheduleClaimReverify(at: contestEndsAt)
+                }
+            }
+            return outcome
+        } catch SubscriptionClaimError.rejected(.pendingContest(let contestEndsAt)) {
+            if let contestEndsAt {
+                UserDefaults.standard.set(contestEndsAt, forKey: Constant.pendingClaimContestEndsAtKey)
+                scheduleClaimReverify(at: contestEndsAt)
+            }
+            throw SubscriptionClaimError.rejected(.pendingContest(contestEndsAt: contestEndsAt))
+        } catch let error as SubscriptionClaimError where Self.isTerminalClaimRejection(error) {
+            // Definitive backend rejection: this candidate can never
+            // succeed as-is, so drop it instead of re-offering a reclaim
+            // that will keep failing. If the entitlement is still claimable
+            // later, the verify path's 409 re-installs a fresh candidate.
+            // Transient failures (network, 5xx, rate limit, attestation
+            // retry) fall through and keep the candidate for retry.
+            clearClaimCandidate(ifStillSubmitted: jws)
+            throw error
+        }
+    }
+
+    /// Clears the candidate only if it is still the proof this reclaim
+    /// submitted. The claim round-trip suspends the actor, so `purchase()`
+    /// or `Transaction.updates` can install a newer candidate mid-flight;
+    /// an outcome for the old proof must not wipe that newer one.
+    private func clearClaimCandidate(ifStillSubmitted jws: String) {
+        claimState.withLock { state in
+            guard state.candidate?.jws == jws else { return }
+            state.candidate = nil
+        }
+    }
+
+    /// Claim errors that the backend decided authoritatively against this
+    /// proof, as opposed to failures worth retrying with the same
+    /// candidate. `.pendingContest` is excluded because it has its own
+    /// contest-window handling; `.unknown` and `.lineageUnresolved` are
+    /// excluded as potentially retryable.
+    private static func isTerminalClaimRejection(_ error: SubscriptionClaimError) -> Bool {
+        switch error {
+        case .invalidProof, .notFound:
+            return true
+        case .rejected(let reason):
+            switch reason {
+            case .notEntitled, .cooldown, .undoConsumed, .transferFrozen:
+                return true
+            case .lineageUnresolved, .pendingContest, .unknown:
+                return false
+            }
+        case .noCandidate, .appAttestationRequired, .rateLimited, .serverError:
+            return false
+        }
+    }
+
+    /// Clears an expired pending-claim marker so the normal verify path
+    /// reconciles the outcome (no push comes to the claimant).
+    private func reconcileExpiredPendingClaim() {
+        guard let deadline = pendingClaimContestEndsAt, deadline <= Date() else { return }
+        UserDefaults.standard.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+        // Force re-forwarding of entitlements so verify reflects the
+        // transfer outcome.
+        forwardedTransactionIds.removeAll()
+    }
+
+    /// Launch-time half of the contest-window contract: a persisted marker
+    /// still in the future re-arms the re-verify timer (the process that
+    /// created it is usually gone by the time the window ends).
+    private func schedulePendingClaimReverifyIfNeeded() {
+        guard let deadline = pendingClaimContestEndsAt, deadline > Date() else { return }
+        scheduleClaimReverify(at: deadline)
+    }
+
+    private func scheduleClaimReverify(at deadline: Date) {
+        pendingClaimReverifyTask?.cancel()
+        let interval: TimeInterval = deadline.timeIntervalSinceNow + Constant.claimReverifyGrace
+        guard interval > 0 else { return }
+        pendingClaimReverifyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            await self.refresh(force: true)
         }
     }
 
@@ -218,15 +410,19 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
            Date().timeIntervalSince(last) < Self.refreshTTL {
             return
         }
+        reconcileExpiredPendingClaim()
         await refreshFromEntitlements()
         lastFetchedAt = Date()
     }
 
     private func refreshFromEntitlements() async {
+        let generation: UInt64 = accountGeneration
         var latest: UserSubscription?
         var forwardedAnyEntitlement: Bool = false
+        var seenLineageIds: Set<UInt64> = []
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? verifiedTransaction(result) else { continue }
+            seenLineageIds.insert(transaction.originalID)
             // Forward each entitlement to the backend at most once per
             // process. Covers entitlements iOS reads locally that the
             // backend doesn't know about yet:
@@ -244,8 +440,15 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             if !forwardedTransactionIds.contains(transaction.id) {
                 let succeeded = await sendToBackendVerify(
                     jwsRepresentation: result.jwsRepresentation,
-                    transactionId: transaction.id
+                    transaction: transaction
                 )
+                // An account wipe while the verify was in flight: abandon
+                // the whole pass, its snapshot belongs to the previous
+                // account. In particular the forwarded-IDs memo (cleared
+                // by the wipe) must not be repopulated with the old
+                // account's marker, or the new account's first refresh
+                // would skip forwarding this entitlement.
+                guard accountGeneration == generation else { return }
                 // Only mark forwarded on success so a transient failure
                 // (network blip, transient 5xx, backend deploy in flight)
                 // retries on the next refresh tick rather than waiting for
@@ -257,6 +460,24 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             }
             guard let sub = await userSubscription(from: transaction) else { continue }
             latest = sub
+        }
+        // Same generation fence for everything derived from this pass:
+        // an account wipe while the iteration was suspended means the
+        // snapshot, candidate reconciliation, and publish all belong to
+        // the previous account.
+        guard accountGeneration == generation else { return }
+        // A candidate whose lineage no longer appears in
+        // `currentEntitlements` (expired, refunded, revoked) is never
+        // verified again, so it can't clear itself through the 409 path;
+        // drop it here so the reclaim affordance doesn't outlive the
+        // entitlement. A candidate captured moments ago from `purchase()` /
+        // `Transaction.updates` can be wiped by Apple's cache lag, but the
+        // still-unforwarded transaction re-verifies on the next refresh and
+        // re-installs it.
+        let observedLineageIds: Set<UInt64> = seenLineageIds
+        claimState.withLock { state in
+            guard let current = state.candidate, !observedLineageIds.contains(current.originalTransactionId) else { return }
+            state.candidate = nil
         }
         publish(latest)
         // If the backend just learned about an entitlement it didn't
@@ -405,9 +626,57 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         let willRenew: Bool
     }
 
+    private struct ClaimCandidate: Sendable {
+        let jws: String
+        let originalTransactionId: UInt64
+    }
+
+    private struct ClaimState: Sendable {
+        var candidate: ClaimCandidate?
+        var generation: UInt64
+    }
+
     private enum Constant {
         static let appAccountTokenKey: String = "storeKit.appAccountToken"
         static let lastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
+        static let pendingClaimContestEndsAtKey: String = "storeKit.pendingClaimContestEndsAt"
+        /// Slack past `contestEndsAt` before re-verifying, so the backend's
+        /// window-end transfer job has run.
+        static let claimReverifyGrace: TimeInterval = 60
+    }
+
+    /// Account-deletion wipe step: removes every StoreKit binding tying
+    /// this install to the deleted account. The `appAccountToken` in
+    /// particular is bound to the deleted account's Apple buyer record;
+    /// a later account on this install must mint a fresh one. Also resets
+    /// the singleton's in-memory state (published subscription, reclaim
+    /// candidate, forwarded-transaction memo) so a newly provisioned
+    /// identity in the same process doesn't inherit account-scoped
+    /// subscription or reclaim state.
+    public func wipeAccountScopedState() async {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Constant.appAccountTokenKey)
+        defaults.removeObject(forKey: Constant.lastKnownSubscriptionKey)
+        defaults.removeObject(forKey: Constant.pendingClaimContestEndsAtKey)
+        // The re-verify timer is bound to the deleted account's contest
+        // window; left alive it would wake under whatever identity is
+        // provisioned next and refresh subscription state in that session.
+        pendingClaimReverifyTask?.cancel()
+        pendingClaimReverifyTask = nil
+        // Bump the account-state generation and clear the candidate in one
+        // atomic step. The process-wide `Transaction.updates` listener and
+        // any in-flight refresh/verify captured the previous generation
+        // before suspending, so their results are dropped on resume and
+        // pre-wipe work can't repopulate candidate or subscription state
+        // across the deletion boundary. The listener itself stays alive to
+        // serve the next account.
+        claimState.withLock { state in
+            state.generation += 1
+            state.candidate = nil
+        }
+        forwardedTransactionIds.removeAll()
+        lastFetchedAt = nil
+        publish(nil)
     }
 
     /// Persist the most recently published subscription snapshot so the next

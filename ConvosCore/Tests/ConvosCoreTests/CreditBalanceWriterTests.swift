@@ -67,6 +67,113 @@ struct CreditBalanceWriterTests {
         #expect(count == 2, "Forced refresh must always hit the network, ignoring the TTL")
     }
 
+    @Test("beginAccountWipe drops an in-flight refresh's write")
+    func testBeginAccountWipeDropsInFlightWrite() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient: StubCreditBalanceAPIClient = StubCreditBalanceAPIClient(
+            sleepNanoseconds: 300_000_000  // long enough for the wipe to land mid-fetch
+        )
+        let writer: CreditBalanceWriter = CreditBalanceWriter(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: apiClient
+        )
+
+        let refreshTask: Task<Void, Never> = Task { await writer.refresh(force: true) }
+        try await Task.sleep(nanoseconds: 100_000_000)  // let the refresh enter its network call
+        await writer.beginAccountWipe()
+        await refreshTask.value
+
+        let count = await apiClient.callCount
+        #expect(count == 1)
+        let row: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(row == nil, "A refresh spanning the account wipe must not write the stale balance")
+
+        writer.endAccountWipe()
+        await writer.refresh(force: false)
+        let countAfterWipe = await apiClient.callCount
+        #expect(
+            countAfterWipe == 2,
+            "The wipe must reset the TTL so the next account's first refresh is not debounced"
+        )
+        let rowAfterWipe: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterWipe != nil, "Post-wipe refreshes must write normally again")
+    }
+
+    @Test("refresh while the wipe latch is set is a rejected no-op; refresh after endAccountWipe succeeds")
+    func testWipeLatchRejectsRefreshUntilEnded() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient: StubCreditBalanceAPIClient = StubCreditBalanceAPIClient()
+        let writer: CreditBalanceWriter = CreditBalanceWriter(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: apiClient
+        )
+
+        await writer.beginAccountWipe()
+
+        await writer.refresh(force: true)
+        let countWhileLatched = await apiClient.callCount
+        #expect(
+            countWhileLatched == 0,
+            "A refresh entering the quiesce-to-delete gap must be rejected outright, not fetch and write"
+        )
+        let rowWhileLatched: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowWhileLatched == nil, "No row may land while the wipe latch is set")
+
+        writer.endAccountWipe()
+
+        await writer.refresh(force: true)
+        let countAfterEnd = await apiClient.callCount
+        #expect(countAfterEnd == 1, "Ending the latch must reopen the writer for the next account")
+        let rowAfterEnd: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterEnd != nil, "The next account's refresh must write normally after the latch ends")
+    }
+
+    @Test("overlapping wipe fences keep the writer latched until the last endAccountWipe")
+    func testOverlappingWipeFencesStayLatchedUntilLastEnd() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient: StubCreditBalanceAPIClient = StubCreditBalanceAPIClient()
+        let writer: CreditBalanceWriter = CreditBalanceWriter(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: apiClient
+        )
+
+        // Two independent wipe flows overlap (e.g. account-deletion teardown
+        // and the pairing-adoption row wipe). The first flow ending must NOT
+        // reopen the writer while the second flow's delete is still pending.
+        await writer.beginAccountWipe()
+        await writer.beginAccountWipe()
+        writer.endAccountWipe()
+
+        await writer.refresh(force: true)
+        let countAfterFirstEnd = await apiClient.callCount
+        #expect(
+            countAfterFirstEnd == 0,
+            "The first overlapping wipe ending must not drop the fence while the second wipe is still running"
+        )
+        let rowAfterFirstEnd: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterFirstEnd == nil, "No row may land while any overlapping wipe is still in flight")
+
+        writer.endAccountWipe()
+
+        await writer.refresh(force: true)
+        let countAfterLastEnd = await apiClient.callCount
+        #expect(countAfterLastEnd == 1, "The last overlapping wipe ending must reopen the writer")
+        let rowAfterLastEnd: DBCreditBalance? = try await dbManager.dbReader.read { db in
+            try DBCreditBalance.fetchOne(db)
+        }
+        #expect(rowAfterLastEnd != nil, "The next account's refresh must write normally after the final end")
+    }
+
     @Test("API failure does not advance the TTL window")
     func testFailureDoesNotAdvanceTTL() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

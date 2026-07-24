@@ -26,6 +26,9 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// transient keychain daemon failure set this to a non-nil `Error`;
     /// `loadSync` and `load` both throw it until the test clears it.
     private let loadError: OSAllocatedUnfairLock<(any Error)?> = .init(initialState: nil)
+    /// When set, synced-backup deletions silently no-op (simulates a
+    /// synchronizable delete that fails to propagate).
+    private let syncedBackupDeletionDisabled: OSAllocatedUnfairLock<Bool> = .init(initialState: false)
 
     func generateKeys() throws -> KeychainIdentityKeys {
         try KeychainIdentityKeys.generate()
@@ -80,12 +83,17 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     func delete() throws {
         let inboxId = state.withLock { $0?.inboxId }
         state.withLock { $0 = nil }
-        if let inboxId {
+        if let inboxId, !syncedBackupDeletionDisabled.withLock({ $0 }) {
             backupState.withLock { $0.removeValue(forKey: inboxId) }
         }
         deviceSlotsSwept.withLock { $0 = true }
         markerState.withLock { $0 = nil }
         consentBackupState.withLock { $0 = nil }
+    }
+
+    func deleteSyncedBackup(inboxId: String) throws {
+        guard !syncedBackupDeletionDisabled.withLock({ $0 }) else { return }
+        backupState.withLock { $0.removeValue(forKey: inboxId) }
     }
 
     func loadInstallationMarker() throws -> InstallationMarker? {
@@ -119,6 +127,13 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// Pass `nil` to clear.
     nonisolated func _setLoadError(_ error: (any Error)?) {
         loadError.withLock { $0 = error }
+    }
+
+    /// Test-only — simulate a synchronizable delete that silently fails to
+    /// propagate (the iCloud-latency case the account-deletion wipe must
+    /// verify and surface rather than assume).
+    nonisolated func _setSyncedBackupDeletionDisabled(_ disabled: Bool) {
+        syncedBackupDeletionDisabled.withLock { $0 = disabled }
     }
 
     /// Test-only — clears just the synced backup slot so backfill paths

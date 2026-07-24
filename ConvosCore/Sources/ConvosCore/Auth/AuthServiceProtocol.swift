@@ -71,7 +71,6 @@ public protocol AuthServiceProtocol {
 public protocol LocalAuthServiceProtocol {
     func prepare() throws
     func register() throws -> any AuthServiceRegisteredResultType
-    func deleteAccount(with providerId: String) throws
     func deleteAll() throws
     func save(inboxId: String, for providerId: String) throws
     func inboxId(for providerId: String) throws -> String

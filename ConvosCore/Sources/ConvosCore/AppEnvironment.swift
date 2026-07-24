@@ -1,3 +1,4 @@
+import ConvosLogging
 import Foundation
 
 /// APNS environment for push notifications
@@ -242,6 +243,24 @@ public extension AppEnvironment {
             return FileManager.default.temporaryDirectory
         }
         return appGroupContainerURL.appendingPathComponent("logs", isDirectory: true)
+    }
+
+    /// Directory the production application logger (`FileLogHandler`)
+    /// writes into. Distinct from `defaultXMTPLogsDirectoryURL` (libxmtp's
+    /// lowercase `logs`); both carry identity-bearing content and both are
+    /// swept by the account-deletion wipe.
+    var defaultApplicationLogsDirectoryURL: URL {
+        guard !isTestingEnvironment else {
+            return FileManager.default.temporaryDirectory.appendingPathComponent("Logs", isDirectory: true)
+        }
+        return Self.applicationLogsDirectory(inContainer: appGroupContainerURL)
+    }
+
+    /// Resolves the application log directory through the logger's own
+    /// path derivation, so the wipe always sweeps the directory the logger
+    /// actually writes to.
+    static func applicationLogsDirectory(inContainer containerURL: URL) -> URL {
+        FileLogHandler.logsDirectory(in: containerURL)
     }
 
     var defaultDatabasesDirectoryURL: URL {

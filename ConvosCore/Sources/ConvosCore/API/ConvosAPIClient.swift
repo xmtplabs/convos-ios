@@ -57,6 +57,21 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// SIWE-bound JWT → 200. Legacy device-only JWT → 403. Missing → 401.
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse
 
+    /// Deletes the caller's account (`DELETE /v2/accounts/me`). The supplied
+    /// JWT is injected directly as `X-Convos-AuthToken` — no keychain
+    /// lookup, and never the automatic 401 re-authentication pipeline. Any
+    /// 200 is success, including a replay against an already-deleted
+    /// account (the echoed operationId is then the stored one and may
+    /// differ from `operationId`). A 401 means invalid/expired token and is
+    /// never deletion confirmation.
+    func deleteAccount(operationId: UUID, jwt: String) async throws -> ConvosAPI.AccountDeletionResponse
+
+    /// Suspends (or resumes) the automatic re-authentication on 401,
+    /// process-wide. Set for the duration of the account-deletion flow: an
+    /// automatic re-auth is exactly the request pattern that would turn
+    /// background noise into deletion-barrier probes.
+    func setAutomaticReauthSuspended(_ suspended: Bool)
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -228,6 +243,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription
+
+    /// Claims a subscription whose provider key belongs to a deleted (or
+    /// transferable) account into the caller's live account
+    /// (`POST /v2/accounts/me/subscription/claim`). Only ever called from
+    /// an explicit user act. `appCheckToken` must be a fresh limited-use
+    /// App Check token per attempt — the server consumes it.
+    func claimSubscription(jwsRepresentation: String, appCheckToken: String) async throws -> SubscriptionClaimOutcome
 }
 
 extension ConvosAPIClientProtocol {
@@ -330,6 +352,28 @@ final class LockedSigningContext: @unchecked Sendable {
     }
 }
 
+/// Process-wide switch that suspends the automatic 401 re-authentication.
+/// Shared across all `ConvosAPIClient` instances for the same reason as
+/// `LockedSigningContext`: several services construct their own client via
+/// the factory, and the account-deletion flow must silence every one of
+/// them, not just the session's.
+final class ReauthSuspension: @unchecked Sendable {
+    static let shared: ReauthSuspension = ReauthSuspension()
+
+    private let lock: NSLock = NSLock()
+    private var suspended: Bool = false
+
+    func set(_ value: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        suspended = value
+    }
+
+    var isSuspended: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return suspended
+    }
+}
+
 final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let baseURL: URL
     private let session: URLSession
@@ -420,6 +464,10 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         siweSigningContext.set(context)
     }
 
+    func setAutomaticReauthSuspended(_ suspended: Bool) {
+        ReauthSuspension.shared.set(suspended)
+    }
+
     private func reAuthenticate() async throws -> String {
         let firebaseAppCheckToken = try await FirebaseHelperCore.getAppCheckToken()
         // If a SIWE signing context is configured for this session,
@@ -428,10 +476,25 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // session to a token missing `accountId`, breaking any
         // route gated by `requireAccount`.
         if let context = siweSigningContext.get() {
-            return try await authenticateWithSIWE(
-                appCheckToken: firebaseAppCheckToken,
-                signing: context
-            )
+            do {
+                return try await authenticateWithSIWE(
+                    appCheckToken: firebaseAppCheckToken,
+                    signing: context
+                )
+            } catch SIWEAuthError.identityDeleted {
+                // The deletion barrier answered an automatic re-auth: the
+                // account is gone (deleted from this or a paired device).
+                // Suspend further automatic re-auth process-wide — exactly
+                // like the locally initiated flow does — so no other client
+                // instance keeps probing the barrier from background noise.
+                // Then broadcast so the session layer can surface the
+                // terminal account-deleted state, and propagate the typed
+                // error — never silently re-mint into the barrier.
+                Log.warning("reAuthenticate: deletion barrier hit (identity_deleted); account was deleted")
+                ReauthSuspension.shared.set(true)
+                NotificationCenter.default.post(name: .accountWasDeletedRemotely, object: nil)
+                throw SIWEAuthError.identityDeleted
+            }
         }
         // 401-refresh hit before the session registered a SIWE
         // signing context. The token we're about to mint will not
@@ -460,97 +523,9 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return Date(timeIntervalSince1970: exp) > Date().addingTimeInterval(60)
     }
 
-    // MARK: - Authentication
-
-    /// Authenticates with the backend to obtain a JWT token
-    /// - Parameters:
-    ///   - appCheckToken: Firebase AppCheck token for authentication
-    ///   - retryCount: Number of retry attempts (for rate limiting)
-    /// - Returns: JWT token string
-    func authenticate(appCheckToken: String,
-                      retryCount: Int = 0) async throws -> String {
-        let deviceId = DeviceInfo.deviceIdentifier
-
-        // Check for existing valid JWT token first
-        if let existingToken = try? keychainService.retrieveString(
-            account: KeychainAccount.jwt(deviceId: deviceId)
-        ), !existingToken.isEmpty,
-           isJWTValid(existingToken) {
-            Log.info("Using existing JWT token from keychain")
-            return existingToken
-        }
-
-        // Minting a non-SIWE token. Surfaces on the backend as
-        // `hasSiwe: false`. Expected only on first-launch (before an
-        // XMTP identity is provisioned) or as a 401-refresh fallback
-        // when the SIWE signing context hasn't been registered yet —
-        // never in steady state. If you see this warning while
-        // signed-in, an earlier call path skipped SIWE.
-        Log.warning("Legacy device-only auth: minting JWT without accountId (hasSiwe: false)")
-
-        // Token missing or expired - fetch new one
-        let url = baseURL.appendingPathComponent("v2/auth/token")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-
-        request.setValue(appCheckToken, forHTTPHeaderField: "X-Firebase-AppCheck")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        struct AuthRequest: Encodable {
-            let deviceId: String
-        }
-
-        let requestBody = AuthRequest(deviceId: deviceId)
-        request.httpBody = try JSONEncoder().encode(requestBody)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.authenticationFailed
-        }
-
-        // Handle bad request
-        if httpResponse.statusCode == 400 {
-            throw APIError.badRequest(parseErrorMessage(from: data))
-        }
-
-        // Handle auth rate limiting
-        if httpResponse.statusCode == 429 {
-            guard retryCount < maxRetryCount else {
-                throw APIError.rateLimitExceeded
-            }
-            // Use exponential backoff for rate limit retries
-            let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
-            Log.info("Auth rate limited - retrying in \(delay)s (attempt \(retryCount + 1) of \(maxRetryCount))")
-
-            // Sleep and then retry
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            return try await authenticate(appCheckToken: appCheckToken,
-                                          retryCount: retryCount + 1)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let errorMessage = parseErrorMessage(from: data)
-            Log.error("Authentication failed with status \(httpResponse.statusCode): \(errorMessage ?? "unknown error")")
-            throw APIError.authenticationFailed
-        }
-
-        struct AuthResponse: Codable {
-            let token: String
-        }
-
-        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-        try keychainService.saveString(
-            authResponse.token,
-            account: KeychainAccount.jwt(deviceId: deviceId)
-        )
-        Log.info("Successfully authenticated and stored JWT token")
-        return authResponse.token
-    }
-
     // MARK: - Private Helpers
 
-    private func authenticatedRequest(
+    func authenticatedRequest(
         for path: String,
         method: String = "GET",
         queryParameters: [String: String]? = nil
@@ -640,18 +615,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 409:
+            // Typed so call sites can branch on the envelope's code (e.g.
+            // subscription verify's `subscription_account_mismatch` and its
+            // additive `claimable` flag) instead of string-matching a
+            // generic server error.
+            throw APIError.conflict(APIConflictDetails.parse(from: data))
         default:
-            // 409 (subscription_account_mismatch) falls through deliberately.
-            // The backend still returns it (PR #215 strict-ownership invariant),
-            // but iOS treats it as a generic retryable server fault instead
-            // of a typed dead-end — purchase + restore flows already surface
-            // .serverError with a "try again" affordance, and refresh logic
-            // (foreground + view-appear) will reconcile any transient state.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
     }
 
-    private func performAuthenticatedRequest(
+    func performAuthenticatedRequest(
         _ request: URLRequest,
         retryCount: Int = 0
     ) async throws -> (Data, HTTPURLResponse) {
@@ -672,6 +647,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         guard retryCount < maxRetryCount else {
             Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        guard !ReauthSuspension.shared.isSuspended else {
+            Log.info("401 while automatic re-authentication is suspended (account deletion in flight); not re-authenticating")
             throw APIError.notAuthenticated
         }
 
@@ -1119,10 +1099,108 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let response: ConvosAPI.VerifySubscriptionResponse = try await performRequest(request)
         return response.subscription
     }
+}
 
-    // MARK: - Helper Methods
+// MARK: - Legacy device-only authentication
 
+extension ConvosAPIClient {
+    /// Authenticates with the backend to obtain a JWT token
+    /// - Parameters:
+    ///   - appCheckToken: Firebase AppCheck token for authentication
+    ///   - retryCount: Number of retry attempts (for rate limiting)
+    /// - Returns: JWT token string
+    func authenticate(appCheckToken: String,
+                      retryCount: Int = 0) async throws -> String {
+        let deviceId = DeviceInfo.deviceIdentifier
+
+        // Check for existing valid JWT token first
+        if let existingToken = try? keychainService.retrieveString(
+            account: KeychainAccount.jwt(deviceId: deviceId)
+        ), !existingToken.isEmpty,
+           isJWTValid(existingToken) {
+            Log.info("Using existing JWT token from keychain")
+            return existingToken
+        }
+
+        // Minting a non-SIWE token. Surfaces on the backend as
+        // `hasSiwe: false`. Expected only on first-launch (before an
+        // XMTP identity is provisioned) or as a 401-refresh fallback
+        // when the SIWE signing context hasn't been registered yet —
+        // never in steady state. If you see this warning while
+        // signed-in, an earlier call path skipped SIWE.
+        Log.warning("Legacy device-only auth: minting JWT without accountId (hasSiwe: false)")
+
+        // Token missing or expired - fetch new one
+        let url = baseURL.appendingPathComponent("v2/auth/token")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        request.setValue(appCheckToken, forHTTPHeaderField: "X-Firebase-AppCheck")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct AuthRequest: Encodable {
+            let deviceId: String
+        }
+
+        let requestBody = AuthRequest(deviceId: deviceId)
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.authenticationFailed
+        }
+
+        // Handle bad request
+        if httpResponse.statusCode == 400 {
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        }
+
+        // Handle auth rate limiting
+        if httpResponse.statusCode == 429 {
+            guard retryCount < maxRetryCount else {
+                throw APIError.rateLimitExceeded
+            }
+            // Use exponential backoff for rate limit retries
+            let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
+            Log.info("Auth rate limited - retrying in \(delay)s (attempt \(retryCount + 1) of \(maxRetryCount))")
+
+            // Sleep and then retry
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            return try await authenticate(appCheckToken: appCheckToken,
+                                          retryCount: retryCount + 1)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = parseErrorMessage(from: data)
+            Log.error("Authentication failed with status \(httpResponse.statusCode): \(errorMessage ?? "unknown error")")
+            throw APIError.authenticationFailed
+        }
+
+        struct AuthResponse: Codable {
+            let token: String
+        }
+
+        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+        try keychainService.saveString(
+            authResponse.token,
+            account: KeychainAccount.jwt(deviceId: deviceId)
+        )
+        Log.info("Successfully authenticated and stored JWT token")
+        return authResponse.token
+    }
+}
+
+// MARK: - Helper Methods
+
+extension ConvosAPIClient {
     func parseErrorMessage(from data: Data) -> String? {
+        Self.parseErrorMessage(from: data)
+    }
+
+    /// Static so pure response-mapping helpers (e.g. the SIWE exchange
+    /// failure mapper) can share it without an instance.
+    static func parseErrorMessage(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let message = json["message"] as? String {
                 return message
@@ -1309,6 +1387,7 @@ public enum APIError: Error {
     case invalidResponse
     case invalidRequest
     case serverError(String?)
+    case conflict(APIConflictDetails)
     case rateLimitExceeded
     case noAgentsAvailable
     case agentPoolTimeout
@@ -1339,6 +1418,8 @@ extension APIError: DisplayError {
             return "Invalid request"
         case .serverError:
             return "Server error"
+        case .conflict:
+            return "Request conflict"
         case .rateLimitExceeded:
             return "Too many requests"
         case .noAgentsAvailable:
@@ -1374,6 +1455,8 @@ extension APIError: DisplayError {
             return "The request could not be created."
         case .serverError(let message):
             return message ?? "The server encountered an error."
+        case .conflict(let details):
+            return details.message ?? "The request conflicted with the server's state."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
         case .noAgentsAvailable:

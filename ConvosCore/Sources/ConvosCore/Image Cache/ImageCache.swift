@@ -582,29 +582,6 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         }
     }
 
-    public func removeAllPersistentImages() {
-        cache.removeAllObjects()
-        // Clear the in-memory continuity hint and staged pre-upload maps too, so a
-        // delete-all reset cannot bridge to a previously shown avatar/group image.
-        lastShownLock.withLock { $0.removeAll() }
-        stagedLock.withLock { $0.removeAll() }
-        Task {
-            await performDiskOperation { cache in
-                for dir in [cache.persistentCacheURL, cache.lastShownCacheURL, cache.diskCacheURL] {
-                    guard let contents = try? cache.fileManager.contentsOfDirectory(
-                        at: dir, includingPropertiesForKeys: nil
-                    ) else { continue }
-                    for fileURL in contents {
-                        do { try cache.fileManager.removeItem(at: fileURL) } catch {
-                            Log.error("Failed to remove image: \(fileURL.lastPathComponent) - \(error)")
-                        }
-                    }
-                    Log.info("Removed all images in \(dir.lastPathComponent) (\(contents.count) files)")
-                }
-            }
-        }
-    }
-
     // MARK: - Disk Cache Helpers
 
     private func performDiskOperation<T: Sendable>(
@@ -1037,6 +1014,67 @@ public extension View {
             ) { _ in
                 onChange(ImageCache.shared.image(for: object))
             }
+    }
+}
+
+// MARK: - Persistent wipe
+
+extension ImageCache {
+    public func removeAllPersistentImages() {
+        clearInMemoryImageState()
+        Task {
+            _ = await performDiskOperation(default: 0) { cache in
+                cache.removeAllPersistentImagesFromDisk()
+            }
+        }
+    }
+
+    public func removeAllPersistentImagesAndWait() async throws {
+        clearInMemoryImageState()
+        let failureCount: Int = await performDiskOperation(default: 0) { cache in
+            cache.removeAllPersistentImagesFromDisk()
+        }
+        if failureCount > 0 {
+            throw ImageCacheWipeIncompleteError(failedFileCount: failureCount)
+        }
+    }
+
+    private func clearInMemoryImageState() {
+        cache.removeAllObjects()
+        // Clear the in-memory continuity hint and staged pre-upload maps too, so a
+        // delete-all reset cannot bridge to a previously shown avatar/group image.
+        lastShownLock.withLock { $0.removeAll() }
+        stagedLock.withLock { $0.removeAll() }
+    }
+
+    /// Runs on the disk queue (see `performDiskOperation`). Returns the
+    /// number of failures: files that could not be removed, plus any
+    /// directory whose contents could not be enumerated (its images may
+    /// remain, so the awaited wipe must not report success). A missing
+    /// directory is clean — there is nothing in it to remove.
+    private func removeAllPersistentImagesFromDisk() -> Int {
+        var failureCount = 0
+        for dir in [persistentCacheURL, lastShownCacheURL, diskCacheURL] {
+            let contents: [URL]
+            do {
+                contents = try fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            } catch let error as NSError {
+                if error.domain == NSCocoaErrorDomain, error.code == NSFileReadNoSuchFileError {
+                    continue
+                }
+                Log.error("Failed to enumerate image directory \(dir.lastPathComponent) - \(error)")
+                failureCount += 1
+                continue
+            }
+            for fileURL in contents {
+                do { try fileManager.removeItem(at: fileURL) } catch {
+                    Log.error("Failed to remove image: \(fileURL.lastPathComponent) - \(error)")
+                    failureCount += 1
+                }
+            }
+            Log.info("Removed all images in \(dir.lastPathComponent) (\(contents.count) files)")
+        }
+        return failureCount
     }
 }
 

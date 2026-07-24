@@ -59,7 +59,7 @@ struct AppSettingsView: View {
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
     let coreActions: any CoreActions
-    let onDeleteAllData: () -> Void
+    let onAccountDeleted: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -447,21 +447,22 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var deleteSection: some View {
+        let rowTitle: String = viewModel.hasPendingAccountDeletion ? "Deletion pending - retry" : "Delete my account"
         Section {
             Button(role: .destructive) {
                 showingDeleteAllDataConfirmation = true
             } label: {
-                Text("Delete all app data")
+                Text(rowTitle)
             }
-            .accessibilityLabel("Delete all app data")
-            .accessibilityHint("Permanently deletes all conversations and your profile")
-            .accessibilityIdentifier("delete-all-data-button")
+            .accessibilityLabel("Delete my account")
+            .accessibilityHint("Permanently deletes your account, conversations, and profile")
+            .accessibilityIdentifier("delete-account-button")
             .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
-                DeleteAllDataView(
+                DeleteAccountView(
                     viewModel: viewModel,
                     onComplete: {
                         dismiss()
-                        onDeleteAllData()
+                        onAccountDeleted()
                     }
                 )
                 .interactiveDismissDisabled(viewModel.isDeleting)
@@ -507,7 +508,7 @@ struct AppSettingsView: View {
             profileSettingsViewModel: profileSettingsViewModel,
             session: MockInboxesService(),
             coreActions: NoOpCoreActions(),
-            onDeleteAllData: {}
+            onAccountDeleted: {}
         )
     }
 }

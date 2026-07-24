@@ -47,6 +47,19 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: jwt != nil)
     }
 
+    func deleteAccount(operationId: UUID, jwt: String) async throws -> ConvosAPI.AccountDeletionResponse {
+        .init(
+            status: "deleted",
+            operationId: operationId.uuidString.lowercased(),
+            deletedAt: Date(),
+            purgeWindowHours: 24
+        )
+    }
+
+    func setAutomaticReauthSuspended(_ suspended: Bool) {
+        // no-op
+    }
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -284,5 +297,9 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
         throw MockAPIError.invalidURL
+    }
+
+    func claimSubscription(jwsRepresentation: String, appCheckToken: String) async throws -> SubscriptionClaimOutcome {
+        throw SubscriptionClaimError.notFound
     }
 }

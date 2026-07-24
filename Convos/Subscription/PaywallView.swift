@@ -72,6 +72,28 @@ struct PaywallView: View {
         } message: { message in
             Text(message)
         }
+        .alert(
+            "Reclaim subscription?",
+            isPresented: $viewModel.isShowingReclaimPrompt
+        ) {
+            reclaimPromptButtons
+        } message: {
+            Text(Self.reclaimPromptMessage)
+        }
+    }
+
+    private static let reclaimPromptMessage: String = """
+    This subscription is linked to a previous account. Move it to this \
+    account? If the previous account is still active, the transfer can \
+    take a few days and may be contested. If it can't be moved \
+    automatically, contact support.
+    """
+
+    @ViewBuilder
+    private var reclaimPromptButtons: some View {
+        let reclaimAction = { viewModel.reclaimConfirmed() }
+        Button("Reclaim", action: reclaimAction)
+        Button("Cancel", role: .cancel) {}
     }
 
     // MARK: - Hero
@@ -434,17 +456,32 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var legalFooter: some View {
-        HStack(spacing: DesignConstants.Spacing.step6x) {
-            if let url = URL(string: "https://hq.convos.org/privacy-and-terms") {
-                Link("Terms & Privacy", destination: url)
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            pendingClaimNotice
+            HStack(spacing: DesignConstants.Spacing.step6x) {
+                if let url = URL(string: "https://hq.convos.org/privacy-and-terms") {
+                    Link("Terms & Privacy", destination: url)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Button("Restore", action: viewModel.restoreTapped)
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
-            Button("Restore", action: viewModel.restoreTapped)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var pendingClaimNotice: some View {
+        if let notice = viewModel.pendingClaimNotice {
+            Text(notice)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("pending-claim-notice")
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
